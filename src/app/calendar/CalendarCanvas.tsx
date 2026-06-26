@@ -16,11 +16,6 @@ const DEFAULT_TRACK_NAMES = ["Teaching", "Research", "Service", "Travel"];
 // Safari's GestureEvent isn't in the standard DOM lib types.
 type GestureLikeEvent = { scale: number; clientX: number; clientY: number; preventDefault: () => void };
 
-function hexToRgba(hex: string, a: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
-}
-
 export default function CalendarCanvas() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [vp, setVp] = useState<Vp>({ w: 0, h: 0 });
@@ -411,7 +406,7 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
 
   if (it.kind === "event") {
     return (
-      <div className="cc-item cc-event" style={{ ...style, ["--ev-fill"]: hexToRgba(it.color!, 0.18), ["--ev-color"]: it.color } as React.CSSProperties}>
+      <div className={`cc-item cc-event cc-ev-${it.color}`} style={style}>
         {it.text && <span style={{ fontSize: it.fontSize }}>{it.text}</span>}
       </div>
     );

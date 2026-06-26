@@ -8,11 +8,19 @@
   user-select: none;
   isolation: isolate; /* contained stacking context for item z-indexes */
 
-  /* line colors used across calendar items */
-  --cc-grid: rgba(76, 45, 20, 0.24);   /* faint dashed cell borders */
-  --cc-grid-top: rgba(76, 45, 20, 0.28); /* dotted track separators */
-  --cc-line: #4c2d14;                   /* solid separators / dashes */
+  /* line colors used across calendar items — theme-driven (light + dark) */
+  --cc-grid: var(--accent-grey);     /* faint dashed cell borders */
+  --cc-grid-top: var(--accent-grey); /* dotted track separators */
+  --cc-line: var(--accent-dark);     /* solid separators / dashes */
 }
+
+/* Event color themes — map each track to GridCal's --event-* vars so fills/borders
+   follow the light/dark theme automatically. */
+.cc-ev-red { --ev-fill: var(--event-red); --ev-color: var(--event-red-border); }
+.cc-ev-blue { --ev-fill: var(--event-blue); --ev-color: var(--event-blue-border); }
+.cc-ev-yellow { --ev-fill: var(--event-yellow); --ev-color: var(--event-yellow-border); }
+.cc-ev-green { --ev-fill: var(--event-green); --ev-color: var(--event-green-border); }
+.cc-ev-purple { --ev-fill: var(--event-purple); --ev-color: var(--event-purple-border); }
 
 /* Every positioned calendar primitive. Only geometry/opacity/colors are inline;
    all structural styling lives in the classes below. */
