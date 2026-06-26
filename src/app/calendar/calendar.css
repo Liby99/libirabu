@@ -1,3 +1,9 @@
+/* Animated semantic-zoom calendar.
+   Color comes only from event stickers; everything else is structure drawn with
+   dotted/dashed/solid lines (thicker/solid = higher precedence). All colors are
+   theme-driven (light/dark) via the GridCal CSS variables. */
+
+/* ── Shell & layers ──────────────────────────────────────────────── */
 .cc-wrap {
   position: relative;
   width: 100%;
@@ -8,28 +14,27 @@
   user-select: none;
   isolation: isolate; /* contained stacking context for item z-indexes */
 
-  /* line colors used across calendar items — theme-driven (light + dark) */
-  --cc-grid: var(--accent-grey);     /* faint dashed cell borders */
-  --cc-grid-top: var(--accent-grey); /* dotted track separators */
-  --cc-line: var(--accent-dark);     /* solid separators / dashes */
-  --cc-sep: color-mix(in srgb, var(--accent-dark) 55%, transparent); /* medium solid border, matches dimmed grid dividers */
+  /* line colors shared across items */
+  --cc-grid: var(--accent-grey);     /* faint dotted cell borders */
+  --cc-grid-top: var(--accent-grey); /* dotted lane separators */
+  --cc-line: var(--accent-dark);     /* dotted/dashed grid lines */
+  --cc-sep: color-mix(in srgb, var(--accent-dark) 55%, transparent); /* solid separators (dimmed) */
+}
+.cc-layer { position: absolute; inset: 0; }
+.cc-gutter { /* solid strip that occludes lane content sliding under it (week view) */
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  background: var(--background);
+  z-index: 5;
 }
 
-/* Event color themes — map each track to GridCal's --event-* vars so fills/borders
-   follow the light/dark theme automatically. */
-.cc-ev-red { --ev-fill: var(--event-red); --ev-color: var(--event-red-border); }
-.cc-ev-blue { --ev-fill: var(--event-blue); --ev-color: var(--event-blue-border); }
-.cc-ev-yellow { --ev-fill: var(--event-yellow); --ev-color: var(--event-yellow-border); }
-.cc-ev-green { --ev-fill: var(--event-green); --ev-color: var(--event-green-border); }
-.cc-ev-purple { --ev-fill: var(--event-purple); --ev-color: var(--event-purple-border); }
-
-/* Every positioned calendar primitive. Only geometry/opacity/colors are inline;
-   all structural styling lives in the classes below. */
+/* ── Item base ───────────────────────────────────────────────────── */
+/* Every positioned primitive. Only geometry/opacity/dynamic values are inline. */
 .cc-item { position: absolute; box-sizing: border-box; }
 
-/* Track lane: no fill — dashed day-cell verticals + dotted track separator.
-   The horizontal bg stripe (drawn on top) chops the verticals into dashes.
-   --dayw is set inline (depends on the month's day width). */
+/* ── Lanes & grid lines ──────────────────────────────────────────── */
+/* Track lane: no fill — dotted day-cell verticals via gradient (the horizontal bg
+   stripe drawn on top chops them into dots). --dayw is set inline. */
 .cc-row {
   background-image:
     repeating-linear-gradient(to bottom, var(--background) 0 2px, rgba(0, 0, 0, 0) 2px 4px),
@@ -47,19 +52,18 @@
 .cc-gridline.cc-dashed-h { background: transparent; border-top: 1px dashed var(--cc-line); }
 
 /* Dimmed area for days past a month's length (e.g. Feb 29–31): a faint diagonal
-   hatch over a light tint, so the grid cells still show but read as inactive. */
+   hatch over a light tint — cells still show but read as inactive. */
 .cc-dim {
   background-color: var(--accent-bg-dark);
   background-image: repeating-linear-gradient(45deg, var(--accent-grey) 0 1px, transparent 1px 6px);
 }
 
-/* Labels */
+/* ── Labels ──────────────────────────────────────────────────────── */
 .cc-monthlabel {
   display: flex; align-items: center; justify-content: center;
   writing-mode: vertical-lr;
   text-transform: lowercase;
   letter-spacing: 0.08em;
-  font-weight: 400;
   color: var(--accent-dark);
   pointer-events: none;
   border-bottom: 1px solid var(--cc-sep);
@@ -69,13 +73,29 @@
 .cc-daylabel.cc-center { justify-content: center; }
 .cc-daylabel.cc-left { justify-content: flex-start; }
 
-.cc-gutter {
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  background: var(--background);
-  z-index: 5;
+/* ── Events (the only colored element) ───────────────────────────── */
+/* Transparent fill + solid colored border, rounded. --ev-fill/--ev-color come from
+   the cc-ev-* classes below (theme-aware). No will-change — too many events would
+   each force a compositor layer. */
+.cc-event {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: 4px;
+  background: var(--ev-fill);
+  border: 1px solid var(--ev-color);
+  color: var(--accent-dark);
 }
+.cc-event span { overflow: hidden; text-overflow: ellipsis; }
+.cc-ev-red { --ev-fill: var(--event-red); --ev-color: var(--event-red-border); }
+.cc-ev-blue { --ev-fill: var(--event-blue); --ev-color: var(--event-blue-border); }
+.cc-ev-yellow { --ev-fill: var(--event-yellow); --ev-color: var(--event-yellow-border); }
+.cc-ev-green { --ev-fill: var(--event-green); --ev-color: var(--event-green-border); }
+.cc-ev-purple { --ev-fill: var(--event-purple); --ev-color: var(--event-purple-border); }
 
+/* ── Track-name editor (left gutter) ─────────────────────────────── */
 .cc-track-edit { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
 .cc-track-month { position: absolute; top: 0; left: 0; }
 .cc-track-cell {
@@ -99,32 +119,7 @@
 .cc-track-input:focus { background: var(--highlight-bg); }
 .cc-track-input::placeholder { color: var(--accent-grey); }
 
-.cc-layer { position: absolute; inset: 0; }
-.cc-svg { position: absolute; inset: 0; pointer-events: none; }
-
-.cc-outline {
-  fill: rgba(76, 45, 20, 0.05);
-  stroke: var(--highlight);
-  stroke-width: 1.5;
-  stroke-dasharray: 4 3;
-}
-
-/* The only colored element: transparent fill + solid colored border (vars set
-   inline), rounded corners. No will-change — too many events would each force a
-   compositor layer. */
-.cc-event {
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  padding: 0 4px;
-  overflow: hidden;
-  white-space: nowrap;
-  background: var(--ev-fill);
-  border: 1px solid var(--ev-color);
-  color: var(--accent-dark);
-}
-.cc-event span { overflow: hidden; text-overflow: ellipsis; }
-
+/* ── Breadcrumb bar ──────────────────────────────────────────────── */
 .cc-bar {
   position: absolute;
   top: 0; left: 0; right: 0;

@@ -1,399 +1,155 @@
-// Pure layout: every visual element's rect is a function of the zoom scalar `z`.
-//   z = 0  → Year   (GridCal-like: months stacked, 3/quarter, 4 quarters)
-//   z = 1  → Month  (focused month's track band on top, full width)
-//   z = 2  → Week   (focused week's 7 days widened; tracks = all-day band)
-// Year→Month is a vertical reflow (day width constant); Month→Week is horizontal.
+// Builds the flat list of positioned items to render, for a given zoom state.
+// All geometry comes from frames.ts; this file decides WHICH items exist and how
+// they're styled at each zoom level.
 
+import { Item, Scene, Frame, Vp } from "./types";
+import { LABEL_W, MNAME_W, RIGHT_PAD, Q_HEADER_H, clamp } from "./constants";
+import { frameFor } from "./frames";
+import { firstDOW, weekStartDOM, weeksInMonth, resolveDate, MONTH_NAMES, WD, WD3 } from "./dates";
 import { TRACKS, EVENTS, TIMED, daysInMonth, YEAR } from "./mock";
 
-export interface Vp { w: number; h: number }
+const LINE = "#4c2d14"; // gridline color (dimmed via item opacity; theme via CSS var)
 
-export interface Item {
-  key: string;
-  kind: "row" | "event" | "monthLabel" | "dayLabel" | "quarterLabel" | "gridline" | "dim";
-  x: number; y: number; w: number; h: number;
-  opacity: number;
-  z: number; // stacking
-  color?: string;
-  text?: string;
-  fontSize?: number;
-  align?: "left" | "center";
-  cols?: number; // for row gridlines (= days in month)
-  lineStyle?: "dashed" | "dotted"; // gridline style; absent = solid separator
-  inner?: boolean; // row: an inner lane (t>0) → gets the dotted top separator
-}
-
-export interface Scene {
-  items: Item[];
-  outline?: { x: number; y: number; w: number; h: number };
-}
-
-const TOP_PAD = 56; // room for breadcrumb + dates row above the band (weekdays sit below)
-const LABEL_W = 250; // left gutter: vertical month name + per-month track-name editor
-const MNAME_W = 28; // width of the rotated month-name zone within the gutter
-const RIGHT_PAD = 24; // gap between the track-name editor and the day grid
-
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-export const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
-
-// Per-month frame: where day 1 sits, day width, band top, track row height, opacity.
-interface Frame { x0: number; dayW: number; bandY: number; trackH: number; opacity: number }
-
-// Fixed lane height — month lanes NEVER change vertical size across views (GridCal style).
-const TRACK_H = 35; // GridCal topic-row height
-const MONTH_H = TRACK_H * 4;
-const Q_HEADER_H = 24; // day-number header row at the top of each quarter (year view)
-const Q_GAP = 32; // separation between quarters
-
-function quarterBlock(): number { return Q_HEADER_H + 3 * MONTH_H; }
-export function yearContentH(): number { return 4 * quarterBlock() + 3 * Q_GAP; }
-export function yearMaxScroll(vp: Vp): number {
-  return Math.max(0, yearContentH() - (vp.h - TOP_PAD - 10));
-}
-
-// GridCal-style year layout: 4 quarters separated by Q_GAP; within a quarter the 3
-// months are flush (no gap); each quarter has a day-number header at its top.
-function yearFrame(m: number, vp: Vp, scrollY: number): Frame {
-  const dayW = (vp.w - LABEL_W - 16) / 31;
-  const q = Math.floor(m / 3);
-  const within = m % 3;
-  const quarterTop = q * (quarterBlock() + Q_GAP);
-  const bandY = TOP_PAD - scrollY + quarterTop + Q_HEADER_H + within * MONTH_H;
-  return { x0: LABEL_W, dayW, bandY, trackH: TRACK_H, opacity: 1 };
-}
-
-// Height the day-detail occupies below the focus band at Month level.
-function detailFullH(vp: Vp): number { return vp.h - TOP_PAD - MONTH_H - 30; }
-
-// Year→Month is an ACCORDION: the focus lane scrolls to the top and a detail space
-// opens BELOW it (pushing the months below down). Lanes keep their FIXED height and
-// their year spacing — above lanes slide up, below lanes get pushed off the bottom.
-function yearToMonthFrame(m: number, t: number, focus: number, vp: Vp, scrollY: number): Frame {
-  const yf = yearFrame(m, vp, scrollY);
-  const yfocus = yearFrame(focus, vp, scrollY);
-  const PAD = 80;
-  const scroll = (yfocus.bandY - TOP_PAD) * t;
-  let bandY = yf.bandY - scroll;
-  if (m < focus) bandY -= PAD * t;
-  else if (m > focus) bandY += detailFullH(vp) * t + PAD * t;
-  return { x0: LABEL_W, dayW: yf.dayW, bandY, trackH: TRACK_H, opacity: 1 };
-}
-
-// Weeks are Sunday-aligned calendar weeks. weekStartDOM may be ≤0 or >daysInMonth
-// when the week spills into the adjacent month (those days are rendered dimmer).
-function firstDOW(m: number): number { return new Date(YEAR, m, 1).getDay(); } // 0=Sun
-function weekStartDOM(m: number, week: number): number { return 1 - firstDOW(m) + week * 7; }
-
-function weekFrame(m: number, focus: number, week: number, vp: Vp): Frame {
-  const dayW = (vp.w - LABEL_W - 16) / 7;
-  if (m === focus) {
-    const startDOM = weekStartDOM(focus, week);
-    const x0 = LABEL_W - (startDOM - 1) * dayW; // day=startDOM lands at LABEL_W
-    return { x0, dayW, bandY: TOP_PAD, trackH: TRACK_H, opacity: 1 };
-  }
-  const dir = m < focus ? -1 : 1;
-  const off = dir < 0 ? -MONTH_H - 80 : vp.h + 80;
-  return { x0: LABEL_W, dayW, bandY: off, trackH: TRACK_H, opacity: 0 };
-}
-
-function blend(a: Frame, b: Frame, t: number): Frame {
-  return {
-    x0: lerp(a.x0, b.x0, t),
-    dayW: lerp(a.dayW, b.dayW, t),
-    bandY: lerp(a.bandY, b.bandY, t),
-    trackH: lerp(a.trackH, b.trackH, t),
-    opacity: lerp(a.opacity, b.opacity, t),
-  };
-}
-
-function frameFor(m: number, z: number, focus: number, week: number, vp: Vp, scrollY: number): Frame {
-  if (z <= 1) return yearToMonthFrame(m, easeInOut(clamp(z, 0, 1)), focus, vp, scrollY);
-  // month→week: blend the settled Month layout with the Week layout
-  const mf = yearToMonthFrame(m, 1, focus, vp, scrollY);
-  return blend(mf, weekFrame(m, focus, week, vp), easeInOut(clamp(z - 1, 0, 1)));
-}
-
-export function weeksInMonth(m: number): number {
-  return Math.ceil((firstDOW(m) + daysInMonth(m)) / 7);
-}
-
-// Resolve a (focus month, day-of-month-that-may-spill) into a real {month, day}.
-function resolveDate(focus: number, dom: number): { month: number; day: number } | null {
-  if (dom >= 1 && dom <= daysInMonth(focus)) return { month: focus, day: dom };
-  if (dom < 1) {
-    const m = focus - 1;
-    if (m < 0) return null;
-    return { month: m, day: daysInMonth(m) + dom };
-  }
-  const m = focus + 1;
-  if (m > 11) return null;
-  return { month: m, day: dom - daysInMonth(focus) };
-}
-
-const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const WD = ["S", "M", "T", "W", "T", "F", "S"];
-const WD3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-export function buildScene(
-  z: number,
-  focus: number,
-  week: number,
-  vp: Vp,
-  scrollY: number,
-): Scene {
+export function buildScene(z: number, focus: number, week: number, vp: Vp, scrollY: number): Scene {
   const items: Item[] = [];
-
-  // Quarter day-number headers (year view), fading out as we zoom in.
-  const yearVis = clamp(1 - z / 0.4, 0, 1);
-  if (yearVis > 0.02) {
-    const dayW = (vp.w - LABEL_W - 16) / 31;
-    for (let q = 0; q < 4; q++) {
-      // anchor to the quarter's first month's LIVE band so the header travels with
-      // the layout during the zoom (instead of staying at its fixed year position)
-      const hy = frameFor(q * 3, z, focus, week, vp, scrollY).bandY - Q_HEADER_H;
-      if (hy < -Q_HEADER_H || hy > vp.h) continue;
-      for (let d = 1; d <= 31; d++) {
-        items.push({
-          key: `qh-${q}-${d}`, kind: "dayLabel", x: LABEL_W + (d - 1) * dayW, y: hy + 5, w: dayW, h: 14,
-          opacity: yearVis * 0.7, text: String(d), fontSize: 10, align: "center", z: 4,
-        });
-      }
-      // top border of the quarter's first month — two segments (gutter + grid) with
-      // the RIGHT_PAD gap between, matching the rest of the layout. z above the
-      // gutter strip + track cells so it shows there too.
-      const topY = hy + Q_HEADER_H - 1;
-      items.push({ key: `qhsepg-${q}`, kind: "gridline", x: 0, y: topY, w: LABEL_W - RIGHT_PAD, h: 1, opacity: yearVis * 0.6, color: "#4c2d14", z: 11 });
-      items.push({ key: `qhsepd-${q}`, kind: "gridline", x: LABEL_W, y: topY, w: 31 * dayW, h: 1, opacity: yearVis * 0.6, color: "#4c2d14", z: 11 });
-    }
-  }
-
-  // Cull months whose band is fully off-screen (so non-focused months that slide
-  // out during the zoom stop costing anything once gone) — no fading-in-place.
-  const onScreen = (f: Frame) => f.bandY <= vp.h + 20 && f.bandY + 4 * f.trackH >= -20;
-
-  for (let m = 0; m < 12; m++) {
-    const f = frameFor(m, z, focus, week, vp, scrollY);
-    if (f.opacity < 0.02 || !onScreen(f)) continue;
-    const dim = daysInMonth(m);
-    const fullW = 31 * f.dayW; // always draw all 31 grid cells
-
-    items.push({
-      key: `ml-${m}`, kind: "monthLabel", x: 0, y: f.bandY, w: MNAME_W, h: f.trackH * 4,
-      opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 13, align: "center", z: 8,
-    });
-
-    for (let t = 0; t < 4; t++) {
-      items.push({
-        key: `row-${m}-${t}`, kind: "row",
-        x: f.x0, y: f.bandY + t * f.trackH, w: fullW, h: f.trackH,
-        opacity: f.opacity, color: TRACKS[t].color, cols: 31, z: 1, inner: t > 0,
-      });
-    }
-    // dim the cells past the month's actual length (e.g. Feb 29–31). Fades out
-    // entering week view, where those columns become real next-month spillover days.
-    const dimFade = 1 - clamp(z - 1, 0, 1);
-    if (dim < 31 && dimFade > 0.02) {
-      items.push({
-        key: `dim-${m}`, kind: "dim",
-        x: f.x0 + dim * f.dayW, y: f.bandY, w: (31 - dim) * f.dayW, h: 4 * f.trackH,
-        opacity: f.opacity * dimFade, z: 3,
-      });
-    }
-    // solid divider under each month (delineates the flush months in a quarter)
-    items.push({
-      key: `msep-${m}`, kind: "gridline", x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: fullW, h: 1,
-      opacity: f.opacity * 0.55, color: "#4c2d14", z: 1,
-    });
-  }
-
-  // events (drawn after rows so they sit on top)
-  for (const ev of EVENTS) {
-    const f = frameFor(ev.month, z, focus, week, vp, scrollY);
-    if (f.opacity < 0.02 || !onScreen(f)) continue;
-    const x = f.x0 + (ev.start - 1) * f.dayW;
-    const w = (ev.end - ev.start + 1) * f.dayW;
-    if (x + w < -40 || x > vp.w + 40) continue; // cull off-screen (week view)
-    items.push({
-      key: `ev-${ev.id}`, kind: "event",
-      x: x + 1, y: f.bandY + ev.track * f.trackH + 1, w: Math.max(2, w - 2), h: f.trackH - 2,
-      opacity: f.opacity, color: TRACKS[ev.track].color,
-      text: f.dayW > 14 ? ev.title : undefined, fontSize: 11, z: 2,
-    });
-  }
-
-  // ── Header rows (focused month) + 0:00–24:00 day-detail timeline ─────────
-  // Hidden until we're nearly at Month view, then fades in — avoids drawing the
-  // ~150 detail items during the bulk of the year→month zoom.
-  const reveal = z < 0.82 ? 0 : clamp((z - 0.82) / 0.18, 0, 1);
-  if (reveal > 0.02) {
-    const f = frameFor(focus, z, focus, week, vp, scrollY);
-    const dim = daysInMonth(focus);
-    const colW = f.dayW;
-    const bandBottom = f.bandY + 4 * f.trackH;
-    const wide = colW > 60; // week view → full weekday names + event titles
-    const weekZoom = clamp(z - 1, 0, 1); // 0 at month, 1 at week — gates spillover days
-
-    // top border of the focused band (gutter + grid, with the RIGHT_PAD gap),
-    // mirroring the quarter top bar in year view.
-    items.push({ key: "ftopg", kind: "gridline", x: 0, y: f.bandY - 1, w: LABEL_W - RIGHT_PAD, h: 1, opacity: reveal * 0.6, color: "#4c2d14", z: 11 });
-    items.push({ key: "ftopd", kind: "gridline", x: LABEL_W, y: f.bandY - 1, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * 0.6, color: "#4c2d14", z: 11 });
-
-    const tlTop = bandBottom + 18;
-    const tlBottom = vp.h - 8;
-    const hasTL = tlBottom > tlTop;
-    const hourH = hasTL ? (tlBottom - tlTop) / 24 : 0;
-
-    // global hour grid: every hour in week view (alternating even=dashed/odd=dotted),
-    // every 6h in month view. Hour labels every 2h (week) / 6h (month).
-    if (hasTL) {
-      const step = wide ? 1 : 6;
-      for (let hr = 0; hr <= 24; hr += step) {
-        const y = tlTop + hr * hourH;
-        const even = hr % 2 === 0;
-        items.push({ key: `hl-${hr}`, kind: "gridline", x: LABEL_W, y, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * (even ? 0.22 : 0.12), color: "#4c2d14", z: 0, lineStyle: even ? "dashed" : "dotted" });
-        if (hr % (wide ? 2 : 6) === 0) {
-          items.push({ key: `ht-${hr}`, kind: "dayLabel", x: LABEL_W - 46, y: y - 7, w: 42, h: 14, opacity: reveal * 0.7, text: `${String(hr).padStart(2, "0")}:00`, fontSize: 9, align: "center", z: 9 });
-        }
-      }
-    }
-
-    // render one day column (header above band, weekday below band, timeline)
-    const pushDay = (dom: number, op: number) => {
-      const r = resolveDate(focus, dom);
-      if (!r) return;
-      const x = f.x0 + (dom - 1) * colW;
-      if (x + colW < -40 || x > vp.w + 40) return;
-      const dow = new Date(YEAR, r.month, r.day).getDay();
-      // date number above the band — spillover days also show their month
-      const dateText = r.month === focus ? String(r.day) : `${MONTH_NAMES[r.month]} ${r.day}`;
-      items.push({ key: `date-${dom}`, kind: "dayLabel", x, y: f.bandY - 20, w: colW, h: 16, opacity: op, text: dateText, fontSize: wide ? 13 : 10, align: "center", z: 4 });
-      // weekday just below the band
-      items.push({ key: `wd-${dom}`, kind: "dayLabel", x, y: bandBottom + 2, w: colW, h: 14, opacity: op * 0.9, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4 });
-      if (!hasTL) return;
-      // dotted per-day divider — skipped on week starts (the dashed week boundary covers it)
-      const isWeekStart = (((firstDOW(focus) + dom - 1) % 7) + 7) % 7 === 0;
-      if (!isWeekStart) {
-        items.push({ key: `tdv-${dom}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: op * 0.4, color: "#4c2d14", z: 0, lineStyle: "dotted" });
-      }
-      for (const ev of TIMED) {
-        if (ev.month !== r.month || ev.day !== r.day) continue;
-        items.push({
-          key: `te-${ev.id}`, kind: "event",
-          x: x + 2, y: tlTop + ev.startHour * hourH, w: Math.max(3, colW - 4),
-          h: Math.max(3, (ev.endHour - ev.startHour) * hourH),
-          opacity: op, color: TRACKS[ev.track].color, text: wide ? ev.title : undefined, fontSize: 11, z: 2,
-        });
-      }
-    };
-
-    // in-month days
-    for (let d = 1; d <= dim; d++) pushDay(d, reveal);
-
-    // week boundaries (Sunday-aligned) — dashed, slightly stronger than the dotted
-    // day dividers, spanning the band + timeline.
-    {
-      const bottom = hasTL ? tlBottom : bandBottom;
-      for (let w = 0; w <= weeksInMonth(focus); w++) {
-        const x = f.x0 + (weekStartDOM(focus, w) - 1) * colW;
-        if (x < LABEL_W - 2 || x > vp.w + 2) continue;
-        items.push({ key: `wkb-${w}`, kind: "gridline", x: x - 1, y: f.bandY, w: 1, h: bottom - f.bandY, opacity: reveal * 0.4, color: "#4c2d14", z: 1, lineStyle: "dashed" });
-      }
-    }
-    // spillover days: leading (prev month) + trailing (next month) across the whole
-    // month's calendar span; culled off-screen, so horizontal week scrolling slides
-    // them in/out only at the first/last week. Works with a fractional `week`.
-    if (weekZoom > 0.01) {
-      const lead = weekStartDOM(focus, 0); // ≤ 1
-      const tail = weekStartDOM(focus, weeksInMonth(focus) - 1) + 6; // ≥ dim
-      for (let dom = lead; dom <= 0; dom++) pushDay(dom, weekZoom * 0.5);
-      for (let dom = dim + 1; dom <= tail; dom++) pushDay(dom, weekZoom * 0.5);
-      // month-boundary borders (before day 1, and after the last day), culled off-screen
-      for (const bx of [1, dim + 1]) {
-        const x = f.x0 + (bx - 1) * colW;
-        if (x < -2 || x > vp.w + 2) continue;
-        items.push({ key: `mb-${bx}`, kind: "gridline", x: x - 1, y: f.bandY - 6, w: 1.5, h: tlBottom - (f.bandY - 6), opacity: weekZoom * 0.7, color: "#4c2d14", z: 5 });
-      }
-    }
-  }
-
+  buildQuarterHeaders(items, z, focus, week, vp, scrollY);
+  buildMonthBands(items, z, focus, week, vp, scrollY);
+  buildEvents(items, z, focus, week, vp, scrollY);
+  buildDetail(items, z, focus, week, vp, scrollY);
   return { items };
 }
 
-interface Rect { x: number; y: number; w: number; h: number }
+const onScreen = (f: Frame, vp: Vp) => f.bandY <= vp.h + 20 && f.bandY + 4 * f.trackH >= -20;
 
-function focusGeom(vp: Vp) {
-  return { x0: LABEL_W, dayW: (vp.w - LABEL_W - 16) / 31, bandY: TOP_PAD, trackH: TRACK_H };
-}
-
-// Year phase: which month's NAME (left gutter zone) is under the cursor — used so
-// only clicking the month name opens month view (not clicking the lane).
-export function monthNameAtPoint(px: number, py: number, vp: Vp, scrollY: number): number | null {
-  if (px < 0 || px > MNAME_W) return null;
-  for (let m = 0; m < 12; m++) {
-    const f = yearFrame(m, vp, scrollY);
-    if (py >= f.bandY && py <= f.bandY + 4 * f.trackH) return m;
+// Quarter day-number headers (1–31) + the first month's top border. Year view only.
+function buildQuarterHeaders(items: Item[], z: number, focus: number, week: number, vp: Vp, scrollY: number) {
+  const yearVis = clamp(1 - z / 0.4, 0, 1);
+  if (yearVis <= 0.02) return;
+  const dayW = (vp.w - LABEL_W - 16) / 31;
+  for (let q = 0; q < 4; q++) {
+    // anchor to the quarter's first month's LIVE band so it travels during the zoom
+    const hy = frameFor(q * 3, z, focus, week, vp, scrollY).bandY - Q_HEADER_H;
+    if (hy < -Q_HEADER_H || hy > vp.h) continue;
+    for (let d = 1; d <= 31; d++) {
+      items.push({ key: `qh-${q}-${d}`, kind: "dayLabel", x: LABEL_W + (d - 1) * dayW, y: hy + 5, w: dayW, h: 14, opacity: yearVis * 0.7, text: String(d), fontSize: 10, align: "center", z: 4 });
+    }
+    // top border: gutter + grid segments with the RIGHT_PAD gap, above the gutter strip
+    const topY = hy + Q_HEADER_H - 1;
+    items.push({ key: `qhsepg-${q}`, kind: "gridline", x: 0, y: topY, w: LABEL_W - RIGHT_PAD, h: 1, opacity: yearVis * 0.6, color: LINE, z: 11 });
+    items.push({ key: `qhsepd-${q}`, kind: "gridline", x: LABEL_W, y: topY, w: 31 * dayW, h: 1, opacity: yearVis * 0.6, color: LINE, z: 11 });
   }
-  return null;
 }
 
-// Year phase: which month is under the cursor.
-export function monthAtPoint(px: number, py: number, vp: Vp, scrollY: number): number | null {
+// The 12 month bands: vertical name, 4 track lanes, end-of-month dim, month divider.
+function buildMonthBands(items: Item[], z: number, focus: number, week: number, vp: Vp, scrollY: number) {
+  const dimFade = 1 - clamp(z - 1, 0, 1); // end-of-month hatch fades out entering week view
   for (let m = 0; m < 12; m++) {
-    const f = yearFrame(m, vp, scrollY);
+    const f = frameFor(m, z, focus, week, vp, scrollY);
+    if (f.opacity < 0.02 || !onScreen(f, vp)) continue;
     const dim = daysInMonth(m);
-    if (py >= f.bandY && py <= f.bandY + 4 * f.trackH && px >= f.x0 && px <= f.x0 + dim * f.dayW) {
-      return m;
+    const fullW = 31 * f.dayW; // always draw all 31 grid cells
+
+    items.push({ key: `ml-${m}`, kind: "monthLabel", x: 0, y: f.bandY, w: MNAME_W, h: f.trackH * 4, opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 13, align: "center", z: 8 });
+
+    for (let t = 0; t < 4; t++) {
+      items.push({ key: `row-${m}-${t}`, kind: "row", x: f.x0, y: f.bandY + t * f.trackH, w: fullW, h: f.trackH, opacity: f.opacity, color: TRACKS[t].color, cols: 31, z: 1, inner: t > 0 });
+    }
+    // dim cells past the month's actual length (e.g. Feb 29–31)
+    if (dim < 31 && dimFade > 0.02) {
+      items.push({ key: `dim-${m}`, kind: "dim", x: f.x0 + dim * f.dayW, y: f.bandY, w: (31 - dim) * f.dayW, h: 4 * f.trackH, opacity: f.opacity * dimFade, z: 3 });
+    }
+    // solid divider under each month
+    items.push({ key: `msep-${m}`, kind: "gridline", x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: fullW, h: 1, opacity: f.opacity * 0.55, color: LINE, z: 1 });
+  }
+}
+
+// Multi-day event bars painted on the track lanes.
+function buildEvents(items: Item[], z: number, focus: number, week: number, vp: Vp, scrollY: number) {
+  for (const ev of EVENTS) {
+    const f = frameFor(ev.month, z, focus, week, vp, scrollY);
+    if (f.opacity < 0.02 || !onScreen(f, vp)) continue;
+    const x = f.x0 + (ev.start - 1) * f.dayW;
+    const w = (ev.end - ev.start + 1) * f.dayW;
+    if (x + w < -40 || x > vp.w + 40) continue;
+    items.push({ key: `ev-${ev.id}`, kind: "event", x: x + 1, y: f.bandY + ev.track * f.trackH + 1, w: Math.max(2, w - 2), h: f.trackH - 2, opacity: f.opacity, color: TRACKS[ev.track].color, text: f.dayW > 14 ? ev.title : undefined, fontSize: 11, z: 2 });
+  }
+}
+
+// Focused month's headers (dates/weekdays) + 0:00–24:00 timeline + week boundaries.
+// Hidden until near Month view, then fades in (keeps the year→month zoom cheap).
+function buildDetail(items: Item[], z: number, focus: number, week: number, vp: Vp, scrollY: number) {
+  const reveal = z < 0.82 ? 0 : clamp((z - 0.82) / 0.18, 0, 1);
+  if (reveal <= 0.02) return;
+
+  const f = frameFor(focus, z, focus, week, vp, scrollY);
+  const dim = daysInMonth(focus);
+  const colW = f.dayW;
+  const bandBottom = f.bandY + 4 * f.trackH;
+  const wide = colW > 60; // week view → full weekday names + event titles
+  const weekZoom = clamp(z - 1, 0, 1); // 0 at month, 1 at week — gates spillover
+
+  // top border of the focused band (gutter + grid, with the RIGHT_PAD gap)
+  items.push({ key: "ftopg", kind: "gridline", x: 0, y: f.bandY - 1, w: LABEL_W - RIGHT_PAD, h: 1, opacity: reveal * 0.6, color: LINE, z: 11 });
+  items.push({ key: "ftopd", kind: "gridline", x: LABEL_W, y: f.bandY - 1, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * 0.6, color: LINE, z: 11 });
+
+  const tlTop = bandBottom + 18;
+  const tlBottom = vp.h - 8;
+  const hasTL = tlBottom > tlTop;
+  const hourH = hasTL ? (tlBottom - tlTop) / 24 : 0;
+
+  // hour grid: every hour in week (even=dashed/odd=dotted), every 6h in month
+  if (hasTL) {
+    for (let hr = 0; hr <= 24; hr += wide ? 1 : 6) {
+      const y = tlTop + hr * hourH;
+      const even = hr % 2 === 0;
+      items.push({ key: `hl-${hr}`, kind: "gridline", x: LABEL_W, y, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * (even ? 0.22 : 0.12), color: LINE, z: 0, lineStyle: even ? "dashed" : "dotted" });
+      if (hr % (wide ? 2 : 6) === 0) {
+        items.push({ key: `ht-${hr}`, kind: "dayLabel", x: LABEL_W - 46, y: y - 7, w: 42, h: 14, opacity: reveal * 0.7, text: `${String(hr).padStart(2, "0")}:00`, fontSize: 9, align: "center", z: 9 });
+      }
     }
   }
-  return null;
-}
 
-// Month phase: which (Sunday-aligned) week of the focused month is under the cursor.
-export function weekAtPointInMonth(px: number, focus: number, vp: Vp): number | null {
-  const g = focusGeom(vp);
-  const dim = daysInMonth(focus);
-  if (px < g.x0 || px > g.x0 + dim * g.dayW) return null;
-  const d = Math.floor((px - g.x0) / g.dayW) + 1; // 1..dim
-  const w = Math.floor((firstDOW(focus) + d - 1) / 7);
-  return Math.min(Math.max(w, 0), weeksInMonth(focus) - 1);
-}
+  // one day column: date above band, weekday below, dotted divider + timed events
+  const pushDay = (dom: number, op: number) => {
+    const r = resolveDate(focus, dom);
+    if (!r) return;
+    const x = f.x0 + (dom - 1) * colW;
+    if (x + colW < -40 || x > vp.w + 40) return;
+    const dow = new Date(YEAR, r.month, r.day).getDay();
+    const dateText = r.month === focus ? String(r.day) : `${MONTH_NAMES[r.month]} ${r.day}`;
+    items.push({ key: `date-${dom}`, kind: "dayLabel", x, y: f.bandY - 20, w: colW, h: 16, opacity: op, text: dateText, fontSize: wide ? 13 : 10, align: "center", z: 4 });
+    items.push({ key: `wd-${dom}`, kind: "dayLabel", x, y: bandBottom + 2, w: colW, h: 14, opacity: op * 0.9, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4 });
+    if (!hasTL) return;
+    const isWeekStart = (((firstDOW(focus) + dom - 1) % 7) + 7) % 7 === 0;
+    if (!isWeekStart) {
+      items.push({ key: `tdv-${dom}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: op * 0.4, color: LINE, z: 0, lineStyle: "dotted" });
+    }
+    for (const ev of TIMED) {
+      if (ev.month !== r.month || ev.day !== r.day) continue;
+      items.push({ key: `te-${ev.id}`, kind: "event", x: x + 2, y: tlTop + ev.startHour * hourH, w: Math.max(3, colW - 4), h: Math.max(3, (ev.endHour - ev.startHour) * hourH), opacity: op, color: TRACKS[ev.track].color, text: wide ? ev.title : undefined, fontSize: 11, z: 2 });
+    }
+  };
 
-// Outline around a whole month (year phase).
-export function monthOutlineRect(m: number, vp: Vp, scrollY: number): Rect {
-  const f = yearFrame(m, vp, scrollY);
-  const dim = daysInMonth(m);
-  return { x: f.x0 - 1, y: f.bandY - 1, w: dim * f.dayW + 2, h: 4 * f.trackH + 2 };
-}
+  for (let d = 1; d <= dim; d++) pushDay(d, reveal);
 
-// Outline around a week within the focused month (month phase); clamped to in-month days.
-export function weekOutlineRect(focus: number, week: number, vp: Vp): Rect {
-  const g = focusGeom(vp);
-  const dim = daysInMonth(focus);
-  const s = Math.max(1, weekStartDOM(focus, week));
-  const e = Math.min(dim, weekStartDOM(focus, week) + 6);
-  return { x: g.x0 + (s - 1) * g.dayW - 1, y: g.bandY - 1, w: (e - s + 1) * g.dayW + 2, h: 4 * g.trackH + 2 };
-}
+  // dashed Sunday-aligned week boundaries spanning band + timeline
+  const bottom = hasTL ? tlBottom : bandBottom;
+  for (let w = 0; w <= weeksInMonth(focus); w++) {
+    const x = f.x0 + (weekStartDOM(focus, w) - 1) * colW;
+    if (x < LABEL_W - 2 || x > vp.w + 2) continue;
+    items.push({ key: `wkb-${w}`, kind: "gridline", x: x - 1, y: f.bandY, w: 1, h: bottom - f.bandY, opacity: reveal * 0.4, color: LINE, z: 1, lineStyle: "dashed" });
+  }
 
-export function weekOfDate(month: number, day: number): number {
-  return Math.floor((firstDOW(month) + day - 1) / 7);
+  // spillover days (prev/next month) + month-boundary lines — fade in toward week view
+  if (weekZoom > 0.01) {
+    const lead = weekStartDOM(focus, 0); // ≤ 1
+    const tail = weekStartDOM(focus, weeksInMonth(focus) - 1) + 6; // ≥ dim
+    for (let dom = lead; dom <= 0; dom++) pushDay(dom, weekZoom * 0.5);
+    for (let dom = dim + 1; dom <= tail; dom++) pushDay(dom, weekZoom * 0.5);
+    for (const bx of [1, dim + 1]) {
+      const x = f.x0 + (bx - 1) * colW;
+      if (x < -2 || x > vp.w + 2) continue;
+      items.push({ key: `mb-${bx}`, kind: "gridline", x: x - 1, y: f.bandY - 6, w: 1.5, h: tlBottom - (f.bandY - 6), opacity: weekZoom * 0.7, color: LINE, z: 5 });
+    }
+  }
 }
-
-// Week phase: which day column is under the cursor (may be a spillover day).
-export function dayAtPointInWeek(px: number, focus: number, week: number, vp: Vp): { month: number; day: number; week: number } | null {
-  const dayW = (vp.w - LABEL_W - 16) / 7;
-  if (px < LABEL_W) return null;
-  const i = Math.floor((px - LABEL_W) / dayW);
-  if (i < 0 || i > 6) return null;
-  const r = resolveDate(focus, weekStartDOM(focus, week) + i);
-  if (!r) return null;
-  return { month: r.month, day: r.day, week: weekOfDate(r.month, r.day) };
-}
-
-// Live top of a month's band at the current zoom (for the track-name editor,
-// so its inputs travel with the band instead of disappearing/reappearing).
-export function bandYFor(m: number, z: number, focus: number, week: number, vp: Vp, scrollY: number): number {
-  return frameFor(m, z, focus, week, vp, scrollY).bandY;
-}
-
-export { TOP_PAD, LABEL_W, MNAME_W, TRACK_H, RIGHT_PAD };
