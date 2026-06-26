@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  buildScene, easeInOut, Vp, Item, weeksInMonth,
+  buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll,
   monthAtPoint, weekAtPointInMonth, dayAtPointInWeek, monthOutlineRect, weekOutlineRect,
 } from "./scene";
 import { MONTH_LONG } from "./labels";
@@ -21,12 +21,14 @@ export default function CalendarCanvas() {
   const [z, setZ] = useState(0);
   const [focus, setFocus] = useState(new Date().getMonth());
   const [week, setWeek] = useState(0);
+  const [scrollY, setScrollY] = useState(0);
   const [hoverMonth, setHoverMonth] = useState<number | null>(null);
   const [hoverWeek, setHoverWeek] = useState<number | null>(null);
 
   const zRef = useRef(z); zRef.current = z;
   const focusRef = useRef(focus); focusRef.current = focus;
   const weekRef = useRef(week); weekRef.current = week;
+  const scrollYRef = useRef(scrollY); scrollYRef.current = scrollY;
   const hoverMonthRef = useRef(hoverMonth); hoverMonthRef.current = hoverMonth;
   const hoverWeekRef = useRef(hoverWeek); hoverWeekRef.current = hoverWeek;
   const tweenRef = useRef<number | null>(null);
@@ -121,7 +123,7 @@ export default function CalendarCanvas() {
       const nz = Math.max(0, Math.min(2, startZ + Math.log2(e.scale) * 0.6));
       // Lock focus/week once, based on the level we STARTED at + the gesture origin.
       if (nz > startZ && startZ < 0.15) {
-        const m = monthAtPoint(cx, cy, vpNow);
+        const m = monthAtPoint(cx, cy, vpNow, scrollYRef.current);
         if (m != null) setFocus(m);
       } else if (nz > startZ && startZ >= 0.85 && startZ < 1.15) {
         const w = weekAtPointInMonth(cx, focusRef.current, vpNow);
@@ -160,6 +162,13 @@ export default function CalendarCanvas() {
     };
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // pinch handled via gesture events
+      // Year view: vertical two-finger scroll scrolls the (tall) year.
+      if (zRef.current < 0.5 && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+        e.preventDefault();
+        const max = yearMaxScroll({ w: el.clientWidth, h: el.clientHeight });
+        setScrollY(Math.max(0, Math.min(max, scrollYRef.current + e.deltaY)));
+        return;
+      }
       if (zRef.current < 1.5 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       e.preventDefault();
       clearTimeout(idleTimer);
@@ -205,7 +214,7 @@ export default function CalendarCanvas() {
     const px = e.clientX - rect.left, py = e.clientY - rect.top;
     const z = zRef.current;
     if (z < 0.5) {
-      setHoverMonth(monthAtPoint(px, py, vp));
+      setHoverMonth(monthAtPoint(px, py, vp, scrollYRef.current));
       if (hoverWeekRef.current != null) setHoverWeek(null);
     } else if (z < 1.5) {
       setHoverWeek(weekAtPointInMonth(px, focusRef.current, vp));
@@ -233,11 +242,11 @@ export default function CalendarCanvas() {
 
   if (vp.w === 0) return <div ref={wrapRef} className="cc-wrap" />;
 
-  const scene = buildScene(z, focus, week, vp);
+  const scene = buildScene(z, focus, week, vp, scrollY);
   const level = z < 0.5 ? 0 : z < 1.5 ? 1 : 2;
 
   let outline: { x: number; y: number; w: number; h: number } | null = null;
-  if (z < 0.5 && hoverMonth != null) outline = monthOutlineRect(hoverMonth, vp);
+  if (z < 0.5 && hoverMonth != null) outline = monthOutlineRect(hoverMonth, vp, scrollY);
   else if (z >= 0.6 && z <= 1.4 && hoverWeek != null) outline = weekOutlineRect(focus, hoverWeek, vp);
 
   const hint =

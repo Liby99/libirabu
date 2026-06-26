@@ -36,46 +36,48 @@ export const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 *
 // Per-month frame: where day 1 sits, day width, band top, track row height, opacity.
 interface Frame { x0: number; dayW: number; bandY: number; trackH: number; opacity: number }
 
-const QUARTER_GAP = 14;
-const MONTH_GAP = 7;
+// Fixed lane height — month lanes NEVER change vertical size across views (GridCal style).
+const TRACK_H = 30;
+const MONTH_H = TRACK_H * 4;
+const Q_HEADER_H = 24; // day-number header row at the top of each quarter (year view)
+const Q_GAP = 32; // separation between quarters
 
-function yearFrame(m: number, vp: Vp): Frame {
-  const dayW = (vp.w - LABEL_W - 16) / 31;
-  // total vertical budget for 48 track rows + gaps
-  const innerGaps = 8 * MONTH_GAP + 3 * QUARTER_GAP; // 8 intra-quarter month gaps + 3 quarter gaps
-  const trackH = (vp.h - TOP_PAD - 16 - innerGaps) / 48;
-  const monthH = trackH * 4;
-  const q = Math.floor(m / 3);
-  const within = m % 3;
-  const quarterBlockH = monthH * 3 + MONTH_GAP * 2;
-  const bandY = TOP_PAD + q * (quarterBlockH + QUARTER_GAP) + within * (monthH + MONTH_GAP);
-  return { x0: LABEL_W, dayW, bandY, trackH, opacity: 1 };
+function quarterBlock(): number { return Q_HEADER_H + 3 * MONTH_H; }
+export function yearContentH(): number { return 4 * quarterBlock() + 3 * Q_GAP; }
+export function yearMaxScroll(vp: Vp): number {
+  return Math.max(0, yearContentH() - (vp.h - TOP_PAD - 10));
 }
 
-const MONTH_TRACK_H = 30;
-// Height the day-detail occupies below the focus band at Month level.
-function detailFullH(vp: Vp): number { return vp.h - TOP_PAD - 4 * MONTH_TRACK_H - 30; }
+// GridCal-style year layout: 4 quarters separated by Q_GAP; within a quarter the 3
+// months are flush (no gap); each quarter has a day-number header at its top.
+function yearFrame(m: number, vp: Vp, scrollY: number): Frame {
+  const dayW = (vp.w - LABEL_W - 16) / 31;
+  const q = Math.floor(m / 3);
+  const within = m % 3;
+  const quarterTop = q * (quarterBlock() + Q_GAP);
+  const bandY = TOP_PAD - scrollY + quarterTop + Q_HEADER_H + within * MONTH_H;
+  return { x0: LABEL_W, dayW, bandY, trackH: TRACK_H, opacity: 1 };
+}
 
-// Year→Month is an ACCORDION, not a camera zoom: the focus lane rises to the top
-// and grows; a detail space opens BELOW it (pushing the months below downward).
-// The months above and below keep their year spacing among themselves (~15px) —
-// they slide off the top / get pushed off the bottom without spreading or clumping.
-function yearToMonthFrame(m: number, t: number, focus: number, vp: Vp): Frame {
-  const yf = yearFrame(m, vp);
-  const yfocus = yearFrame(focus, vp);
-  const trackH = m === focus ? lerp(yf.trackH, MONTH_TRACK_H, t) : yf.trackH;
-  // scroll the whole stack so the focus rises to the top
+function quarterHeaderY(q: number, scrollY: number): number {
+  return TOP_PAD - scrollY + q * (quarterBlock() + Q_GAP);
+}
+
+// Height the day-detail occupies below the focus band at Month level.
+function detailFullH(vp: Vp): number { return vp.h - TOP_PAD - MONTH_H - 30; }
+
+// Year→Month is an ACCORDION: the focus lane scrolls to the top and a detail space
+// opens BELOW it (pushing the months below down). Lanes keep their FIXED height and
+// their year spacing — above lanes slide up, below lanes get pushed off the bottom.
+function yearToMonthFrame(m: number, t: number, focus: number, vp: Vp, scrollY: number): Frame {
+  const yf = yearFrame(m, vp, scrollY);
+  const yfocus = yearFrame(focus, vp, scrollY);
+  const PAD = 80;
   const scroll = (yfocus.bandY - TOP_PAD) * t;
-  const PAD = 80; // extra breathing room around the focus block (hides the neighbor peek)
   let bandY = yf.bandY - scroll;
-  if (m < focus) {
-    bandY -= PAD * t; // push the lanes above further up so they clear the top edge
-  } else if (m > focus) {
-    // open the focus band's growth + the expanding detail below the focus, + padding
-    const focusGrow = 4 * lerp(yfocus.trackH, MONTH_TRACK_H, t) - 4 * yfocus.trackH;
-    bandY += focusGrow + detailFullH(vp) * t + PAD * t;
-  }
-  return { x0: LABEL_W, dayW: yf.dayW, bandY, trackH, opacity: 1 };
+  if (m < focus) bandY -= PAD * t;
+  else if (m > focus) bandY += detailFullH(vp) * t + PAD * t;
+  return { x0: LABEL_W, dayW: yf.dayW, bandY, trackH: TRACK_H, opacity: 1 };
 }
 
 // Weeks are Sunday-aligned calendar weeks. weekStartDOM may be ≤0 or >daysInMonth
@@ -84,16 +86,15 @@ function firstDOW(m: number): number { return new Date(YEAR, m, 1).getDay(); } /
 function weekStartDOM(m: number, week: number): number { return 1 - firstDOW(m) + week * 7; }
 
 function weekFrame(m: number, focus: number, week: number, vp: Vp): Frame {
-  const trackH = 34;
   const dayW = (vp.w - LABEL_W - 16) / 7;
   if (m === focus) {
     const startDOM = weekStartDOM(focus, week);
     const x0 = LABEL_W - (startDOM - 1) * dayW; // day=startDOM lands at LABEL_W
-    return { x0, dayW, bandY: TOP_PAD, trackH, opacity: 1 };
+    return { x0, dayW, bandY: TOP_PAD, trackH: TRACK_H, opacity: 1 };
   }
   const dir = m < focus ? -1 : 1;
-  const off = dir < 0 ? -trackH * 4 - 80 : vp.h + 80;
-  return { x0: LABEL_W, dayW, bandY: off, trackH, opacity: 0 };
+  const off = dir < 0 ? -MONTH_H - 80 : vp.h + 80;
+  return { x0: LABEL_W, dayW, bandY: off, trackH: TRACK_H, opacity: 0 };
 }
 
 function blend(a: Frame, b: Frame, t: number): Frame {
@@ -106,10 +107,10 @@ function blend(a: Frame, b: Frame, t: number): Frame {
   };
 }
 
-function frameFor(m: number, z: number, focus: number, week: number, vp: Vp): Frame {
-  if (z <= 1) return yearToMonthFrame(m, easeInOut(clamp(z, 0, 1)), focus, vp);
+function frameFor(m: number, z: number, focus: number, week: number, vp: Vp, scrollY: number): Frame {
+  if (z <= 1) return yearToMonthFrame(m, easeInOut(clamp(z, 0, 1)), focus, vp, scrollY);
   // month→week: blend the settled Month layout with the Week layout
-  const mf = yearToMonthFrame(m, 1, focus, vp);
+  const mf = yearToMonthFrame(m, 1, focus, vp, scrollY);
   return blend(mf, weekFrame(m, focus, week, vp), easeInOut(clamp(z - 1, 0, 1)));
 }
 
@@ -139,15 +140,37 @@ export function buildScene(
   focus: number,
   week: number,
   vp: Vp,
+  scrollY: number,
 ): Scene {
   const items: Item[] = [];
+
+  // Quarter day-number headers (year view), fading out as we zoom in.
+  const yearVis = clamp(1 - z / 0.4, 0, 1);
+  if (yearVis > 0.02) {
+    const dayW = (vp.w - LABEL_W - 16) / 31;
+    for (let q = 0; q < 4; q++) {
+      const hy = quarterHeaderY(q, scrollY);
+      if (hy < -Q_HEADER_H || hy > vp.h) continue;
+      for (let d = 1; d <= 31; d++) {
+        items.push({
+          key: `qh-${q}-${d}`, kind: "dayLabel", x: LABEL_W + (d - 1) * dayW, y: hy + 5, w: dayW, h: 14,
+          opacity: yearVis * 0.7, text: String(d), fontSize: 10, align: "center", z: 4,
+        });
+      }
+      // underline under the quarter's day-number header
+      items.push({
+        key: `qhsep-${q}`, kind: "gridline", x: LABEL_W, y: hy + Q_HEADER_H - 1, w: 31 * dayW, h: 1.5,
+        opacity: yearVis * 0.6, color: "#4c2d14", z: 1,
+      });
+    }
+  }
 
   // Cull months whose band is fully off-screen (so non-focused months that slide
   // out during the zoom stop costing anything once gone) — no fading-in-place.
   const onScreen = (f: Frame) => f.bandY <= vp.h + 20 && f.bandY + 4 * f.trackH >= -20;
 
   for (let m = 0; m < 12; m++) {
-    const f = frameFor(m, z, focus, week, vp);
+    const f = frameFor(m, z, focus, week, vp, scrollY);
     if (f.opacity < 0.02 || !onScreen(f)) continue;
     const dim = daysInMonth(m);
     const bandW = dim * f.dayW;
@@ -164,11 +187,16 @@ export function buildScene(
         opacity: f.opacity, color: TRACKS[t].color, cols: dim, z: 1,
       });
     }
+    // solid divider under each month (delineates the flush months in a quarter)
+    items.push({
+      key: `msep-${m}`, kind: "gridline", x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: bandW, h: 1.5,
+      opacity: f.opacity * 0.55, color: "#4c2d14", z: 1,
+    });
   }
 
   // events (drawn after rows so they sit on top)
   for (const ev of EVENTS) {
-    const f = frameFor(ev.month, z, focus, week, vp);
+    const f = frameFor(ev.month, z, focus, week, vp, scrollY);
     if (f.opacity < 0.02 || !onScreen(f)) continue;
     const x = f.x0 + (ev.start - 1) * f.dayW;
     const w = (ev.end - ev.start + 1) * f.dayW;
@@ -186,7 +214,7 @@ export function buildScene(
   // ~150 detail items during the bulk of the year→month zoom.
   const reveal = z < 0.82 ? 0 : clamp((z - 0.82) / 0.18, 0, 1);
   if (reveal > 0.02) {
-    const f = frameFor(focus, z, focus, week, vp);
+    const f = frameFor(focus, z, focus, week, vp, scrollY);
     const dim = daysInMonth(focus);
     const colW = f.dayW;
     const bandBottom = f.bandY + 4 * f.trackH;
@@ -257,13 +285,13 @@ export function buildScene(
 interface Rect { x: number; y: number; w: number; h: number }
 
 function focusGeom(vp: Vp) {
-  return { x0: LABEL_W, dayW: (vp.w - LABEL_W - 16) / 31, bandY: TOP_PAD, trackH: 30 };
+  return { x0: LABEL_W, dayW: (vp.w - LABEL_W - 16) / 31, bandY: TOP_PAD, trackH: TRACK_H };
 }
 
 // Year phase: which month is under the cursor.
-export function monthAtPoint(px: number, py: number, vp: Vp): number | null {
+export function monthAtPoint(px: number, py: number, vp: Vp, scrollY: number): number | null {
   for (let m = 0; m < 12; m++) {
-    const f = yearFrame(m, vp);
+    const f = yearFrame(m, vp, scrollY);
     const dim = daysInMonth(m);
     if (py >= f.bandY && py <= f.bandY + 4 * f.trackH && px >= f.x0 && px <= f.x0 + dim * f.dayW) {
       return m;
@@ -283,8 +311,8 @@ export function weekAtPointInMonth(px: number, focus: number, vp: Vp): number | 
 }
 
 // Outline around a whole month (year phase).
-export function monthOutlineRect(m: number, vp: Vp): Rect {
-  const f = yearFrame(m, vp);
+export function monthOutlineRect(m: number, vp: Vp, scrollY: number): Rect {
+  const f = yearFrame(m, vp, scrollY);
   const dim = daysInMonth(m);
   return { x: f.x0 - 1, y: f.bandY - 1, w: dim * f.dayW + 2, h: 4 * f.trackH + 2 };
 }
