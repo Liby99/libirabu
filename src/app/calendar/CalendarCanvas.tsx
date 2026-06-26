@@ -92,10 +92,13 @@ export default function CalendarCanvas() {
       const rect = el.getBoundingClientRect();
       const px = e.clientX - rect.left, py = e.clientY - rect.top;
       const vpNow = { w: el.clientWidth, h: el.clientHeight };
-      if (cur < 0.5) {
+      // Only (re)select focus/week when STARTING a zoom-in from a settled level —
+      // never during zoom-out or mid-transition, so the target stays locked.
+      const zoomingIn = e.deltaY < 0;
+      if (zoomingIn && cur < 0.15) {
         const m = monthAtPoint(px, py, vpNow);
         if (m != null) setFocus(m);
-      } else if (cur < 1.5) {
+      } else if (zoomingIn && cur >= 0.85 && cur < 1.15) {
         const w = weekAtPointInMonth(px, focusRef.current, vpNow);
         if (w != null) setWeek(w);
       }
