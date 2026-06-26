@@ -4,7 +4,7 @@
 //   z = 2  → Week   (focused week's 7 days widened; tracks = all-day band)
 // Year→Month is a vertical reflow (day width constant); Month→Week is horizontal.
 
-import { TRACKS, EVENTS, daysInMonth, Ev } from "./mock";
+import { TRACKS, EVENTS, daysInMonth, YEAR } from "./mock";
 
 export interface Vp { w: number; h: number }
 
@@ -93,6 +93,7 @@ export function weeksInMonth(m: number): number {
 }
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WD = ["S", "M", "T", "W", "T", "F", "S"];
 
 export function buildScene(
   z: number,
@@ -150,6 +151,56 @@ export function buildScene(
       opacity: f.opacity, color: TRACKS[ev.track].color,
       text: f.dayW > 14 ? ev.title : undefined, fontSize: 11, z: 2,
     });
+  }
+
+  // ── Day-detail area (focused month only): per-day columns below the band ──
+  const reveal = clamp(z, 0, 1); // 0 in year, 1 by month, stays 1 in week
+  if (reveal > 0.02) {
+    const f = frameFor(focus, z, focus, week, vp);
+    const dim = daysInMonth(focus);
+    const colW = f.dayW;
+    const detailTop = f.bandY + 4 * f.trackH + 10;
+    const detailBottom = vp.h - 8;
+    const headerH = 18;
+    const chipGap = 3;
+    const chipH = Math.min(18, Math.max(12, (detailBottom - detailTop - headerH - 8) / 4 - chipGap));
+    const showText = colW > 44; // titles only when columns are wide (week view)
+
+    for (let d = 1; d <= dim; d++) {
+      const x = f.x0 + (d - 1) * colW;
+      if (x + colW < -40 || x > vp.w + 40) continue; // cull off-screen days (week view)
+
+      // column divider
+      items.push({
+        key: `dv-${d}`, kind: "gridline",
+        x, y: detailTop, w: 1, h: detailBottom - detailTop,
+        opacity: reveal * 0.35, color: "#4c2d14", z: 0,
+      });
+      // day header (weekday + number when wide, else just number)
+      const dow = WD[new Date(YEAR, focus, d).getDay()];
+      items.push({
+        key: `dh-${d}`, kind: "dayLabel",
+        x, y: detailTop, w: colW, h: headerH,
+        opacity: reveal, text: showText ? `${dow} ${d}` : `${d}`,
+        fontSize: showText ? 12 : 9, align: "center", z: 4,
+      });
+    }
+
+    // events placed in their track's row within each active day's column
+    for (const ev of EVENTS) {
+      if (ev.month !== focus) continue;
+      for (let d = ev.start; d <= ev.end; d++) {
+        const x = f.x0 + (d - 1) * colW;
+        if (x + colW < -40 || x > vp.w + 40) continue;
+        const y = detailTop + headerH + 4 + ev.track * (chipH + chipGap);
+        items.push({
+          key: `dc-${ev.id}-${d}`, kind: "event",
+          x: x + 2, y, w: Math.max(3, colW - 4), h: chipH,
+          opacity: reveal, color: TRACKS[ev.track].color,
+          text: showText ? ev.title : undefined, fontSize: 11, z: 2,
+        });
+      }
+    }
   }
 
   return { items };

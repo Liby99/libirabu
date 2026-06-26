@@ -179,6 +179,10 @@ function ItemView({ it }: { it: Item }) {
     );
   }
 
+  if (it.kind === "gridline") {
+    return <div style={{ ...base, background: it.color }} />;
+  }
+
   if (it.kind === "event") {
     return (
       <div className="cc-event" style={{ ...base, background: it.color }}>
