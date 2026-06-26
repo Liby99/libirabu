@@ -234,6 +234,11 @@ export function buildScene(
     const wide = colW > 60; // week view → full weekday names + event titles
     const weekZoom = clamp(z - 1, 0, 1); // 0 at month, 1 at week — gates spillover days
 
+    // top border of the focused band (gutter + grid, with the RIGHT_PAD gap),
+    // mirroring the quarter top bar in year view.
+    items.push({ key: "ftopg", kind: "gridline", x: 0, y: f.bandY - 1, w: LABEL_W - RIGHT_PAD, h: 1, opacity: reveal * 0.6, color: "#4c2d14", z: 11 });
+    items.push({ key: "ftopd", kind: "gridline", x: LABEL_W, y: f.bandY - 1, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * 0.6, color: "#4c2d14", z: 11 });
+
     const tlTop = bandBottom + 18;
     const tlBottom = vp.h - 8;
     const hasTL = tlBottom > tlTop;
