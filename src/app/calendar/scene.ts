@@ -4,7 +4,7 @@
 //   z = 2  → Week   (focused week's 7 days widened; tracks = all-day band)
 // Year→Month is a vertical reflow (day width constant); Month→Week is horizontal.
 
-import { TRACKS, EVENTS, daysInMonth, YEAR } from "./mock";
+import { TRACKS, EVENTS, TIMED, daysInMonth, YEAR } from "./mock";
 
 export interface Vp { w: number; h: number }
 
@@ -26,7 +26,7 @@ export interface Scene {
   outline?: { x: number; y: number; w: number; h: number };
 }
 
-const TOP_PAD = 44;
+const TOP_PAD = 70; // room for breadcrumb + dates row + weekday row above the band
 const LABEL_W = 64;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -94,6 +94,7 @@ export function weeksInMonth(m: number): number {
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WD = ["S", "M", "T", "W", "T", "F", "S"];
+const WD3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function buildScene(
   z: number,
@@ -102,7 +103,6 @@ export function buildScene(
   vp: Vp,
 ): Scene {
   const items: Item[] = [];
-  const detail = clamp(z, 0, 1); // 0 in year, 1 by month — fades in day numbers, labels
 
   for (let m = 0; m < 12; m++) {
     const f = frameFor(m, z, focus, week, vp);
@@ -125,16 +125,6 @@ export function buildScene(
       });
     }
 
-    // day-number labels (fade in as we leave year view)
-    if (detail > 0.15 && f.dayW > 18) {
-      for (let d = 1; d <= dim; d++) {
-        items.push({
-          key: `dl-${m}-${d}`, kind: "dayLabel",
-          x: f.x0 + (d - 1) * f.dayW, y: f.bandY - 16, w: f.dayW, h: 14,
-          opacity: f.opacity * detail, text: String(d), fontSize: 10, align: "center", z: 4,
-        });
-      }
-    }
   }
 
   // events (drawn after rows so they sit on top)
@@ -153,51 +143,69 @@ export function buildScene(
     });
   }
 
-  // ── Day-detail area (focused month only): per-day columns below the band ──
+  // ── Header rows (focused month) + 0:00–24:00 day-detail timeline ─────────
   const reveal = clamp(z, 0, 1); // 0 in year, 1 by month, stays 1 in week
   if (reveal > 0.02) {
     const f = frameFor(focus, z, focus, week, vp);
     const dim = daysInMonth(focus);
     const colW = f.dayW;
-    const detailTop = f.bandY + 4 * f.trackH + 10;
-    const detailBottom = vp.h - 8;
-    const headerH = 18;
-    const chipGap = 3;
-    const chipH = Math.min(18, Math.max(12, (detailBottom - detailTop - headerH - 8) / 4 - chipGap));
-    const showText = colW > 44; // titles only when columns are wide (week view)
+    const bandBottom = f.bandY + 4 * f.trackH;
+    const wide = colW > 60; // week view → full weekday names + event titles
 
+    // dates (1–31) above the band, weekdays (Mon, Tue, …) just above the band
     for (let d = 1; d <= dim; d++) {
       const x = f.x0 + (d - 1) * colW;
-      if (x + colW < -40 || x > vp.w + 40) continue; // cull off-screen days (week view)
-
-      // column divider
+      if (x + colW < -40 || x > vp.w + 40) continue;
+      const dow = new Date(YEAR, focus, d).getDay();
       items.push({
-        key: `dv-${d}`, kind: "gridline",
-        x, y: detailTop, w: 1, h: detailBottom - detailTop,
-        opacity: reveal * 0.35, color: "#4c2d14", z: 0,
+        key: `date-${d}`, kind: "dayLabel", x, y: f.bandY - 34, w: colW, h: 16,
+        opacity: reveal, text: String(d), fontSize: wide ? 13 : 10, align: "center", z: 4,
       });
-      // day header (weekday + number when wide, else just number)
-      const dow = WD[new Date(YEAR, focus, d).getDay()];
       items.push({
-        key: `dh-${d}`, kind: "dayLabel",
-        x, y: detailTop, w: colW, h: headerH,
-        opacity: reveal, text: showText ? `${dow} ${d}` : `${d}`,
-        fontSize: showText ? 12 : 9, align: "center", z: 4,
+        key: `wd-${d}`, kind: "dayLabel", x, y: f.bandY - 18, w: colW, h: 14,
+        opacity: reveal * 0.8, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4,
       });
     }
 
-    // events placed in their track's row within each active day's column
-    for (const ev of EVENTS) {
-      if (ev.month !== focus) continue;
-      for (let d = ev.start; d <= ev.end; d++) {
+    // timeline grid 0:00–24:00
+    const tlTop = bandBottom + 10;
+    const tlBottom = vp.h - 8;
+    if (tlBottom > tlTop) {
+      const hourH = (tlBottom - tlTop) / 24;
+      const hourStep = wide ? 2 : 6;
+
+      // horizontal hour lines + left-gutter hour labels
+      for (let hr = 0; hr <= 24; hr += hourStep) {
+        const y = tlTop + hr * hourH;
+        items.push({
+          key: `hl-${hr}`, kind: "gridline", x: LABEL_W, y, w: vp.w - LABEL_W - 6, h: 1,
+          opacity: reveal * 0.16, color: "#4c2d14", z: 0,
+        });
+        items.push({
+          key: `ht-${hr}`, kind: "dayLabel", x: 2, y: y - 7, w: LABEL_W - 8, h: 14,
+          opacity: reveal * 0.7, text: `${String(hr).padStart(2, "0")}:00`, fontSize: 9, align: "center", z: 4,
+        });
+      }
+
+      // day-column dividers + timed event blocks
+      for (let d = 1; d <= dim; d++) {
         const x = f.x0 + (d - 1) * colW;
         if (x + colW < -40 || x > vp.w + 40) continue;
-        const y = detailTop + headerH + 4 + ev.track * (chipH + chipGap);
         items.push({
-          key: `dc-${ev.id}-${d}`, kind: "event",
-          x: x + 2, y, w: Math.max(3, colW - 4), h: chipH,
+          key: `tdv-${d}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop,
+          opacity: reveal * 0.28, color: "#4c2d14", z: 0,
+        });
+      }
+      for (const ev of TIMED) {
+        if (ev.month !== focus) continue;
+        const x = f.x0 + (ev.day - 1) * colW;
+        if (x + colW < -40 || x > vp.w + 40) continue;
+        items.push({
+          key: `te-${ev.id}`, kind: "event",
+          x: x + 2, y: tlTop + ev.startHour * hourH, w: Math.max(3, colW - 4),
+          h: Math.max(3, (ev.endHour - ev.startHour) * hourH),
           opacity: reveal, color: TRACKS[ev.track].color,
-          text: showText ? ev.title : undefined, fontSize: 11, z: 2,
+          text: wide ? ev.title : undefined, fontSize: 11, z: 2,
         });
       }
     }

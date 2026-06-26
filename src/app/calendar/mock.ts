@@ -54,3 +54,41 @@ export const EVENTS: Ev[] = (() => {
   }
   return out;
 })();
+
+// Timed (intraday) events — shown only in the day-detail timeline (0:00–24:00),
+// NOT in the top track band. Deterministic. track is used only for color.
+export interface Timed {
+  id: string;
+  month: number; // 0..11
+  day: number; // 1-based
+  startHour: number; // 0..24 (decimal allowed)
+  endHour: number;
+  title: string;
+  track: number;
+}
+
+const TIMED_TITLES = [
+  "Standup", "1:1 w/ student", "Lecture", "Lab meeting",
+  "Reading group", "Advising", "Sponsor call", "Seminar",
+];
+
+export const TIMED: Timed[] = (() => {
+  const out: Timed[] = [];
+  for (let m = 0; m < 12; m++) {
+    const dim = daysInMonth(m);
+    for (let d = 1; d <= dim; d++) {
+      const seed = m * 31 + d;
+      if (seed % 2 === 0) {
+        out.push({ id: `t-${m}-${d}-1`, month: m, day: d, startHour: 9, endHour: 10, title: TIMED_TITLES[seed % 8], track: seed % 4 });
+      }
+      if (seed % 3 === 0) {
+        const s = 13 + (seed % 3);
+        out.push({ id: `t-${m}-${d}-2`, month: m, day: d, startHour: s, endHour: s + 1.5, title: TIMED_TITLES[(seed + 3) % 8], track: (seed + 1) % 4 });
+      }
+      if (seed % 5 === 0) {
+        out.push({ id: `t-${m}-${d}-3`, month: m, day: d, startHour: 16, endHour: 17, title: TIMED_TITLES[(seed + 5) % 8], track: (seed + 2) % 4 });
+      }
+    }
+  }
+  return out;
+})();
