@@ -343,9 +343,10 @@ export function dayAtPointInWeek(px: number, focus: number, week: number, vp: Vp
   return { month: r.month, day: r.day, week: weekOfDate(r.month, r.day) };
 }
 
-// Top of a month's band in year view (for the track-name editor overlay).
-export function yearMonthBandY(m: number, vp: Vp, scrollY: number): number {
-  return yearFrame(m, vp, scrollY).bandY;
+// Live top of a month's band at the current zoom (for the track-name editor,
+// so its inputs travel with the band instead of disappearing/reappearing).
+export function bandYFor(m: number, z: number, focus: number, week: number, vp: Vp, scrollY: number): number {
+  return frameFor(m, z, focus, week, vp, scrollY).bandY;
 }
 
 export { TOP_PAD, LABEL_W, MNAME_W, TRACK_H };

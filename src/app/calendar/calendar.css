@@ -65,13 +65,15 @@
   z-index: 5;
 }
 
-.cc-track-edit { position: absolute; inset: 0; z-index: 10; }
+.cc-track-edit { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+.cc-track-month { position: absolute; top: 0; left: 0; }
 .cc-track-cell {
   position: absolute;
   box-sizing: border-box;
   display: flex;
   align-items: center;
   border-top: 1px dotted var(--accent-grey);
+  pointer-events: auto;
 }
 .cc-tc-first { border-top: 1px solid var(--accent-dark); }
 .cc-tc-last { border-bottom: 1px solid var(--accent-dark); }

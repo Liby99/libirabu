@@ -2,9 +2,9 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll, yearMonthBandY,
+  buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll, bandYFor,
   monthAtPoint, weekAtPointInMonth, dayAtPointInWeek,
-  LABEL_W, MNAME_W, TRACK_H, TOP_PAD,
+  LABEL_W, MNAME_W, TRACK_H,
 } from "./scene";
 
 const RIGHT_PAD = 24; // gap between the track inputs and the grid lane
@@ -45,21 +45,19 @@ export default function CalendarCanvas() {
     });
   }, []);
 
-  // Memoized track-name inputs — rebuilt only on layout/data change, NOT on zoom,
-  // so an active pinch doesn't re-reconcile 48 inputs every frame (which delayed
-  // gesturechange past the settle watchdog and snapped the zoom mid-flight).
-  const trackInputs = useMemo(() => {
-    if (vp.w === 0) return null;
+  // One memoized set of per-month track-name inputs (cells positioned RELATIVE to
+  // their month container). The container's translateY is set per frame from the
+  // live band position, so the inputs travel with the band through the zoom (no
+  // disappear/reappear) while the inputs themselves never re-reconcile.
+  const monthInputs = useMemo(() => {
     const left = MNAME_W + 2;
     const width = LABEL_W - MNAME_W - 2 - RIGHT_PAD;
-    return Array.from({ length: 12 }, (_, m) => m).map((m) => {
-      const by = yearMonthBandY(m, vp, scrollY);
-      if (by + TRACK_H * 4 < 0 || by > vp.h) return null;
-      return [0, 1, 2, 3].map((i) => (
+    return Array.from({ length: 12 }, (_, m) =>
+      [0, 1, 2, 3].map((i) => (
         <div
-          key={`tn-${m}-${i}`}
+          key={i}
           className={`cc-track-cell${i === 0 ? " cc-tc-first" : ""}${i === 3 ? " cc-tc-last" : ""}`}
-          style={{ top: by + i * TRACK_H, left, width, height: TRACK_H }}
+          style={{ top: i * TRACK_H, left, width, height: TRACK_H }}
         >
           <input
             className="cc-track-input"
@@ -70,32 +68,9 @@ export default function CalendarCanvas() {
             onMouseDown={(e) => e.stopPropagation()}
           />
         </div>
-      ));
-    });
-  }, [vp, scrollY, trackNames, editTrack]);
-
-  // Focused month's track names, pinned to the band at the top — shown in month/week
-  // views (where only the focus month is visible), like frozen spreadsheet columns.
-  const focusTrackInputs = useMemo(() => {
-    const left = MNAME_W + 2;
-    const width = LABEL_W - MNAME_W - 2 - RIGHT_PAD;
-    return [0, 1, 2, 3].map((i) => (
-      <div
-        key={`ftn-${i}`}
-        className={`cc-track-cell${i === 0 ? " cc-tc-first" : ""}${i === 3 ? " cc-tc-last" : ""}`}
-        style={{ top: TOP_PAD + i * TRACK_H, left, width, height: TRACK_H }}
-      >
-        <input
-          className="cc-track-input"
-          value={trackNames[focus]?.[i] ?? ""}
-          placeholder="track…"
-          onChange={(e) => editTrack(focus, i, e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        />
-      </div>
-    ));
-  }, [focus, trackNames, editTrack]);
+      )),
+    );
+  }, [trackNames, editTrack]);
 
   const zRef = useRef(z); zRef.current = z;
   const focusRef = useRef(focus); focusRef.current = focus;
@@ -355,27 +330,18 @@ export default function CalendarCanvas() {
       <div className="cc-layer">
         {scene.items.map((it) => <ItemView key={it.key} it={it} />)}
 
-        {/* per-month track-name editor — year view (gated by style, not remount) */}
-        <div
-          className="cc-track-edit"
-          style={{
-            opacity: Math.max(0, 1 - z / 0.3),
-            pointerEvents: z < 0.12 ? "auto" : "none",
-            visibility: z < 0.35 ? "visible" : "hidden",
-          }}
-        >
-          {trackInputs}
-        </div>
-        {/* focused month's track names, pinned at the band — month/week views */}
-        <div
-          className="cc-track-edit"
-          style={{
-            opacity: Math.max(0, Math.min(1, (z - 0.85) / 0.15)),
-            pointerEvents: z > 0.9 ? "auto" : "none",
-            visibility: z > 0.85 ? "visible" : "hidden",
-          }}
-        >
-          {focusTrackInputs}
+        {/* track-name editors — one container per month, translated to its live
+            band position so the inputs travel with the band through the zoom */}
+        <div className="cc-track-edit">
+          {vp.w > 0 && Array.from({ length: 12 }, (_, m) => m).map((m) => {
+            const by = bandYFor(m, z, focus, week, vp, scrollY);
+            if (by + TRACK_H * 4 < -4 || by > vp.h + 4) return null;
+            return (
+              <div key={m} className="cc-track-month" style={{ transform: `translateY(${by}px)` }}>
+                {monthInputs[m]}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
