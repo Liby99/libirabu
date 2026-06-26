@@ -61,10 +61,6 @@ function yearFrame(m: number, vp: Vp, scrollY: number): Frame {
   return { x0: LABEL_W, dayW, bandY, trackH: TRACK_H, opacity: 1 };
 }
 
-function quarterHeaderY(q: number, scrollY: number): number {
-  return TOP_PAD - scrollY + q * (quarterBlock() + Q_GAP);
-}
-
 // Height the day-detail occupies below the focus band at Month level.
 function detailFullH(vp: Vp): number { return vp.h - TOP_PAD - MONTH_H - 30; }
 
@@ -151,7 +147,9 @@ export function buildScene(
   if (yearVis > 0.02) {
     const dayW = (vp.w - LABEL_W - 16) / 31;
     for (let q = 0; q < 4; q++) {
-      const hy = quarterHeaderY(q, scrollY);
+      // anchor to the quarter's first month's LIVE band so the header travels with
+      // the layout during the zoom (instead of staying at its fixed year position)
+      const hy = frameFor(q * 3, z, focus, week, vp, scrollY).bandY - Q_HEADER_H;
       if (hy < -Q_HEADER_H || hy > vp.h) continue;
       for (let d = 1; d <= 31; d++) {
         items.push({
