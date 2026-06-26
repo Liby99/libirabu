@@ -31,14 +31,15 @@
    --dayw is set inline (depends on the month's day width). */
 .cc-row {
   background-image:
-    repeating-linear-gradient(to bottom, var(--background) 0 3px, rgba(0, 0, 0, 0) 3px 7px),
+    repeating-linear-gradient(to bottom, var(--background) 0 2px, rgba(0, 0, 0, 0) 2px 4px),
     repeating-linear-gradient(to right, var(--cc-grid) 0 1px, rgba(0, 0, 0, 0) 1px var(--dayw));
   border-top: 1px dotted var(--cc-grid-top);
 }
 
-/* Grid lines: solid separator by default; dashed cell borders via modifiers. */
+/* Grid lines: solid separator by default; dotted vertical / dashed horizontal cell
+   borders via modifiers (dotted verticals read lighter). */
 .cc-gridline { background: var(--cc-line); }
-.cc-gridline.cc-dash-v { background: transparent; border-left: 1px dashed var(--cc-line); }
+.cc-gridline.cc-dash-v { background: transparent; border-left: 1px dotted var(--cc-line); }
 .cc-gridline.cc-dash-h { background: transparent; border-top: 1px dashed var(--cc-line); }
 
 /* Labels */
