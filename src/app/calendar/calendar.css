@@ -12,6 +12,7 @@
   --cc-grid: var(--accent-grey);     /* faint dashed cell borders */
   --cc-grid-top: var(--accent-grey); /* dotted track separators */
   --cc-line: var(--accent-dark);     /* solid separators / dashes */
+  --cc-sep: color-mix(in srgb, var(--accent-dark) 55%, transparent); /* medium solid border, matches dimmed grid dividers */
 }
 
 /* Event color themes — map each track to GridCal's --event-* vars so fills/borders
@@ -33,8 +34,10 @@
   background-image:
     repeating-linear-gradient(to bottom, var(--background) 0 2px, rgba(0, 0, 0, 0) 2px 4px),
     repeating-linear-gradient(to right, var(--cc-grid) 0 1px, rgba(0, 0, 0, 0) 1px var(--dayw));
-  border-top: 1px dotted var(--cc-grid-top);
 }
+/* only inner lanes (t>0) draw the dotted separator — avoids doubling with the
+   solid month divider at the band top/bottom */
+.cc-row.cc-row-inner { border-top: 1px dotted var(--cc-grid-top); }
 
 /* Grid lines: solid separator by default; dotted/dashed cell borders via modifiers. */
 .cc-gridline { background: var(--cc-line); }
@@ -59,8 +62,8 @@
   font-weight: 600;
   color: var(--accent-dark);
   pointer-events: none;
-  border-bottom: 1px solid var(--accent-dark);
-  border-right: 1px solid var(--accent-dark);
+  border-bottom: 1px solid var(--cc-sep);
+  border-right: 1px solid var(--cc-sep);
 }
 .cc-daylabel { display: flex; align-items: center; color: var(--accent-grey); pointer-events: none; }
 .cc-daylabel.cc-center { justify-content: center; }
@@ -83,7 +86,7 @@
   border-bottom: 1px dotted var(--accent-grey); /* single-sided → 1px between stacked cells/months */
   pointer-events: auto;
 }
-.cc-tc-last { border-bottom: 1px solid var(--accent-dark); }
+.cc-tc-last { border-bottom: 1px solid var(--cc-sep); }
 .cc-track-input {
   width: 100%; height: 100%;
   border: none;

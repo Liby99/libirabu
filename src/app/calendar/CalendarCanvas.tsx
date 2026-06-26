@@ -362,7 +362,7 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
   } as React.CSSProperties;
 
   if (it.kind === "row") {
-    return <div className="cc-item cc-row" style={{ ...style, ["--dayw"]: `${it.cols ? it.w / it.cols : it.w}px` } as React.CSSProperties} />;
+    return <div className={`cc-item cc-row${it.inner ? " cc-row-inner" : ""}`} style={{ ...style, ["--dayw"]: `${it.cols ? it.w / it.cols : it.w}px` } as React.CSSProperties} />;
   }
 
   if (it.kind === "gridline") {
@@ -390,5 +390,5 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
   const a = p.it, b = n.it;
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && a.opacity === b.opacity &&
     a.z === b.z && a.color === b.color && a.text === b.text && a.fontSize === b.fontSize &&
-    a.lineStyle === b.lineStyle && a.cols === b.cols && a.align === b.align && a.kind === b.kind;
+    a.lineStyle === b.lineStyle && a.cols === b.cols && a.align === b.align && a.kind === b.kind && a.inner === b.inner;
 });

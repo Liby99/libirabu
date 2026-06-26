@@ -20,6 +20,7 @@ export interface Item {
   align?: "left" | "center";
   cols?: number; // for row gridlines (= days in month)
   lineStyle?: "dashed" | "dotted"; // gridline style; absent = solid separator
+  inner?: boolean; // row: an inner lane (t>0) → gets the dotted top separator
 }
 
 export interface Scene {
@@ -185,7 +186,7 @@ export function buildScene(
       items.push({
         key: `row-${m}-${t}`, kind: "row",
         x: f.x0, y: f.bandY + t * f.trackH, w: fullW, h: f.trackH,
-        opacity: f.opacity, color: TRACKS[t].color, cols: 31, z: 1,
+        opacity: f.opacity, color: TRACKS[t].color, cols: 31, z: 1, inner: t > 0,
       });
     }
     // dim the cells past the month's actual length (e.g. Feb 29–31). Fades out
