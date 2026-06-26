@@ -87,7 +87,10 @@ export default function CalendarCanvas() {
   // recently, so a slow gesture never gets yanked toward a level mid-pinch.
   const scheduleSnap = useCallback(() => {
     clearSnap();
-    const IDLE = 220;
+    // No reliable "finger lifted" signal for a Chrome trackpad gesture, so we wait
+    // for a long quiet gap — long enough that pauses mid-gesture never snap; it only
+    // settles once you've actually stopped.
+    const IDLE = 500;
     const tick = () => {
       const since = performance.now() - lastWheelTs.current;
       if (since < IDLE) { snapRef.current = window.setTimeout(tick, IDLE - since + 5); return; }
