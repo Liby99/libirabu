@@ -108,13 +108,17 @@ export default function CalendarCanvas() {
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    let startZ = 0, cx = 0, cy = 0;
+    let startZ = 0, cx = 0, cy = 0, idle = 0;
+    // Fallback: if gesturechange stops arriving and no gestureend came (Safari
+    // occasionally drops it), settle anyway so the zoom never sticks mid-transition.
+    const arm = () => { clearTimeout(idle); idle = window.setTimeout(() => { idle = 0; snapNow(); }, 150); };
     const onStart = (e: GestureLikeEvent) => {
       e.preventDefault();
       cancelTween(); cancelWeekTween(); clearSnap();
       startZ = zRef.current;
       const rect = el.getBoundingClientRect();
       cx = e.clientX - rect.left; cy = e.clientY - rect.top;
+      arm();
     };
     const onChange = (e: GestureLikeEvent) => {
       e.preventDefault();
@@ -130,8 +134,9 @@ export default function CalendarCanvas() {
         if (w != null) setWeek(w);
       }
       setZ(nz);
+      arm();
     };
-    const onEnd = (e: GestureLikeEvent) => { e.preventDefault(); snapNow(); };
+    const onEnd = (e: GestureLikeEvent) => { e.preventDefault(); clearTimeout(idle); idle = 0; snapNow(); };
     const a = el as unknown as {
       addEventListener: (t: string, h: (e: GestureLikeEvent) => void) => void;
       removeEventListener: (t: string, h: (e: GestureLikeEvent) => void) => void;
@@ -140,6 +145,7 @@ export default function CalendarCanvas() {
     a.addEventListener("gesturechange", onChange);
     a.addEventListener("gestureend", onEnd);
     return () => {
+      clearTimeout(idle);
       a.removeEventListener("gesturestart", onStart);
       a.removeEventListener("gesturechange", onChange);
       a.removeEventListener("gestureend", onEnd);
