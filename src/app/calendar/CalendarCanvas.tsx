@@ -132,7 +132,8 @@ export default function CalendarCanvas() {
     const onChange = (e: GestureLikeEvent) => {
       e.preventDefault();
       const vpNow = { w: el.clientWidth, h: el.clientHeight };
-      const nz = Math.max(0, Math.min(2, startZ + Math.log2(e.scale) * 1.3));
+      // Sensitivity: lower = slower. ~one comfortable pinch ≈ one zoom level.
+      const nz = Math.max(0, Math.min(2, startZ + Math.log2(e.scale) * 0.6));
       // Lock focus/week once, based on the level we STARTED at + the gesture origin.
       if (nz > startZ && startZ < 0.15) {
         const m = monthAtPoint(cx, cy, vpNow);
