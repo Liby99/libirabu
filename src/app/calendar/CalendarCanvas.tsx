@@ -7,6 +7,9 @@ import {
 } from "./scene";
 import { MONTH_LONG } from "./labels";
 
+// Safari's GestureEvent isn't in the standard DOM lib types.
+type GestureLikeEvent = { scale: number; clientX: number; clientY: number; preventDefault: () => void };
+
 function hexToRgba(hex: string, a: number): string {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
@@ -85,61 +88,85 @@ export default function CalendarCanvas() {
   // Snap to the nearest level (0/1/2) only after the pinch has been idle for IDLE
   // ms. We re-check the real elapsed time and re-arm if a wheel event arrived
   // recently, so a slow gesture never gets yanked toward a level mid-pinch.
+  // Snap z to the nearest level and (at week level) the week to the nearest week.
+  const snapNow = useCallback(() => {
+    clearSnap();
+    const zt = Math.max(0, Math.min(2, Math.round(zRef.current)));
+    if (Math.abs(zt - zRef.current) > 0.004) tweenTo(zt, 260);
+    if (Math.round(zRef.current) === 2) {
+      const lastWeek = weeksInMonth(focusRef.current) - 1;
+      const wt = Math.max(0, Math.min(lastWeek, Math.round(weekRef.current)));
+      if (Math.abs(wt - weekRef.current) > 0.004) tweenWeek(wt, 260);
+    }
+  }, [tweenTo, tweenWeek]);
+
+  // Idle-based snap — used only for horizontal week scroll (two-finger pan has no
+  // gesture end event). Pinch-zoom snaps on gestureend instead (see below).
   const scheduleSnap = useCallback(() => {
     clearSnap();
-    // No reliable "finger lifted" signal for a Chrome trackpad gesture, so we wait
-    // for a long quiet gap — long enough that pauses mid-gesture never snap; it only
-    // settles once you've actually stopped.
-    const IDLE = 500;
+    const IDLE = 350;
     const tick = () => {
       const since = performance.now() - lastWheelTs.current;
       if (since < IDLE) { snapRef.current = window.setTimeout(tick, IDLE - since + 5); return; }
       snapRef.current = null;
-      const target = Math.max(0, Math.min(2, Math.round(zRef.current)));
-      if (Math.abs(target - zRef.current) > 0.004) tweenTo(target, 260);
-      // at week level, also snap the horizontal week position to the nearest week
-      if (Math.round(zRef.current) === 2) {
-        const lastWeek = weeksInMonth(focusRef.current) - 1;
-        const wt = Math.max(0, Math.min(lastWeek, Math.round(weekRef.current)));
-        if (Math.abs(wt - weekRef.current) > 0.004) tweenWeek(wt, 260);
-      }
+      snapNow();
     };
     snapRef.current = window.setTimeout(tick, IDLE);
-  }, [tweenTo, tweenWeek]);
+  }, [snapNow]);
 
   // wheel → continuous zoom; pick month in year phase, week in month phase
+  // Safari trackpad PINCH → zoom, via native gesture events. e.scale is cumulative
+  // (1 at start). We snap ONLY on gestureend (finger lifted), so an in-progress
+  // pinch — even held still — never fights a snap.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    let pending: number | null = null, raf = 0; // coalesce z updates → one/frame
-    let pendingW: number | null = null, rafW = 0; // coalesce week updates → one/frame
-    const flush = () => { raf = 0; if (pending != null) { setZ(pending); pending = null; } };
+    let startZ = 0, cx = 0, cy = 0;
+    const onStart = (e: GestureLikeEvent) => {
+      e.preventDefault();
+      cancelTween(); cancelWeekTween(); clearSnap();
+      startZ = zRef.current;
+      const rect = el.getBoundingClientRect();
+      cx = e.clientX - rect.left; cy = e.clientY - rect.top;
+    };
+    const onChange = (e: GestureLikeEvent) => {
+      e.preventDefault();
+      const vpNow = { w: el.clientWidth, h: el.clientHeight };
+      const nz = Math.max(0, Math.min(2, startZ + Math.log2(e.scale) * 1.3));
+      // Lock focus/week once, based on the level we STARTED at + the gesture origin.
+      if (nz > startZ && startZ < 0.15) {
+        const m = monthAtPoint(cx, cy, vpNow);
+        if (m != null) setFocus(m);
+      } else if (nz > startZ && startZ >= 0.85 && startZ < 1.15) {
+        const w = weekAtPointInMonth(cx, focusRef.current, vpNow);
+        if (w != null) setWeek(w);
+      }
+      setZ(nz);
+    };
+    const onEnd = (e: GestureLikeEvent) => { e.preventDefault(); snapNow(); };
+    const a = el as unknown as {
+      addEventListener: (t: string, h: (e: GestureLikeEvent) => void) => void;
+      removeEventListener: (t: string, h: (e: GestureLikeEvent) => void) => void;
+    };
+    a.addEventListener("gesturestart", onStart);
+    a.addEventListener("gesturechange", onChange);
+    a.addEventListener("gestureend", onEnd);
+    return () => {
+      a.removeEventListener("gesturestart", onStart);
+      a.removeEventListener("gesturechange", onChange);
+      a.removeEventListener("gestureend", onEnd);
+    };
+  }, [snapNow]);
+
+  // Two-finger horizontal scroll → page weeks (week view only). No gesture-end
+  // signal for pan, so this uses idle-based snap.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    let pendingW: number | null = null, rafW = 0;
     const flushW = () => { rafW = 0; if (pendingW != null) { setWeek(pendingW); pendingW = null; } };
     const onWheel = (e: WheelEvent) => {
-      // Trackpad PINCH (ctrlKey wheel) → zoom.
-      if (e.ctrlKey) {
-        e.preventDefault();
-        cancelTween(); cancelWeekTween();
-        lastWheelTs.current = performance.now();
-        const cur = pending != null ? pending : zRef.current;
-        const rect = el.getBoundingClientRect();
-        const px = e.clientX - rect.left, py = e.clientY - rect.top;
-        const vpNow = { w: el.clientWidth, h: el.clientHeight };
-        // Only (re)select focus/week when STARTING a zoom-in from a settled level.
-        const zoomingIn = e.deltaY < 0;
-        if (zoomingIn && cur < 0.15) {
-          const m = monthAtPoint(px, py, vpNow);
-          if (m != null) setFocus(m);
-        } else if (zoomingIn && cur >= 0.85 && cur < 1.15) {
-          const w = weekAtPointInMonth(px, focusRef.current, vpNow);
-          if (w != null) setWeek(w);
-        }
-        pending = Math.max(0, Math.min(2, cur - e.deltaY * 0.01));
-        if (!raf) raf = requestAnimationFrame(flush);
-        scheduleSnap();
-        return;
-      }
-      // In week view, horizontal scroll pages between weeks (clamped to the month).
+      if (e.ctrlKey) return; // pinch is handled by gesture events
       if (zRef.current >= 1.5 && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
         e.preventDefault();
         cancelWeekTween();
@@ -150,10 +177,9 @@ export default function CalendarCanvas() {
         if (!rafW) rafW = requestAnimationFrame(flushW);
         scheduleSnap();
       }
-      // (plain vertical scroll is left alone)
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => { el.removeEventListener("wheel", onWheel); if (raf) cancelAnimationFrame(raf); if (rafW) cancelAnimationFrame(rafW); };
+    return () => { el.removeEventListener("wheel", onWheel); if (rafW) cancelAnimationFrame(rafW); };
   }, [scheduleSnap]);
 
   useEffect(() => {
@@ -206,7 +232,7 @@ export default function CalendarCanvas() {
   const hint =
     level === 0 ? (hoverMonth != null ? "click to open month · or pinch to zoom" : "pinch to zoom in")
     : level === 1 ? (hoverWeek != null ? "click to open week · or pinch to zoom" : "hover a week · pinch to zoom")
-    : "pinch to zoom out · esc to reset";
+    : "scroll sideways to change week · pinch to zoom out";
 
   return (
     <div ref={wrapRef} className="cc-wrap" onMouseMove={onMove} onMouseLeave={() => { setHoverMonth(null); setHoverWeek(null); }} onClick={onClick}>
