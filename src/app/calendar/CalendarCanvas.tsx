@@ -151,7 +151,7 @@ export default function CalendarCanvas() {
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    let session = false, committed = false, startWeek = 0, curWeek = 0;
+    let session = false, committed = false, startWeek = 0, curWeek = 0, committedTarget = 0, lastAbs = 0;
     let idleTimer = 0;
     const lastIdx = () => weeksInMonth(focusRef.current) - 1;
     const endSession = () => {
@@ -164,18 +164,29 @@ export default function CalendarCanvas() {
       e.preventDefault();
       clearTimeout(idleTimer);
       idleTimer = window.setTimeout(endSession, 90);
+      const ax = Math.abs(e.deltaX);
+      if (committed) {
+        // Momentum only decays; a sudden rising delta = a fresh swipe → page again now.
+        if (ax > lastAbs * 1.4 + 5) {
+          startWeek = committedTarget; curWeek = committedTarget; committed = false; session = true;
+        } else {
+          lastAbs = ax;
+          return; // absorb decaying momentum
+        }
+      }
       if (!session) { session = true; committed = false; startWeek = Math.round(weekRef.current); curWeek = weekRef.current; }
-      if (committed) return; // absorb momentum after the commit
+      lastAbs = ax;
       cancelWeekTween();
       const last = lastIdx();
       curWeek = Math.max(0, Math.min(last, curWeek + e.deltaX / el.clientWidth));
       setWeek(curWeek);
       const drag = curWeek - startWeek;
-      const flick = Math.abs(e.deltaX) > 12;
+      const flick = ax > 12;
       if (Math.abs(drag) >= 0.5 || (flick && Math.abs(drag) > 0.06)) {
         const dir = drag !== 0 ? Math.sign(drag) : (e.deltaX > 0 ? 1 : -1);
         committed = true;
-        tweenWeek(Math.max(0, Math.min(last, startWeek + dir)), 300);
+        committedTarget = Math.max(0, Math.min(last, startWeek + dir));
+        tweenWeek(committedTarget, 260);
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
