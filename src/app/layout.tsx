@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Yearly Tracker",
-  description: "A comprehensive yearly planning and tracking tool for organizing your goals, events, and notes throughout the year",
+  title: "libirabu",
+  description: "Research-group dashboard: calendar, projects, people, papers, proposals, funding, and AI assistant",
   keywords: "yearly planner, goal tracking, calendar, productivity, planning tool",
   authors: [{ name: "Liby99" }],
   creator: "Liby99",
