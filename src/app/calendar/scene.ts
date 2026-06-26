@@ -217,25 +217,19 @@ export function buildScene(
 
     // in-month days
     for (let d = 1; d <= dim; d++) pushDay(d, reveal);
-    // spillover days of the focused week (Sun–Sat), dimmer, fading in as we reach week view
+    // spillover days: leading (prev month) + trailing (next month) across the whole
+    // month's calendar span; culled off-screen, so horizontal week scrolling slides
+    // them in/out only at the first/last week. Works with a fractional `week`.
     if (weekZoom > 0.01) {
-      const start = weekStartDOM(focus, week);
-      for (let i = 0; i < 7; i++) {
-        const dom = start + i;
-        if (dom >= 1 && dom <= dim) continue;
-        pushDay(dom, weekZoom * 0.5);
-      }
-      // border between months within the week
-      let prevM: number | null = null;
-      for (let i = 0; i < 7; i++) {
-        const dom = start + i;
-        const r = resolveDate(focus, dom);
-        const m = r ? r.month : null;
-        if (i > 0 && m != null && prevM != null && m !== prevM) {
-          const x = f.x0 + (dom - 1) * colW;
-          items.push({ key: `mb-${i}`, kind: "gridline", x: x - 1, y: f.bandY - 6, w: 2, h: tlBottom - (f.bandY - 6), opacity: weekZoom * 0.7, color: "#4c2d14", z: 5 });
-        }
-        prevM = m;
+      const lead = weekStartDOM(focus, 0); // ≤ 1
+      const tail = weekStartDOM(focus, weeksInMonth(focus) - 1) + 6; // ≥ dim
+      for (let dom = lead; dom <= 0; dom++) pushDay(dom, weekZoom * 0.5);
+      for (let dom = dim + 1; dom <= tail; dom++) pushDay(dom, weekZoom * 0.5);
+      // month-boundary borders (before day 1, and after the last day), culled off-screen
+      for (const bx of [1, dim + 1]) {
+        const x = f.x0 + (bx - 1) * colW;
+        if (x < -2 || x > vp.w + 2) continue;
+        items.push({ key: `mb-${bx}`, kind: "gridline", x: x - 1, y: f.bandY - 6, w: 2, h: tlBottom - (f.bandY - 6), opacity: weekZoom * 0.7, color: "#4c2d14", z: 5 });
       }
     }
   }

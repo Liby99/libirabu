@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  buildScene, easeInOut, Vp, Item,
+  buildScene, easeInOut, Vp, Item, weeksInMonth,
   monthAtPoint, weekAtPointInMonth, dayAtPointInWeek, monthOutlineRect, weekOutlineRect,
 } from "./scene";
 import { MONTH_LONG } from "./labels";
@@ -27,6 +27,7 @@ export default function CalendarCanvas() {
   const hoverMonthRef = useRef(hoverMonth); hoverMonthRef.current = hoverMonth;
   const hoverWeekRef = useRef(hoverWeek); hoverWeekRef.current = hoverWeek;
   const tweenRef = useRef<number | null>(null);
+  const weekTweenRef = useRef<number | null>(null);
   const snapRef = useRef<number | null>(null);
   const lastWheelTs = useRef(0);
 
@@ -41,6 +42,21 @@ export default function CalendarCanvas() {
 
   const clearSnap = () => { if (snapRef.current != null) { clearTimeout(snapRef.current); snapRef.current = null; } };
   const cancelTween = () => { if (tweenRef.current != null) cancelAnimationFrame(tweenRef.current); tweenRef.current = null; };
+  const cancelWeekTween = () => { if (weekTweenRef.current != null) cancelAnimationFrame(weekTweenRef.current); weekTweenRef.current = null; };
+
+  const tweenWeek = useCallback((target: number, dur = 240) => {
+    cancelWeekTween();
+    const start = weekRef.current;
+    let t0 = 0;
+    const step = (ts: number) => {
+      if (!t0) t0 = ts;
+      const p = Math.min(1, (ts - t0) / dur);
+      setWeek(start + (target - start) * easeInOut(p));
+      if (p < 1) weekTweenRef.current = requestAnimationFrame(step);
+      else weekTweenRef.current = null;
+    };
+    weekTweenRef.current = requestAnimationFrame(step);
+  }, []);
 
   const tweenTo = useCallback((targetZ: number, dur = 520, onComplete?: () => void) => {
     cancelTween(); clearSnap();
@@ -78,44 +94,63 @@ export default function CalendarCanvas() {
       snapRef.current = null;
       const target = Math.max(0, Math.min(2, Math.round(zRef.current)));
       if (Math.abs(target - zRef.current) > 0.004) tweenTo(target, 260);
+      // at week level, also snap the horizontal week position to the nearest week
+      if (Math.round(zRef.current) === 2) {
+        const lastWeek = weeksInMonth(focusRef.current) - 1;
+        const wt = Math.max(0, Math.min(lastWeek, Math.round(weekRef.current)));
+        if (Math.abs(wt - weekRef.current) > 0.004) tweenWeek(wt, 260);
+      }
     };
     snapRef.current = window.setTimeout(tick, IDLE);
-  }, [tweenTo]);
+  }, [tweenTo, tweenWeek]);
 
   // wheel → continuous zoom; pick month in year phase, week in month phase
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    let pending: number | null = null; // coalesce many pinch events → one setЗ/frame
-    let raf = 0;
+    let pending: number | null = null, raf = 0; // coalesce z updates → one/frame
+    let pendingW: number | null = null, rafW = 0; // coalesce week updates → one/frame
     const flush = () => { raf = 0; if (pending != null) { setZ(pending); pending = null; } };
+    const flushW = () => { rafW = 0; if (pendingW != null) { setWeek(pendingW); pendingW = null; } };
     const onWheel = (e: WheelEvent) => {
-      // Only hijack the trackpad PINCH gesture (delivered as a ctrlKey wheel event);
-      // leave plain scrolling alone.
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      cancelTween();
-      lastWheelTs.current = performance.now();
-      const cur = pending != null ? pending : zRef.current;
-      const rect = el.getBoundingClientRect();
-      const px = e.clientX - rect.left, py = e.clientY - rect.top;
-      const vpNow = { w: el.clientWidth, h: el.clientHeight };
-      // Only (re)select focus/week when STARTING a zoom-in from a settled level —
-      // never during zoom-out or mid-transition, so the target stays locked.
-      const zoomingIn = e.deltaY < 0;
-      if (zoomingIn && cur < 0.15) {
-        const m = monthAtPoint(px, py, vpNow);
-        if (m != null) setFocus(m);
-      } else if (zoomingIn && cur >= 0.85 && cur < 1.15) {
-        const w = weekAtPointInMonth(px, focusRef.current, vpNow);
-        if (w != null) setWeek(w);
+      // Trackpad PINCH (ctrlKey wheel) → zoom.
+      if (e.ctrlKey) {
+        e.preventDefault();
+        cancelTween(); cancelWeekTween();
+        lastWheelTs.current = performance.now();
+        const cur = pending != null ? pending : zRef.current;
+        const rect = el.getBoundingClientRect();
+        const px = e.clientX - rect.left, py = e.clientY - rect.top;
+        const vpNow = { w: el.clientWidth, h: el.clientHeight };
+        // Only (re)select focus/week when STARTING a zoom-in from a settled level.
+        const zoomingIn = e.deltaY < 0;
+        if (zoomingIn && cur < 0.15) {
+          const m = monthAtPoint(px, py, vpNow);
+          if (m != null) setFocus(m);
+        } else if (zoomingIn && cur >= 0.85 && cur < 1.15) {
+          const w = weekAtPointInMonth(px, focusRef.current, vpNow);
+          if (w != null) setWeek(w);
+        }
+        pending = Math.max(0, Math.min(2, cur - e.deltaY * 0.01));
+        if (!raf) raf = requestAnimationFrame(flush);
+        scheduleSnap();
+        return;
       }
-      pending = Math.max(0, Math.min(2, cur - e.deltaY * 0.01));
-      if (!raf) raf = requestAnimationFrame(flush);
-      scheduleSnap();
+      // In week view, horizontal scroll pages between weeks (clamped to the month).
+      if (zRef.current >= 1.5 && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+        cancelWeekTween();
+        lastWheelTs.current = performance.now();
+        const lastWeek = weeksInMonth(focusRef.current) - 1;
+        const curW = pendingW != null ? pendingW : weekRef.current;
+        pendingW = Math.max(0, Math.min(lastWeek, curW + e.deltaX / el.clientWidth));
+        if (!rafW) rafW = requestAnimationFrame(flushW);
+        scheduleSnap();
+      }
+      // (plain vertical scroll is left alone)
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => { el.removeEventListener("wheel", onWheel); if (raf) cancelAnimationFrame(raf); };
+    return () => { el.removeEventListener("wheel", onWheel); if (raf) cancelAnimationFrame(raf); if (rafW) cancelAnimationFrame(rafW); };
   }, [scheduleSnap]);
 
   useEffect(() => {
@@ -151,7 +186,7 @@ export default function CalendarCanvas() {
     } else if (z >= 1.5) {
       const el = wrapRef.current!;
       const rect = el.getBoundingClientRect();
-      const hit = dayAtPointInWeek(e.clientX - rect.left, focusRef.current, weekRef.current, vp);
+      const hit = dayAtPointInWeek(e.clientX - rect.left, focusRef.current, Math.round(weekRef.current), vp);
       if (hit && hit.month !== focusRef.current) chainTo(hit.month, hit.week);
     }
   };
@@ -184,7 +219,7 @@ export default function CalendarCanvas() {
           {level >= 2 && (
             <>
               <span className="cc-sep">›</span>
-              <button className="cc-crumb current" onClick={() => tweenTo(2)}>Week {week + 1}</button>
+              <button className="cc-crumb current" onClick={() => tweenTo(2)}>Week {Math.round(week) + 1}</button>
             </>
           )}
         </nav>
