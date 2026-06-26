@@ -52,15 +52,27 @@ function yearFrame(m: number, vp: Vp): Frame {
   return { x0: LABEL_W, dayW, bandY, trackH, opacity: 1 };
 }
 
-function monthFrame(m: number, focus: number, vp: Vp): Frame {
-  const dayW = (vp.w - LABEL_W - 16) / 31; // same day width as year → vertical-only transition
-  const trackH = 30;
-  // Months are spaced one viewport apart relative to the focus (which sits at the
-  // top). So at Month level only the focus is on screen, and during the zoom the
-  // others translate out uniformly — keeping their relative order/spacing — instead
-  // of collapsing toward a single off-screen point.
-  const bandY = TOP_PAD + (m - focus) * vp.h;
-  return { x0: LABEL_W, dayW, bandY, trackH, opacity: 1 };
+const MONTH_TRACK_H = 30;
+// Height the day-detail occupies below the focus band at Month level.
+function detailFullH(vp: Vp): number { return vp.h - TOP_PAD - 4 * MONTH_TRACK_H - 30; }
+
+// Year→Month is an ACCORDION, not a camera zoom: the focus lane rises to the top
+// and grows; a detail space opens BELOW it (pushing the months below downward).
+// The months above and below keep their year spacing among themselves (~15px) —
+// they slide off the top / get pushed off the bottom without spreading or clumping.
+function yearToMonthFrame(m: number, t: number, focus: number, vp: Vp): Frame {
+  const yf = yearFrame(m, vp);
+  const yfocus = yearFrame(focus, vp);
+  const trackH = m === focus ? lerp(yf.trackH, MONTH_TRACK_H, t) : yf.trackH;
+  // scroll the whole stack so the focus rises to the top
+  const scroll = (yfocus.bandY - TOP_PAD) * t;
+  let bandY = yf.bandY - scroll;
+  if (m > focus) {
+    // open the focus band's growth + the expanding detail below the focus
+    const focusGrow = 4 * lerp(yfocus.trackH, MONTH_TRACK_H, t) - 4 * yfocus.trackH;
+    bandY += focusGrow + detailFullH(vp) * t;
+  }
+  return { x0: LABEL_W, dayW: yf.dayW, bandY, trackH, opacity: 1 };
 }
 
 // Weeks are Sunday-aligned calendar weeks. weekStartDOM may be ≤0 or >daysInMonth
@@ -92,8 +104,10 @@ function blend(a: Frame, b: Frame, t: number): Frame {
 }
 
 function frameFor(m: number, z: number, focus: number, week: number, vp: Vp): Frame {
-  if (z <= 1) return blend(yearFrame(m, vp), monthFrame(m, focus, vp), easeInOut(clamp(z, 0, 1)));
-  return blend(monthFrame(m, focus, vp), weekFrame(m, focus, week, vp), easeInOut(clamp(z - 1, 0, 1)));
+  if (z <= 1) return yearToMonthFrame(m, easeInOut(clamp(z, 0, 1)), focus, vp);
+  // month→week: blend the settled Month layout with the Week layout
+  const mf = yearToMonthFrame(m, 1, focus, vp);
+  return blend(mf, weekFrame(m, focus, week, vp), easeInOut(clamp(z - 1, 0, 1)));
 }
 
 export function weeksInMonth(m: number): number {
