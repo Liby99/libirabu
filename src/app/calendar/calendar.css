@@ -16,7 +16,7 @@
 
 /* Every positioned calendar primitive. Only geometry/opacity/colors are inline;
    all structural styling lives in the classes below. */
-.cc-item { position: absolute; }
+.cc-item { position: absolute; box-sizing: border-box; }
 
 /* Track lane: no fill — dashed day-cell verticals + dotted track separator.
    The horizontal bg stripe (drawn on top) chops the verticals into dashes.
@@ -37,11 +37,14 @@
 .cc-monthlabel {
   display: flex; align-items: center; justify-content: center;
   writing-mode: vertical-lr;
-  text-transform: uppercase;
+  text-transform: lowercase;
   letter-spacing: 0.08em;
   font-weight: 600;
   color: var(--accent-dark);
   pointer-events: none;
+  border-top: 1.5px solid var(--accent-dark);
+  border-bottom: 1.5px solid var(--accent-dark);
+  border-right: 2px solid var(--accent-dark);
 }
 .cc-daylabel { display: flex; align-items: center; color: var(--accent-grey); pointer-events: none; }
 .cc-daylabel.cc-center { justify-content: center; }
@@ -55,17 +58,25 @@
 }
 
 .cc-track-edit { position: absolute; inset: 0; z-index: 10; }
-.cc-track-input {
+.cc-track-cell {
   position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  border-top: 1px dotted var(--accent-grey);
+}
+.cc-tc-first { border-top: 1.5px solid var(--accent-dark); }
+.cc-tc-last { border-bottom: 1.5px solid var(--accent-dark); }
+.cc-track-input {
+  width: 100%; height: 100%;
   border: none;
-  border-bottom: 1px dotted var(--accent-grey);
   background: transparent;
   color: var(--accent-dark);
-  font-size: 0.8rem;
-  padding: 0 2px;
+  font-size: 0.82rem;
+  padding: 0 6px;
   outline: none;
 }
-.cc-track-input:focus { border-bottom: 1px solid var(--highlight); }
+.cc-track-input:focus { background: var(--highlight-bg); }
 .cc-track-input::placeholder { color: var(--accent-grey); }
 
 .cc-layer { position: absolute; inset: 0; }

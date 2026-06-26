@@ -3,9 +3,11 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll, yearMonthBandY,
-  monthAtPoint, weekAtPointInMonth, dayAtPointInWeek, monthOutlineRect, weekOutlineRect,
+  monthAtPoint, weekAtPointInMonth, dayAtPointInWeek,
   LABEL_W, MNAME_W, TRACK_H, TOP_PAD,
 } from "./scene";
+
+const RIGHT_PAD = 24; // gap between the track inputs and the grid lane
 import { MONTH_LONG } from "./labels";
 
 const TRACK_KEY = "libirabu-calendar-tracknames";
@@ -53,20 +55,26 @@ export default function CalendarCanvas() {
   // gesturechange past the settle watchdog and snapped the zoom mid-flight).
   const trackInputs = useMemo(() => {
     if (vp.w === 0) return null;
+    const left = MNAME_W + 2;
+    const width = LABEL_W - MNAME_W - 2 - RIGHT_PAD;
     return Array.from({ length: 12 }, (_, m) => m).map((m) => {
       const by = yearMonthBandY(m, vp, scrollY);
       if (by + TRACK_H * 4 < 0 || by > vp.h) return null;
       return [0, 1, 2, 3].map((i) => (
-        <input
+        <div
           key={`tn-${m}-${i}`}
-          className="cc-track-input"
-          style={{ top: by + i * TRACK_H, left: MNAME_W + 4, width: LABEL_W - MNAME_W - 12, height: TRACK_H }}
-          value={trackNames[m]?.[i] ?? ""}
-          placeholder="track…"
-          onChange={(e) => editTrack(m, i, e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        />
+          className={`cc-track-cell${i === 0 ? " cc-tc-first" : ""}${i === 3 ? " cc-tc-last" : ""}`}
+          style={{ top: by + i * TRACK_H, left, width, height: TRACK_H }}
+        >
+          <input
+            className="cc-track-input"
+            value={trackNames[m]?.[i] ?? ""}
+            placeholder="track…"
+            onChange={(e) => editTrack(m, i, e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          />
+        </div>
       ));
     });
   }, [vp, scrollY, trackNames, editTrack]);
@@ -74,17 +82,23 @@ export default function CalendarCanvas() {
   // Focused month's track names, pinned to the band at the top — shown in month/week
   // views (where only the focus month is visible), like frozen spreadsheet columns.
   const focusTrackInputs = useMemo(() => {
+    const left = MNAME_W + 2;
+    const width = LABEL_W - MNAME_W - 2 - RIGHT_PAD;
     return [0, 1, 2, 3].map((i) => (
-      <input
+      <div
         key={`ftn-${i}`}
-        className="cc-track-input"
-        style={{ top: TOP_PAD + i * TRACK_H, left: MNAME_W + 4, width: LABEL_W - MNAME_W - 12, height: TRACK_H }}
-        value={trackNames[focus]?.[i] ?? ""}
-        placeholder="track…"
-        onChange={(e) => editTrack(focus, i, e.target.value)}
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-      />
+        className={`cc-track-cell${i === 0 ? " cc-tc-first" : ""}${i === 3 ? " cc-tc-last" : ""}`}
+        style={{ top: TOP_PAD + i * TRACK_H, left, width, height: TRACK_H }}
+      >
+        <input
+          className="cc-track-input"
+          value={trackNames[focus]?.[i] ?? ""}
+          placeholder="track…"
+          onChange={(e) => editTrack(focus, i, e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        />
+      </div>
     ));
   }, [focus, trackNames, editTrack]);
 
@@ -314,10 +328,6 @@ export default function CalendarCanvas() {
   const scene = buildScene(z, focus, week, vp, scrollY);
   const level = z < 0.5 ? 0 : z < 1.5 ? 1 : 2;
 
-  let outline: { x: number; y: number; w: number; h: number } | null = null;
-  if (z < 0.5 && hoverMonth != null) outline = monthOutlineRect(hoverMonth, vp, scrollY);
-  else if (z >= 0.6 && z <= 1.4 && hoverWeek != null) outline = weekOutlineRect(focus, hoverWeek, vp);
-
   const hint =
     level === 0 ? (hoverMonth != null ? "click to open month · or pinch to zoom" : "pinch to zoom in")
     : level === 1 ? (hoverWeek != null ? "click to open week · or pinch to zoom" : "hover a week · pinch to zoom")
@@ -373,12 +383,6 @@ export default function CalendarCanvas() {
           {focusTrackInputs}
         </div>
       </div>
-
-      {outline && (
-        <svg className="cc-svg" width={vp.w} height={vp.h}>
-          <rect x={outline.x} y={outline.y} width={outline.w} height={outline.h} className="cc-outline" />
-        </svg>
-      )}
     </div>
   );
 }
