@@ -7,7 +7,45 @@
   cursor: default;
   user-select: none;
   isolation: isolate; /* contained stacking context for item z-indexes */
+
+  /* line colors used across calendar items */
+  --cc-grid: rgba(76, 45, 20, 0.24);   /* faint dashed cell borders */
+  --cc-grid-top: rgba(76, 45, 20, 0.28); /* dotted track separators */
+  --cc-line: #4c2d14;                   /* solid separators / dashes */
 }
+
+/* Every positioned calendar primitive. Only geometry/opacity/colors are inline;
+   all structural styling lives in the classes below. */
+.cc-item { position: absolute; }
+
+/* Track lane: no fill — dashed day-cell verticals + dotted track separator.
+   The horizontal bg stripe (drawn on top) chops the verticals into dashes.
+   --dayw is set inline (depends on the month's day width). */
+.cc-row {
+  background-image:
+    repeating-linear-gradient(to bottom, var(--background) 0 3px, rgba(0, 0, 0, 0) 3px 7px),
+    repeating-linear-gradient(to right, var(--cc-grid) 0 1px, rgba(0, 0, 0, 0) 1px var(--dayw));
+  border-top: 1px dotted var(--cc-grid-top);
+}
+
+/* Grid lines: solid separator by default; dashed cell borders via modifiers. */
+.cc-gridline { background: var(--cc-line); }
+.cc-gridline.cc-dash-v { background: transparent; border-left: 1px dashed var(--cc-line); }
+.cc-gridline.cc-dash-h { background: transparent; border-top: 1px dashed var(--cc-line); }
+
+/* Labels */
+.cc-monthlabel {
+  display: flex; align-items: center; justify-content: center;
+  writing-mode: vertical-lr;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--accent-dark);
+  pointer-events: none;
+}
+.cc-daylabel { display: flex; align-items: center; color: var(--accent-grey); pointer-events: none; }
+.cc-daylabel.cc-center { justify-content: center; }
+.cc-daylabel.cc-left { justify-content: flex-start; }
 
 .cc-gutter {
   position: absolute;
@@ -40,14 +78,19 @@
   stroke-dasharray: 4 3;
 }
 
+/* The only colored element: transparent fill + solid colored border (vars set
+   inline), rounded corners. No will-change — too many events would each force a
+   compositor layer. */
 .cc-event {
-  border-radius: 4px; /* rounded — only individual events get rounded corners */
+  border-radius: 4px;
   display: flex;
   align-items: center;
   padding: 0 4px;
   overflow: hidden;
   white-space: nowrap;
-  will-change: transform;
+  background: var(--ev-fill);
+  border: 1px solid var(--ev-color);
+  color: var(--accent-dark);
 }
 .cc-event span { overflow: hidden; text-overflow: ellipsis; }
 

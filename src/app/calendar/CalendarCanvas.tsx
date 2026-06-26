@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll, yearMonthBandY,
   monthAtPoint, weekAtPointInMonth, dayAtPointInWeek, monthOutlineRect, weekOutlineRect,
@@ -383,86 +383,43 @@ export default function CalendarCanvas() {
   );
 }
 
-function ItemView({ it }: { it: Item }) {
-  const base: React.CSSProperties = {
-    position: "absolute",
-    transform: `translate3d(${it.x}px, ${it.y}px, 0)`,
+// Renders one calendar primitive. Structural styling lives in CSS classes
+// (calendar.css); only per-item geometry, opacity, and dynamic colors (as CSS
+// custom properties) are inline — so each element is inspectable. 2D translate
+// (not translate3d) avoids forcing a GPU layer per element.
+const ItemView = memo(function ItemView({ it }: { it: Item }) {
+  const style = {
+    transform: `translate(${it.x}px, ${it.y}px)`,
     width: it.w,
     height: it.h,
     opacity: it.opacity,
     zIndex: it.z,
-  };
+  } as React.CSSProperties;
 
   if (it.kind === "row") {
-    // No fill, no track color — just dashed day-cell verticals + a dotted track
-    // separator on top. The horizontal bg-colored stripe (drawn first/on top)
-    // chops the solid verticals into dashes.
-    const dayW = it.cols ? it.w / it.cols : it.w;
-    const grid = "rgba(76, 45, 20, 0.24)";
-    return (
-      <div
-        style={{
-          ...base,
-          backgroundImage:
-            `repeating-linear-gradient(to bottom, var(--background) 0 3px, rgba(0,0,0,0) 3px 7px), ` +
-            `repeating-linear-gradient(to right, ${grid} 0 1px, rgba(0,0,0,0) 1px ${dayW}px)`,
-          borderTop: "1px dotted rgba(76, 45, 20, 0.28)",
-        }}
-      />
-    );
+    return <div className="cc-item cc-row" style={{ ...style, ["--dayw"]: `${it.cols ? it.w / it.cols : it.w}px` } as React.CSSProperties} />;
   }
 
   if (it.kind === "gridline") {
-    if (it.dashed) {
-      const vertical = it.h >= it.w;
-      return (
-        <div
-          style={{
-            ...base,
-            background: "transparent",
-            borderLeft: vertical ? `1px dashed ${it.color}` : undefined,
-            borderTop: vertical ? undefined : `1px dashed ${it.color}`,
-          }}
-        />
-      );
-    }
-    return <div style={{ ...base, background: it.color }} />; // solid separator
+    const dash = it.dashed ? (it.h >= it.w ? " cc-dash-v" : " cc-dash-h") : "";
+    return <div className={`cc-item cc-gridline${dash}`} style={style} />;
   }
 
   if (it.kind === "event") {
-    // The ONLY colored thing: transparent fill + solid colored border, rounded.
     return (
-      <div
-        className="cc-event"
-        style={{
-          ...base,
-          background: hexToRgba(it.color!, 0.18),
-          border: `1px solid ${it.color}`,
-          color: "var(--accent-dark)",
-        }}
-      >
+      <div className="cc-item cc-event" style={{ ...style, ["--ev-fill"]: hexToRgba(it.color!, 0.18), ["--ev-color"]: it.color } as React.CSSProperties}>
         {it.text && <span style={{ fontSize: it.fontSize }}>{it.text}</span>}
       </div>
     );
   }
 
-  return (
-    <div
-      style={{
-        ...base,
-        fontSize: it.fontSize,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: it.align === "center" ? "center" : "flex-start",
-        color: it.kind === "monthLabel" ? "var(--accent-dark)" : "var(--accent-grey)",
-        fontWeight: it.kind === "monthLabel" ? 600 : 400,
-        pointerEvents: "none",
-        textTransform: it.kind === "monthLabel" ? "uppercase" : "none",
-        letterSpacing: it.kind === "monthLabel" ? "0.08em" : 0,
-        writingMode: it.kind === "monthLabel" ? "vertical-lr" : undefined,
-      }}
-    >
-      {it.text}
-    </div>
-  );
-}
+  const cls = it.kind === "monthLabel" ? "cc-monthlabel" : `cc-daylabel ${it.align === "center" ? "cc-center" : "cc-left"}`;
+  return <div className={`cc-item ${cls}`} style={{ ...style, fontSize: it.fontSize } as React.CSSProperties}>{it.text}</div>;
+}, (p, n) => {
+  // Skip re-render when this item's values are unchanged (e.g. a render triggered
+  // only by editing a track name shouldn't re-render every calendar item).
+  const a = p.it, b = n.it;
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && a.opacity === b.opacity &&
+    a.z === b.z && a.color === b.color && a.text === b.text && a.fontSize === b.fontSize &&
+    a.dashed === b.dashed && a.cols === b.cols && a.align === b.align && a.kind === b.kind;
+});
