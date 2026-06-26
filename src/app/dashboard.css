@@ -288,3 +288,23 @@
 .board-card.st-DONE .task-title { text-decoration: line-through; color: var(--accent-grey); }
 .board-card-meta { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 @media (max-width: 800px) { .board { grid-template-columns: 1fr 1fr; } }
+
+/* ── Phase 3: papers / proposals / keys ────────────────────── */
+.links-cell a { color: var(--highlight); text-decoration: none; margin-right: 8px; font-size: 0.8rem; }
+.links-cell a:hover { text-decoration: underline; }
+.mini-select {
+  border: 1px solid var(--accent-bg-dark); border-radius: 5px;
+  background: var(--background); color: var(--accent-dark);
+  font-size: 0.72rem; padding: 2px 4px;
+}
+.author-list { padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+.author-list li { display: flex; align-items: center; gap: 8px; }
+.author-list a { color: var(--accent-dark); text-decoration: none; }
+.author-list a:hover { color: var(--highlight); }
+.row-dim { opacity: 0.5; }
+.mono { font-family: var(--font-geist-mono), monospace; font-size: 0.8rem; }
+.secret { background: var(--highlight-bg); padding: 1px 5px; border-radius: 4px; user-select: all; }
+.link-btn {
+  border: none; background: none; color: var(--highlight);
+  cursor: pointer; font-size: 0.72rem; margin-left: 8px; text-decoration: underline;
+}

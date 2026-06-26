@@ -11,6 +11,9 @@ const LINKS: { href: string; label: string }[] = [
   { href: "/projects", label: "Projects" },
   { href: "/tasks", label: "Tasks" },
   { href: "/people", label: "People" },
+  { href: "/papers", label: "Papers" },
+  { href: "/proposals", label: "Proposals" },
+  { href: "/keys", label: "Keys" },
 ];
 
 export default function AppNav() {

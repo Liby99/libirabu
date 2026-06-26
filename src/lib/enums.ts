@@ -15,3 +15,16 @@ export const EVENT_TYPES = [
   "DEADLINE", "MEETING", "CLASS", "TRAVEL",
   "CONFERENCE", "REVIEW", "FOCUS", "OTHER",
 ] as const;
+
+export const PAPER_STATUSES = [
+  "IN_PREP", "SUBMITTED", "UNDER_REVIEW", "MAJOR_REV",
+  "ACCEPTED", "PUBLISHED", "REJECTED",
+] as const;
+
+export const PROPOSAL_STATUSES = [
+  "DRAFTING", "SUBMITTED", "UNDER_REVIEW", "AWARDED", "DECLINED",
+] as const;
+
+export const PROPOSAL_ROLES = ["PI", "CO_PI", "SENIOR_PERSONNEL"] as const;
+
+export const APIKEY_STATUSES = ["ACTIVE", "REVOKED", "EXPIRED"] as const;

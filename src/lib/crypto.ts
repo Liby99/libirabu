@@ -22,15 +22,19 @@ function getKey(): Buffer {
   return key;
 }
 
-/** Encrypt a UTF-8 string (or Buffer) → packed Buffer suitable for a Bytes column. */
-export function encrypt(plain: string | Buffer): Buffer {
+/** Encrypt a UTF-8 string (or Buffer) → packed bytes suitable for a Prisma Bytes column. */
+export function encrypt(plain: string | Buffer): Uint8Array<ArrayBuffer> {
   const key = getKey();
   const iv = crypto.randomBytes(IV_LEN);
   const cipher = crypto.createCipheriv(ALGO, key, iv);
   const data = typeof plain === "string" ? Buffer.from(plain, "utf8") : plain;
   const ciphertext = Buffer.concat([cipher.update(data), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return Buffer.concat([iv, tag, ciphertext]);
+  // Return a fresh ArrayBuffer-backed Uint8Array — Prisma Bytes expects this, not Buffer.
+  const packed = Buffer.concat([iv, tag, ciphertext]);
+  const out = new Uint8Array(packed.byteLength);
+  out.set(packed);
+  return out;
 }
 
 /** Decrypt a packed Buffer (from encrypt) → Buffer. */
