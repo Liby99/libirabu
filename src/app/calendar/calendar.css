@@ -59,7 +59,7 @@
   writing-mode: vertical-lr;
   text-transform: lowercase;
   letter-spacing: 0.08em;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--accent-dark);
   pointer-events: none;
   border-bottom: 1px solid var(--cc-sep);
