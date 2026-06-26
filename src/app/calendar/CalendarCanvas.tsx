@@ -57,12 +57,13 @@ export default function CalendarCanvas() {
     tweenRef.current = requestAnimationFrame(step);
   }, []);
 
-  // Click a spillover day → zoom all the way out to year, then back into that week.
+  // Click a spillover day → zoom all the way out to year, briefly hold, then
+  // zoom back into that week (slow enough to read the motion).
   const chainTo = useCallback((newMonth: number, newWeek: number) => {
-    tweenTo(0, 380, () => {
+    tweenTo(0, 800, () => {
       setFocus(newMonth);
       setWeek(newWeek);
-      tweenTo(2, 560);
+      window.setTimeout(() => tweenTo(2, 1050), 200);
     });
   }, [tweenTo]);
 
@@ -78,13 +79,16 @@ export default function CalendarCanvas() {
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
+    let pending: number | null = null; // coalesce many pinch events → one setЗ/frame
+    let raf = 0;
+    const flush = () => { raf = 0; if (pending != null) { setZ(pending); pending = null; } };
     const onWheel = (e: WheelEvent) => {
       // Only hijack the trackpad PINCH gesture (delivered as a ctrlKey wheel event);
       // leave plain scrolling alone.
       if (!e.ctrlKey) return;
       e.preventDefault();
       cancelTween();
-      const cur = zRef.current;
+      const cur = pending != null ? pending : zRef.current;
       const rect = el.getBoundingClientRect();
       const px = e.clientX - rect.left, py = e.clientY - rect.top;
       const vpNow = { w: el.clientWidth, h: el.clientHeight };
@@ -95,11 +99,12 @@ export default function CalendarCanvas() {
         const w = weekAtPointInMonth(px, focusRef.current, vpNow);
         if (w != null) setWeek(w);
       }
-      setZ(Math.max(0, Math.min(2, cur - e.deltaY * 0.01)));
+      pending = Math.max(0, Math.min(2, cur - e.deltaY * 0.01));
+      if (!raf) raf = requestAnimationFrame(flush);
       scheduleSnap();
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    return () => { el.removeEventListener("wheel", onWheel); if (raf) cancelAnimationFrame(raf); };
   }, [scheduleSnap]);
 
   useEffect(() => {

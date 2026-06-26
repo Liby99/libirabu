@@ -123,47 +123,51 @@ export function buildScene(
 ): Scene {
   const items: Item[] = [];
 
+  // Non-focused months fade out quickly (gone by z≈0.4) so most transition frames
+  // only draw the focused month — the main perf win for the year→month zoom.
+  const offFade = clamp(1 - z / 0.4, 0, 1);
+
   for (let m = 0; m < 12; m++) {
     const f = frameFor(m, z, focus, week, vp);
-    if (f.opacity < 0.02) continue;
+    const op = m === focus ? f.opacity : Math.min(f.opacity, offFade);
+    if (op < 0.02) continue;
     const dim = daysInMonth(m);
     const bandW = dim * f.dayW;
 
-    // month label
     items.push({
       key: `ml-${m}`, kind: "monthLabel", x: 6, y: f.bandY, w: LABEL_W - 8, h: f.trackH * 4,
-      opacity: f.opacity, text: MONTH_NAMES[m], fontSize: clamp(f.trackH * 0.5, 9, 16), align: "center", z: 3,
+      opacity: op, text: MONTH_NAMES[m], fontSize: clamp(f.trackH * 0.5, 9, 16), align: "center", z: 3,
     });
 
-    // track rows (with gridline background drawn by the component)
     for (let t = 0; t < 4; t++) {
       items.push({
         key: `row-${m}-${t}`, kind: "row",
         x: f.x0, y: f.bandY + t * f.trackH, w: bandW, h: f.trackH,
-        opacity: f.opacity, color: TRACKS[t].color, cols: dim, z: 1,
+        opacity: op, color: TRACKS[t].color, cols: dim, z: 1,
       });
     }
-
   }
 
   // events (drawn after rows so they sit on top)
   for (const ev of EVENTS) {
     const f = frameFor(ev.month, z, focus, week, vp);
-    if (f.opacity < 0.02) continue;
+    const op = ev.month === focus ? f.opacity : Math.min(f.opacity, offFade);
+    if (op < 0.02) continue;
     const x = f.x0 + (ev.start - 1) * f.dayW;
     const w = (ev.end - ev.start + 1) * f.dayW;
-    // hide events horizontally outside the viewport in week view (cheap cull)
-    if (x + w < -40 || x > vp.w + 40) continue;
+    if (x + w < -40 || x > vp.w + 40) continue; // cull off-screen (week view)
     items.push({
       key: `ev-${ev.id}`, kind: "event",
       x: x + 1, y: f.bandY + ev.track * f.trackH + 1, w: Math.max(2, w - 2), h: f.trackH - 2,
-      opacity: f.opacity, color: TRACKS[ev.track].color,
+      opacity: op, color: TRACKS[ev.track].color,
       text: f.dayW > 14 ? ev.title : undefined, fontSize: 11, z: 2,
     });
   }
 
   // ── Header rows (focused month) + 0:00–24:00 day-detail timeline ─────────
-  const reveal = clamp(z, 0, 1); // 0 in year, 1 by month, stays 1 in week
+  // Hidden until we're nearly at Month view, then fades in — avoids drawing the
+  // ~150 detail items during the bulk of the year→month zoom.
+  const reveal = z < 0.82 ? 0 : clamp((z - 0.82) / 0.18, 0, 1);
   if (reveal > 0.02) {
     const f = frameFor(focus, z, focus, week, vp);
     const dim = daysInMonth(focus);
