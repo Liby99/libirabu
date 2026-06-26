@@ -287,7 +287,7 @@ export default function CalendarCanvas() {
 
       {outline && (
         <svg className="cc-svg" width={vp.w} height={vp.h}>
-          <rect x={outline.x} y={outline.y} width={outline.w} height={outline.h} rx={4} className="cc-outline" />
+          <rect x={outline.x} y={outline.y} width={outline.w} height={outline.h} className="cc-outline" />
         </svg>
       )}
     </div>
@@ -304,26 +304,53 @@ function ItemView({ it }: { it: Item }) {
   };
 
   if (it.kind === "row") {
+    // No fill, no track color — just dashed day-cell verticals + a dotted track
+    // separator on top. The horizontal bg-colored stripe (drawn first/on top)
+    // chops the solid verticals into dashes.
     const dayW = it.cols ? it.w / it.cols : it.w;
+    const grid = "rgba(76, 45, 20, 0.24)";
     return (
       <div
         style={{
           ...base,
-          background: hexToRgba(it.color!, 0.1),
-          backgroundImage: `repeating-linear-gradient(to right, ${hexToRgba("#4c2d14", 0.12)} 0 1px, transparent 1px ${dayW}px)`,
-          borderTop: `1px solid ${hexToRgba("#4c2d14", 0.12)}`,
+          backgroundImage:
+            `repeating-linear-gradient(to bottom, var(--background) 0 3px, rgba(0,0,0,0) 3px 7px), ` +
+            `repeating-linear-gradient(to right, ${grid} 0 1px, rgba(0,0,0,0) 1px ${dayW}px)`,
+          borderTop: "1px dotted rgba(76, 45, 20, 0.28)",
         }}
       />
     );
   }
 
   if (it.kind === "gridline") {
-    return <div style={{ ...base, background: it.color }} />;
+    if (it.dashed) {
+      const vertical = it.h >= it.w;
+      return (
+        <div
+          style={{
+            ...base,
+            background: "transparent",
+            borderLeft: vertical ? `1px dashed ${it.color}` : undefined,
+            borderTop: vertical ? undefined : `1px dashed ${it.color}`,
+          }}
+        />
+      );
+    }
+    return <div style={{ ...base, background: it.color }} />; // solid separator
   }
 
   if (it.kind === "event") {
+    // The ONLY colored thing: transparent fill + solid colored border, rounded.
     return (
-      <div className="cc-event" style={{ ...base, background: it.color }}>
+      <div
+        className="cc-event"
+        style={{
+          ...base,
+          background: hexToRgba(it.color!, 0.18),
+          border: `1px solid ${it.color}`,
+          color: "var(--accent-dark)",
+        }}
+      >
         {it.text && <span style={{ fontSize: it.fontSize }}>{it.text}</span>}
       </div>
     );

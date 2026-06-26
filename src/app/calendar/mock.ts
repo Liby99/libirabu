@@ -9,11 +9,12 @@ export interface Track {
   color: string;
 }
 
+// GridCal's event-sticker palette (used transparently for fills, solid for borders).
 export const TRACKS: Track[] = [
-  { id: 0, name: "Teaching", color: "#df8548" }, // warm orange
-  { id: 1, name: "Research", color: "#58a996" }, // teal
-  { id: 2, name: "Service", color: "#dfb656" }, // gold
-  { id: 3, name: "Travel", color: "#b0616a" }, // muted red
+  { id: 0, name: "Teaching", color: "#fda97c" }, // red/orange
+  { id: 1, name: "Research", color: "#88c3b5" }, // blue/teal
+  { id: 2, name: "Service", color: "#efd086" }, // yellow
+  { id: 3, name: "Travel", color: "#bbce82" }, // green
 ];
 
 export interface Ev {

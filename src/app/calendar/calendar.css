@@ -19,14 +19,12 @@
 }
 
 .cc-event {
-  border-radius: 3px;
-  color: #fff;
+  border-radius: 4px; /* rounded — only individual events get rounded corners */
   display: flex;
   align-items: center;
   padding: 0 4px;
   overflow: hidden;
   white-space: nowrap;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
   will-change: transform;
 }
 .cc-event span { overflow: hidden; text-overflow: ellipsis; }

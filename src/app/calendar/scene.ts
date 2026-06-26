@@ -19,6 +19,7 @@ export interface Item {
   fontSize?: number;
   align?: "left" | "center";
   cols?: number; // for row gridlines (= days in month)
+  dashed?: boolean; // gridline style: dashed (cell borders) vs solid (separators)
 }
 
 export interface Scene {
@@ -230,7 +231,7 @@ export function buildScene(
     if (hasTL) {
       for (let hr = 0; hr <= 24; hr += wide ? 2 : 6) {
         const y = tlTop + hr * hourH;
-        items.push({ key: `hl-${hr}`, kind: "gridline", x: LABEL_W, y, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * 0.16, color: "#4c2d14", z: 0 });
+        items.push({ key: `hl-${hr}`, kind: "gridline", x: LABEL_W, y, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * 0.18, color: "#4c2d14", z: 0, dashed: true });
         items.push({ key: `ht-${hr}`, kind: "dayLabel", x: 2, y: y - 7, w: LABEL_W - 8, h: 14, opacity: reveal * 0.7, text: `${String(hr).padStart(2, "0")}:00`, fontSize: 9, align: "center", z: 4 });
       }
     }
@@ -248,7 +249,7 @@ export function buildScene(
       // weekday just below the band
       items.push({ key: `wd-${dom}`, kind: "dayLabel", x, y: bandBottom + 2, w: colW, h: 14, opacity: op * 0.9, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4 });
       if (!hasTL) return;
-      items.push({ key: `tdv-${dom}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: op * 0.4, color: "#4c2d14", z: 0 });
+      items.push({ key: `tdv-${dom}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: op * 0.45, color: "#4c2d14", z: 0, dashed: true });
       for (const ev of TIMED) {
         if (ev.month !== r.month || ev.day !== r.day) continue;
         items.push({
