@@ -32,7 +32,6 @@ export default function CalendarCanvas() {
   const tweenRef = useRef<number | null>(null);
   const weekTweenRef = useRef<number | null>(null);
   const snapRef = useRef<number | null>(null);
-  const lastWheelTs = useRef(0);
 
   useLayoutEffect(() => {
     const el = wrapRef.current;
@@ -100,20 +99,6 @@ export default function CalendarCanvas() {
     }
   }, [tweenTo, tweenWeek]);
 
-  // Idle-based snap — used only for horizontal week scroll (two-finger pan has no
-  // gesture end event). Pinch-zoom snaps on gestureend instead (see below).
-  const scheduleSnap = useCallback(() => {
-    clearSnap();
-    const IDLE = 350;
-    const tick = () => {
-      const since = performance.now() - lastWheelTs.current;
-      if (since < IDLE) { snapRef.current = window.setTimeout(tick, IDLE - since + 5); return; }
-      snapRef.current = null;
-      snapNow();
-    };
-    snapRef.current = window.setTimeout(tick, IDLE);
-  }, [snapNow]);
-
   // wheel → continuous zoom; pick month in year phase, week in month phase
   // Safari trackpad PINCH → zoom, via native gesture events. e.scale is cumulative
   // (1 at start). We snap ONLY on gestureend (finger lifted), so an in-progress
@@ -159,29 +144,43 @@ export default function CalendarCanvas() {
     };
   }, [snapNow]);
 
-  // Two-finger horizontal scroll → page weeks (week view only). No gesture-end
-  // signal for pan, so this uses idle-based snap.
+  // Two-finger horizontal scroll → page weeks, iPhone-homescreen style: the week
+  // follows the fingers during the swipe and COMMITS immediately on a decisive
+  // drag (past ~half) or a flick — snapping back if it was only a nudge. There's no
+  // pan "lift" event, so after a commit we absorb the remaining momentum events.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    let pendingW: number | null = null, rafW = 0;
-    const flushW = () => { rafW = 0; if (pendingW != null) { setWeek(pendingW); pendingW = null; } };
+    let session = false, committed = false, startWeek = 0, curWeek = 0;
+    let idleTimer = 0;
+    const lastIdx = () => weeksInMonth(focusRef.current) - 1;
+    const endSession = () => {
+      if (session && !committed) { cancelWeekTween(); tweenWeek(Math.max(0, Math.min(lastIdx(), startWeek)), 220); }
+      session = false; committed = false;
+    };
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) return; // pinch is handled by gesture events
-      if (zRef.current >= 1.5 && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-        e.preventDefault();
-        cancelWeekTween();
-        lastWheelTs.current = performance.now();
-        const lastWeek = weeksInMonth(focusRef.current) - 1;
-        const curW = pendingW != null ? pendingW : weekRef.current;
-        pendingW = Math.max(0, Math.min(lastWeek, curW + e.deltaX / el.clientWidth));
-        if (!rafW) rafW = requestAnimationFrame(flushW);
-        scheduleSnap();
+      if (e.ctrlKey) return; // pinch handled via gesture events
+      if (zRef.current < 1.5 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(endSession, 90);
+      if (!session) { session = true; committed = false; startWeek = Math.round(weekRef.current); curWeek = weekRef.current; }
+      if (committed) return; // absorb momentum after the commit
+      cancelWeekTween();
+      const last = lastIdx();
+      curWeek = Math.max(0, Math.min(last, curWeek + e.deltaX / el.clientWidth));
+      setWeek(curWeek);
+      const drag = curWeek - startWeek;
+      const flick = Math.abs(e.deltaX) > 12;
+      if (Math.abs(drag) >= 0.5 || (flick && Math.abs(drag) > 0.06)) {
+        const dir = drag !== 0 ? Math.sign(drag) : (e.deltaX > 0 ? 1 : -1);
+        committed = true;
+        tweenWeek(Math.max(0, Math.min(last, startWeek + dir)), 300);
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => { el.removeEventListener("wheel", onWheel); if (rafW) cancelAnimationFrame(rafW); };
-  }, [scheduleSnap]);
+    return () => { el.removeEventListener("wheel", onWheel); clearTimeout(idleTimer); };
+  }, [tweenWeek]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") tweenTo(0); };
