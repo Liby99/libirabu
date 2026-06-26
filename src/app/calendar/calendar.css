@@ -43,6 +43,13 @@
 .cc-gridline.cc-dashed-v { background: transparent; border-left: 1px dashed var(--cc-line); }
 .cc-gridline.cc-dashed-h { background: transparent; border-top: 1px dashed var(--cc-line); }
 
+/* Dimmed area for days past a month's length (e.g. Feb 29–31): a faint diagonal
+   hatch over a light tint, so the grid cells still show but read as inactive. */
+.cc-dim {
+  background-color: var(--accent-bg-dark);
+  background-image: repeating-linear-gradient(45deg, var(--accent-grey) 0 1px, transparent 1px 6px);
+}
+
 /* Labels */
 .cc-monthlabel {
   display: flex; align-items: center; justify-content: center;

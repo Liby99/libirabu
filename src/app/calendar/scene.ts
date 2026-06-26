@@ -10,7 +10,7 @@ export interface Vp { w: number; h: number }
 
 export interface Item {
   key: string;
-  kind: "row" | "event" | "monthLabel" | "dayLabel" | "quarterLabel" | "gridline";
+  kind: "row" | "event" | "monthLabel" | "dayLabel" | "quarterLabel" | "gridline" | "dim";
   x: number; y: number; w: number; h: number;
   opacity: number;
   z: number; // stacking
@@ -173,7 +173,7 @@ export function buildScene(
     const f = frameFor(m, z, focus, week, vp, scrollY);
     if (f.opacity < 0.02 || !onScreen(f)) continue;
     const dim = daysInMonth(m);
-    const bandW = dim * f.dayW;
+    const fullW = 31 * f.dayW; // always draw all 31 grid cells
 
     items.push({
       key: `ml-${m}`, kind: "monthLabel", x: 0, y: f.bandY, w: MNAME_W, h: f.trackH * 4,
@@ -183,13 +183,21 @@ export function buildScene(
     for (let t = 0; t < 4; t++) {
       items.push({
         key: `row-${m}-${t}`, kind: "row",
-        x: f.x0, y: f.bandY + t * f.trackH, w: bandW, h: f.trackH,
-        opacity: f.opacity, color: TRACKS[t].color, cols: dim, z: 1,
+        x: f.x0, y: f.bandY + t * f.trackH, w: fullW, h: f.trackH,
+        opacity: f.opacity, color: TRACKS[t].color, cols: 31, z: 1,
+      });
+    }
+    // dim the cells past the month's actual length (e.g. Feb 29–31)
+    if (dim < 31) {
+      items.push({
+        key: `dim-${m}`, kind: "dim",
+        x: f.x0 + dim * f.dayW, y: f.bandY, w: (31 - dim) * f.dayW, h: 4 * f.trackH,
+        opacity: f.opacity, z: 3,
       });
     }
     // solid divider under each month (delineates the flush months in a quarter)
     items.push({
-      key: `msep-${m}`, kind: "gridline", x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: bandW, h: 1,
+      key: `msep-${m}`, kind: "gridline", x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: fullW, h: 1,
       opacity: f.opacity * 0.55, color: "#4c2d14", z: 1,
     });
   }

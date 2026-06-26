@@ -370,6 +370,10 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
     return <div className={`cc-item cc-gridline${ls}`} style={style} />;
   }
 
+  if (it.kind === "dim") {
+    return <div className="cc-item cc-dim" style={style} />;
+  }
+
   if (it.kind === "event") {
     return (
       <div className={`cc-item cc-event cc-ev-${it.color}`} style={style}>
