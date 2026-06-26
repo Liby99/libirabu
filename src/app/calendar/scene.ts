@@ -66,11 +66,14 @@ function yearToMonthFrame(m: number, t: number, focus: number, vp: Vp): Frame {
   const trackH = m === focus ? lerp(yf.trackH, MONTH_TRACK_H, t) : yf.trackH;
   // scroll the whole stack so the focus rises to the top
   const scroll = (yfocus.bandY - TOP_PAD) * t;
+  const PAD = 80; // extra breathing room around the focus block (hides the neighbor peek)
   let bandY = yf.bandY - scroll;
-  if (m > focus) {
-    // open the focus band's growth + the expanding detail below the focus
+  if (m < focus) {
+    bandY -= PAD * t; // push the lanes above further up so they clear the top edge
+  } else if (m > focus) {
+    // open the focus band's growth + the expanding detail below the focus, + padding
     const focusGrow = 4 * lerp(yfocus.trackH, MONTH_TRACK_H, t) - 4 * yfocus.trackH;
-    bandY += focusGrow + detailFullH(vp) * t;
+    bandY += focusGrow + detailFullH(vp) * t + PAD * t;
   }
   return { x0: LABEL_W, dayW: yf.dayW, bandY, trackH, opacity: 1 };
 }
