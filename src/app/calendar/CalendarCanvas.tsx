@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { buildScene, weekAtPoint, easeInOut, Vp, Item } from "./scene";
+import {
+  buildScene, easeInOut, Vp, Item,
+  monthAtPoint, weekAtPointInMonth, monthOutlineRect, weekOutlineRect,
+} from "./scene";
 import { MONTH_LONG } from "./labels";
 
 function hexToRgba(hex: string, a: number): string {
@@ -17,46 +20,50 @@ export default function CalendarCanvas() {
   const [z, setZ] = useState(0);
   const [focus, setFocus] = useState(new Date().getMonth());
   const [week, setWeek] = useState(0);
-  const [hover, setHover] = useState<{ month: number; week: number } | null>(null);
+  const [hoverMonth, setHoverMonth] = useState<number | null>(null);
+  const [hoverWeek, setHoverWeek] = useState<number | null>(null);
 
-  const zRef = useRef(z);
-  zRef.current = z;
-  const hoverRef = useRef(hover);
-  hoverRef.current = hover;
+  const zRef = useRef(z); zRef.current = z;
+  const focusRef = useRef(focus); focusRef.current = focus;
+  const hoverMonthRef = useRef(hoverMonth); hoverMonthRef.current = hoverMonth;
+  const hoverWeekRef = useRef(hoverWeek); hoverWeekRef.current = hoverWeek;
   const tweenRef = useRef<number | null>(null);
+  const snapRef = useRef<number | null>(null);
 
-  // measure
   useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
-      setVp({ w: el.clientWidth, h: el.clientHeight });
-    });
+    const ro = new ResizeObserver(() => setVp({ w: el.clientWidth, h: el.clientHeight }));
     ro.observe(el);
     setVp({ w: el.clientWidth, h: el.clientHeight });
     return () => ro.disconnect();
   }, []);
 
-  const cancelTween = () => {
-    if (tweenRef.current != null) cancelAnimationFrame(tweenRef.current);
-    tweenRef.current = null;
-  };
+  const clearSnap = () => { if (snapRef.current != null) { clearTimeout(snapRef.current); snapRef.current = null; } };
+  const cancelTween = () => { if (tweenRef.current != null) cancelAnimationFrame(tweenRef.current); tweenRef.current = null; };
 
-  const tweenTo = useCallback((targetZ: number, dur = 600) => {
-    cancelTween();
+  const tweenTo = useCallback((targetZ: number, dur = 520) => {
+    cancelTween(); clearSnap();
     const startZ = zRef.current;
     let t0 = 0;
     const step = (ts: number) => {
       if (!t0) t0 = ts;
       const p = Math.min(1, (ts - t0) / dur);
       setZ(startZ + (targetZ - startZ) * easeInOut(p));
-      if (p < 1) tweenRef.current = requestAnimationFrame(step);
-      else tweenRef.current = null;
+      tweenRef.current = p < 1 ? requestAnimationFrame(step) : null;
     };
     tweenRef.current = requestAnimationFrame(step);
   }, []);
 
-  // wheel → continuous zoom
+  const scheduleSnap = useCallback(() => {
+    clearSnap();
+    snapRef.current = window.setTimeout(() => {
+      const target = Math.max(0, Math.min(2, Math.round(zRef.current)));
+      if (Math.abs(target - zRef.current) > 0.004) tweenTo(target, 240);
+    }, 150);
+  }, [tweenTo]);
+
+  // wheel → continuous zoom; pick month in year phase, week in month phase
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -64,70 +71,85 @@ export default function CalendarCanvas() {
       e.preventDefault();
       cancelTween();
       const cur = zRef.current;
-      // entering from year: lock focus to whatever is under the cursor
-      if (cur < 0.25 && e.deltaY < 0) {
-        const rect = el.getBoundingClientRect();
-        const w = weekAtPoint(e.clientX - rect.left, e.clientY - rect.top, { w: el.clientWidth, h: el.clientHeight });
-        if (w) { setFocus(w.month); setWeek(w.week); }
+      const rect = el.getBoundingClientRect();
+      const px = e.clientX - rect.left, py = e.clientY - rect.top;
+      const vpNow = { w: el.clientWidth, h: el.clientHeight };
+      if (cur < 0.5) {
+        const m = monthAtPoint(px, py, vpNow);
+        if (m != null) setFocus(m);
+      } else if (cur < 1.5) {
+        const w = weekAtPointInMonth(px, focusRef.current, vpNow);
+        if (w != null) setWeek(w);
       }
-      const next = Math.max(0, Math.min(2, cur - e.deltaY * 0.0022));
-      setZ(next);
+      setZ(Math.max(0, Math.min(2, cur - e.deltaY * 0.0022)));
+      scheduleSnap();
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [scheduleSnap]);
 
-  // keyboard
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") tweenTo(0);
-    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") tweenTo(0); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [tweenTo]);
 
   const onMove = (e: React.MouseEvent) => {
-    if (zRef.current >= 0.3) { if (hoverRef.current) setHover(null); return; }
     const el = wrapRef.current!;
     const rect = el.getBoundingClientRect();
-    const w = weekAtPoint(e.clientX - rect.left, e.clientY - rect.top, { w: el.clientWidth, h: el.clientHeight });
-    setHover(w);
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const z = zRef.current;
+    if (z < 0.5) {
+      setHoverMonth(monthAtPoint(px, py, vp));
+      if (hoverWeekRef.current != null) setHoverWeek(null);
+    } else if (z < 1.5) {
+      setHoverWeek(weekAtPointInMonth(px, focusRef.current, vp));
+      if (hoverMonthRef.current != null) setHoverMonth(null);
+    } else if (hoverMonthRef.current != null || hoverWeekRef.current != null) {
+      setHoverMonth(null); setHoverWeek(null);
+    }
   };
 
   const onClick = () => {
-    if (zRef.current < 0.3 && hoverRef.current) {
-      setFocus(hoverRef.current.month);
-      setWeek(hoverRef.current.week);
+    const z = zRef.current;
+    if (z < 0.5 && hoverMonthRef.current != null) {
+      setFocus(hoverMonthRef.current);
+      tweenTo(1);
+    } else if (z < 1.5 && hoverWeekRef.current != null) {
+      setWeek(hoverWeekRef.current);
       tweenTo(2);
     }
   };
 
   if (vp.w === 0) return <div ref={wrapRef} className="cc-wrap" />;
 
-  const scene = buildScene(z, focus, week, vp, hover);
+  const scene = buildScene(z, focus, week, vp);
   const level = z < 0.5 ? 0 : z < 1.5 ? 1 : 2;
 
+  let outline: { x: number; y: number; w: number; h: number } | null = null;
+  if (z < 0.5 && hoverMonth != null) outline = monthOutlineRect(hoverMonth, vp);
+  else if (z >= 0.6 && z <= 1.4 && hoverWeek != null) outline = weekOutlineRect(focus, hoverWeek, vp);
+
+  const hint =
+    level === 0 ? (hoverMonth != null ? "click to open month" : "scroll to zoom in")
+    : level === 1 ? (hoverWeek != null ? "click to open week" : "hover a week · scroll to zoom")
+    : "esc to reset";
+
   return (
-    <div ref={wrapRef} className="cc-wrap" onMouseMove={onMove} onMouseLeave={() => setHover(null)} onClick={onClick}>
-      {/* breadcrumb / status */}
+    <div ref={wrapRef} className="cc-wrap" onMouseMove={onMove} onMouseLeave={() => { setHoverMonth(null); setHoverWeek(null); }} onClick={onClick}>
       <div className="cc-bar">
         <span className="cc-level">{LEVELS[level]}</span>
-        {z >= 0.5 && <span className="cc-focus">{MONTH_LONG[focus]} {2026}{level === 2 ? ` · week ${week + 1}` : ""}</span>}
-        <span className="cc-hint">scroll to zoom · {hover && z < 0.25 ? "click to open week" : "esc to reset"}</span>
+        {z >= 0.5 && <span className="cc-focus">{MONTH_LONG[focus]} 2026{level === 2 ? ` · week ${week + 1}` : ""}</span>}
+        <span className="cc-hint">{hint}</span>
       </div>
 
-      {/* HTML item layer */}
       <div className="cc-layer">
         {scene.items.map((it) => <ItemView key={it.key} it={it} />)}
       </div>
 
-      {/* SVG overlay (hover outline) */}
-      {scene.outline && (
+      {outline && (
         <svg className="cc-svg" width={vp.w} height={vp.h}>
-          <rect
-            x={scene.outline.x} y={scene.outline.y} width={scene.outline.w} height={scene.outline.h}
-            rx={4} className="cc-outline"
-          />
+          <rect x={outline.x} y={outline.y} width={outline.w} height={outline.h} rx={4} className="cc-outline" />
         </svg>
       )}
     </div>
@@ -165,7 +187,6 @@ function ItemView({ it }: { it: Item }) {
     );
   }
 
-  // text labels
   return (
     <div
       style={{

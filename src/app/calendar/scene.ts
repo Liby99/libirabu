@@ -99,7 +99,6 @@ export function buildScene(
   focus: number,
   week: number,
   vp: Vp,
-  hover: { month: number; week: number } | null,
 ): Scene {
   const items: Item[] = [];
   const detail = clamp(z, 0, 1); // 0 in year, 1 by month — fades in day numbers, labels
@@ -153,33 +152,47 @@ export function buildScene(
     });
   }
 
-  // hover week outline (year view only)
-  let outline: Scene["outline"];
-  if (z < 0.25 && hover) {
-    const f = yearFrame(hover.month, vp);
-    outline = {
-      x: f.x0 + hover.week * 7 * f.dayW - 1,
-      y: f.bandY - 1,
-      w: 7 * f.dayW + 2,
-      h: 4 * f.trackH + 2,
-    };
-  }
-
-  return { items, outline };
+  return { items };
 }
 
-// Hit-test: which (month, week) is under a point, using the year layout.
-export function weekAtPoint(px: number, py: number, vp: Vp): { month: number; week: number } | null {
+interface Rect { x: number; y: number; w: number; h: number }
+
+function focusGeom(vp: Vp) {
+  return { x0: LABEL_W, dayW: (vp.w - LABEL_W - 16) / 31, bandY: TOP_PAD, trackH: 30 };
+}
+
+// Year phase: which month is under the cursor.
+export function monthAtPoint(px: number, py: number, vp: Vp): number | null {
   for (let m = 0; m < 12; m++) {
     const f = yearFrame(m, vp);
     const dim = daysInMonth(m);
     if (py >= f.bandY && py <= f.bandY + 4 * f.trackH && px >= f.x0 && px <= f.x0 + dim * f.dayW) {
-      const day = Math.floor((px - f.x0) / f.dayW); // 0-based
-      const week = Math.floor(day / 7);
-      return { month: m, week: Math.min(week, weeksInMonth(m) - 1) };
+      return m;
     }
   }
   return null;
+}
+
+// Month phase: which week of the focused month is under the cursor.
+export function weekAtPointInMonth(px: number, focus: number, vp: Vp): number | null {
+  const g = focusGeom(vp);
+  const dim = daysInMonth(focus);
+  if (px < g.x0 || px > g.x0 + dim * g.dayW) return null;
+  const day = Math.floor((px - g.x0) / g.dayW);
+  return Math.min(Math.floor(day / 7), weeksInMonth(focus) - 1);
+}
+
+// Outline around a whole month (year phase).
+export function monthOutlineRect(m: number, vp: Vp): Rect {
+  const f = yearFrame(m, vp);
+  const dim = daysInMonth(m);
+  return { x: f.x0 - 1, y: f.bandY - 1, w: dim * f.dayW + 2, h: 4 * f.trackH + 2 };
+}
+
+// Outline around a week within the focused month (month phase).
+export function weekOutlineRect(focus: number, week: number, vp: Vp): Rect {
+  const g = focusGeom(vp);
+  return { x: g.x0 + week * 7 * g.dayW - 1, y: g.bandY - 1, w: 7 * g.dayW + 2, h: 4 * g.trackH + 2 };
 }
 
 export { TOP_PAD, LABEL_W };
