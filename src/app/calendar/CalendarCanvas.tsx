@@ -68,6 +68,9 @@ export default function CalendarCanvas() {
     const el = wrapRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
+      // Only hijack the trackpad PINCH gesture (delivered as a ctrlKey wheel event);
+      // leave plain scrolling alone.
+      if (!e.ctrlKey) return;
       e.preventDefault();
       cancelTween();
       const cur = zRef.current;
@@ -81,7 +84,7 @@ export default function CalendarCanvas() {
         const w = weekAtPointInMonth(px, focusRef.current, vpNow);
         if (w != null) setWeek(w);
       }
-      setZ(Math.max(0, Math.min(2, cur - e.deltaY * 0.0022)));
+      setZ(Math.max(0, Math.min(2, cur - e.deltaY * 0.01)));
       scheduleSnap();
     };
     el.addEventListener("wheel", onWheel, { passive: false });
@@ -131,9 +134,9 @@ export default function CalendarCanvas() {
   else if (z >= 0.6 && z <= 1.4 && hoverWeek != null) outline = weekOutlineRect(focus, hoverWeek, vp);
 
   const hint =
-    level === 0 ? (hoverMonth != null ? "click to open month" : "scroll to zoom in")
-    : level === 1 ? (hoverWeek != null ? "click to open week" : "hover a week · scroll to zoom")
-    : "esc to reset";
+    level === 0 ? (hoverMonth != null ? "click to open month · or pinch to zoom" : "pinch to zoom in")
+    : level === 1 ? (hoverWeek != null ? "click to open week · or pinch to zoom" : "hover a week · pinch to zoom")
+    : "pinch to zoom out · esc to reset";
 
   return (
     <div ref={wrapRef} className="cc-wrap" onMouseMove={onMove} onMouseLeave={() => { setHoverMonth(null); setHoverWeek(null); }} onClick={onClick}>

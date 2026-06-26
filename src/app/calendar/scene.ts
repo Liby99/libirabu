@@ -26,7 +26,7 @@ export interface Scene {
   outline?: { x: number; y: number; w: number; h: number };
 }
 
-const TOP_PAD = 70; // room for breadcrumb + dates row + weekday row above the band
+const TOP_PAD = 56; // room for breadcrumb + dates row above the band (weekdays sit below)
 const LABEL_W = 64;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -61,16 +61,22 @@ function monthFrame(m: number, focus: number, vp: Vp): Frame {
   return { x0: LABEL_W, dayW, bandY: off, trackH, opacity: 0 };
 }
 
+// Weeks are Sunday-aligned calendar weeks. weekStartDOM may be ≤0 or >daysInMonth
+// when the week spills into the adjacent month (those days are rendered dimmer).
+function firstDOW(m: number): number { return new Date(YEAR, m, 1).getDay(); } // 0=Sun
+function weekStartDOM(m: number, week: number): number { return 1 - firstDOW(m) + week * 7; }
+
 function weekFrame(m: number, focus: number, week: number, vp: Vp): Frame {
   const trackH = 34;
+  const dayW = (vp.w - LABEL_W - 16) / 7;
   if (m === focus) {
-    const dayW = (vp.w - LABEL_W - 16) / 7;
-    const x0 = LABEL_W - week * 7 * dayW; // shift so the focused week's first day lands at LABEL_W
+    const startDOM = weekStartDOM(focus, week);
+    const x0 = LABEL_W - (startDOM - 1) * dayW; // day=startDOM lands at LABEL_W
     return { x0, dayW, bandY: TOP_PAD, trackH, opacity: 1 };
   }
   const dir = m < focus ? -1 : 1;
   const off = dir < 0 ? -trackH * 4 - 80 : vp.h + 80;
-  return { x0: LABEL_W, dayW: (vp.w - LABEL_W - 16) / 7, bandY: off, trackH, opacity: 0 };
+  return { x0: LABEL_W, dayW, bandY: off, trackH, opacity: 0 };
 }
 
 function blend(a: Frame, b: Frame, t: number): Frame {
@@ -89,7 +95,20 @@ function frameFor(m: number, z: number, focus: number, week: number, vp: Vp): Fr
 }
 
 export function weeksInMonth(m: number): number {
-  return Math.ceil(daysInMonth(m) / 7);
+  return Math.ceil((firstDOW(m) + daysInMonth(m)) / 7);
+}
+
+// Resolve a (focus month, day-of-month-that-may-spill) into a real {month, day}.
+function resolveDate(focus: number, dom: number): { month: number; day: number } | null {
+  if (dom >= 1 && dom <= daysInMonth(focus)) return { month: focus, day: dom };
+  if (dom < 1) {
+    const m = focus - 1;
+    if (m < 0) return null;
+    return { month: m, day: daysInMonth(m) + dom };
+  }
+  const m = focus + 1;
+  if (m > 11) return null;
+  return { month: m, day: dom - daysInMonth(focus) };
 }
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -151,62 +170,55 @@ export function buildScene(
     const colW = f.dayW;
     const bandBottom = f.bandY + 4 * f.trackH;
     const wide = colW > 60; // week view → full weekday names + event titles
+    const weekZoom = clamp(z - 1, 0, 1); // 0 at month, 1 at week — gates spillover days
 
-    // dates (1–31) above the band, weekdays (Mon, Tue, …) just above the band
-    for (let d = 1; d <= dim; d++) {
-      const x = f.x0 + (d - 1) * colW;
-      if (x + colW < -40 || x > vp.w + 40) continue;
-      const dow = new Date(YEAR, focus, d).getDay();
-      items.push({
-        key: `date-${d}`, kind: "dayLabel", x, y: f.bandY - 34, w: colW, h: 16,
-        opacity: reveal, text: String(d), fontSize: wide ? 13 : 10, align: "center", z: 4,
-      });
-      items.push({
-        key: `wd-${d}`, kind: "dayLabel", x, y: f.bandY - 18, w: colW, h: 14,
-        opacity: reveal * 0.8, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4,
-      });
+    const tlTop = bandBottom + 18;
+    const tlBottom = vp.h - 8;
+    const hasTL = tlBottom > tlTop;
+    const hourH = hasTL ? (tlBottom - tlTop) / 24 : 0;
+
+    // global hour grid (once)
+    if (hasTL) {
+      for (let hr = 0; hr <= 24; hr += wide ? 2 : 6) {
+        const y = tlTop + hr * hourH;
+        items.push({ key: `hl-${hr}`, kind: "gridline", x: LABEL_W, y, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * 0.16, color: "#4c2d14", z: 0 });
+        items.push({ key: `ht-${hr}`, kind: "dayLabel", x: 2, y: y - 7, w: LABEL_W - 8, h: 14, opacity: reveal * 0.7, text: `${String(hr).padStart(2, "0")}:00`, fontSize: 9, align: "center", z: 4 });
+      }
     }
 
-    // timeline grid 0:00–24:00
-    const tlTop = bandBottom + 10;
-    const tlBottom = vp.h - 8;
-    if (tlBottom > tlTop) {
-      const hourH = (tlBottom - tlTop) / 24;
-      const hourStep = wide ? 2 : 6;
-
-      // horizontal hour lines + left-gutter hour labels
-      for (let hr = 0; hr <= 24; hr += hourStep) {
-        const y = tlTop + hr * hourH;
-        items.push({
-          key: `hl-${hr}`, kind: "gridline", x: LABEL_W, y, w: vp.w - LABEL_W - 6, h: 1,
-          opacity: reveal * 0.16, color: "#4c2d14", z: 0,
-        });
-        items.push({
-          key: `ht-${hr}`, kind: "dayLabel", x: 2, y: y - 7, w: LABEL_W - 8, h: 14,
-          opacity: reveal * 0.7, text: `${String(hr).padStart(2, "0")}:00`, fontSize: 9, align: "center", z: 4,
-        });
-      }
-
-      // day-column dividers + timed event blocks
-      for (let d = 1; d <= dim; d++) {
-        const x = f.x0 + (d - 1) * colW;
-        if (x + colW < -40 || x > vp.w + 40) continue;
-        items.push({
-          key: `tdv-${d}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop,
-          opacity: reveal * 0.28, color: "#4c2d14", z: 0,
-        });
-      }
+    // render one day column (header above band, weekday below band, timeline)
+    const pushDay = (dom: number, op: number) => {
+      const r = resolveDate(focus, dom);
+      if (!r) return;
+      const x = f.x0 + (dom - 1) * colW;
+      if (x + colW < -40 || x > vp.w + 40) return;
+      const dow = new Date(YEAR, r.month, r.day).getDay();
+      // date number above the band
+      items.push({ key: `date-${dom}`, kind: "dayLabel", x, y: f.bandY - 20, w: colW, h: 16, opacity: op, text: String(r.day), fontSize: wide ? 13 : 10, align: "center", z: 4 });
+      // weekday just below the band
+      items.push({ key: `wd-${dom}`, kind: "dayLabel", x, y: bandBottom + 2, w: colW, h: 14, opacity: op * 0.9, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4 });
+      if (!hasTL) return;
+      items.push({ key: `tdv-${dom}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: op * 0.4, color: "#4c2d14", z: 0 });
       for (const ev of TIMED) {
-        if (ev.month !== focus) continue;
-        const x = f.x0 + (ev.day - 1) * colW;
-        if (x + colW < -40 || x > vp.w + 40) continue;
+        if (ev.month !== r.month || ev.day !== r.day) continue;
         items.push({
           key: `te-${ev.id}`, kind: "event",
           x: x + 2, y: tlTop + ev.startHour * hourH, w: Math.max(3, colW - 4),
           h: Math.max(3, (ev.endHour - ev.startHour) * hourH),
-          opacity: reveal, color: TRACKS[ev.track].color,
-          text: wide ? ev.title : undefined, fontSize: 11, z: 2,
+          opacity: op, color: TRACKS[ev.track].color, text: wide ? ev.title : undefined, fontSize: 11, z: 2,
         });
+      }
+    };
+
+    // in-month days
+    for (let d = 1; d <= dim; d++) pushDay(d, reveal);
+    // spillover days of the focused week (Sun–Sat), dimmer, fading in as we reach week view
+    if (weekZoom > 0.01) {
+      const start = weekStartDOM(focus, week);
+      for (let i = 0; i < 7; i++) {
+        const dom = start + i;
+        if (dom >= 1 && dom <= dim) continue;
+        pushDay(dom, weekZoom * 0.5);
       }
     }
   }
@@ -232,13 +244,14 @@ export function monthAtPoint(px: number, py: number, vp: Vp): number | null {
   return null;
 }
 
-// Month phase: which week of the focused month is under the cursor.
+// Month phase: which (Sunday-aligned) week of the focused month is under the cursor.
 export function weekAtPointInMonth(px: number, focus: number, vp: Vp): number | null {
   const g = focusGeom(vp);
   const dim = daysInMonth(focus);
   if (px < g.x0 || px > g.x0 + dim * g.dayW) return null;
-  const day = Math.floor((px - g.x0) / g.dayW);
-  return Math.min(Math.floor(day / 7), weeksInMonth(focus) - 1);
+  const d = Math.floor((px - g.x0) / g.dayW) + 1; // 1..dim
+  const w = Math.floor((firstDOW(focus) + d - 1) / 7);
+  return Math.min(Math.max(w, 0), weeksInMonth(focus) - 1);
 }
 
 // Outline around a whole month (year phase).
@@ -248,10 +261,13 @@ export function monthOutlineRect(m: number, vp: Vp): Rect {
   return { x: f.x0 - 1, y: f.bandY - 1, w: dim * f.dayW + 2, h: 4 * f.trackH + 2 };
 }
 
-// Outline around a week within the focused month (month phase).
+// Outline around a week within the focused month (month phase); clamped to in-month days.
 export function weekOutlineRect(focus: number, week: number, vp: Vp): Rect {
   const g = focusGeom(vp);
-  return { x: g.x0 + week * 7 * g.dayW - 1, y: g.bandY - 1, w: 7 * g.dayW + 2, h: 4 * g.trackH + 2 };
+  const dim = daysInMonth(focus);
+  const s = Math.max(1, weekStartDOM(focus, week));
+  const e = Math.min(dim, weekStartDOM(focus, week) + 6);
+  return { x: g.x0 + (s - 1) * g.dayW - 1, y: g.bandY - 1, w: (e - s + 1) * g.dayW + 2, h: 4 * g.trackH + 2 };
 }
 
 export { TOP_PAD, LABEL_W };
