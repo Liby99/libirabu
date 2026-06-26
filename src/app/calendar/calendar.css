@@ -36,11 +36,12 @@
   border-top: 1px dotted var(--cc-grid-top);
 }
 
-/* Grid lines: solid separator by default; dotted vertical / dashed horizontal cell
-   borders via modifiers (dotted verticals read lighter). */
+/* Grid lines: solid separator by default; dotted/dashed cell borders via modifiers. */
 .cc-gridline { background: var(--cc-line); }
-.cc-gridline.cc-dash-v { background: transparent; border-left: 1px dotted var(--cc-line); }
-.cc-gridline.cc-dash-h { background: transparent; border-top: 1px dashed var(--cc-line); }
+.cc-gridline.cc-dotted-v { background: transparent; border-left: 1px dotted var(--cc-line); }
+.cc-gridline.cc-dotted-h { background: transparent; border-top: 1px dotted var(--cc-line); }
+.cc-gridline.cc-dashed-v { background: transparent; border-left: 1px dashed var(--cc-line); }
+.cc-gridline.cc-dashed-h { background: transparent; border-top: 1px dashed var(--cc-line); }
 
 /* Labels */
 .cc-monthlabel {
@@ -51,9 +52,8 @@
   font-weight: 600;
   color: var(--accent-dark);
   pointer-events: none;
-  border-top: 1px solid var(--accent-dark);
   border-bottom: 1px solid var(--accent-dark);
-  border-right: 1.5px solid var(--accent-dark);
+  border-right: 1px solid var(--accent-dark);
 }
 .cc-daylabel { display: flex; align-items: center; color: var(--accent-grey); pointer-events: none; }
 .cc-daylabel.cc-center { justify-content: center; }
@@ -73,10 +73,9 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  border-top: 1px dotted var(--accent-grey);
+  border-bottom: 1px dotted var(--accent-grey); /* single-sided → 1px between stacked cells/months */
   pointer-events: auto;
 }
-.cc-tc-first { border-top: 1px solid var(--accent-dark); }
 .cc-tc-last { border-bottom: 1px solid var(--accent-dark); }
 .cc-track-input {
   width: 100%; height: 100%;

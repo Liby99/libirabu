@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll, bandYFor,
-  monthAtPoint, weekAtPointInMonth, dayAtPointInWeek,
+  monthAtPoint, monthNameAtPoint, weekAtPointInMonth, dayAtPointInWeek,
   LABEL_W, MNAME_W, TRACK_H,
 } from "./scene";
 
@@ -50,8 +50,8 @@ export default function CalendarCanvas() {
   // live band position, so the inputs travel with the band through the zoom (no
   // disappear/reappear) while the inputs themselves never re-reconcile.
   const monthInputs = useMemo(() => {
-    const left = MNAME_W + 2;
-    const width = LABEL_W - MNAME_W - 2 - RIGHT_PAD;
+    const left = MNAME_W;
+    const width = LABEL_W - MNAME_W - RIGHT_PAD;
     return Array.from({ length: 12 }, (_, m) =>
       [0, 1, 2, 3].map((i) => (
         <div
@@ -267,7 +267,7 @@ export default function CalendarCanvas() {
     const px = e.clientX - rect.left, py = e.clientY - rect.top;
     const z = zRef.current;
     if (z < 0.5) {
-      setHoverMonth(monthAtPoint(px, py, vp, scrollYRef.current));
+      setHoverMonth(monthNameAtPoint(px, py, vp, scrollYRef.current));
       if (hoverWeekRef.current != null) setHoverWeek(null);
     } else if (z < 1.5) {
       setHoverWeek(weekAtPointInMonth(px, focusRef.current, vp));
@@ -299,7 +299,7 @@ export default function CalendarCanvas() {
   const level = z < 0.5 ? 0 : z < 1.5 ? 1 : 2;
 
   const hint =
-    level === 0 ? (hoverMonth != null ? "click to open month · or pinch to zoom" : "pinch to zoom in")
+    level === 0 ? (hoverMonth != null ? "click the month name to open it · or pinch" : "pinch to zoom in")
     : level === 1 ? (hoverWeek != null ? "click to open week · or pinch to zoom" : "hover a week · pinch to zoom")
     : "scroll sideways to change week · pinch to zoom out";
 
@@ -366,8 +366,8 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
   }
 
   if (it.kind === "gridline") {
-    const dash = it.dashed ? (it.h >= it.w ? " cc-dash-v" : " cc-dash-h") : "";
-    return <div className={`cc-item cc-gridline${dash}`} style={style} />;
+    const ls = it.lineStyle ? ` cc-${it.lineStyle}-${it.h >= it.w ? "v" : "h"}` : "";
+    return <div className={`cc-item cc-gridline${ls}`} style={style} />;
   }
 
   if (it.kind === "event") {
@@ -386,5 +386,5 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
   const a = p.it, b = n.it;
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && a.opacity === b.opacity &&
     a.z === b.z && a.color === b.color && a.text === b.text && a.fontSize === b.fontSize &&
-    a.dashed === b.dashed && a.cols === b.cols && a.align === b.align && a.kind === b.kind;
+    a.lineStyle === b.lineStyle && a.cols === b.cols && a.align === b.align && a.kind === b.kind;
 });

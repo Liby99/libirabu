@@ -19,7 +19,7 @@ export interface Item {
   fontSize?: number;
   align?: "left" | "center";
   cols?: number; // for row gridlines (= days in month)
-  dashed?: boolean; // gridline style: dashed (cell borders) vs solid (separators)
+  lineStyle?: "dashed" | "dotted"; // gridline style; absent = solid separator
 }
 
 export interface Scene {
@@ -226,12 +226,17 @@ export function buildScene(
     const hasTL = tlBottom > tlTop;
     const hourH = hasTL ? (tlBottom - tlTop) / 24 : 0;
 
-    // global hour grid (once)
+    // global hour grid: every hour in week view (alternating even=dashed/odd=dotted),
+    // every 6h in month view. Hour labels every 2h (week) / 6h (month).
     if (hasTL) {
-      for (let hr = 0; hr <= 24; hr += wide ? 2 : 6) {
+      const step = wide ? 1 : 6;
+      for (let hr = 0; hr <= 24; hr += step) {
         const y = tlTop + hr * hourH;
-        items.push({ key: `hl-${hr}`, kind: "gridline", x: LABEL_W, y, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * 0.18, color: "#4c2d14", z: 0, dashed: true });
-        items.push({ key: `ht-${hr}`, kind: "dayLabel", x: LABEL_W - 46, y: y - 7, w: 42, h: 14, opacity: reveal * 0.7, text: `${String(hr).padStart(2, "0")}:00`, fontSize: 9, align: "center", z: 9 });
+        const even = hr % 2 === 0;
+        items.push({ key: `hl-${hr}`, kind: "gridline", x: LABEL_W, y, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * (even ? 0.22 : 0.12), color: "#4c2d14", z: 0, lineStyle: even ? "dashed" : "dotted" });
+        if (hr % (wide ? 2 : 6) === 0) {
+          items.push({ key: `ht-${hr}`, kind: "dayLabel", x: LABEL_W - 46, y: y - 7, w: 42, h: 14, opacity: reveal * 0.7, text: `${String(hr).padStart(2, "0")}:00`, fontSize: 9, align: "center", z: 9 });
+        }
       }
     }
 
@@ -248,7 +253,11 @@ export function buildScene(
       // weekday just below the band
       items.push({ key: `wd-${dom}`, kind: "dayLabel", x, y: bandBottom + 2, w: colW, h: 14, opacity: op * 0.9, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4 });
       if (!hasTL) return;
-      items.push({ key: `tdv-${dom}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: op * 0.45, color: "#4c2d14", z: 0, dashed: true });
+      // dotted per-day divider — skipped on week starts (the dashed week boundary covers it)
+      const isWeekStart = (((firstDOW(focus) + dom - 1) % 7) + 7) % 7 === 0;
+      if (!isWeekStart) {
+        items.push({ key: `tdv-${dom}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: op * 0.4, color: "#4c2d14", z: 0, lineStyle: "dotted" });
+      }
       for (const ev of TIMED) {
         if (ev.month !== r.month || ev.day !== r.day) continue;
         items.push({
@@ -262,6 +271,17 @@ export function buildScene(
 
     // in-month days
     for (let d = 1; d <= dim; d++) pushDay(d, reveal);
+
+    // week boundaries (Sunday-aligned) — dashed, slightly stronger than the dotted
+    // day dividers, spanning the band + timeline.
+    {
+      const bottom = hasTL ? tlBottom : bandBottom;
+      for (let w = 0; w <= weeksInMonth(focus); w++) {
+        const x = f.x0 + (weekStartDOM(focus, w) - 1) * colW;
+        if (x < LABEL_W - 2 || x > vp.w + 2) continue;
+        items.push({ key: `wkb-${w}`, kind: "gridline", x: x - 1, y: f.bandY, w: 1, h: bottom - f.bandY, opacity: reveal * 0.4, color: "#4c2d14", z: 1, lineStyle: "dashed" });
+      }
+    }
     // spillover days: leading (prev month) + trailing (next month) across the whole
     // month's calendar span; culled off-screen, so horizontal week scrolling slides
     // them in/out only at the first/last week. Works with a fractional `week`.
@@ -286,6 +306,17 @@ interface Rect { x: number; y: number; w: number; h: number }
 
 function focusGeom(vp: Vp) {
   return { x0: LABEL_W, dayW: (vp.w - LABEL_W - 16) / 31, bandY: TOP_PAD, trackH: TRACK_H };
+}
+
+// Year phase: which month's NAME (left gutter zone) is under the cursor — used so
+// only clicking the month name opens month view (not clicking the lane).
+export function monthNameAtPoint(px: number, py: number, vp: Vp, scrollY: number): number | null {
+  if (px < 0 || px > MNAME_W) return null;
+  for (let m = 0; m < 12; m++) {
+    const f = yearFrame(m, vp, scrollY);
+    if (py >= f.bandY && py <= f.bandY + 4 * f.trackH) return m;
+  }
+  return null;
 }
 
 // Year phase: which month is under the cursor.
