@@ -28,3 +28,14 @@ export const PROPOSAL_STATUSES = [
 export const PROPOSAL_ROLES = ["PI", "CO_PI", "SENIOR_PERSONNEL"] as const;
 
 export const APIKEY_STATUSES = ["ACTIVE", "REVOKED", "EXPIRED"] as const;
+
+export const EXPENSE_STATUSES = ["PLANNED", "SUBMITTED", "REIMBURSED"] as const;
+
+export const EXPENSE_CATEGORIES = [
+  "AIRFARE", "LODGING", "MEALS", "REGISTRATION",
+  "SUPPLIES", "SOFTWARE", "PUBLICATION", "OTHER",
+] as const;
+
+export const SUBSCRIPTION_CYCLES = ["MONTHLY", "QUARTERLY", "ANNUAL", "ONE_TIME"] as const;
+
+export const TRIP_PURPOSES = ["CONFERENCE", "VISIT", "FIELDWORK", "OTHER"] as const;
