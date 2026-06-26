@@ -50,9 +50,9 @@
   font-weight: 600;
   color: var(--accent-dark);
   pointer-events: none;
-  border-top: 1.5px solid var(--accent-dark);
-  border-bottom: 1.5px solid var(--accent-dark);
-  border-right: 2px solid var(--accent-dark);
+  border-top: 1px solid var(--accent-dark);
+  border-bottom: 1px solid var(--accent-dark);
+  border-right: 1.5px solid var(--accent-dark);
 }
 .cc-daylabel { display: flex; align-items: center; color: var(--accent-grey); pointer-events: none; }
 .cc-daylabel.cc-center { justify-content: center; }
@@ -73,8 +73,8 @@
   align-items: center;
   border-top: 1px dotted var(--accent-grey);
 }
-.cc-tc-first { border-top: 1.5px solid var(--accent-dark); }
-.cc-tc-last { border-bottom: 1.5px solid var(--accent-dark); }
+.cc-tc-first { border-top: 1px solid var(--accent-dark); }
+.cc-tc-last { border-bottom: 1px solid var(--accent-dark); }
 .cc-track-input {
   width: 100%; height: 100%;
   border: none;

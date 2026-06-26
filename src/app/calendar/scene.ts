@@ -39,7 +39,7 @@ export const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 *
 interface Frame { x0: number; dayW: number; bandY: number; trackH: number; opacity: number }
 
 // Fixed lane height — month lanes NEVER change vertical size across views (GridCal style).
-const TRACK_H = 30;
+const TRACK_H = 35; // GridCal topic-row height
 const MONTH_H = TRACK_H * 4;
 const Q_HEADER_H = 24; // day-number header row at the top of each quarter (year view)
 const Q_GAP = 32; // separation between quarters
@@ -161,7 +161,7 @@ export function buildScene(
       }
       // underline under the quarter's day-number header
       items.push({
-        key: `qhsep-${q}`, kind: "gridline", x: LABEL_W, y: hy + Q_HEADER_H - 1, w: 31 * dayW, h: 1.5,
+        key: `qhsep-${q}`, kind: "gridline", x: LABEL_W, y: hy + Q_HEADER_H - 1, w: 31 * dayW, h: 1,
         opacity: yearVis * 0.6, color: "#4c2d14", z: 1,
       });
     }
@@ -191,7 +191,7 @@ export function buildScene(
     }
     // solid divider under each month (delineates the flush months in a quarter)
     items.push({
-      key: `msep-${m}`, kind: "gridline", x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: bandW, h: 1.5,
+      key: `msep-${m}`, kind: "gridline", x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: bandW, h: 1,
       opacity: f.opacity * 0.55, color: "#4c2d14", z: 1,
     });
   }
@@ -276,7 +276,7 @@ export function buildScene(
       for (const bx of [1, dim + 1]) {
         const x = f.x0 + (bx - 1) * colW;
         if (x < -2 || x > vp.w + 2) continue;
-        items.push({ key: `mb-${bx}`, kind: "gridline", x: x - 1, y: f.bandY - 6, w: 2, h: tlBottom - (f.bandY - 6), opacity: weekZoom * 0.7, color: "#4c2d14", z: 5 });
+        items.push({ key: `mb-${bx}`, kind: "gridline", x: x - 1, y: f.bandY - 6, w: 1.5, h: tlBottom - (f.bandY - 6), opacity: weekZoom * 0.7, color: "#4c2d14", z: 5 });
       }
     }
   }
