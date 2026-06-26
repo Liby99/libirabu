@@ -1,0 +1,48 @@
+.cc-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--background);
+  cursor: default;
+  user-select: none;
+}
+
+.cc-layer { position: absolute; inset: 0; }
+.cc-svg { position: absolute; inset: 0; pointer-events: none; }
+
+.cc-outline {
+  fill: rgba(76, 45, 20, 0.05);
+  stroke: var(--highlight);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.cc-event {
+  border-radius: 3px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
+  will-change: transform;
+}
+.cc-event span { overflow: hidden; text-overflow: ellipsis; }
+
+.cc-bar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  z-index: 10;
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+.cc-level { font-weight: 700; color: var(--accent-dark); letter-spacing: 0.04em; }
+.cc-focus { color: var(--highlight); font-weight: 600; }
+.cc-hint { margin-left: auto; color: var(--accent-grey); font-size: 0.72rem; }
