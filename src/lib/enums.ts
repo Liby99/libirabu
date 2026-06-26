@@ -39,3 +39,7 @@ export const EXPENSE_CATEGORIES = [
 export const SUBSCRIPTION_CYCLES = ["MONTHLY", "QUARTERLY", "ANNUAL", "ONE_TIME"] as const;
 
 export const TRIP_PURPOSES = ["CONFERENCE", "VISIT", "FIELDWORK", "OTHER"] as const;
+
+export const DEADLINE_KINDS = [
+  "CONF_ABSTRACT", "CONF_FULL", "JOURNAL", "REVIEW", "REBUTTAL", "CAMERA_READY",
+] as const;
