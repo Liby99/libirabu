@@ -157,10 +157,11 @@ export function buildScene(
           opacity: yearVis * 0.7, text: String(d), fontSize: 10, align: "center", z: 4,
         });
       }
-      // underline under the quarter's day-number header
+      // top border of the quarter's first month — spans the gutter + grid (z above
+      // the gutter strip and track cells so it shows there too).
       items.push({
-        key: `qhsep-${q}`, kind: "gridline", x: LABEL_W, y: hy + Q_HEADER_H - 1, w: 31 * dayW, h: 1,
-        opacity: yearVis * 0.6, color: "#4c2d14", z: 1,
+        key: `qhsep-${q}`, kind: "gridline", x: 0, y: hy + Q_HEADER_H - 1, w: LABEL_W + 31 * dayW, h: 1,
+        opacity: yearVis * 0.6, color: "#4c2d14", z: 11,
       });
     }
   }
