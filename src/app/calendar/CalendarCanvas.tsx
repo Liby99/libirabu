@@ -4,10 +4,8 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import {
   buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll, bandYFor,
   monthAtPoint, monthNameAtPoint, weekAtPointInMonth, dayAtPointInWeek,
-  LABEL_W, MNAME_W, TRACK_H,
+  LABEL_W, MNAME_W, TRACK_H, RIGHT_PAD,
 } from "./scene";
-
-const RIGHT_PAD = 24; // gap between the track inputs and the grid lane
 import { MONTH_LONG } from "./labels";
 
 const TRACK_KEY = "libirabu-calendar-tracknames";

@@ -31,6 +31,7 @@ export interface Scene {
 const TOP_PAD = 56; // room for breadcrumb + dates row above the band (weekdays sit below)
 const LABEL_W = 250; // left gutter: vertical month name + per-month track-name editor
 const MNAME_W = 28; // width of the rotated month-name zone within the gutter
+const RIGHT_PAD = 24; // gap between the track-name editor and the day grid
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -158,12 +159,12 @@ export function buildScene(
           opacity: yearVis * 0.7, text: String(d), fontSize: 10, align: "center", z: 4,
         });
       }
-      // top border of the quarter's first month — spans the gutter + grid (z above
-      // the gutter strip and track cells so it shows there too).
-      items.push({
-        key: `qhsep-${q}`, kind: "gridline", x: 0, y: hy + Q_HEADER_H - 1, w: LABEL_W + 31 * dayW, h: 1,
-        opacity: yearVis * 0.6, color: "#4c2d14", z: 11,
-      });
+      // top border of the quarter's first month — two segments (gutter + grid) with
+      // the RIGHT_PAD gap between, matching the rest of the layout. z above the
+      // gutter strip + track cells so it shows there too.
+      const topY = hy + Q_HEADER_H - 1;
+      items.push({ key: `qhsepg-${q}`, kind: "gridline", x: 0, y: topY, w: LABEL_W - RIGHT_PAD, h: 1, opacity: yearVis * 0.6, color: "#4c2d14", z: 11 });
+      items.push({ key: `qhsepd-${q}`, kind: "gridline", x: LABEL_W, y: topY, w: 31 * dayW, h: 1, opacity: yearVis * 0.6, color: "#4c2d14", z: 11 });
     }
   }
 
@@ -390,4 +391,4 @@ export function bandYFor(m: number, z: number, focus: number, week: number, vp: 
   return frameFor(m, z, focus, week, vp, scrollY).bandY;
 }
 
-export { TOP_PAD, LABEL_W, MNAME_W, TRACK_H };
+export { TOP_PAD, LABEL_W, MNAME_W, TRACK_H, RIGHT_PAD };
