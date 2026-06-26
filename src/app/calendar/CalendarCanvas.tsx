@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll, yearMonthBandY,
   monthAtPoint, weekAtPointInMonth, dayAtPointInWeek, monthOutlineRect, weekOutlineRect,
@@ -39,14 +39,37 @@ export default function CalendarCanvas() {
     } catch { /* ignore */ }
   }, []);
 
-  const editTrack = (m: number, i: number, val: string) => {
+  const editTrack = useCallback((m: number, i: number, val: string) => {
     setTrackNames((prev) => {
       const next = prev.map((r) => r.slice());
       next[m][i] = val;
       try { localStorage.setItem(TRACK_KEY, JSON.stringify(next)); } catch { /* ignore */ }
       return next;
     });
-  };
+  }, []);
+
+  // Memoized track-name inputs — rebuilt only on layout/data change, NOT on zoom,
+  // so an active pinch doesn't re-reconcile 48 inputs every frame (which delayed
+  // gesturechange past the settle watchdog and snapped the zoom mid-flight).
+  const trackInputs = useMemo(() => {
+    if (vp.w === 0) return null;
+    return Array.from({ length: 12 }, (_, m) => m).map((m) => {
+      const by = yearMonthBandY(m, vp, scrollY);
+      if (by + TRACK_H * 4 < 0 || by > vp.h) return null;
+      return [0, 1, 2, 3].map((i) => (
+        <input
+          key={`tn-${m}-${i}`}
+          className="cc-track-input"
+          style={{ top: by + i * TRACK_H, left: MNAME_W + 4, width: LABEL_W - MNAME_W - 12, height: TRACK_H }}
+          value={trackNames[m]?.[i] ?? ""}
+          placeholder="track…"
+          onChange={(e) => editTrack(m, i, e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        />
+      ));
+    });
+  }, [vp, scrollY, trackNames, editTrack]);
 
   const zRef = useRef(z); zRef.current = z;
   const focusRef = useRef(focus); focusRef.current = focus;
@@ -134,7 +157,7 @@ export default function CalendarCanvas() {
     let startZ = 0, cx = 0, cy = 0, idle = 0;
     // Fallback: if gesturechange stops arriving and no gestureend came (Safari
     // occasionally drops it), settle anyway so the zoom never sticks mid-transition.
-    const arm = () => { clearTimeout(idle); idle = window.setTimeout(() => { idle = 0; snapNow(); }, 150); };
+    const arm = () => { clearTimeout(idle); idle = window.setTimeout(() => { idle = 0; snapNow(); }, 240); };
     const onStart = (e: GestureLikeEvent) => {
       e.preventDefault();
       cancelTween(); cancelWeekTween(); clearSnap();
@@ -317,27 +340,17 @@ export default function CalendarCanvas() {
         </svg>
       )}
 
-      {/* per-month track-name editor — year view only */}
-      {z < 0.25 && (
-        <div className="cc-track-edit" style={{ opacity: Math.max(0, 1 - z / 0.2), pointerEvents: z < 0.12 ? "auto" : "none" }}>
-          {Array.from({ length: 12 }, (_, m) => m).map((m) => {
-            const by = yearMonthBandY(m, vp, scrollY);
-            if (by + TRACK_H * 4 < 0 || by > vp.h) return null;
-            return [0, 1, 2, 3].map((i) => (
-              <input
-                key={`tn-${m}-${i}`}
-                className="cc-track-input"
-                style={{ top: by + i * TRACK_H, left: MNAME_W + 4, width: LABEL_W - MNAME_W - 12, height: TRACK_H }}
-                value={trackNames[m]?.[i] ?? ""}
-                placeholder="track…"
-                onChange={(e) => editTrack(m, i, e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-              />
-            ));
-          })}
-        </div>
-      )}
+      {/* per-month track-name editor — year view only (gated by style, not remount) */}
+      <div
+        className="cc-track-edit"
+        style={{
+          opacity: Math.max(0, 1 - z / 0.2),
+          pointerEvents: z < 0.12 ? "auto" : "none",
+          visibility: z < 0.25 ? "visible" : "hidden",
+        }}
+      >
+        {trackInputs}
+      </div>
     </div>
   );
 }
