@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll, yearMonthBandY,
   monthAtPoint, weekAtPointInMonth, dayAtPointInWeek, monthOutlineRect, weekOutlineRect,
-  LABEL_W, MNAME_W, TRACK_H,
+  LABEL_W, MNAME_W, TRACK_H, TOP_PAD,
 } from "./scene";
 import { MONTH_LONG } from "./labels";
 
@@ -70,6 +70,23 @@ export default function CalendarCanvas() {
       ));
     });
   }, [vp, scrollY, trackNames, editTrack]);
+
+  // Focused month's track names, pinned to the band at the top — shown in month/week
+  // views (where only the focus month is visible), like frozen spreadsheet columns.
+  const focusTrackInputs = useMemo(() => {
+    return [0, 1, 2, 3].map((i) => (
+      <input
+        key={`ftn-${i}`}
+        className="cc-track-input"
+        style={{ top: TOP_PAD + i * TRACK_H, left: MNAME_W + 4, width: LABEL_W - MNAME_W - 12, height: TRACK_H }}
+        value={trackNames[focus]?.[i] ?? ""}
+        placeholder="track…"
+        onChange={(e) => editTrack(focus, i, e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      />
+    ));
+  }, [focus, trackNames, editTrack]);
 
   const zRef = useRef(z); zRef.current = z;
   const focusRef = useRef(focus); focusRef.current = focus;
@@ -340,16 +357,27 @@ export default function CalendarCanvas() {
         </svg>
       )}
 
-      {/* per-month track-name editor — year view only (gated by style, not remount) */}
+      {/* per-month track-name editor — year view (gated by style, not remount) */}
       <div
         className="cc-track-edit"
         style={{
-          opacity: Math.max(0, 1 - z / 0.2),
+          opacity: Math.max(0, 1 - z / 0.3),
           pointerEvents: z < 0.12 ? "auto" : "none",
-          visibility: z < 0.25 ? "visible" : "hidden",
+          visibility: z < 0.35 ? "visible" : "hidden",
         }}
       >
         {trackInputs}
+      </div>
+      {/* focused month's track names, pinned at the band — month/week views */}
+      <div
+        className="cc-track-edit"
+        style={{
+          opacity: Math.max(0, Math.min(1, (z - 0.85) / 0.15)),
+          pointerEvents: z > 0.9 ? "auto" : "none",
+          visibility: z > 0.85 ? "visible" : "hidden",
+        }}
+      >
+        {focusTrackInputs}
       </div>
     </div>
   );
