@@ -12,8 +12,6 @@ function hexToRgba(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
-const LEVELS = ["Year", "Month", "Week"];
-
 export default function CalendarCanvas() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [vp, setVp] = useState<Vp>({ w: 0, h: 0 });
@@ -175,8 +173,21 @@ export default function CalendarCanvas() {
   return (
     <div ref={wrapRef} className="cc-wrap" onMouseMove={onMove} onMouseLeave={() => { setHoverMonth(null); setHoverWeek(null); }} onClick={onClick}>
       <div className="cc-bar">
-        <span className="cc-level">{LEVELS[level]}</span>
-        {z >= 0.5 && <span className="cc-focus">{MONTH_LONG[focus]} 2026{level === 2 ? ` · week ${week + 1}` : ""}</span>}
+        <nav className="cc-crumbs" onClick={(e) => e.stopPropagation()}>
+          <button className={`cc-crumb${level === 0 ? " current" : ""}`} onClick={() => tweenTo(0)}>Year 2026</button>
+          {level >= 1 && (
+            <>
+              <span className="cc-sep">›</span>
+              <button className={`cc-crumb${level === 1 ? " current" : ""}`} onClick={() => tweenTo(1)}>{MONTH_LONG[focus]}</button>
+            </>
+          )}
+          {level >= 2 && (
+            <>
+              <span className="cc-sep">›</span>
+              <button className="cc-crumb current" onClick={() => tweenTo(2)}>Week {week + 1}</button>
+            </>
+          )}
+        </nav>
         <span className="cc-hint">{hint}</span>
       </div>
 

@@ -43,6 +43,13 @@
   font-size: 0.8rem;
   pointer-events: none;
 }
-.cc-level { font-weight: 700; color: var(--accent-dark); letter-spacing: 0.04em; }
-.cc-focus { color: var(--highlight); font-weight: 600; }
+.cc-crumbs { display: flex; align-items: center; gap: 4px; pointer-events: auto; }
+.cc-crumb {
+  background: none; border: none; cursor: pointer;
+  font-size: 0.85rem; color: var(--accent-dark);
+  padding: 2px 6px; border-radius: 5px;
+}
+.cc-crumb:hover { background: var(--accent-bg); color: var(--highlight); }
+.cc-crumb.current { font-weight: 700; color: var(--highlight); }
+.cc-sep { color: var(--accent-grey); font-size: 0.8rem; }
 .cc-hint { margin-left: auto; color: var(--accent-grey); font-size: 0.72rem; }
