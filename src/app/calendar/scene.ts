@@ -188,12 +188,14 @@ export function buildScene(
         opacity: f.opacity, color: TRACKS[t].color, cols: 31, z: 1,
       });
     }
-    // dim the cells past the month's actual length (e.g. Feb 29–31)
-    if (dim < 31) {
+    // dim the cells past the month's actual length (e.g. Feb 29–31). Fades out
+    // entering week view, where those columns become real next-month spillover days.
+    const dimFade = 1 - clamp(z - 1, 0, 1);
+    if (dim < 31 && dimFade > 0.02) {
       items.push({
         key: `dim-${m}`, kind: "dim",
         x: f.x0 + dim * f.dayW, y: f.bandY, w: (31 - dim) * f.dayW, h: 4 * f.trackH,
-        opacity: f.opacity, z: 3,
+        opacity: f.opacity * dimFade, z: 3,
       });
     }
     // solid divider under each month (delineates the flush months in a quarter)
