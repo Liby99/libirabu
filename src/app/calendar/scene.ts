@@ -28,7 +28,7 @@ export interface Scene {
 }
 
 const TOP_PAD = 56; // room for breadcrumb + dates row above the band (weekdays sit below)
-const LABEL_W = 200; // left gutter: vertical month name + per-month track-name editor
+const LABEL_W = 250; // left gutter: vertical month name + per-month track-name editor
 const MNAME_W = 28; // width of the rotated month-name zone within the gutter
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
