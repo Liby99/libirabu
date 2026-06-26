@@ -28,7 +28,8 @@ export interface Scene {
 }
 
 const TOP_PAD = 56; // room for breadcrumb + dates row above the band (weekdays sit below)
-const LABEL_W = 64;
+const LABEL_W = 150; // left gutter: vertical month name + per-month track-name editor
+const MNAME_W = 26; // width of the rotated month-name zone within the gutter
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -177,8 +178,8 @@ export function buildScene(
     const bandW = dim * f.dayW;
 
     items.push({
-      key: `ml-${m}`, kind: "monthLabel", x: 6, y: f.bandY, w: LABEL_W - 8, h: f.trackH * 4,
-      opacity: f.opacity, text: MONTH_NAMES[m], fontSize: clamp(f.trackH * 0.5, 9, 16), align: "center", z: 3,
+      key: `ml-${m}`, kind: "monthLabel", x: 0, y: f.bandY, w: MNAME_W, h: f.trackH * 4,
+      opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 13, align: "center", z: 8,
     });
 
     for (let t = 0; t < 4; t++) {
@@ -232,7 +233,7 @@ export function buildScene(
       for (let hr = 0; hr <= 24; hr += wide ? 2 : 6) {
         const y = tlTop + hr * hourH;
         items.push({ key: `hl-${hr}`, kind: "gridline", x: LABEL_W, y, w: vp.w - LABEL_W - 6, h: 1, opacity: reveal * 0.18, color: "#4c2d14", z: 0, dashed: true });
-        items.push({ key: `ht-${hr}`, kind: "dayLabel", x: 2, y: y - 7, w: LABEL_W - 8, h: 14, opacity: reveal * 0.7, text: `${String(hr).padStart(2, "0")}:00`, fontSize: 9, align: "center", z: 4 });
+        items.push({ key: `ht-${hr}`, kind: "dayLabel", x: LABEL_W - 46, y: y - 7, w: 42, h: 14, opacity: reveal * 0.7, text: `${String(hr).padStart(2, "0")}:00`, fontSize: 9, align: "center", z: 9 });
       }
     }
 
@@ -342,4 +343,9 @@ export function dayAtPointInWeek(px: number, focus: number, week: number, vp: Vp
   return { month: r.month, day: r.day, week: weekOfDate(r.month, r.day) };
 }
 
-export { TOP_PAD, LABEL_W };
+// Top of a month's band in year view (for the track-name editor overlay).
+export function yearMonthBandY(m: number, vp: Vp, scrollY: number): number {
+  return yearFrame(m, vp, scrollY).bandY;
+}
+
+export { TOP_PAD, LABEL_W, MNAME_W, TRACK_H };

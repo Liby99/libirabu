@@ -2,10 +2,14 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll,
+  buildScene, easeInOut, Vp, Item, weeksInMonth, yearMaxScroll, yearMonthBandY,
   monthAtPoint, weekAtPointInMonth, dayAtPointInWeek, monthOutlineRect, weekOutlineRect,
+  LABEL_W, MNAME_W, TRACK_H,
 } from "./scene";
 import { MONTH_LONG } from "./labels";
+
+const TRACK_KEY = "libirabu-calendar-tracknames";
+const DEFAULT_TRACK_NAMES = ["Teaching", "Research", "Service", "Travel"];
 
 // Safari's GestureEvent isn't in the standard DOM lib types.
 type GestureLikeEvent = { scale: number; clientX: number; clientY: number; preventDefault: () => void };
@@ -24,6 +28,25 @@ export default function CalendarCanvas() {
   const [scrollY, setScrollY] = useState(0);
   const [hoverMonth, setHoverMonth] = useState<number | null>(null);
   const [hoverWeek, setHoverWeek] = useState<number | null>(null);
+  // Per-month track names (year-view editor), persisted to localStorage.
+  const [trackNames, setTrackNames] = useState<string[][]>(() =>
+    Array.from({ length: 12 }, () => [...DEFAULT_TRACK_NAMES]));
+
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem(TRACK_KEY);
+      if (s) setTrackNames(JSON.parse(s));
+    } catch { /* ignore */ }
+  }, []);
+
+  const editTrack = (m: number, i: number, val: string) => {
+    setTrackNames((prev) => {
+      const next = prev.map((r) => r.slice());
+      next[m][i] = val;
+      try { localStorage.setItem(TRACK_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const zRef = useRef(z); zRef.current = z;
   const focusRef = useRef(focus); focusRef.current = focus;
@@ -281,6 +304,9 @@ export default function CalendarCanvas() {
         <span className="cc-hint">{hint}</span>
       </div>
 
+      {/* solid left gutter — occludes lane content that slides under it (week view) */}
+      <div className="cc-gutter" style={{ width: LABEL_W }} />
+
       <div className="cc-layer">
         {scene.items.map((it) => <ItemView key={it.key} it={it} />)}
       </div>
@@ -289,6 +315,28 @@ export default function CalendarCanvas() {
         <svg className="cc-svg" width={vp.w} height={vp.h}>
           <rect x={outline.x} y={outline.y} width={outline.w} height={outline.h} className="cc-outline" />
         </svg>
+      )}
+
+      {/* per-month track-name editor — year view only */}
+      {z < 0.25 && (
+        <div className="cc-track-edit" style={{ opacity: Math.max(0, 1 - z / 0.2), pointerEvents: z < 0.12 ? "auto" : "none" }}>
+          {Array.from({ length: 12 }, (_, m) => m).map((m) => {
+            const by = yearMonthBandY(m, vp, scrollY);
+            if (by + TRACK_H * 4 < 0 || by > vp.h) return null;
+            return [0, 1, 2, 3].map((i) => (
+              <input
+                key={`tn-${m}-${i}`}
+                className="cc-track-input"
+                style={{ top: by + i * TRACK_H, left: MNAME_W + 4, width: LABEL_W - MNAME_W - 12, height: TRACK_H }}
+                value={trackNames[m]?.[i] ?? ""}
+                placeholder="track…"
+                onChange={(e) => editTrack(m, i, e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              />
+            ));
+          })}
+        </div>
       )}
     </div>
   );
@@ -301,6 +349,7 @@ function ItemView({ it }: { it: Item }) {
     width: it.w,
     height: it.h,
     opacity: it.opacity,
+    zIndex: it.z,
   };
 
   if (it.kind === "row") {
@@ -368,7 +417,8 @@ function ItemView({ it }: { it: Item }) {
         fontWeight: it.kind === "monthLabel" ? 600 : 400,
         pointerEvents: "none",
         textTransform: it.kind === "monthLabel" ? "uppercase" : "none",
-        letterSpacing: it.kind === "monthLabel" ? "0.05em" : 0,
+        letterSpacing: it.kind === "monthLabel" ? "0.08em" : 0,
+        writingMode: it.kind === "monthLabel" ? "vertical-lr" : undefined,
       }}
     >
       {it.text}
