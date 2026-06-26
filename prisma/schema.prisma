@@ -1,0 +1,516 @@
+// Libirabu — Research OS schema.
+// See DESIGN.md §3 for the entity map and rationale.
+//
+// Conventions:
+//  - Single-user app: every row carries a scalar `userId` (indexed); we always
+//    filter by the session user in code, so userId is NOT a Prisma relation.
+//  - Status/kind/role/type fields are Strings (not enums) so the AI assistant can
+//    propose values without enum-migration churn; validated by zod at the edges.
+//  - PRIMARY navigation uses real relations (Project↔Task, Paper↔Author, …).
+//    SECONDARY "attach-to-anything" links are scalar FK Strings (documented inline),
+//    resolved in code — this keeps back-references from exploding combinatorially.
+//  - Encrypted columns are `Bytes?` (AES-256-GCM ciphertext): ApiKey.valueEnc,
+//    Person.notesEnc, etc.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// NextAuth.js + identity
+// ─────────────────────────────────────────────────────────────────────
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String         @id @default(cuid())
+  name          String?
+  email         String         @unique
+  emailVerified DateTime?
+  image         String?
+  password      String
+  accounts      Account[]
+  sessions      Session[]
+  calendarData  CalendarData[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Legacy GridCal year-blob — kept as an optional layer for the year-paint view.
+model CalendarData {
+  id        String   @id @default(cuid())
+  userId    String
+  year      Int
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, year])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Calendar / time
+// ─────────────────────────────────────────────────────────────────────
+model Track {
+  id     String     @id @default(cuid())
+  userId String
+  key    String // RESEARCH|TEACHING|SERVICE|REVIEWING|COURSES|TRAVEL|PERSONAL
+  name   String
+  color  String
+  order  Int        @default(0)
+  events CalEvent[]
+
+  @@index([userId])
+}
+
+model CalEvent {
+  id         String   @id @default(cuid())
+  userId     String
+  title      String
+  notes      String?
+  start      DateTime
+  end        DateTime
+  allDay     Boolean  @default(true)
+  type       String   @default("OTHER") // DEADLINE|MEETING|CLASS|TRAVEL|CONFERENCE|REVIEW|FOCUS|OTHER
+  color      String?
+  recurrence String? // RRULE
+
+  trackId   String?
+  track     Track?        @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  attendees EventPerson[]
+
+  // secondary connections (scalar, resolved in code):
+  projectId       String?
+  paperId         String?
+  proposalId      String?
+  apiKeyId        String?
+  tripId          String?
+  fundingSourceId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, start])
+  @@index([trackId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Work: projects & tasks
+// ─────────────────────────────────────────────────────────────────────
+model Project {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  status      String    @default("ACTIVE") // IDEA|ACTIVE|PAUSED|DONE|DROPPED
+  priority    Int       @default(0)
+  startDate   DateTime?
+  targetDate  DateTime?
+  trackId     String? // scalar link to a Track/domain
+
+  parentId String?
+  parent   Project?  @relation("ProjectTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Project[] @relation("ProjectTree")
+
+  people    ProjectPerson[]
+  tasks     Task[]
+  papers    Paper[]
+  proposals Proposal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  notes       String?
+  status      String    @default("TODO") // TODO|DOING|DONE|BLOCKED
+  priority    Int       @default(0)
+  dueAt       DateTime?
+  scheduledAt DateTime?
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  // secondary connections (scalar): a todo can hang off any object
+  paperId         String?
+  proposalId      String?
+  personId        String?
+  fundingSourceId String?
+  apiKeyId        String?
+  eventId         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([projectId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// People
+// ─────────────────────────────────────────────────────────────────────
+model Person {
+  id          String  @id @default(cuid())
+  userId      String
+  name        String
+  email       String?
+  role        String  @default("OTHER") // STUDENT|COLLABORATOR|COAUTHOR|FACULTY|COMMITTEE|ADVISOR|OTHER
+  affiliation String?
+  notesEnc    Bytes? // AES-GCM encrypted
+
+  advisorId String?
+  advisor   Person?  @relation("Advises", fields: [advisorId], references: [id], onDelete: SetNull)
+  advisees  Person[] @relation("Advises")
+
+  projects ProjectPerson[]
+  events   EventPerson[]
+  papers   PaperAuthor[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ProjectPerson {
+  projectId String
+  personId  String
+  role      String  @default("COLLABORATOR")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  person    Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, personId])
+}
+
+model EventPerson {
+  eventId  String
+  personId String
+  role     String   @default("ATTENDEE")
+  event    CalEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person   Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, personId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Papers
+// ─────────────────────────────────────────────────────────────────────
+model Paper {
+  id          String  @id @default(cuid())
+  userId      String
+  title       String
+  venue       String?
+  year        Int?
+  status      String  @default("IN_PREP") // IN_PREP|SUBMITTED|UNDER_REVIEW|MAJOR_REV|ACCEPTED|PUBLISHED|REJECTED
+  overleafUrl String?
+  githubUrl   String?
+  arxivUrl    String?
+  doi         String?
+  abstract    String?
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  authors     PaperAuthor[]
+  attachments Attachment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+model PaperAuthor {
+  paperId         String
+  personId        String
+  order           Int     @default(0)
+  isCorresponding Boolean @default(false)
+  paper           Paper   @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  person          Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([paperId, personId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Proposals / grants
+// ─────────────────────────────────────────────────────────────────────
+model Proposal {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  agency      String?
+  program     String?
+  role        String? // PI|CO_PI|SENIOR_PERSONNEL
+  status      String    @default("DRAFTING") // DRAFTING|SUBMITTED|UNDER_REVIEW|AWARDED|DECLINED
+  amount      Decimal?  @db.Decimal(14, 2)
+  submittedAt DateTime?
+  periodStart DateTime?
+  periodEnd   DateTime?
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  funding     FundingSource?
+  attachments Attachment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// API keys (sensitive)
+// ─────────────────────────────────────────────────────────────────────
+model ApiKey {
+  id          String  @id @default(cuid())
+  userId      String
+  label       String
+  provider    String // FROM WHERE: OpenAI|AWS|Anthropic|…
+  valueEnc    Bytes? // encrypted secret (optional — prefer metadata-only; see DESIGN §7)
+  last4       String?
+  purpose     String?
+  environment String? // dev|prod
+  status      String  @default("ACTIVE") // ACTIVE|REVOKED|EXPIRED
+
+  issuedToPersonId String? // GIVEN TO WHOM (a Person) …
+  issuedToLabel    String? // … or free text (a service / CI)
+  projectId        String?
+  fundingSourceId  String?
+
+  issuedAt      DateTime?
+  expiresAt     DateTime?
+  lastRotatedAt DateTime?
+  notesEnc      Bytes?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Conference / submission deadlines (the /deadlines board)
+// ─────────────────────────────────────────────────────────────────────
+model Deadline {
+  id       String   @id @default(cuid())
+  userId   String
+  venue    String
+  kind     String // CONF_ABSTRACT|CONF_FULL|JOURNAL|REVIEW|REBUTTAL|CAMERA_READY
+  dueAt    DateTime
+  timezone String?
+  url      String?
+  trackId  String?
+  watched  Boolean  @default(true)
+  paperId  String? // target paper
+  eventId  String? // mirrored calendar event
+  notes    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, dueAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Funding
+// ─────────────────────────────────────────────────────────────────────
+model FundingSource {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  agency      String?
+  awardNumber String?
+  amount      Decimal?  @db.Decimal(14, 2)
+  startDate   DateTime?
+  endDate     DateTime?
+
+  proposalId String?   @unique
+  proposal   Proposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+
+  expenses      Expense[]
+  subscriptions Subscription[]
+  trips         Trip[]
+  attachments   Attachment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  userId      String
+  description String
+  amount      Decimal  @db.Decimal(12, 2)
+  category    String
+  date        DateTime
+  status      String   @default("PLANNED") // PLANNED|SUBMITTED|REIMBURSED
+
+  personId String? // who incurred / traveled (scalar)
+
+  fundingSourceId String?
+  fundingSource   FundingSource? @relation(fields: [fundingSourceId], references: [id], onDelete: SetNull)
+
+  tripId String?
+  trip   Trip?   @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  attachments Attachment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+model Subscription {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  vendor      String
+  cost        Decimal   @db.Decimal(12, 2)
+  cycle       String // MONTHLY|ANNUAL
+  renewalDate DateTime?
+  status      String    @default("ACTIVE") // ACTIVE|CANCELLED
+  apiKeyId    String? // scalar link to an ApiKey
+
+  fundingSourceId String?
+  fundingSource   FundingSource? @relation(fields: [fundingSourceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+model Trip {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  destination String
+  purpose     String // CONFERENCE|VISIT|FIELDWORK|OTHER
+  start       DateTime
+  end         DateTime
+  estCost     Decimal? @db.Decimal(12, 2)
+  actualCost  Decimal? @db.Decimal(12, 2)
+
+  travelerPersonId String? // student travel vs. your travel (scalar)
+  projectId        String?
+
+  fundingSourceId String?
+  fundingSource   FundingSource? @relation(fields: [fundingSourceId], references: [id], onDelete: SetNull)
+
+  expenses Expense[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, start])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Files
+// ─────────────────────────────────────────────────────────────────────
+model Attachment {
+  id          String  @id @default(cuid())
+  userId      String
+  filename    String
+  mime        String
+  bytes       Int
+  sha256      String
+  storagePath String
+  encrypted   Boolean @default(false)
+
+  expenseId       String?
+  expense         Expense?       @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  proposalId      String?
+  proposal        Proposal?      @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  paperId         String?
+  paper           Paper?         @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  fundingSourceId String?
+  fundingSource   FundingSource? @relation(fields: [fundingSourceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// AI assistant + audit
+// ─────────────────────────────────────────────────────────────────────
+model AIConversation {
+  id        String      @id @default(cuid())
+  userId    String
+  title     String?
+  messages  AIMessage[]
+  createdAt DateTime    @default(now())
+
+  @@index([userId])
+}
+
+model AIMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String // user|assistant|tool|system
+  content        Json
+  toolCalls      Json?
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId])
+}
+
+model ActionLog {
+  id        String   @id @default(cuid())
+  userId    String
+  actor     String // USER|AI
+  kind      String // create_task|update_project_status|create_expense|…
+  payload   Json
+  status    String   @default("PROPOSED") // PROPOSED|CONFIRMED|APPLIED|REVERTED
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}

@@ -1,0 +1,126 @@
+import React, { useState, useEffect, useRef } from "react"
+
+import MonthlyTopic from "./MonthlyTopic"
+import { DEFAULT_TOPICS_IDS, localStorageMonthlyTopicOrder, localStorageSetMonthlyTopicOrder } from "../utils/MonthData"
+import { ExternalCalendar } from "../utils/Configuration";
+import { useSessionUser } from "../hooks/useSessionUser";
+
+/**
+ * A month, which contains topics of each month.
+ * 
+ * Offers the following features:
+ * - Dragging and dropping topics
+ * 
+ * @param year - The year of the month
+ * @param month - The month of the year
+ * @param showToday - Whether to show the today marker on the month
+ */
+export default function Month({ 
+  year, 
+  month, 
+  showToday,
+  externalCalendar,
+}: { 
+  year: number, 
+  month: number, 
+  showToday: boolean,
+  externalCalendar: ExternalCalendar,
+}) {
+  const user = useSessionUser();
+
+  // Check if we're on mobile and disable interactions
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    // Check screen width once on mount
+    setIsMobile(window.innerWidth <= 480);
+  }, []);
+
+  // The current ordering of the monthly topics
+  const [topicOrder, setTopicOrder] = useState<Array<number>>(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      return localStorageMonthlyTopicOrder(user?.id, year, month);
+    } else {
+      return DEFAULT_TOPICS_IDS;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      setTopicOrder(localStorageMonthlyTopicOrder(user?.id, year, month));
+    } else {
+      setTopicOrder(DEFAULT_TOPICS_IDS);
+    }
+  }, [user?.id, year, month]);
+
+  // The topic ordering
+  useEffect(() => {
+    localStorageSetMonthlyTopicOrder(user?.id, year, month, topicOrder);
+    // eslint-disable-next-line
+  }, [topicOrder]);
+
+  // What is the monthly topic that is being dragged right now
+  const dragItem = useRef<number | null>(null);
+
+  const handleDragStart = (idx: number) => {
+    if (isMobile) return;
+    dragItem.current = idx;
+  };
+
+  const handleDragOver = (idx: number, e: React.DragEvent) => {
+    if (isMobile) return;
+    e.preventDefault();
+    if (dragItem.current === null || dragItem.current === idx) return;
+    setTopicOrder((prev) => {
+      const newOrder = [...prev];
+      const [removed] = newOrder.splice(dragItem.current!, 1);
+      newOrder.splice(idx, 0, removed);
+      dragItem.current = idx;
+      return newOrder;
+    });
+  };
+
+  const handleDragEnd = () => {
+    if (isMobile) return;
+    dragItem.current = null;
+  };
+
+  return (
+    <div className="month-bar flex">
+      <div className="month-header period-header items-center justify-center">{monthName(month)}</div>
+      <div className="month-topics">
+        {topicOrder.map((i, idx) => (
+          <MonthlyTopic
+            key={`month-${month}-topic-${i}`}
+            year={year}
+            month={month}
+            topicId={i}
+            onTopicDragStart={isMobile ? undefined : () => handleDragStart(idx)}
+            onTopicDragOver={isMobile ? undefined : (e) => handleDragOver(idx, e)}
+            onTopicDragEnd={isMobile ? undefined : handleDragEnd}
+            showToday={showToday}
+            externalCalendar={externalCalendar}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function monthName(month: number) : string {
+  switch (month) {
+    case 1: return "jan";
+    case 2: return "feb";
+    case 3: return "mar";
+    case 4: return "apr";
+    case 5: return "may";
+    case 6: return "jun";
+    case 7: return "jul";
+    case 8: return "aug";
+    case 9: return "sep";
+    case 10: return "oct";
+    case 11: return "nov";
+    case 12: return "dec";
+    default: throw new DOMException(`Unknown month ${month}`);
+  }
+}

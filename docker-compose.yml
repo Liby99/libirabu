@@ -1,0 +1,18 @@
+# Local dev: just Postgres. On the home box this file will grow to add the
+# `app` (Next.js) and `caddy` (TLS) services for the full self-hosted stack.
+services:
+  db:
+    image: postgres:16
+    container_name: libirabu-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: libirabu
+      POSTGRES_PASSWORD: libirabu_dev
+      POSTGRES_DB: libirabu
+    ports:
+      - "5433:5432"   # 5433 on host to avoid clashing with any local pg
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
