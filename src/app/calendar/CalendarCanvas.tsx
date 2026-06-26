@@ -349,6 +349,29 @@ export default function CalendarCanvas() {
 
       <div className="cc-layer">
         {scene.items.map((it) => <ItemView key={it.key} it={it} />)}
+
+        {/* per-month track-name editor — year view (gated by style, not remount) */}
+        <div
+          className="cc-track-edit"
+          style={{
+            opacity: Math.max(0, 1 - z / 0.3),
+            pointerEvents: z < 0.12 ? "auto" : "none",
+            visibility: z < 0.35 ? "visible" : "hidden",
+          }}
+        >
+          {trackInputs}
+        </div>
+        {/* focused month's track names, pinned at the band — month/week views */}
+        <div
+          className="cc-track-edit"
+          style={{
+            opacity: Math.max(0, Math.min(1, (z - 0.85) / 0.15)),
+            pointerEvents: z > 0.9 ? "auto" : "none",
+            visibility: z > 0.85 ? "visible" : "hidden",
+          }}
+        >
+          {focusTrackInputs}
+        </div>
       </div>
 
       {outline && (
@@ -356,29 +379,6 @@ export default function CalendarCanvas() {
           <rect x={outline.x} y={outline.y} width={outline.w} height={outline.h} className="cc-outline" />
         </svg>
       )}
-
-      {/* per-month track-name editor — year view (gated by style, not remount) */}
-      <div
-        className="cc-track-edit"
-        style={{
-          opacity: Math.max(0, 1 - z / 0.3),
-          pointerEvents: z < 0.12 ? "auto" : "none",
-          visibility: z < 0.35 ? "visible" : "hidden",
-        }}
-      >
-        {trackInputs}
-      </div>
-      {/* focused month's track names, pinned at the band — month/week views */}
-      <div
-        className="cc-track-edit"
-        style={{
-          opacity: Math.max(0, Math.min(1, (z - 0.85) / 0.15)),
-          pointerEvents: z > 0.9 ? "auto" : "none",
-          visibility: z > 0.85 ? "visible" : "hidden",
-        }}
-      >
-        {focusTrackInputs}
-      </div>
     </div>
   );
 }

@@ -13,7 +13,6 @@
   position: absolute;
   left: 0; top: 0; bottom: 0;
   background: var(--background);
-  border-right: 1px solid var(--accent-grey);
   z-index: 5;
 }
 
