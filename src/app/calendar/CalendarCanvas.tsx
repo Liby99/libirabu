@@ -30,6 +30,7 @@ export default function CalendarCanvas() {
   const hoverWeekRef = useRef(hoverWeek); hoverWeekRef.current = hoverWeek;
   const tweenRef = useRef<number | null>(null);
   const snapRef = useRef<number | null>(null);
+  const lastWheelTs = useRef(0);
 
   useLayoutEffect(() => {
     const el = wrapRef.current;
@@ -67,12 +68,20 @@ export default function CalendarCanvas() {
     });
   }, [tweenTo]);
 
+  // Snap to the nearest level (0/1/2) only after the pinch has been idle for IDLE
+  // ms. We re-check the real elapsed time and re-arm if a wheel event arrived
+  // recently, so a slow gesture never gets yanked toward a level mid-pinch.
   const scheduleSnap = useCallback(() => {
     clearSnap();
-    snapRef.current = window.setTimeout(() => {
+    const IDLE = 220;
+    const tick = () => {
+      const since = performance.now() - lastWheelTs.current;
+      if (since < IDLE) { snapRef.current = window.setTimeout(tick, IDLE - since + 5); return; }
+      snapRef.current = null;
       const target = Math.max(0, Math.min(2, Math.round(zRef.current)));
-      if (Math.abs(target - zRef.current) > 0.004) tweenTo(target, 240);
-    }, 150);
+      if (Math.abs(target - zRef.current) > 0.004) tweenTo(target, 260);
+    };
+    snapRef.current = window.setTimeout(tick, IDLE);
   }, [tweenTo]);
 
   // wheel → continuous zoom; pick month in year phase, week in month phase
@@ -88,6 +97,7 @@ export default function CalendarCanvas() {
       if (!e.ctrlKey) return;
       e.preventDefault();
       cancelTween();
+      lastWheelTs.current = performance.now();
       const cur = pending != null ? pending : zRef.current;
       const rect = el.getBoundingClientRect();
       const px = e.clientX - rect.left, py = e.clientY - rect.top;
