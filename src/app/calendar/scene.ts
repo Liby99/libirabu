@@ -193,8 +193,9 @@ export function buildScene(
       const x = f.x0 + (dom - 1) * colW;
       if (x + colW < -40 || x > vp.w + 40) return;
       const dow = new Date(YEAR, r.month, r.day).getDay();
-      // date number above the band
-      items.push({ key: `date-${dom}`, kind: "dayLabel", x, y: f.bandY - 20, w: colW, h: 16, opacity: op, text: String(r.day), fontSize: wide ? 13 : 10, align: "center", z: 4 });
+      // date number above the band — spillover days also show their month
+      const dateText = r.month === focus ? String(r.day) : `${MONTH_NAMES[r.month]} ${r.day}`;
+      items.push({ key: `date-${dom}`, kind: "dayLabel", x, y: f.bandY - 20, w: colW, h: 16, opacity: op, text: dateText, fontSize: wide ? 13 : 10, align: "center", z: 4 });
       // weekday just below the band
       items.push({ key: `wd-${dom}`, kind: "dayLabel", x, y: bandBottom + 2, w: colW, h: 14, opacity: op * 0.9, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4 });
       if (!hasTL) return;
@@ -219,6 +220,18 @@ export function buildScene(
         const dom = start + i;
         if (dom >= 1 && dom <= dim) continue;
         pushDay(dom, weekZoom * 0.5);
+      }
+      // border between months within the week
+      let prevM: number | null = null;
+      for (let i = 0; i < 7; i++) {
+        const dom = start + i;
+        const r = resolveDate(focus, dom);
+        const m = r ? r.month : null;
+        if (i > 0 && m != null && prevM != null && m !== prevM) {
+          const x = f.x0 + (dom - 1) * colW;
+          items.push({ key: `mb-${i}`, kind: "gridline", x: x - 1, y: f.bandY - 6, w: 2, h: tlBottom - (f.bandY - 6), opacity: weekZoom * 0.7, color: "#4c2d14", z: 5 });
+        }
+        prevM = m;
       }
     }
   }
@@ -268,6 +281,21 @@ export function weekOutlineRect(focus: number, week: number, vp: Vp): Rect {
   const s = Math.max(1, weekStartDOM(focus, week));
   const e = Math.min(dim, weekStartDOM(focus, week) + 6);
   return { x: g.x0 + (s - 1) * g.dayW - 1, y: g.bandY - 1, w: (e - s + 1) * g.dayW + 2, h: 4 * g.trackH + 2 };
+}
+
+export function weekOfDate(month: number, day: number): number {
+  return Math.floor((firstDOW(month) + day - 1) / 7);
+}
+
+// Week phase: which day column is under the cursor (may be a spillover day).
+export function dayAtPointInWeek(px: number, focus: number, week: number, vp: Vp): { month: number; day: number; week: number } | null {
+  const dayW = (vp.w - LABEL_W - 16) / 7;
+  if (px < LABEL_W) return null;
+  const i = Math.floor((px - LABEL_W) / dayW);
+  if (i < 0 || i > 6) return null;
+  const r = resolveDate(focus, weekStartDOM(focus, week) + i);
+  if (!r) return null;
+  return { month: r.month, day: r.day, week: weekOfDate(r.month, r.day) };
 }
 
 export { TOP_PAD, LABEL_W };

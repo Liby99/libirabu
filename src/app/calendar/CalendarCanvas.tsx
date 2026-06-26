@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   buildScene, easeInOut, Vp, Item,
-  monthAtPoint, weekAtPointInMonth, monthOutlineRect, weekOutlineRect,
+  monthAtPoint, weekAtPointInMonth, dayAtPointInWeek, monthOutlineRect, weekOutlineRect,
 } from "./scene";
 import { MONTH_LONG } from "./labels";
 
@@ -25,6 +25,7 @@ export default function CalendarCanvas() {
 
   const zRef = useRef(z); zRef.current = z;
   const focusRef = useRef(focus); focusRef.current = focus;
+  const weekRef = useRef(week); weekRef.current = week;
   const hoverMonthRef = useRef(hoverMonth); hoverMonthRef.current = hoverMonth;
   const hoverWeekRef = useRef(hoverWeek); hoverWeekRef.current = hoverWeek;
   const tweenRef = useRef<number | null>(null);
@@ -42,7 +43,7 @@ export default function CalendarCanvas() {
   const clearSnap = () => { if (snapRef.current != null) { clearTimeout(snapRef.current); snapRef.current = null; } };
   const cancelTween = () => { if (tweenRef.current != null) cancelAnimationFrame(tweenRef.current); tweenRef.current = null; };
 
-  const tweenTo = useCallback((targetZ: number, dur = 520) => {
+  const tweenTo = useCallback((targetZ: number, dur = 520, onComplete?: () => void) => {
     cancelTween(); clearSnap();
     const startZ = zRef.current;
     let t0 = 0;
@@ -50,10 +51,20 @@ export default function CalendarCanvas() {
       if (!t0) t0 = ts;
       const p = Math.min(1, (ts - t0) / dur);
       setZ(startZ + (targetZ - startZ) * easeInOut(p));
-      tweenRef.current = p < 1 ? requestAnimationFrame(step) : null;
+      if (p < 1) tweenRef.current = requestAnimationFrame(step);
+      else { tweenRef.current = null; onComplete?.(); }
     };
     tweenRef.current = requestAnimationFrame(step);
   }, []);
+
+  // Click a spillover day → zoom all the way out to year, then back into that week.
+  const chainTo = useCallback((newMonth: number, newWeek: number) => {
+    tweenTo(0, 380, () => {
+      setFocus(newMonth);
+      setWeek(newWeek);
+      tweenTo(2, 560);
+    });
+  }, [tweenTo]);
 
   const scheduleSnap = useCallback(() => {
     clearSnap();
@@ -113,7 +124,7 @@ export default function CalendarCanvas() {
     }
   };
 
-  const onClick = () => {
+  const onClick = (e: React.MouseEvent) => {
     const z = zRef.current;
     if (z < 0.5 && hoverMonthRef.current != null) {
       setFocus(hoverMonthRef.current);
@@ -121,6 +132,11 @@ export default function CalendarCanvas() {
     } else if (z < 1.5 && hoverWeekRef.current != null) {
       setWeek(hoverWeekRef.current);
       tweenTo(2);
+    } else if (z >= 1.5) {
+      const el = wrapRef.current!;
+      const rect = el.getBoundingClientRect();
+      const hit = dayAtPointInWeek(e.clientX - rect.left, focusRef.current, weekRef.current, vp);
+      if (hit && hit.month !== focusRef.current) chainTo(hit.month, hit.week);
     }
   };
 
