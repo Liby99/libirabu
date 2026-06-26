@@ -63,7 +63,7 @@
   color: var(--accent-dark);
   pointer-events: none;
   border-bottom: 1px solid var(--cc-sep);
-  border-right: 1px solid var(--cc-sep);
+  border-right: 1px dotted var(--accent-grey);
 }
 .cc-daylabel { display: flex; align-items: center; color: var(--accent-grey); pointer-events: none; }
 .cc-daylabel.cc-center { justify-content: center; }
