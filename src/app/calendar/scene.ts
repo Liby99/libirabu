@@ -55,10 +55,12 @@ function yearFrame(m: number, vp: Vp): Frame {
 function monthFrame(m: number, focus: number, vp: Vp): Frame {
   const dayW = (vp.w - LABEL_W - 16) / 31; // same day width as year → vertical-only transition
   const trackH = 30;
-  if (m === focus) return { x0: LABEL_W, dayW, bandY: TOP_PAD, trackH, opacity: 1 };
-  const dir = m < focus ? -1 : 1;
-  const off = dir < 0 ? -trackH * 4 - 80 : vp.h + 80;
-  return { x0: LABEL_W, dayW, bandY: off, trackH, opacity: 0 };
+  // Months are spaced one viewport apart relative to the focus (which sits at the
+  // top). So at Month level only the focus is on screen, and during the zoom the
+  // others translate out uniformly — keeping their relative order/spacing — instead
+  // of collapsing toward a single off-screen point.
+  const bandY = TOP_PAD + (m - focus) * vp.h;
+  return { x0: LABEL_W, dayW, bandY, trackH, opacity: 1 };
 }
 
 // Weeks are Sunday-aligned calendar weeks. weekStartDOM may be ≤0 or >daysInMonth
@@ -123,27 +125,26 @@ export function buildScene(
 ): Scene {
   const items: Item[] = [];
 
-  // Non-focused months fade out quickly (gone by z≈0.4) so most transition frames
-  // only draw the focused month — the main perf win for the year→month zoom.
-  const offFade = clamp(1 - z / 0.4, 0, 1);
+  // Cull months whose band is fully off-screen (so non-focused months that slide
+  // out during the zoom stop costing anything once gone) — no fading-in-place.
+  const onScreen = (f: Frame) => f.bandY <= vp.h + 20 && f.bandY + 4 * f.trackH >= -20;
 
   for (let m = 0; m < 12; m++) {
     const f = frameFor(m, z, focus, week, vp);
-    const op = m === focus ? f.opacity : Math.min(f.opacity, offFade);
-    if (op < 0.02) continue;
+    if (f.opacity < 0.02 || !onScreen(f)) continue;
     const dim = daysInMonth(m);
     const bandW = dim * f.dayW;
 
     items.push({
       key: `ml-${m}`, kind: "monthLabel", x: 6, y: f.bandY, w: LABEL_W - 8, h: f.trackH * 4,
-      opacity: op, text: MONTH_NAMES[m], fontSize: clamp(f.trackH * 0.5, 9, 16), align: "center", z: 3,
+      opacity: f.opacity, text: MONTH_NAMES[m], fontSize: clamp(f.trackH * 0.5, 9, 16), align: "center", z: 3,
     });
 
     for (let t = 0; t < 4; t++) {
       items.push({
         key: `row-${m}-${t}`, kind: "row",
         x: f.x0, y: f.bandY + t * f.trackH, w: bandW, h: f.trackH,
-        opacity: op, color: TRACKS[t].color, cols: dim, z: 1,
+        opacity: f.opacity, color: TRACKS[t].color, cols: dim, z: 1,
       });
     }
   }
@@ -151,15 +152,14 @@ export function buildScene(
   // events (drawn after rows so they sit on top)
   for (const ev of EVENTS) {
     const f = frameFor(ev.month, z, focus, week, vp);
-    const op = ev.month === focus ? f.opacity : Math.min(f.opacity, offFade);
-    if (op < 0.02) continue;
+    if (f.opacity < 0.02 || !onScreen(f)) continue;
     const x = f.x0 + (ev.start - 1) * f.dayW;
     const w = (ev.end - ev.start + 1) * f.dayW;
     if (x + w < -40 || x > vp.w + 40) continue; // cull off-screen (week view)
     items.push({
       key: `ev-${ev.id}`, kind: "event",
       x: x + 1, y: f.bandY + ev.track * f.trackH + 1, w: Math.max(2, w - 2), h: f.trackH - 2,
-      opacity: op, color: TRACKS[ev.track].color,
+      opacity: f.opacity, color: TRACKS[ev.track].color,
       text: f.dayW > 14 ? ev.title : undefined, fontSize: 11, z: 2,
     });
   }
