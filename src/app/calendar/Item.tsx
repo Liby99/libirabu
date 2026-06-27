@@ -27,6 +27,45 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
     return <div className="cc-item cc-dim" style={style} />;
   }
 
+  if (it.kind === "hl") {
+    return <div className="cc-item cc-hl" style={style} />;
+  }
+
+  if (it.kind === "today") {
+    return <div className="cc-item cc-today" style={style} />;
+  }
+
+  if (it.kind === "now") {
+    return <div className="cc-item cc-now" style={style} />;
+  }
+
+  if (it.kind === "cursor") {
+    return <div className="cc-item cc-cursor" style={style} />;
+  }
+
+  if (it.kind === "todaytag") {
+    return <div className="cc-item cc-todaytag" style={{ ...style, fontSize: it.fontSize } as React.CSSProperties}>{it.text}</div>;
+  }
+
+  if (it.kind === "weekdaytag") {
+    return <div className="cc-item cc-weekdaytag" style={{ ...style, fontSize: it.fontSize } as React.CSSProperties}><span>{it.text}</span></div>;
+  }
+
+  if (it.kind === "nowlabel") {
+    return (
+      <div className={`cc-item cc-nowlabel ${it.align === "right" ? "cc-nowlabel-r" : "cc-nowlabel-l"}`} style={style}>
+        <span className="cc-nowlabel-cap">Current Time</span>
+        <span className="cc-nowlabel-time">{it.text}</span>
+      </div>
+    );
+  }
+
+  if (it.kind === "timetag") {
+    return (
+      <div className={`cc-item cc-timetag ${it.align === "right" ? "cc-timetag-r" : "cc-timetag-l"}`} style={style}>{it.text}</div>
+    );
+  }
+
   if (it.kind === "event") {
     return (
       <div className={`cc-item cc-event cc-ev-${it.color}`} style={style}>

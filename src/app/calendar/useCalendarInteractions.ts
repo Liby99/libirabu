@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Vp } from "./types";
-import { easeInOut } from "./constants";
+import { Vp, Hover } from "./types";
+import { easeInOut, TOP_PAD, TRACK_H } from "./constants";
 import { yearMaxScroll } from "./frames";
+import { hourMetrics, clampHourH, setWeekHourH as syncWeekHourH } from "./eventGeom";
 import { weeksInMonth } from "./dates";
-import { monthAtPoint, monthNameAtPoint, weekAtPointInMonth, dayAtPointInWeek } from "./hittest";
+import {
+  monthAtPoint, monthNameAtPoint, monthRowAtPoint, weekAtPointInMonth, dayAtPointInWeek,
+  domInMonthBand, domInFocus, cellInWeek,
+} from "./hittest";
+
+const NO_HOVER: Hover = { month: null, dom: null, week: null, hour: null, hourFrac: null, nameMonth: null, nearLeft: null };
+const sameHover = (a: Hover, b: Hover) =>
+  a.month === b.month && a.dom === b.dom && a.week === b.week && a.hour === b.hour &&
+  a.hourFrac === b.hourFrac && a.nameMonth === b.nameMonth && a.nearLeft === b.nearLeft;
 
 // Safari's GestureEvent isn't in the standard DOM lib types.
 type GestureLikeEvent = { scale: number; clientX: number; clientY: number; preventDefault: () => void };
@@ -18,15 +27,27 @@ export function useCalendarInteractions() {
   const [focus, setFocus] = useState(new Date().getMonth());
   const [week, setWeek] = useState(0);
   const [scrollY, setScrollY] = useState(0);
+  const [tlScroll, setTlScroll] = useState(0); // week-view timeline vertical scroll
+  const [weekHourH, setWeekHourHState] = useState(60); // week-view per-hour height (slider)
+  syncWeekHourH(weekHourH); // keep the module value (read by hourMetrics) in sync
+  const setWeekHourH = useCallback((h: number) => setWeekHourHState(clampHourH(h)), []);
   const [hoverMonth, setHoverMonth] = useState<number | null>(null);
   const [hoverWeek, setHoverWeek] = useState<number | null>(null);
+  const [hover, setHover] = useState<Hover>(NO_HOVER);
+  const [now, setNow] = useState(() => Date.now());
+  const [year, setYearState] = useState(() => new Date().getFullYear());
+  const currentYear = new Date().getFullYear();
 
   const zRef = useRef(z); zRef.current = z;
+  const yearRef = useRef(year); yearRef.current = year;
   const focusRef = useRef(focus); focusRef.current = focus;
   const weekRef = useRef(week); weekRef.current = week;
   const scrollYRef = useRef(scrollY); scrollYRef.current = scrollY;
+  const tlScrollRef = useRef(tlScroll); tlScrollRef.current = tlScroll;
   const hoverMonthRef = useRef(hoverMonth); hoverMonthRef.current = hoverMonth;
   const hoverWeekRef = useRef(hoverWeek); hoverWeekRef.current = hoverWeek;
+  const hoverRef = useRef(hover); hoverRef.current = hover;
+  const lastPtRef = useRef<{ x: number; y: number } | null>(null);
   const tweenRef = useRef<number | null>(null);
   const weekTweenRef = useRef<number | null>(null);
   const snapRef = useRef<number | null>(null);
@@ -72,6 +93,9 @@ export function useCalendarInteractions() {
     };
     tweenRef.current = requestAnimationFrame(step);
   }, []);
+
+  // Navigate to a month (month view) — used by the drawer's "Go to first event".
+  const goToMonth = useCallback((m: number) => { setFocus(m); tweenTo(1); }, [tweenTo]);
 
   // Click a spillover day → zoom out to year, briefly hold, then back into that week.
   const chainTo = useCallback((newMonth: number, newWeek: number) => {
@@ -161,6 +185,15 @@ export function useCalendarInteractions() {
         setScrollY(Math.max(0, Math.min(max, scrollYRef.current + e.deltaY)));
         return;
       }
+      // week view: vertical wheel scrolls the hourly timeline
+      if (zRef.current >= 1.5 && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+        const tlTop = TOP_PAD + 4 * TRACK_H + 18;
+        const { maxScroll } = hourMetrics(tlTop, el.clientHeight - 8, zRef.current, tlScrollRef.current);
+        if (maxScroll <= 0) return; // nothing to scroll (tall window)
+        e.preventDefault();
+        setTlScroll(Math.max(0, Math.min(maxScroll, tlScrollRef.current + e.deltaY)));
+        return;
+      }
       if (zRef.current < 1.5 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       e.preventDefault();
       clearTimeout(idleTimer);
@@ -193,6 +226,12 @@ export function useCalendarInteractions() {
     return () => { el.removeEventListener("wheel", onWheel); clearTimeout(idleTimer); };
   }, [tweenWeek]);
 
+  // Tick once a minute so the current-time line advances while idle.
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // Esc → zoom out to year.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") tweenTo(0); };
@@ -200,28 +239,61 @@ export function useCalendarInteractions() {
     return () => window.removeEventListener("keydown", onKey);
   }, [tweenTo]);
 
+  // Resolve the cursor → hover targets for the CURRENT zoom bucket. Drives both the
+  // breadcrumb hint (hoverMonth/hoverWeek = click targets) and the hierarchical
+  // highlight layers (hover). Called on mouse-move AND whenever the view changes
+  // under a stationary cursor (scroll/zoom/focus/week) so highlights stay aligned.
+  const recomputeHover = useCallback((px: number, py: number) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const vpNow = { w: el.clientWidth, h: el.clientHeight };
+    const sY = scrollYRef.current;
+    const cur = zRef.current;
+    let next: Hover;
+    if (cur < 0.5) {
+      const m = monthRowAtPoint(px, py, vpNow, sY); // includes the left gutter (name + track fields)
+      const nm = monthNameAtPoint(px, py, vpNow, sY); // the clickable month-name strip
+      next = { month: m, dom: m != null ? domInMonthBand(px, m, vpNow, sY) : null, week: null, hour: null, hourFrac: null, nameMonth: nm, nearLeft: null };
+      setHoverMonth(nm);
+      if (hoverWeekRef.current != null) setHoverWeek(null);
+    } else if (cur < 1.5) {
+      const wk = weekAtPointInMonth(px, focusRef.current, vpNow);
+      next = { month: focusRef.current, dom: domInFocus(px, focusRef.current, vpNow), week: wk, hour: null, hourFrac: null, nameMonth: null, nearLeft: null };
+      setHoverWeek(wk);
+      if (hoverMonthRef.current != null) setHoverMonth(null);
+    } else {
+      const c = cellInWeek(px, py, zRef.current, focusRef.current, Math.round(weekRef.current), vpNow, sY, tlScrollRef.current);
+      next = { month: focusRef.current, dom: c.dom, week: Math.round(weekRef.current), hour: c.hour, hourFrac: c.hourFrac, nameMonth: null, nearLeft: c.nearLeft };
+      if (hoverMonthRef.current != null) setHoverMonth(null);
+      if (hoverWeekRef.current != null) setHoverWeek(null);
+    }
+    if (!sameHover(hoverRef.current, next)) setHover(next);
+  }, []);
+
   const onMove = useCallback((e: React.MouseEvent) => {
     const el = wrapRef.current!;
     const rect = el.getBoundingClientRect();
     const px = e.clientX - rect.left, py = e.clientY - rect.top;
-    const cur = zRef.current;
-    if (cur < 0.5) {
-      setHoverMonth(monthNameAtPoint(px, py, { w: el.clientWidth, h: el.clientHeight }, scrollYRef.current));
-      if (hoverWeekRef.current != null) setHoverWeek(null);
-    } else if (cur < 1.5) {
-      setHoverWeek(weekAtPointInMonth(px, focusRef.current, { w: el.clientWidth, h: el.clientHeight }));
-      if (hoverMonthRef.current != null) setHoverMonth(null);
-    } else if (hoverMonthRef.current != null || hoverWeekRef.current != null) {
-      setHoverMonth(null); setHoverWeek(null);
-    }
-  }, []);
+    lastPtRef.current = { x: px, y: py };
+    recomputeHover(px, py);
+  }, [recomputeHover]);
+
+  // Re-resolve hover when the scene shifts under a still cursor (year scroll, zoom
+  // tween, week paging) so the highlight tracks the content it was over.
+  useEffect(() => {
+    const p = lastPtRef.current;
+    if (p) recomputeHover(p.x, p.y);
+  }, [z, scrollY, focus, week, tlScroll, recomputeHover]);
 
   const onClick = useCallback((e: React.MouseEvent) => {
     const el = wrapRef.current!;
     const cur = zRef.current;
-    if (cur < 0.5 && hoverMonthRef.current != null) {
-      setFocus(hoverMonthRef.current);
-      tweenTo(1);
+    if (cur < 0.5) {
+      // Open the month when clicking its name (gutter) OR anywhere in its day grid.
+      const rect = el.getBoundingClientRect();
+      const vpNow = { w: el.clientWidth, h: el.clientHeight };
+      const m = hoverMonthRef.current ?? monthAtPoint(e.clientX - rect.left, e.clientY - rect.top, vpNow, scrollYRef.current);
+      if (m != null) { setFocus(m); tweenTo(1); }
     } else if (cur < 1.5 && hoverWeekRef.current != null) {
       setWeek(hoverWeekRef.current);
       tweenTo(2);
@@ -232,7 +304,45 @@ export function useCalendarInteractions() {
     }
   }, [tweenTo, chainTo]);
 
-  const clearHover = useCallback(() => { setHoverMonth(null); setHoverWeek(null); }, []);
+  const clearHover = useCallback(() => {
+    lastPtRef.current = null;
+    setHoverMonth(null); setHoverWeek(null); setHover(NO_HOVER);
+  }, []);
 
-  return { wrapRef, vp, z, focus, week, scrollY, hoverMonth, hoverWeek, tweenTo, onMove, onClick, clearHover };
+  // Select a year (from the breadcrumb dropdown) — reset the year scroll to the top.
+  const selectYear = useCallback((y: number) => { setYearState(y); setScrollY(0); }, []);
+
+  // "Back to Current Year": load the current year and show its yearly view.
+  const goToCurrentYear = useCallback(() => {
+    setYearState(new Date().getFullYear());
+    setScrollY(0);
+    tweenTo(0);
+  }, [tweenTo]);
+
+  // "Current Week": animate to the current week, taking the shortest path from where
+  // we are (scroll within a week / zoom in one or two levels / zoom out then in).
+  const goToCurrentWeek = useCallback(() => {
+    const d = new Date();
+    const cy = d.getFullYear(), cm = d.getMonth(), cd = d.getDate();
+    const cw = Math.floor((new Date(cy, cm, 1).getDay() + cd - 1) / 7); // current week index
+    const sameYear = yearRef.current === cy;
+    const lvl = Math.round(zRef.current);
+    if (!sameYear) { setYearState(cy); setScrollY(0); }
+
+    if (sameYear && lvl === 2 && focusRef.current === cm) {
+      tweenWeek(cw);                       // weekly view, same month → scroll across
+    } else if (sameYear && lvl === 1 && focusRef.current === cm) {
+      setWeek(cw); tweenTo(2);             // monthly view, same month → zoom into the week
+    } else if (lvl === 0) {
+      setFocus(cm); setWeek(cw); tweenTo(2); // yearly view → zoom two levels in
+    } else {
+      // anything else → zoom out to yearly, then into the current week
+      tweenTo(0, 600, () => {
+        setFocus(cm); setWeek(cw);
+        window.setTimeout(() => tweenTo(2, 1050), 180);
+      });
+    }
+  }, [tweenTo, tweenWeek]);
+
+  return { wrapRef, vp, z, focus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToCurrentWeek, goToMonth, tweenTo, onMove, onClick, clearHover };
 }

@@ -3,6 +3,7 @@
 :root {
   --background: #fefcfb;
   --foreground: #171717;
+  --cc-drawer-w: 340px; /* event drawer width; the app shell slides left by this when open */
   --accent-dark: rgba(76, 45, 20, 0.9);
   --accent-grey: rgba(76, 45, 20, 0.3);
   --accent-bg: rgba(76, 45, 20, 0.05);
@@ -207,10 +208,6 @@ main {
   }
 }
 
-nav {
-  margin-bottom: 15px;
-  line-height: 35px;
-}
 
 footer {
   margin: 15px;

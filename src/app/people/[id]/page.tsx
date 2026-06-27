@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUserId } from "@/lib/auth";
 import { getPerson, listPeople } from "@/app/actions/people";
-import AppNav from "@/app/components/app/AppNav";
 import PersonEditor from "@/app/components/people/PersonEditor";
 
 export default async function PersonPage({
@@ -21,7 +20,6 @@ export default async function PersonPage({
 
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <div className="page">
           <Link className="back-link" href="/people">‹ People</Link>

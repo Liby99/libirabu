@@ -1,7 +1,6 @@
 import { requireUserId } from "@/lib/auth";
 import { listTasks } from "@/app/actions/tasks";
 import { listProjects } from "@/app/actions/projects";
-import AppNav from "@/app/components/app/AppNav";
 import TasksBoard from "@/app/components/tasks/TasksBoard";
 
 export default async function TasksPage() {
@@ -9,7 +8,6 @@ export default async function TasksPage() {
   const [tasks, projects] = await Promise.all([listTasks(), listProjects()]);
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <TasksBoard
           tasks={tasks.map((t) => ({

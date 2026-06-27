@@ -1,4 +1,3 @@
-import AppNav from "@/app/components/app/AppNav";
 import CalendarCanvas from "./CalendarCanvas";
 import "./calendar.css";
 
@@ -6,7 +5,6 @@ import "./calendar.css";
 export default function CalendarPage() {
   return (
     <>
-      <AppNav />
       <main className="app-main">
         <CalendarCanvas />
       </main>

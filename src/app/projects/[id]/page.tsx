@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { requireUserId } from "@/lib/auth";
 import { getProject } from "@/app/actions/projects";
 import { listPeople } from "@/app/actions/people";
-import AppNav from "@/app/components/app/AppNav";
 import ProjectDetail from "@/app/components/projects/ProjectDetail";
 
 export default async function ProjectPage({
@@ -18,7 +17,6 @@ export default async function ProjectPage({
 
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <div className="page">
           <Link className="back-link" href="/projects">‹ Projects</Link>

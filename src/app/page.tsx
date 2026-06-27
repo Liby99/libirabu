@@ -1,13 +1,5 @@
-'use client'
-
-import YearlyTracker from "./components/YearlyTracker"
-import AppNav from "./components/app/AppNav"
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return (
-    <>
-      <AppNav />
-      <YearlyTracker />
-    </>
-  )
+  redirect("/calendar");
 }

@@ -132,6 +132,53 @@ model CalEvent {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Semantic-zoom calendar (the /calendar view)
+//
+// Dedicated store for the new Year⇄Month⇄Week planner. Kept separate from the
+// legacy CalEvent/Track above (which model a different, global-track domain):
+// here a "track" is just a per-month lane index 0–3 whose display names live in
+// CalendarPrefs.trackNames. Exposed via the documented REST API under
+// /api/calendar (see src/app/api/calendar/README.md) so the AI assistant can
+// drive the calendar as a tool.
+//
+// Times are stored as a "floating" wall-clock in the user's main timezone:
+// start/end are built with Date.UTC(year, month, day, hour, min) and always read
+// back with UTC getters, so no timezone/DST drift is introduced (the alt-timezone
+// feature is a pure display concern). See src/lib/calendar/serialize.ts.
+// ─────────────────────────────────────────────────────────────────────
+model CalendarItem {
+  id     String  @id @default(cuid())
+  userId String
+  kind   String // "timed" (hourly, single day) | "band" (all-day, multi-day on a lane)
+  title  String
+  notes  String?
+  color  String   @default("default") // palette key shared with the UI (EVENT_COLORS)
+  tags   String[] @default([]) // freeform #tags
+  repeat Json? // recurrence config { kind, n?, until?, days? }; null/absent = none
+
+  start DateTime // timed: date+time of start; band: 00:00 of the first day; deadline: the moment (main-tz wall-clock)
+  end   DateTime // timed: date+time of end (same day); band: 00:00 of the last day (inclusive); deadline: == start
+  track Int? // band lane 0–3; null for timed/deadline events
+
+  // deadline only: IANA tz (or "AOE") it was originally specified in; null = main tz is canonical
+  originTz String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, start])
+}
+
+// Per-user calendar preferences (singleton row, keyed by userId).
+model CalendarPrefs {
+  userId     String   @id
+  mainTz     String   @default("America/New_York") // the timeline's hours
+  altTz      String? // optional secondary axis timezone (IANA id) or null
+  trackNames Json // string[12][4]: editable lane names per month
+  updatedAt  DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Work: projects & tasks
 // ─────────────────────────────────────────────────────────────────────
 model Project {

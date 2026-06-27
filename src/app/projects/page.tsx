@@ -1,6 +1,5 @@
 import { requireUserId } from "@/lib/auth";
 import { listProjects } from "@/app/actions/projects";
-import AppNav from "@/app/components/app/AppNav";
 import ProjectsManager from "@/app/components/projects/ProjectsManager";
 
 export default async function ProjectsPage() {
@@ -18,7 +17,6 @@ export default async function ProjectsPage() {
   }));
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <ProjectsManager projects={dto} />
       </main>

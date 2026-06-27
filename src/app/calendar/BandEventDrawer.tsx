@@ -1,0 +1,68 @@
+"use client";
+
+import { BandEvent } from "./bandEventTypes";
+import { daysInMonth } from "./mock";
+import { NO_REPEAT } from "@/lib/calendar/api";
+import EventDrawerShell from "./EventDrawerShell";
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+interface Props {
+  event: BandEvent;
+  onChange: (id: string, patch: Partial<BandEvent>) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+  onColorPreview?: (c: string | null) => void;
+  focusOcc?: string | null;
+  onGoToFirst?: () => void;
+}
+
+// All-day (band) event: single month, so the date pickers are clamped to its month.
+export default function BandEventDrawer({ event, onChange, onDelete, onClose, onColorPreview, focusOcc, onGoToFirst }: Props) {
+  const dim = daysInMonth(event.month);
+  const monthPrefix = `${event.year}-${pad(event.month + 1)}`;
+  const minDate = `${monthPrefix}-01`;
+  const maxDate = `${monthPrefix}-${pad(dim)}`;
+  const dayWithin = (value: string): number | null => {
+    const [y, mo, d] = value.split("-").map(Number);
+    if (!y || !mo || !d || y !== event.year || mo - 1 !== event.month) return null;
+    return Math.min(dim, Math.max(1, d));
+  };
+  return (
+    <EventDrawerShell
+      name={event.title}
+      onName={(v) => onChange(event.id, { title: v })}
+      color={event.color}
+      onColor={(c) => onChange(event.id, { color: c })}
+      onColorPreview={onColorPreview}
+      repeat={event.repeat ?? NO_REPEAT}
+      onRepeat={(r) => onChange(event.id, { repeat: r })}
+      anchorDow={new Date(event.year, event.month, event.startDay).getDay()}
+      focusOcc={focusOcc}
+      onGoToFirst={onGoToFirst}
+      tags={event.tags ?? []}
+      onTags={(t) => onChange(event.id, { tags: t })}
+      notes={event.notes ?? ""}
+      onNotes={(v) => onChange(event.id, { notes: v })}
+      onDelete={() => onDelete(event.id)}
+      onClose={onClose}
+    >
+      <div className="cc-dw-row cc-dw-when">
+        <select value={event.track} onChange={(e) => onChange(event.id, { track: Number(e.target.value) })}>
+          {[0, 1, 2, 3].map((t) => <option key={t} value={t}>Track {t + 1}</option>)}
+        </select>
+        <input
+          type="date" min={minDate} max={maxDate}
+          value={`${monthPrefix}-${pad(event.startDay)}`}
+          onChange={(e) => { const d = dayWithin(e.target.value); if (d != null) onChange(event.id, { startDay: Math.min(d, event.endDay) }); }}
+        />
+        <span className="cc-dw-dash">–</span>
+        <input
+          type="date" min={minDate} max={maxDate}
+          value={`${monthPrefix}-${pad(event.endDay)}`}
+          onChange={(e) => { const d = dayWithin(e.target.value); if (d != null) onChange(event.id, { endDay: Math.max(d, event.startDay) }); }}
+        />
+      </div>
+    </EventDrawerShell>
+  );
+}

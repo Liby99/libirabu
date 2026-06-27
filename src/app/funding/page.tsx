@@ -3,7 +3,6 @@ import { listFundingSources, listSubscriptions } from "@/app/actions/funding";
 import { listExpenses } from "@/app/actions/expenses";
 import { listTrips } from "@/app/actions/trips";
 import { listPeople } from "@/app/actions/people";
-import AppNav from "@/app/components/app/AppNav";
 import FundingSources from "@/app/components/funding/FundingSources";
 import SubscriptionsTable from "@/app/components/funding/SubscriptionsTable";
 import ExpenseLedger from "@/app/components/funding/ExpenseLedger";
@@ -34,7 +33,6 @@ export default async function FundingPage() {
 
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <div className="page">
           <div className="page-head"><h1 className="page-h1">Funding</h1></div>

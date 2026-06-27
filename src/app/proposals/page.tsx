@@ -1,7 +1,6 @@
 import { requireUserId } from "@/lib/auth";
 import { listProposals } from "@/app/actions/proposals";
 import { listProjects } from "@/app/actions/projects";
-import AppNav from "@/app/components/app/AppNav";
 import ProposalsManager from "@/app/components/proposals/ProposalsManager";
 
 export default async function ProposalsPage() {
@@ -9,7 +8,6 @@ export default async function ProposalsPage() {
   const [proposals, projects] = await Promise.all([listProposals(), listProjects()]);
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <ProposalsManager
           proposals={proposals.map((p) => ({

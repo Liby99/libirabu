@@ -4,7 +4,6 @@ import { requireUserId } from "@/lib/auth";
 import { getPaper } from "@/app/actions/papers";
 import { listPeople } from "@/app/actions/people";
 import { listProjects } from "@/app/actions/projects";
-import AppNav from "@/app/components/app/AppNav";
 import PaperDetail from "@/app/components/papers/PaperDetail";
 
 export default async function PaperPage({
@@ -19,7 +18,6 @@ export default async function PaperPage({
 
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <div className="page">
           <Link className="back-link" href="/papers">‹ Papers</Link>

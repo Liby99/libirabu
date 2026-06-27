@@ -6,20 +6,20 @@
 
 import { Vp, Frame } from "./types";
 import {
-  TOP_PAD, LABEL_W, TRACK_H, MONTH_H, Q_HEADER_H, Q_GAP, lerp, clamp, easeInOut,
+  TOP_PAD, BOTTOM_PAD, LABEL_W, TRACK_H, MONTH_H, Q_HEADER_H, Q_GAP, lerp, clamp, easeInOut,
 } from "./constants";
 import { weekStartDOM } from "./dates";
 
 function quarterBlock(): number { return Q_HEADER_H + 3 * MONTH_H; }
 export function yearContentH(): number { return 4 * quarterBlock() + 3 * Q_GAP; }
 export function yearMaxScroll(vp: Vp): number {
-  return Math.max(0, yearContentH() - (vp.h - TOP_PAD - 10));
+  return Math.max(0, yearContentH() - (vp.h - TOP_PAD - BOTTOM_PAD));
 }
 
 // GridCal-style year layout: 4 quarters separated by Q_GAP; within a quarter the 3
 // months are flush (no gap); each quarter has a day-number header at its top.
 export function yearFrame(m: number, vp: Vp, scrollY: number): Frame {
-  const dayW = (vp.w - LABEL_W - 16) / 31;
+  const dayW = (vp.w - LABEL_W) / 31;
   const q = Math.floor(m / 3);
   const within = m % 3;
   const quarterTop = q * (quarterBlock() + Q_GAP);
@@ -29,7 +29,7 @@ export function yearFrame(m: number, vp: Vp, scrollY: number): Frame {
 
 // Geometry of a month's band at Month level (also used for hit-testing).
 export function focusGeom(vp: Vp) {
-  return { x0: LABEL_W, dayW: (vp.w - LABEL_W - 16) / 31, bandY: TOP_PAD, trackH: TRACK_H };
+  return { x0: LABEL_W, dayW: (vp.w - LABEL_W) / 31, bandY: TOP_PAD, trackH: TRACK_H };
 }
 
 // Height the day-detail occupies below the focus band at Month level.
@@ -50,7 +50,7 @@ function yearToMonthFrame(m: number, t: number, focus: number, vp: Vp, scrollY: 
 }
 
 function weekFrame(m: number, focus: number, week: number, vp: Vp): Frame {
-  const dayW = (vp.w - LABEL_W - 16) / 7;
+  const dayW = (vp.w - LABEL_W) / 7;
   if (m === focus) {
     const startDOM = weekStartDOM(focus, week);
     const x0 = LABEL_W - (startDOM - 1) * dayW; // day=startDOM lands at LABEL_W

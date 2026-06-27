@@ -1,6 +1,5 @@
 import { requireUserId } from "@/lib/auth";
 import { listPeople } from "@/app/actions/people";
-import AppNav from "@/app/components/app/AppNav";
 import PeopleManager from "@/app/components/people/PeopleManager";
 
 export default async function PeoplePage() {
@@ -17,7 +16,6 @@ export default async function PeoplePage() {
   }));
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <PeopleManager people={dto} />
       </main>

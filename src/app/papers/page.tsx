@@ -1,7 +1,6 @@
 import { requireUserId } from "@/lib/auth";
 import { listPapers } from "@/app/actions/papers";
 import { listProjects } from "@/app/actions/projects";
-import AppNav from "@/app/components/app/AppNav";
 import PapersManager from "@/app/components/papers/PapersManager";
 
 export default async function PapersPage() {
@@ -9,7 +8,6 @@ export default async function PapersPage() {
   const [papers, projects] = await Promise.all([listPapers(), listProjects()]);
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <PapersManager
           papers={papers.map((p) => ({

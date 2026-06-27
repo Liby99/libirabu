@@ -19,7 +19,11 @@
   --cc-grid-top: var(--accent-grey); /* dotted lane separators */
   --cc-line: var(--accent-dark);     /* dotted/dashed grid lines */
   --cc-sep: color-mix(in srgb, var(--accent-dark) 55%, transparent); /* solid separators (dimmed) */
+  --cc-now: #ff3b6b;                                      /* bright pink-red current-time line + dots */
+  --cc-today: color-mix(in srgb, #ff3b6b 7%, transparent); /* faint tint marking today's day column */
+  --cc-cursor: color-mix(in srgb, var(--accent-dark) 20%, white); /* white tinted toward the accent (mouse time cursor) */
 }
+.cc-wrap.cc-clickable { cursor: pointer; } /* over the clickable month name */
 .cc-layer { position: absolute; inset: 0; }
 .cc-gutter { /* solid strip that occludes lane content sliding under it (week view) */
   position: absolute;
@@ -58,6 +62,152 @@
   background-image: repeating-linear-gradient(45deg, var(--accent-grey) 0 1px, transparent 1px 6px);
 }
 
+/* Hierarchical hover highlight: a soft tint over the hovered region, brighter for
+   the precise cell. Persistent layers (stable keys) → the opacity transition
+   animates the dim/brighten and cross-fades between zoom levels. accent-dark is
+   theme-aware (dark in light mode, light in dark mode) so it always reads as a
+   contrast wash. Sits above the lanes/events (z:3) but below labels. */
+.cc-hl {
+  background: var(--accent-dark);
+  border-radius: 3px;
+  pointer-events: none;
+  transition: opacity 0.16s ease, background-color 0.16s ease;
+}
+
+/* Today: a soft pink-red tint on today's day column (persistent). */
+.cc-today {
+  background: var(--cc-today);
+  border-radius: 3px;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+/* Current-time line: a bright pink-red rule across today's column with a small
+   dot at each end. The item box IS the 2px line; the dots are pseudo-elements. */
+.cc-now {
+  background: var(--cc-now);
+  pointer-events: none;
+  overflow: visible;
+  transition: opacity 0.16s ease;
+}
+.cc-now::before, .cc-now::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--background);          /* hollow centre */
+  border: 1.5px solid var(--cc-now);
+  transform: translateY(-50%);
+}
+.cc-now::before { left: -4px; }
+.cc-now::after { right: -4px; }
+
+/* Mouse time cursor (week view): same shape as the now line but soft-white, with a
+   faint shadow so it stays visible on light backgrounds. */
+.cc-cursor {
+  background: var(--cc-cursor);
+  pointer-events: none;
+  overflow: visible;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+  transition: opacity 0.16s ease;
+}
+.cc-cursor::before, .cc-cursor::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--background);
+  border: 1.5px solid var(--cc-cursor);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+  transform: translateY(-50%);
+}
+.cc-cursor::before { left: -4px; }
+.cc-cursor::after { right: -4px; }
+/* Over an event: hide the cursor LINE (keep the two end dots, which are pseudo-elements). */
+.cc-wrap.cc-over-event .cc-cursor { background: transparent; box-shadow: none; }
+
+/* "TODAY" caption under the year-view today marker. */
+.cc-todaytag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cc-now);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+/* Weekday chip above the hovered day column in year view. Compact opaque pill so it
+   stays legible over the band stacked directly above it. */
+.cc-weekdaytag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+.cc-weekdaytag > span {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--popup-bg, var(--background));
+  border: 1px solid var(--accent-grey);
+  color: var(--accent-dark);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* "Current Time / HH:MM" label beside the now line. Faint chip so it stays legible
+   over the timeline grid; left/right variant set by which side it sits on. */
+.cc-nowlabel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  line-height: 1.05;
+  background: color-mix(in srgb, var(--background) 82%, transparent);
+  border: 2px solid color-mix(in srgb, var(--cc-now) 60%, transparent);
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+.cc-nowlabel-l { align-items: flex-start; text-align: left; }
+.cc-nowlabel-r { align-items: flex-end; text-align: right; }
+.cc-nowlabel-cap {
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-grey);
+}
+.cc-nowlabel-time { font-size: 13px; font-weight: 700; color: var(--cc-now); }
+
+/* Compact "HH:MM" tag beside the mouse-cursor time line (week view). */
+.cc-timetag {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  padding: 1px 4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--background) 82%, transparent); /* same as the Current Time tag */
+  border: 1px solid var(--cc-cursor);
+  color: var(--cc-cursor);
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+.cc-timetag-l { justify-content: flex-start; }
+.cc-timetag-r { justify-content: flex-end; }
+
 /* ── Labels ──────────────────────────────────────────────────────── */
 .cc-monthlabel {
   display: flex; align-items: center; justify-content: center;
@@ -89,11 +239,539 @@
   color: var(--accent-dark);
 }
 .cc-event span { overflow: hidden; text-overflow: ellipsis; }
-.cc-ev-red { --ev-fill: var(--event-red); --ev-color: var(--event-red-border); }
-.cc-ev-blue { --ev-fill: var(--event-blue); --ev-color: var(--event-blue-border); }
-.cc-ev-yellow { --ev-fill: var(--event-yellow); --ev-color: var(--event-yellow-border); }
-.cc-ev-green { --ev-fill: var(--event-green); --ev-color: var(--event-green-border); }
-.cc-ev-purple { --ev-fill: var(--event-purple); --ev-color: var(--event-purple-border); }
+.cc-ev-red { --ev-fill: var(--event-red); --ev-fill-hover: var(--event-red-hover); --ev-color: var(--event-red-border); }
+.cc-ev-blue { --ev-fill: var(--event-blue); --ev-fill-hover: var(--event-blue-hover); --ev-color: var(--event-blue-border); }
+.cc-ev-yellow { --ev-fill: var(--event-yellow); --ev-fill-hover: var(--event-yellow-hover); --ev-color: var(--event-yellow-border); }
+.cc-ev-green { --ev-fill: var(--event-green); --ev-fill-hover: var(--event-green-hover); --ev-color: var(--event-green-border); }
+.cc-ev-purple { --ev-fill: var(--event-purple); --ev-fill-hover: var(--event-purple-hover); --ev-color: var(--event-purple-border); }
+.cc-ev-default { --ev-fill: var(--event-default); --ev-fill-hover: var(--event-default-hover); --ev-color: var(--event-default-border); }
+/* extra palette (literal so they're consistent across themes) */
+.cc-ev-orange { --ev-fill: rgba(236, 152, 70, 0.2); --ev-fill-hover: rgba(236, 152, 70, 0.3); --ev-color: rgba(236, 152, 70, 1); }
+.cc-ev-cyan { --ev-fill: rgba(104, 196, 206, 0.2); --ev-fill-hover: rgba(104, 196, 206, 0.3); --ev-color: rgba(104, 196, 206, 1); }
+.cc-ev-darkgreen { --ev-fill: rgba(104, 146, 86, 0.22); --ev-fill-hover: rgba(104, 146, 86, 0.32); --ev-color: rgba(104, 146, 86, 1); }
+.cc-ev-indigo { --ev-fill: rgba(124, 150, 226, 0.2); --ev-fill-hover: rgba(124, 150, 226, 0.3); --ev-color: rgba(124, 150, 226, 1); }
+
+/* ── Interactive timed events (week-view timeline) ───────────────── */
+/* z:4 → above the hover/today tints (z:3) so highlights sit BELOW events, but below
+   the now-line (z:6), cursor (z:7) and hour labels (z:9). */
+.cc-events { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.cc-create-surface { position: absolute; pointer-events: auto; cursor: crosshair; }
+/* clips the hourly area to the visible window; inner layer scrolls via translateY */
+.cc-events-clip { position: absolute; left: 0; overflow: hidden; pointer-events: none; }
+.cc-events-scroll { position: absolute; inset: 0; }
+
+/* all-day (band) events live on the track lanes */
+.cc-band-events { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.cc-band-create-surface { position: absolute; pointer-events: auto; cursor: crosshair; }
+.cc-tevent-band .cc-tevent-inner { justify-content: center; } /* title only → vertically centered */
+/* A band title may be longer than its (possibly single-day) bar — let it overflow
+   rightward into adjacent empty cells instead of truncating. The compound selector
+   (.cc-tevent.cc-tevent-band) outweighs the base `.cc-tevent { overflow: hidden }`. */
+.cc-tevent.cc-tevent-band, .cc-tevent-band .cc-tevent-inner { overflow: visible; }
+.cc-tevent-band .cc-tevent-title { overflow: visible; text-overflow: clip; display: inline-block; width: fit-content; align-self: flex-start; }
+/* clip the title to the distance to the next event on the same lane */
+.cc-band-clip .cc-tevent-title { max-width: var(--band-gap); overflow: hidden; text-overflow: ellipsis; }
+/* hovered: show the full title; the frosted mask (.cc-band-mask) sits behind the spill */
+.cc-band-raised .cc-tevent-title { max-width: none; overflow: visible; }
+.cc-band-mask {
+  position: absolute; /* left/top/width/height/z-index set inline (positioned in .cc-band-events) */
+  background: color-mix(in srgb, var(--background) 80%, transparent);
+  -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  border-radius: 0 5px 5px 0;
+  pointer-events: none;
+}
+/* Give the inline title editor room to type even on a one-day bar (it overflows right). */
+.cc-tevent-band .cc-tevent-title-input { min-width: 100px; }
+
+/* Two-layer event. OUTER: rounded clip (no border), translucent fill + blur. */
+.cc-tevent {
+  display: flex;
+  overflow: hidden;
+  border: 1px dotted transparent; /* reserved so the selected ring fades in without a shift */
+  border-radius: 7px;
+  background: var(--ev-fill);
+  color: var(--accent-dark);
+  cursor: grab;
+  /* Blur what shows through the translucent fill (events behind, gridlines) so the
+     overlapping borders/text don't fight this event's own text. (Safari: -webkit-) */
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  transition: background-color 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+/* Animate the reflow only in the brief window after a resize/create (when nothing
+   else is moving) — never during zoom/pan, which drive transform every frame. */
+.cc-events-animating .cc-tevent { transition: transform 0.2s ease, width 0.2s ease, background-color 0.12s ease, box-shadow 0.12s ease; }
+.cc-tevent:hover {
+  background: var(--ev-fill-hover, var(--ev-fill));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  z-index: 1; /* lift above neighbouring events while hovered */
+}
+/* Selected: thin dotted ring on the outer + brought to the front. */
+.cc-tevent.selected {
+  border: 1px dotted var(--ev-color);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.24);
+  z-index: 20;
+}
+/* Moving: lifted above everything while dragging across the grid. */
+.cc-tevent.moving {
+  cursor: grabbing;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3);
+  z-index: 25;
+}
+
+/* INNER: inset 2px, rounded; default = 3px left accent bar, selected = full 1px outline. */
+.cc-tevent-inner {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin: 4px;
+  padding: 1px 6px 1px 4px; /* tighter left padding → title sits close to the accent bar */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 2px;
+  border-left: 1px solid var(--ev-color); /* normal: 1px left bar */
+  transition: border-left-width 0.12s ease, border-color 0.12s ease;
+}
+.cc-tevent.selected .cc-tevent-inner {
+  border-left: 3px solid var(--ev-color); /* selected: thicker 3px left bar */
+}
+
+.cc-tevent-title {
+  font-family: var(--font-handwriting), cursive;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+/* Hourly events: wrap the title and clamp to a whole number of lines (set per-event via
+   --title-lines / WebkitLineClamp) at a fixed line-height, so a line is never half-cut. */
+.cc-tevent:not(.cc-tevent-band) .cc-tevent-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 16px;
+}
+.cc-tevent-tiny .cc-tevent-title { font-size: 11px; line-height: 12px; }
+.cc-tevent-tiny .cc-tevent-inner { margin-top: 0; margin-bottom: 0; }
+.cc-tevent-tiny .cc-tevent-time, .cc-tevent-short .cc-tevent-time { display: none; }
+.cc-tevent-title-input {
+  width: 100%; border: none; outline: none; padding: 0;
+  background: transparent; color: inherit;
+  font-family: var(--font-handwriting), cursive;
+  font-size: 15px; font-weight: 600; line-height: 1.05;
+}
+.cc-tevent-time { font-size: 8.5px; opacity: 0.72; white-space: nowrap; }
+.cc-tevent-handle { position: absolute; left: 0; right: 0; height: 6px; cursor: ns-resize; z-index: 1; }
+.cc-tevent-handle-top { top: 0; }
+.cc-tevent-handle-bottom { bottom: 0; }
+/* Band events resize horizontally (change start/end day) — vertical edge handles. */
+.cc-tevent-handle-x { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 2; }
+.cc-tevent-handle-left { left: -2px; }
+.cc-tevent-handle-right { right: -2px; }
+
+.cc-tevent-preview {
+  position: absolute;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent-dark) 12%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent-dark) 70%, transparent);
+  pointer-events: none;
+}
+
+/* The drawer opens on double-click (no per-event button). */
+
+/* Shared color swatch (drawer + right-click callout). */
+.cc-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--ev-color);
+  cursor: pointer;
+}
+.cc-swatch.sel { border-color: var(--accent-dark); }
+
+/* ── Event detail drawer (right side, screen height) ─────────────── */
+/* The shell slides left to reveal the event, so the drawer needs no dimming backdrop. */
+@keyframes ccDrawerIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.cc-drawer {
+  position: fixed;
+  top: 0; right: 0;
+  height: 100vh;
+  width: var(--cc-drawer-w);
+  z-index: 50;
+  animation: ccDrawerIn 0.28s ease;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  border-left: 1px solid var(--accent-grey);
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.16);
+}
+.cc-drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--accent-grey);
+  font-weight: 700;
+  color: var(--accent-dark);
+}
+.cc-drawer-x { border: none; background: none; cursor: pointer; color: var(--accent-dark); display: flex; }
+.cc-drawer-body { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+.cc-field { display: flex; flex-direction: column; gap: 5px; }
+.cc-field > span { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent-grey); }
+.cc-field input, .cc-field textarea, .cc-field select {
+  border: 1px solid var(--accent-grey);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--background);
+  color: var(--accent-dark);
+  font: inherit;
+  font-size: 0.88rem;
+  outline: none;
+  resize: vertical;
+}
+.cc-field input:focus, .cc-field textarea:focus, .cc-field select:focus { border-color: var(--highlight); }
+/* Freeform text fields (title, notes) → handwriting; date/time pickers stay normal. */
+.cc-field input:not([type="date"]):not([type="time"]), .cc-field textarea {
+  font-family: var(--font-handwriting), cursive;
+  font-size: 1.02rem;
+}
+.cc-field-row { display: flex; gap: 10px; }
+.cc-field-row .cc-field { flex: 1; }
+.cc-swatches { display: flex; gap: 8px; }
+.cc-drawer-note { font-size: 0.78rem; color: var(--accent-grey); margin: -4px 0 0; }
+.cc-drawer-foot { padding: 12px 16px; border-top: 1px solid var(--accent-grey); }
+.cc-drawer-delete {
+  display: flex; align-items: center; gap: 6px;
+  border: 1px solid var(--accent-grey);
+  background: none;
+  color: #c0392b;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.cc-drawer-delete:hover { background: color-mix(in srgb, #c0392b 10%, transparent); }
+
+/* ── Redesigned drawer (cc-dw): name as the top row, label-less dashed rows, a markdown
+   notepad filling the rest, a single trash icon bottom-right. ───────────── */
+/* NOTE: do NOT set position here — the parent .cc-drawer is position:fixed and must stay
+   so (it's also the containing block for the absolute trash button). */
+.cc-dw { padding: 16px 16px 0; }
+.cc-dw-name {
+  border: none; background: none; outline: none; width: 100%;
+  font-family: var(--font-handwriting), cursive;
+  font-size: 1.25rem; font-weight: 700; line-height: 1.1; color: var(--accent-dark);
+  padding: 0 0 10px;
+}
+.cc-dw-name::placeholder { color: var(--accent-grey); }
+.cc-dw-rows { display: flex; flex-direction: column; }
+.cc-dw-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 9px;
+  padding: 9px 1px;
+  border-top: 1px dashed var(--accent-grey);
+}
+.cc-dw-row input, .cc-dw-row select {
+  border: none; background: none; outline: none;
+  font: inherit; font-size: 0.8rem; color: var(--accent-dark);
+  padding: 1px 0;
+}
+.cc-dw-row select { cursor: pointer; }
+.cc-dw-dash { color: var(--accent-grey); }
+.cc-dw-swatches { gap: 8px; }
+.cc-dw-hint { font-size: 0.72rem; color: var(--accent-grey); }
+.cc-dw-notes {
+  flex: 1; min-height: 80px; width: 100%;
+  border: none; border-top: 1px dashed var(--accent-grey); outline: none; resize: none;
+  padding: 12px 1px 40px; background: none; color: var(--accent-dark);
+  font-family: var(--font-handwriting), cursive; font-size: 0.98rem; line-height: 1.45;
+}
+.cc-dw-notes::placeholder { color: var(--accent-grey); }
+.cc-dw-foot {
+  position: absolute; left: 16px; right: 16px; bottom: 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.cc-dw-occ { display: flex; align-items: center; gap: 8px; }
+.cc-dw-occ-badge { font-size: 0.72rem; color: var(--accent-grey); }
+.cc-dw-link { border: none; background: none; color: var(--accent-dark); cursor: pointer; font-size: 0.78rem; text-decoration: underline; padding: 0; }
+.cc-dw-trash {
+  margin-left: auto;
+  border: none; background: none; cursor: pointer; color: var(--accent-grey);
+  display: flex; padding: 7px; border-radius: 7px; transition: color 0.12s, background-color 0.12s;
+}
+.cc-dw-trash:hover { color: #c0392b; background: color-mix(in srgb, #c0392b 9%, transparent); }
+/* recurrence: clickable ghost copies, repeat "until this event", menu delete options */
+.cc-tevent.cc-ghost { cursor: pointer; }
+.cc-ddl.cc-ghost .cc-ddl-label { cursor: pointer; }
+.cc-rec-badge {
+  position: absolute; top: 2px; right: 3px;
+  color: var(--ev-color, var(--accent-grey));
+  opacity: 0.9; pointer-events: none;
+}
+.cc-rep-until-here { margin-left: 4px; border: 1px dashed var(--accent-grey); background: none; color: var(--accent-grey); border-radius: 5px; font-size: 0.72rem; padding: 1px 6px; cursor: pointer; }
+.cc-rep-until-here:hover { color: var(--accent-dark); border-color: var(--accent-dark); }
+.cc-sticker-del { display: flex; flex-direction: column; gap: 3px; padding: 3px; }
+.cc-sticker-del button {
+  border: none; background: none; cursor: pointer; text-align: left;
+  font-size: 0.8rem; color: var(--accent-dark); padding: 4px 8px; border-radius: 5px; white-space: nowrap;
+}
+.cc-sticker-del button:hover { background: var(--accent-bg-dark); }
+
+/* repeat editor */
+.cc-rep { display: flex; flex-direction: column; gap: 9px; width: 100%; }
+.cc-rep-tabs { display: flex; width: 100%; border: 1px solid var(--accent-grey); border-radius: 7px; overflow: hidden; }
+.cc-rep-tab {
+  flex: 1 1 25%; padding: 5px 2px; border: none; border-right: 1px solid var(--accent-grey);
+  background: none; cursor: pointer; font-size: 0.74rem; color: var(--accent-grey);
+}
+.cc-rep-tab:last-child { border-right: none; }
+.cc-rep-tab.sel { background: var(--accent-bg-dark); color: var(--accent-dark); font-weight: 600; }
+.cc-rep-fields { display: flex; flex-direction: column; gap: 9px; }
+.cc-rep-field { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--accent-grey); }
+.cc-rep-field input, .cc-rep-field select {
+  font: inherit; font-size: 0.85rem; color: var(--accent-dark);
+  border: none; background: none; outline: none; border-bottom: 1px dashed var(--accent-grey); padding: 1px 2px;
+}
+.cc-rep-days { display: flex; gap: 4px; }
+.cc-rep-day {
+  flex: 1; padding: 5px 0; border: 1px solid var(--accent-grey); border-radius: 5px;
+  background: none; cursor: pointer; font-size: 0.72rem; color: var(--accent-grey);
+}
+.cc-rep-day.sel { background: var(--accent-bg-dark); color: var(--accent-dark); border-color: var(--accent-dark); }
+.cc-rep-day.locked { cursor: default; }
+
+/* #tag editor */
+.cc-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cc-tag {
+  display: inline-flex; align-items: center; gap: 1px;
+  padding: 2px 7px; border-radius: 999px;
+  background: var(--accent-bg-dark); color: var(--accent-dark);
+  font-size: 0.8rem; white-space: nowrap;
+}
+.cc-tag-x { display: none; align-items: center; border: none; background: none; cursor: pointer; color: var(--accent-grey); padding: 0; }
+.cc-tag:hover .cc-tag-x { display: inline-flex; }
+.cc-tag-x:hover { color: var(--accent-dark); }
+.cc-tag-add {
+  padding: 2px 10px; border-radius: 999px;
+  border: 1px dashed var(--accent-grey); background: none; color: var(--accent-grey);
+  font-size: 0.8rem; cursor: pointer; transition: color 0.12s, border-color 0.12s;
+}
+.cc-tag-add:hover { color: var(--accent-dark); border-color: var(--accent-dark); }
+.cc-tag-input {
+  width: 84px; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--accent-dark); background: var(--background); color: var(--accent-dark);
+  font: inherit; font-size: 0.8rem; outline: none;
+}
+
+/* ── Drawer spotlight ─────────────────────────────────────────────── */
+/* Veil that dims + lightly blurs the whole calendar while the drawer is open. Captures
+   clicks (blocks interaction with the UI beneath); clicking it closes the drawer. */
+.cc-spot-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.34); /* explicit black so it darkens in any theme (accent-dark is light in dark mode) */
+  -webkit-backdrop-filter: blur(2.5px);
+  backdrop-filter: blur(2.5px);
+  cursor: pointer;
+  animation: ccSpotIn 0.2s ease;
+}
+@keyframes ccSpotIn { from { opacity: 0; } to { opacity: 1; } }
+/* The duplicate event sits above the veil so it stays sharp + highlighted. */
+.cc-tevent.cc-spot-dup { cursor: default; box-shadow: 0 8px 26px rgba(0, 0, 0, 0.32); }
+
+/* ── Deadlines (line + end circles, like the now/cursor lines) ─────── */
+.cc-deadlines { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+/* recurrence copies look like normal events; a small badge marks them (see .cc-rec-badge) */
+.cc-ddl-line {
+  position: absolute; top: 0; left: 0; height: 2px;
+  background: var(--ev-color, var(--accent-dark));
+  overflow: visible;
+}
+.cc-ddl-line::before, .cc-ddl-line::after {
+  content: ""; position: absolute; top: 50%;
+  width: 8px; height: 8px; box-sizing: border-box; border-radius: 50%;
+  background: var(--background); border: 1.5px solid var(--ev-color, var(--accent-dark));
+  transform: translateY(-50%);
+}
+.cc-ddl-line::before { left: -4px; }
+.cc-ddl-line::after { right: -4px; }
+.cc-ddl.selected .cc-ddl-line { height: 3px; }
+
+/* Two-line label (title + "HH:MM (AOE HH:MM)") attached beside the line — same colored
+   fill + border as an event, with a small caret pointing back to the line. */
+.cc-ddl-label {
+  position: absolute; top: 0; left: 0;
+  display: flex; flex-direction: column; gap: 1px;
+  max-width: 180px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--ev-fill);
+  border: 1px solid var(--ev-color);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+  pointer-events: auto;
+  cursor: grab;
+  white-space: nowrap;
+  transition: box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.cc-ddl-label:hover { background: var(--ev-fill-hover, var(--ev-fill)); }
+.cc-ddl.moving .cc-ddl-label { cursor: grabbing; box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3); }
+.cc-ddl.selected .cc-ddl-label {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
+}
+/* caret: a small triangle on the side facing the line cursor */
+.cc-ddl-label::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+}
+.cc-ddl-label-r::after { left: -10.5px; border-right-color: var(--ev-color); }   /* line is to the left */
+.cc-ddl-label-l::after { right: -10.5px; border-left-color: var(--ev-color); }   /* line is to the right */
+.cc-ddl-title {
+  font-family: var(--font-handwriting), cursive;
+  font-size: 14px; font-weight: 600; line-height: 1.05;
+  color: var(--accent-dark);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.cc-ddl-time { font-size: 8.5px; line-height: 1.1; color: var(--accent-dark); opacity: 0.72; }
+
+/* The quick-add (+) circle on a day column's left edge at the nearest hour line. */
+.cc-ddl-add {
+  position: absolute; top: 0; left: 0;
+  width: 15px; height: 15px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--cc-cursor);
+  border-radius: 50%;
+  background: var(--background);
+  color: var(--accent-dark);
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.3);
+  z-index: 8;
+}
+.cc-ddl-add:hover { background: var(--cc-cursor); }
+
+/* ── Timeline scrollbar (week view, on the leftmost day's left border) ── */
+.cc-tl-scrollbar { position: absolute; width: 0; z-index: 12; pointer-events: none; }
+/* the full-height dotted line = the leftmost day's left border */
+.cc-tl-scrollbar::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  border-left: 1px dotted var(--accent-grey);
+  transform: translateX(-50%);
+}
+.cc-tl-thumb {
+  position: absolute;
+  left: 0;
+  transform: translateX(-50%);
+  width: 8px; /* transparent grab area; the visible bar is the thin ::before */
+  pointer-events: auto;
+  cursor: grab;
+}
+.cc-tl-thumb::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--accent-grey);
+  transition: background-color 0.12s ease;
+}
+.cc-tl-thumb:active, .cc-tl-thumb.dragging { cursor: grabbing; }
+.cc-tl-thumb:hover::before,
+.cc-tl-thumb.dragging::before { background: var(--accent-dark); }
+.cc-tl-end {
+  position: absolute;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--background);
+  border: 1.5px solid var(--accent-grey);
+  transform: translateX(-50%);
+  cursor: ns-resize;
+  pointer-events: auto;
+  transition: border-color 0.12s ease;
+}
+.cc-tl-thumb:hover .cc-tl-end,
+.cc-tl-thumb.dragging .cc-tl-end { border-color: var(--accent-dark); }
+.cc-tl-end-top { top: -4.5px; }
+.cc-tl-end-bottom { bottom: -4.5px; }
+
+/* ── Delete confirmation dialog ──────────────────────────────────── */
+.cc-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cc-confirm {
+  width: 290px;
+  max-width: 90vw;
+  padding: 18px 20px;
+  background: var(--background);
+  border: 1px solid var(--accent-grey);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+.cc-confirm-title { font-weight: 700; font-size: 0.95rem; color: var(--accent-dark); margin-bottom: 6px; }
+.cc-confirm-msg { font-size: 0.84rem; line-height: 1.35; color: var(--accent-dark); opacity: 0.8; margin-bottom: 16px; }
+.cc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.cc-confirm-cancel, .cc-confirm-delete {
+  padding: 6px 14px;
+  border-radius: 7px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: 1px solid var(--accent-grey);
+}
+.cc-confirm-cancel { background: var(--background); color: var(--accent-dark); }
+.cc-confirm-cancel:hover { background: var(--accent-bg); }
+.cc-confirm-delete { background: #c0392b; border-color: #c0392b; color: #fff; }
+.cc-confirm-delete:hover { background: #a93226; }
+
+/* ── Right-click callout (GridCal sticker menu) ──────────────────── */
+.cc-sticker {
+  position: fixed;
+  z-index: 60;
+  transform: translate(-50%, calc(-100% - 9px));
+  padding: 6px 8px;
+  background: var(--background);
+  border: 1px solid var(--accent-grey);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.cc-sticker-row { display: flex; align-items: center; gap: 6px; }
+.cc-sticker-div { width: 1px; height: 18px; background: var(--accent-grey); margin: 0 2px; }
+.cc-sticker-trash {
+  display: flex; align-items: center;
+  border: none; background: none; cursor: pointer;
+  color: var(--accent-dark);
+  padding: 2px; border-radius: 4px;
+}
+.cc-sticker-trash:hover { background: color-mix(in srgb, #c0392b 12%, transparent); color: #c0392b; }
+.cc-sticker-caret {
+  position: absolute;
+  bottom: -6px; left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px; height: 10px;
+  background: var(--background);
+  border-right: 1px solid var(--accent-grey);
+  border-bottom: 1px solid var(--accent-grey);
+}
 
 /* ── Track-name editor (left gutter) ─────────────────────────────── */
 .cc-track-edit { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
@@ -112,7 +790,8 @@
   border: none;
   background: transparent;
   color: var(--accent-dark);
-  font-size: 0.82rem;
+  font-family: var(--font-handwriting), cursive; /* user input → handwriting */
+  font-size: 0.98rem;
   padding: 0 6px;
   outline: none;
 }
@@ -128,9 +807,11 @@
   align-items: center;
   gap: 14px;
   padding: 0 16px;
-  z-index: 10;
+  z-index: 20;                 /* above every scene item (max item z = 11) so it occludes scrolling content */
   font-size: 0.8rem;
   pointer-events: none;
+  background: var(--background);
+  border-bottom: 1px solid var(--accent-grey);
 }
 .cc-crumbs { display: flex; align-items: center; gap: 4px; pointer-events: auto; }
 .cc-crumb {
@@ -141,4 +822,51 @@
 .cc-crumb:hover { background: var(--accent-bg); color: var(--highlight); }
 .cc-crumb.current { font-weight: 700; color: var(--highlight); }
 .cc-sep { color: var(--accent-grey); font-size: 0.8rem; }
-.cc-hint { margin-left: auto; color: var(--accent-grey); font-size: 0.72rem; }
+.cc-hint { color: var(--accent-grey); font-size: 0.72rem; }
+.cc-caret { margin-left: 5px; font-size: 0.62rem; vertical-align: middle; }
+
+/* Year dropdown (custom; anchored under the year crumb) */
+.cc-year-wrap { position: relative; }
+.cc-year-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 92px;
+  padding: 4px;
+  background: var(--background);
+  border: 1px solid var(--accent-grey);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  z-index: 30;
+}
+.cc-year-opt {
+  text-align: left;
+  padding: 5px 10px;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  color: var(--accent-dark);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.cc-year-opt:hover { background: var(--accent-bg); }
+.cc-year-opt.sel { background: var(--accent-bg-dark); color: var(--highlight); font-weight: 700; }
+/* Alt-timezone dropdown lives on the right → align its menu to the button's right edge. */
+.cc-tz-menu { left: auto; right: 0; min-width: 130px; }
+
+/* Right-side action buttons (Current Week / Back to Current Year) */
+.cc-bar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; pointer-events: auto; }
+.cc-action {
+  border: 1px solid var(--accent-grey);
+  background: var(--background);
+  color: var(--accent-dark);
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cc-action:hover { background: var(--accent-bg); }
+.cc-action-accent { border-color: var(--highlight); color: var(--highlight); }

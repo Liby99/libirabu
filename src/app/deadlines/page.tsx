@@ -1,6 +1,5 @@
 import { requireUserId } from "@/lib/auth";
 import { listDeadlines } from "@/app/actions/deadlines";
-import AppNav from "@/app/components/app/AppNav";
 import DeadlinesBoard from "@/app/components/deadlines/DeadlinesBoard";
 
 export default async function DeadlinesPage() {
@@ -8,7 +7,6 @@ export default async function DeadlinesPage() {
   const deadlines = await listDeadlines();
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <DeadlinesBoard
           deadlines={deadlines.map((d) => ({

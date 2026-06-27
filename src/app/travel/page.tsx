@@ -2,7 +2,6 @@ import { requireUserId } from "@/lib/auth";
 import { listTrips } from "@/app/actions/trips";
 import { listFundingSources } from "@/app/actions/funding";
 import { listPeople } from "@/app/actions/people";
-import AppNav from "@/app/components/app/AppNav";
 import TripsManager from "@/app/components/travel/TripsManager";
 
 export default async function TravelPage() {
@@ -10,7 +9,6 @@ export default async function TravelPage() {
   const [trips, sources, people] = await Promise.all([listTrips(), listFundingSources(), listPeople()]);
   return (
     <>
-      <AppNav />
       <main className="app-main app-scroll">
         <TripsManager
           trips={trips.map((t) => ({
