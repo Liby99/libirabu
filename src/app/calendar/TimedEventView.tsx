@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { TimedEvent, fmtRange } from "./eventTypes";
-import { EventRect } from "./eventGeom";
+import { EventRect, eventTextLayout } from "./eventGeom";
 import EventBadges from "./EventBadges";
 
 interface Props {
@@ -53,11 +53,7 @@ export default function TimedEventView({ ev, rect, wide, reveal, interactive, on
   // Too short for a time line → show the title only. Tiny events shrink the font so the
   // title still fits. Title clamps to a whole number of lines (fixed line-height) so a
   // line is never half cut off.
-  const tiny = rect.h < 26;        // ~15 min
-  const short = rect.h < 40;       // ~≤30 min: hide the time
-  const LINE_H = tiny ? 12 : 16;   // px per title line (must match .cc-tevent-title line-height)
-  const avail = rect.h - (tiny ? 2 : 10) - (short ? 0 : 13);
-  const titleLines = Math.max(1, Math.floor(avail / LINE_H));
+  const { tiny, short, titleLines } = eventTextLayout(rect.h);
 
   return (
     <div

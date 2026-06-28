@@ -7,7 +7,7 @@ import { frameFor } from "./frames";
 import { daysInMonth } from "./mock";
 import { TimedEvent } from "./eventTypes";
 
-export const MIN_HOUR_H = 50; // week-view per-hour height range (slider)
+export const MIN_HOUR_H = 35; // week-view per-hour height range (slider)
 export const MAX_HOUR_H = 90;
 
 // User-controlled week-view per-hour height (driven by the timeline scrollbar). Held
@@ -31,6 +31,15 @@ export function hourMetrics(tlTop: number, tlBottom: number, z: number, tlScroll
   return { viewH, hourH, maxScroll, scroll: Math.min(Math.max(0, tlScroll), maxScroll) };
 }
 
+// During a month↕month page-turn the OUTGOING month's detail fades out early (detailMul, p→0 by
+// ~0.35) and the INCOMING month's detail fades in later — both at the same resting timeline
+// position (timelineInfo never moves with the band) so they cross-fade in place. This is the
+// incoming side: 0 until the band is well on its way, ~1 before it fully settles, so the new
+// month's detail is already visible as its track approaches (no wait for settle).
+export function incomingDetailReveal(p: number): number {
+  return Math.min(1, Math.max(0, (p - 0.45) / 0.4));
+}
+
 export interface TimelineInfo {
   x0: number;
   colW: number;
@@ -44,10 +53,21 @@ export interface TimelineInfo {
   wide: boolean;     // week view (full event bodies)
 }
 
+// Height-driven text scheme for an hourly event block: hide the time when short, clamp the
+// title to a whole number of lines, shrink the font when tiny. Shared by the editable view
+// (TimedEventView) and the read-only recurrence ghosts so both render identically.
+export function eventTextLayout(h: number): { tiny: boolean; short: boolean; titleLines: number } {
+  const tiny = h < 26;   // ~15 min
+  const short = h < 40;  // ~≤30 min: hide the time
+  const lineH = tiny ? 12 : 16; // px per title line (must match .cc-tevent-title line-height)
+  const avail = h - (tiny ? 2 : 10) - (short ? 0 : 13);
+  return { tiny, short, titleLines: Math.max(1, Math.floor(avail / lineH)) };
+}
+
 // Single source of truth for the day-detail timeline geometry. `hourH` blends from
 // fit-to-viewport (month, z≤1) to a 40px minimum (week, z≥2); when the day is taller
 // than the viewport the extra becomes scrollable (only ever happens toward week view).
-export function timelineInfo(z: number, focus: number, week: number, vp: Vp, scrollY: number, tlScroll: number): TimelineInfo {
+export function timelineInfo(z: number, focus: number, week: number, vp: Vp, scrollY: number, tlScroll: number, detailMul = 1): TimelineInfo {
   const f = frameFor(focus, z, focus, week, vp, scrollY);
   const tlTop = f.bandY + 4 * f.trackH + 18;
   const tlBottom = vp.h - 8;
@@ -61,7 +81,7 @@ export function timelineInfo(z: number, focus: number, week: number, vp: Vp, scr
     hourH: m.hourH,
     scroll: m.scroll,
     maxScroll: m.maxScroll,
-    reveal: z < 0.82 ? 0 : Math.min(1, Math.max(0, (z - 0.82) / 0.18)),
+    reveal: (z < 0.82 ? 0 : Math.min(1, Math.max(0, (z - 0.82) / 0.18))) * detailMul,
     wide: f.dayW > 60,
   };
 }

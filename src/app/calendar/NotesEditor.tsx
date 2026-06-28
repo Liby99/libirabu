@@ -23,7 +23,7 @@ const theme = EditorView.theme({
   "&": { backgroundColor: "transparent", color: "var(--accent-dark)", height: "100%", fontSize: "0.74rem" },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": { fontFamily: MONO, lineHeight: "1.55" },
-  ".cm-content": { padding: "12px 0 40px", caretColor: "var(--accent-dark)" },
+  ".cm-content": { padding: "3px 0 40px", caretColor: "var(--accent-dark)" },
   // drop CodeMirror's default left line padding so text/placeholder align with the drawer edge
   ".cm-line": { padding: "0 2px 0 0" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent-dark)" },

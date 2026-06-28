@@ -2,7 +2,7 @@
 
 import { Vp } from "./types";
 import { LABEL_W } from "./constants";
-import { frameFor } from "./frames";
+import { frameFor, type MonthAnim } from "./frames";
 import { daysInMonth } from "./mock";
 import { BandEvent } from "./bandEventTypes";
 
@@ -14,8 +14,8 @@ export interface BandRect { x: number; y: number; w: number; h: number; clipStar
 const bandOnScreen = (bandY: number, trackH: number, vp: Vp) =>
   bandY <= vp.h + 10 && bandY + 4 * trackH >= -10;
 
-export function bandEventRect(ev: BandEvent, z: number, focus: number, week: number, vp: Vp, scrollY: number): BandRect | null {
-  const f = frameFor(ev.month, z, focus, week, vp, scrollY);
+export function bandEventRect(ev: BandEvent, z: number, focus: number, week: number, vp: Vp, scrollY: number, anim?: MonthAnim | null): BandRect | null {
+  const f = frameFor(ev.month, z, focus, week, vp, scrollY, anim);
   if (f.opacity < 0.02 || !bandOnScreen(f.bandY, f.trackH, vp)) return null;
   const x = f.x0 + (ev.startDay - 1) * f.dayW;
   const w = (ev.endDay - ev.startDay + 1) * f.dayW;

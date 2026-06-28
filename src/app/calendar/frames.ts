@@ -61,6 +61,37 @@ function weekFrame(m: number, focus: number, week: number, vp: Vp): Frame {
   return { x0: LABEL_W, dayW, bandY: off, trackH: TRACK_H, opacity: 0 };
 }
 
+// Vertical month-to-month paging (month view). `dir` +1 = swipe up → next month, −1 = swipe
+// down → prev; `p` ∈ [0,1] is the transition progress. The current month's band and the target
+// month's band slide vertically like stacked pages; every other month is hidden. (The daily
+// timeline cross-fades separately via detailMul — see scene.ts / eventGeom.ts.)
+export interface MonthAnim { dir: 1 | -1; p: number }
+
+function monthSwipeFrame(m: number, anim: MonthAnim, focus: number, vp: Vp): Frame {
+  const { dir, p } = anim;
+  const to = focus + dir;
+  const base = { x0: LABEL_W, dayW: (vp.w - LABEL_W) / 31, trackH: TRACK_H };
+  const OFF_TOP = -MONTH_H - 40; // a band fully above the viewport
+  const OFF_BOT = vp.h + 40;     // a band fully below the viewport
+  if (m === focus) {
+    // Current band: swipe-up → hold at top then exit the TOP in the back half; swipe-down →
+    // move straight down and out the BOTTOM.
+    const bandY = dir > 0
+      ? lerp(TOP_PAD, OFF_TOP, easeInOut(clamp((p - 0.5) / 0.5, 0, 1)))
+      : lerp(TOP_PAD, OFF_BOT, easeInOut(p));
+    return { ...base, bandY, opacity: 1 };
+  }
+  if (m === to) {
+    // Target band: swipe-up → rise from the BOTTOM to the top; swipe-down → descend from the
+    // TOP and settle at the top (~65% through, then hold).
+    const bandY = dir > 0
+      ? lerp(OFF_BOT, TOP_PAD, easeInOut(p))
+      : lerp(OFF_TOP, TOP_PAD, easeInOut(clamp(p / 0.65, 0, 1)));
+    return { ...base, bandY, opacity: 1 };
+  }
+  return { ...base, bandY: OFF_BOT, opacity: 0 };
+}
+
 function blend(a: Frame, b: Frame, t: number): Frame {
   return {
     x0: lerp(a.x0, b.x0, t),
@@ -71,7 +102,8 @@ function blend(a: Frame, b: Frame, t: number): Frame {
   };
 }
 
-export function frameFor(m: number, z: number, focus: number, week: number, vp: Vp, scrollY: number): Frame {
+export function frameFor(m: number, z: number, focus: number, week: number, vp: Vp, scrollY: number, anim?: MonthAnim | null): Frame {
+  if (anim) return monthSwipeFrame(m, anim, focus, vp); // month↕month paging overrides (z held at 1)
   if (z <= 1) return yearToMonthFrame(m, easeInOut(clamp(z, 0, 1)), focus, vp, scrollY);
   // month→week: blend the settled Month layout with the Week layout
   const mf = yearToMonthFrame(m, 1, focus, vp, scrollY);
@@ -80,6 +112,6 @@ export function frameFor(m: number, z: number, focus: number, week: number, vp: 
 
 // Live top of a month's band at the current zoom (so the track-name editor's inputs
 // travel with the band instead of disappearing/reappearing).
-export function bandYFor(m: number, z: number, focus: number, week: number, vp: Vp, scrollY: number): number {
-  return frameFor(m, z, focus, week, vp, scrollY).bandY;
+export function bandYFor(m: number, z: number, focus: number, week: number, vp: Vp, scrollY: number, anim?: MonthAnim | null): number {
+  return frameFor(m, z, focus, week, vp, scrollY, anim).bandY;
 }

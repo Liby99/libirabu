@@ -2,12 +2,12 @@
 
 import { useRef, useState } from "react";
 import { Vp } from "./types";
-import { frameFor } from "./frames";
+import { frameFor, type MonthAnim } from "./frames";
 import { bandEventRect, BandRect } from "./bandGeom";
 import { TimedEvent } from "./eventTypes";
 import { Deadline } from "./deadlineTypes";
 import { BandEvent } from "./bandEventTypes";
-import { occurrenceDates, occKey, occDate } from "./occurrences";
+import { occurrenceDates, occKey, occDate, baseHidden } from "./occurrences";
 import EventBadges from "./EventBadges";
 
 // A timed/deadline event that's been "promoted" → rendered as a read-only 1-day ghost band on
@@ -44,11 +44,12 @@ interface Props {
   onSelect: (id: string | null, occ?: string | null) => void;
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
+  monthAnim: MonthAnim | null;
 }
 
 const isRecurring = (r: TimedEvent["repeat"]) => !!r && r.kind !== "none";
 
-export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, timed, deadlines, bandEvents, updateTimed, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu }: Props) {
+export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, timed, deadlines, bandEvents, updateTimed, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu, monthAnim }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false);
   const [movingId, setMovingId] = useState<string | null>(null);
@@ -58,7 +59,7 @@ export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, t
     if (track == null) return;
     const recurring = isRecurring(repeat);
     const base = { kind, id, track, title, color, recurring, ai };
-    if (eyear === year) items.push({ ...base, key: id, occ: null, month, day }); // the base day (this year only)
+    if (eyear === year && !baseHidden(occDate({ year: eyear, month, day }), repeat)) items.push({ ...base, key: id, occ: null, month, day }); // the base day (this year only)
     if (recurring) {
       for (const o of occurrenceDates({ year: eyear, month, day }, repeat, year)) {
         items.push({ ...base, key: occKey(id, o), occ: occDate(o), month: o.month, day: o.day });
@@ -98,7 +99,7 @@ export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, t
   };
 
   const rects = items
-    .map((it) => ({ it, rect: bandEventRect({ id: it.id, year, month: it.month, track: it.track, startDay: it.day, endDay: it.day, title: it.title, color: it.color }, z, focus, week, vp, scrollY) }))
+    .map((it) => ({ it, rect: bandEventRect({ id: it.id, year, month: it.month, track: it.track, startDay: it.day, endDay: it.day, title: it.title, color: it.color }, z, focus, week, vp, scrollY, monthAnim) }))
     .filter((x): x is { it: PItem; rect: BandRect } => x.rect != null);
 
   // Title clip: each promoted bar's title stops before the NEXT bar on its lane — counting
@@ -110,7 +111,7 @@ export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, t
       ...rects.map((r) => ({ key: r.it.key, lane: `${r.it.month}-${r.it.track}`, start: r.it.day, x: r.rect.x })),
       ...bandEvents
         .filter((ev) => ev.year === year)
-        .map((ev) => ({ ev, rect: bandEventRect(ev, z, focus, week, vp, scrollY) }))
+        .map((ev) => ({ ev, rect: bandEventRect(ev, z, focus, week, vp, scrollY, monthAnim) }))
         .filter((b): b is { ev: BandEvent; rect: BandRect } => b.rect != null)
         .map((b) => ({ key: null, lane: `${b.ev.month}-${b.ev.track}`, start: b.ev.startDay, x: b.rect.x })),
     ];

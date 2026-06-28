@@ -4,23 +4,38 @@
 
 import { Item, Scene, Frame, Vp, Hover } from "./types";
 import { LABEL_W, MNAME_W, RIGHT_PAD, Q_HEADER_H, clamp } from "./constants";
-import { frameFor } from "./frames";
+import { frameFor, type MonthAnim } from "./frames";
 import { firstDOW, weekStartDOM, weeksInMonth, resolveDate, MONTH_NAMES, WD, WD3 } from "./dates";
 import { TRACKS, daysInMonth, YEAR, setCalendarYear } from "./mock";
-import { hourMetrics } from "./eventGeom";
+import { hourMetrics, incomingDetailReveal } from "./eventGeom";
 
 const LINE = "#4c2d14"; // gridline color (dimmed via item opacity; theme via CSS var)
 const HL_SOFT = 0.05;   // L1 coarse highlight (month band / week span / day column)
 const HL_STRONG = 0.11; // L2 fine highlight (day column / hour cell)
 
-export function buildScene(z: number, focus: number, week: number, vp: Vp, scrollY: number, hover: Hover, now: number, year: number, altDeltaHours: number | null, altLabel: string | null, tlScroll: number): Scene {
+export function buildScene(z: number, focus: number, week: number, vp: Vp, scrollY: number, hover: Hover, now: number, year: number, altDeltaHours: number | null, altLabel: string | null, tlScroll: number, monthAnim: MonthAnim | null = null, detailMul = 1): Scene {
   setCalendarYear(year); // sync the live YEAR binding before any date math this frame
   const items: Item[] = [];
-  buildHover(items, z, focus, week, vp, scrollY, hover, tlScroll); // first → its z:3 layers sit under labels
-  buildToday(items, z, focus, week, vp, scrollY, now, tlScroll);
+  // Hover highlight is skipped during a page-turn (no hovering mid-swipe). The "today"/now-line
+  // markers, though, cross-fade like the detail (below) so they don't pop in after the turn settles.
+  if (!monthAnim) {
+    buildHover(items, z, focus, week, vp, scrollY, hover, tlScroll); // first → its z:3 layers sit under labels
+    buildToday(items, z, focus, week, vp, scrollY, now, tlScroll);
+  }
   buildQuarterHeaders(items, z, focus, week, vp, scrollY);
-  buildMonthBands(items, z, focus, week, vp, scrollY);
-  buildDetail(items, z, focus, week, vp, scrollY, altDeltaHours, altLabel, tlScroll);
+  buildMonthBands(items, z, focus, week, vp, scrollY, monthAnim);
+  buildDetail(items, z, focus, week, vp, scrollY, altDeltaHours, altLabel, tlScroll, detailMul);
+  // During a page-turn, also render the INCOMING month's detail + today markers at the (same)
+  // resting position, cross-fading in as its band approaches — visible before the turn settles.
+  // The OUTGOING month's today markers fade out with detailMul (matching its detail).
+  if (monthAnim) {
+    buildToday(items, z, focus, week, vp, scrollY, now, tlScroll, detailMul);
+    const to = focus + monthAnim.dir;
+    if (to >= 0 && to <= 11) {
+      buildDetail(items, z, to, week, vp, scrollY, altDeltaHours, altLabel, tlScroll, incomingDetailReveal(monthAnim.p), "~in");
+      buildToday(items, z, to, week, vp, scrollY, now, tlScroll, incomingDetailReveal(monthAnim.p), "~in");
+    }
+  }
   return { items };
 }
 
@@ -28,7 +43,8 @@ export function buildScene(z: number, focus: number, week: number, vp: Vp, scrol
 // of persistent layers (stable keys, opacity 0 when not applicable) so they fade and
 // cross-fade with the same transitions. Only shown when the displayed year (YEAR) is
 // the current calendar year. `now` is a ms timestamp that ticks each minute.
-function buildToday(items: Item[], z: number, focus: number, week: number, vp: Vp, scrollY: number, now: number, tlScroll: number) {
+function buildToday(items: Item[], z: number, focus: number, week: number, vp: Vp, scrollY: number, now: number, tlScroll: number, mul = 1, keyTag = "") {
+  const start = items.length; // keyTag (incoming-month pass during a page-turn) → suffix keys so they don't collide
   const d = new Date(now);
   const present = d.getFullYear() === YEAR;
   const tMonth = d.getMonth();
@@ -51,7 +67,7 @@ function buildToday(items: Item[], z: number, focus: number, week: number, vp: V
     items.push({
       key, kind: "nowlabel", text: timeStr, align: firstHalf ? "left" : "right",
       x: firstHalf ? x + colW + GAP : x - GAP - W, y: lineY - H / 2, w: W, h: H,
-      opacity: active ? 1 : 0, z: 9,
+      opacity: active ? mul : 0, z: 9,
     });
   };
 
@@ -60,10 +76,10 @@ function buildToday(items: Item[], z: number, focus: number, week: number, vp: V
     const f = frameFor(tMonth, z, focus, week, vp, scrollY);
     const on = present && z < 0.5 && onScreen(f, vp);
     const tx = f.x0 + (tDom - 1) * f.dayW;
-    items.push({ key: "td-y", kind: "today", x: tx, y: f.bandY, w: f.dayW, h: 4 * f.trackH, opacity: on ? 1 : 0, z: 3 });
+    items.push({ key: "td-y", kind: "today", x: tx, y: f.bandY, w: f.dayW, h: 4 * f.trackH, opacity: on ? mul : 0, z: 3 });
     // "TODAY" caption just below the marker
     const tagW = 54;
-    items.push({ key: "td-tag", kind: "todaytag", text: "TODAY", x: tx + f.dayW / 2 - tagW / 2, y: f.bandY + 4 * f.trackH + 3, w: tagW, h: 11, opacity: on ? 1 : 0, fontSize: 8, align: "center", z: 9 });
+    items.push({ key: "td-tag", kind: "todaytag", text: "TODAY", x: tx + f.dayW / 2 - tagW / 2, y: f.bandY + 4 * f.trackH + 3, w: tagW, h: 11, opacity: on ? mul : 0, fontSize: 8, align: "center", z: 9 });
   }
 
   // ── Month: today's column (band + timeline) + now line, only if focus is today's month ──
@@ -75,11 +91,11 @@ function buildToday(items: Item[], z: number, focus: number, week: number, vp: V
     const tlBottom = vp.h - 8;
     const detail = z >= 0.82;
     const x = f.x0 + (tDom - 1) * colW;
-    items.push({ key: "td-m", kind: "today", x, y: f.bandY, w: colW, h: (detail ? tlBottom : f.bandY + 4 * f.trackH) - f.bandY, opacity: active ? 1 : 0, z: 3 });
+    items.push({ key: "td-m", kind: "today", x, y: f.bandY, w: colW, h: (detail ? tlBottom : f.bandY + 4 * f.trackH) - f.bandY, opacity: active ? mul : 0, z: 3 });
     const { hourH, scroll } = hourMetrics(tlTop, tlBottom, z, tlScroll);
     const lineY = tlTop + nowFrac * hourH - scroll;
     const lineOn = active && detail && hourH > 0 && lineY >= tlTop && lineY <= tlBottom;
-    items.push({ key: "now-m", kind: "now", x, y: lineY, w: colW, h: 2, opacity: lineOn ? 1 : 0, z: 6 });
+    items.push({ key: "now-m", kind: "now", x, y: lineY, w: colW, h: 2, opacity: lineOn ? mul : 0, z: 6 });
     pushNowLabel("nl-m", x, colW, lineY, lineOn);
   }
 
@@ -95,13 +111,15 @@ function buildToday(items: Item[], z: number, focus: number, week: number, vp: V
     const tlTop = f.bandY + 4 * f.trackH + 18;
     const tlBottom = vp.h - 8;
     const x = f.x0 + ((relDom ?? 1) - 1) * colW;
-    items.push({ key: "td-w", kind: "today", x, y: f.bandY, w: colW, h: tlBottom - f.bandY, opacity: active ? 1 : 0, z: 3 });
+    items.push({ key: "td-w", kind: "today", x, y: f.bandY, w: colW, h: tlBottom - f.bandY, opacity: active ? mul : 0, z: 3 });
     const { hourH, scroll } = hourMetrics(tlTop, tlBottom, z, tlScroll);
     const lineY = tlTop + nowFrac * hourH - scroll;
     const lineOn = active && hourH > 0 && lineY >= tlTop && lineY <= tlBottom;
-    items.push({ key: "now-w", kind: "now", x, y: lineY, w: colW, h: 2, opacity: lineOn ? 1 : 0, z: 6 });
+    items.push({ key: "now-w", kind: "now", x, y: lineY, w: colW, h: 2, opacity: lineOn ? mul : 0, z: 6 });
     pushNowLabel("nl-w", x, colW, lineY, lineOn);
   }
+
+  if (keyTag) for (let i = start; i < items.length; i++) items[i] = { ...items[i], key: items[i].key + keyTag };
 }
 
 // Hierarchical hover highlight. Emits a FIXED set of persistent layers (stable
@@ -212,15 +230,26 @@ function buildQuarterHeaders(items: Item[], z: number, focus: number, week: numb
 }
 
 // The 12 month bands: vertical name, 4 track lanes, end-of-month dim, month divider.
-function buildMonthBands(items: Item[], z: number, focus: number, week: number, vp: Vp, scrollY: number) {
+function buildMonthBands(items: Item[], z: number, focus: number, week: number, vp: Vp, scrollY: number, monthAnim: MonthAnim | null = null) {
   const dimFade = 1 - clamp(z - 1, 0, 1); // end-of-month hatch fades out entering week view
+  const detailReveal = clamp((z - 0.82) / 0.18, 0, 1); // focused-band top border fades in toward month view
   for (let m = 0; m < 12; m++) {
-    const f = frameFor(m, z, focus, week, vp, scrollY);
+    const f = frameFor(m, z, focus, week, vp, scrollY, monthAnim);
     if (f.opacity < 0.02 || !onScreen(f, vp)) continue;
     const dim = daysInMonth(m);
     const fullW = 31 * f.dayW; // always draw all 31 grid cells
 
     items.push({ key: `ml-${m}`, kind: "monthLabel", x: 0, y: f.bandY, w: MNAME_W, h: f.trackH * 4, opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 13, align: "center", z: 8 });
+
+    // Top border of the focused band (gutter + grid, with the RIGHT_PAD gap). Rendered here —
+    // not in buildDetail — so it travels with the band during month↕month paging instead of
+    // fading with the timeline. Only the focused month (and the incoming one mid-page) shows it.
+    const isFocusBand = m === focus || (monthAnim != null && m === focus + monthAnim.dir);
+    if (detailReveal > 0.02 && isFocusBand) {
+      const top = f.opacity * detailReveal * 0.6;
+      items.push({ key: `ftopg-${m}`, kind: "gridline", x: 0, y: f.bandY - 1, w: LABEL_W - RIGHT_PAD, h: 1, opacity: top, color: LINE, z: 11 });
+      items.push({ key: `ftopd-${m}`, kind: "gridline", x: LABEL_W, y: f.bandY - 1, w: vp.w - LABEL_W, h: 1, opacity: top, color: LINE, z: 11 });
+    }
 
     for (let t = 0; t < 4; t++) {
       items.push({ key: `row-${m}-${t}`, kind: "row", x: f.x0, y: f.bandY + t * f.trackH, w: fullW, h: f.trackH, opacity: f.opacity, color: TRACKS[t].color, cols: 31, z: 1, inner: t > 0 });
@@ -236,9 +265,10 @@ function buildMonthBands(items: Item[], z: number, focus: number, week: number, 
 
 // Focused month's headers (dates/weekdays) + 0:00–24:00 timeline + week boundaries.
 // Hidden until near Month view, then fades in (keeps the year→month zoom cheap).
-function buildDetail(items: Item[], z: number, focus: number, week: number, vp: Vp, scrollY: number, altDeltaHours: number | null, altLabel: string | null, tlScroll: number) {
-  const reveal = z < 0.82 ? 0 : clamp((z - 0.82) / 0.18, 0, 1);
+function buildDetail(items: Item[], z: number, focus: number, week: number, vp: Vp, scrollY: number, altDeltaHours: number | null, altLabel: string | null, tlScroll: number, detailMul = 1, keyTag = "") {
+  const reveal = (z < 0.82 ? 0 : clamp((z - 0.82) / 0.18, 0, 1)) * detailMul;
   if (reveal <= 0.02) return;
+  const start = items.length; // keyTag (incoming-month pass) → suffix keys so they don't collide with the focus pass
 
   const f = frameFor(focus, z, focus, week, vp, scrollY);
   const dim = daysInMonth(focus);
@@ -246,10 +276,6 @@ function buildDetail(items: Item[], z: number, focus: number, week: number, vp: 
   const bandBottom = f.bandY + 4 * f.trackH;
   const wide = colW > 60; // week view → full weekday names + event titles
   const weekZoom = clamp(z - 1, 0, 1); // 0 at month, 1 at week — gates spillover
-
-  // top border of the focused band (gutter + grid, with the RIGHT_PAD gap)
-  items.push({ key: "ftopg", kind: "gridline", x: 0, y: f.bandY - 1, w: LABEL_W - RIGHT_PAD, h: 1, opacity: reveal * 0.6, color: LINE, z: 11 });
-  items.push({ key: "ftopd", kind: "gridline", x: LABEL_W, y: f.bandY - 1, w: vp.w - LABEL_W, h: 1, opacity: reveal * 0.6, color: LINE, z: 11 });
 
   const tlTop = bandBottom + 18;
   const tlBottom = vp.h - 8;
@@ -322,8 +348,13 @@ function buildDetail(items: Item[], z: number, focus: number, week: number, vp: 
     for (let dom = dim + 1; dom <= tail; dom++) pushDay(dom, weekZoom * 0.5);
     for (const bx of [1, dim + 1]) {
       const x = f.x0 + (bx - 1) * colW;
-      if (x < -2 || x > vp.w + 2) continue;
-      items.push({ key: `mb-${bx}`, kind: "gridline", x: x - 1, y: f.bandY - 6, w: 1.5, h: tlBottom - (f.bandY - 6), opacity: weekZoom * 0.7, color: LINE, z: 5 });
+      if (x < LABEL_W || x > vp.w + 2) continue; // only within the day grid — never over the left gutter
+      // Two thin segments straddling the weekday-name row: one strictly on the 4-track band,
+      // one strictly on the daily timeline (so neither overshoots the tracks' top).
+      items.push({ key: `mb-${bx}-b`, kind: "gridline", x: x - 0.5, y: f.bandY, w: 1, h: bandBottom - f.bandY, opacity: weekZoom * 0.7, color: LINE, z: 5 });
+      if (hasTL) items.push({ key: `mb-${bx}-t`, kind: "gridline", x: x - 0.5, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: weekZoom * 0.7, color: LINE, z: 5 });
     }
   }
+
+  if (keyTag) for (let i = start; i < items.length; i++) items[i] = { ...items[i], key: items[i].key + keyTag };
 }

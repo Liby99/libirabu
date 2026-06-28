@@ -70,3 +70,13 @@ export function occurrenceDates(base: YMD, repeat: Repeat | undefined | null, ye
 export const occKey = (id: string, p: YMD) => `${id}@${p.year}-${p.month}-${p.day}`;
 // "YYYY-MM-DD" — used as the element's data-occ and as the recurrence `until` value.
 export const occDate = (p: YMD) => `${p.year}-${String(p.month + 1).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+
+// The base occurrence renders directly (not via occurrenceDates), so it must independently honor
+// the same exclusions: its own date being an exdate ("delete just this") or past `until` ("delete
+// this & all following" from the base). Lets per-occurrence deletes work on the first instance too.
+export function baseHidden(dateStr: string, repeat: Repeat | null | undefined): boolean {
+  if (!repeat || repeat.kind === "none") return false;
+  if ((repeat.exdates ?? []).includes(dateStr)) return true;
+  if (repeat.until && dateStr > repeat.until) return true; // YYYY-MM-DD compares chronologically
+  return false;
+}

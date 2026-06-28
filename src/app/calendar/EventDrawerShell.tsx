@@ -147,7 +147,7 @@ export default function EventDrawerShell({ name, onName, color, onColor, onColor
           {recurring && onOccNotes && (
             <div className="cc-seg cc-dw-notetabs" role="group" aria-label="Note scope">
               <button type="button" className={`cc-seg-btn${noteTab === "series" ? " sel" : ""}`} onClick={() => switchTab("series")}>Series</button>
-              <button type="button" className={`cc-seg-btn${noteTab === "occ" ? " sel" : ""}`} title="Note for this occurrence only" onClick={() => switchTab("occ")}>This event</button>
+              <button type="button" className={`cc-seg-btn${noteTab === "occ" ? " sel" : ""}`} title="Note for this occurrence only" onClick={() => switchTab("occ")}>This event<span className="cc-dw-tab-date"> – {shortDate(focusOcc ?? anchorDate)}</span></button>
             </div>
           )}
         </div>

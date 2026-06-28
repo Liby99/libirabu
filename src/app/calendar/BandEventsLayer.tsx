@@ -4,11 +4,11 @@ import { useRef, useState } from "react";
 import EventBadges from "./EventBadges";
 import { Vp } from "./types";
 import { LABEL_W } from "./constants";
-import { frameFor } from "./frames";
+import { frameFor, type MonthAnim } from "./frames";
 import { daysInMonth } from "./mock";
 import { BandEvent } from "./bandEventTypes";
 import { bandEventRect, bandSlotAtPoint, dayInMonth, BandRect } from "./bandGeom";
-import { occurrenceDates, occKey, occDate } from "./occurrences";
+import { occurrenceDates, occKey, occDate, baseHidden } from "./occurrences";
 import BandEventView from "./BandEventView";
 
 interface Props {
@@ -27,11 +27,12 @@ interface Props {
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
   editingId: string | null;
   onEditConsumed: () => void;
+  monthAnim: MonthAnim | null;
 }
 
 type Draft = { month: number; track: number; a: number; b: number };
 
-export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, selectedId, onSelect, onOpenDetail, onContextMenu, editingId, onEditConsumed }: Props) {
+export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, selectedId, onSelect, onOpenDetail, onContextMenu, editingId, onEditConsumed, monthAnim }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false);
   const createdRef = useRef(false); // suppress the trailing click only after a real create-drag
@@ -141,8 +142,8 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
   const surfH = stripOnly ? 4 * f.trackH : vp.h;
 
   const rects = events
-    .filter((ev) => ev.year === year)
-    .map((ev) => ({ ev, rect: bandEventRect(ev, z, focus, week, vp, scrollY) }))
+    .filter((ev) => ev.year === year && !baseHidden(occDate({ year: ev.year, month: ev.month, day: ev.startDay }), ev.repeat))
+    .map((ev) => ({ ev, rect: bandEventRect(ev, z, focus, week, vp, scrollY, monthAnim) }))
     .filter((x): x is { ev: BandEvent; rect: BandRect } => x.rect != null);
 
   // Recurrence: read-only ghost copies of repeating band events on their occurrence weeks.
@@ -155,7 +156,7 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
       return occurrenceDates({ year: ev.year, month: ev.month, day: ev.startDay }, ev.repeat, year)
         .map((o) => {
           const endDay = Math.min(o.day + span, daysInMonth(o.month));
-          return { ev, o, rect: bandEventRect({ ...ev, month: o.month, startDay: o.day, endDay }, z, focus, week, vp, scrollY) };
+          return { ev, o, rect: bandEventRect({ ...ev, month: o.month, startDay: o.day, endDay }, z, focus, week, vp, scrollY, monthAnim) };
         })
         .filter((x): x is { ev: BandEvent; o: { year: number; month: number; day: number }; rect: BandRect } => x.rect != null);
     });

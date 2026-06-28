@@ -1,11 +1,14 @@
 "use client";
 
+import { SkipBack } from "lucide-react";
 import { TimedEvent, hourToTimeInput, timeInputToHour } from "./eventTypes";
 import { NO_REPEAT } from "@/lib/calendar/api";
 import EventDrawerShell from "./EventDrawerShell";
 import PromoteEditor from "./PromoteEditor";
 
 const pad = (n: number) => String(n).padStart(2, "0");
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const fmtDate = (iso: string) => { const p = iso.split("-"); return p.length === 3 ? `${MON[(+p[1] || 1) - 1]} ${+p[2]}` : iso; };
 
 interface Props {
   event: TimedEvent;
@@ -20,6 +23,17 @@ interface Props {
 export default function EventDrawer({ event, onChange, onDelete, onClose, onColorPreview, focusOcc, onGoToFirst }: Props) {
   const dateStr = `${event.year}-${pad(event.month + 1)}-${pad(event.day)}`;
   const occKey = focusOcc ?? dateStr; // the occurrence this drawer's per-occurrence note belongs to
+  const recurring = (event.repeat?.kind ?? "none") !== "none";
+  const onDate = (v: string) => { const [y, mo, d] = v.split("-").map(Number); if (y && mo && d) onChange(event.id, { year: y, month: mo - 1, day: d }); };
+  const onStart = (v: string) => { const h = timeInputToHour(v); if (h != null) onChange(event.id, { startHour: Math.min(h, event.endHour - 0.25) }); };
+  const onEnd = (v: string) => { const h = timeInputToHour(v); if (h != null) onChange(event.id, { endHour: Math.max(h, event.startHour + 0.25) }); };
+  const timeInputs = (
+    <>
+      <input type="time" value={hourToTimeInput(event.startHour)} onChange={(e) => onStart(e.target.value)} />
+      <span className="cc-dw-dash">–</span>
+      <input type="time" value={hourToTimeInput(event.endHour)} onChange={(e) => onEnd(e.target.value)} />
+    </>
+  );
   return (
     <EventDrawerShell
       name={event.title}
@@ -32,7 +46,7 @@ export default function EventDrawer({ event, onChange, onDelete, onClose, onColo
       anchorDow={new Date(event.year, event.month, event.day).getDay()}
       anchorDate={dateStr}
       focusOcc={focusOcc}
-      onGoToFirst={onGoToFirst}
+      onGoToFirst={undefined} /* rendered inline on the Initial Event Date row instead of the foot */
       tags={event.tags ?? []}
       onTags={(t) => onChange(event.id, { tags: t })}
       notes={event.notes ?? ""}
@@ -44,27 +58,31 @@ export default function EventDrawer({ event, onChange, onDelete, onClose, onColo
       onClose={onClose}
       configChildren={<PromoteEditor promoteTrack={event.promoteTrack} onChange={(t) => onChange(event.id, { promoteTrack: t })} />}
     >
-      <div className="cc-dw-row cc-dw-when">
-        <input
-          type="date"
-          value={dateStr}
-          onChange={(e) => {
-            const [y, mo, d] = e.target.value.split("-").map(Number);
-            if (y && mo && d) onChange(event.id, { year: y, month: mo - 1, day: d });
-          }}
-        />
-        <input
-          type="time"
-          value={hourToTimeInput(event.startHour)}
-          onChange={(e) => { const h = timeInputToHour(e.target.value); if (h != null) onChange(event.id, { startHour: Math.min(h, event.endHour - 0.25) }); }}
-        />
-        <span className="cc-dw-dash">–</span>
-        <input
-          type="time"
-          value={hourToTimeInput(event.endHour)}
-          onChange={(e) => { const h = timeInputToHour(e.target.value); if (h != null) onChange(event.id, { endHour: Math.max(h, event.startHour + 0.25) }); }}
-        />
-      </div>
+      {recurring ? (
+        <>
+          {/* Recurring: name the occurrence being viewed, with its time; the editable date
+              below is the series' initial (base) date — editing it moves the whole series. */}
+          <div className="cc-dw-row cc-dw-when">
+            <span className="cc-dw-label">This Event:</span>
+            <span className="cc-dw-occ">{fmtDate(focusOcc ?? dateStr)}</span>
+            {timeInputs}
+          </div>
+          <div className="cc-dw-row cc-dw-when cc-dw-initrow">
+            <span className="cc-dw-label">Initial Event Date:</span>
+            <input type="date" value={dateStr} onChange={(e) => onDate(e.target.value)} />
+            {onGoToFirst && (
+              <button className="cc-dw-iconbtn cc-dw-initgoto" title="Go to the first occurrence" aria-label="Go to first occurrence" onClick={onGoToFirst}>
+                <SkipBack size={15} />
+              </button>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="cc-dw-row cc-dw-when">
+          <input type="date" value={dateStr} onChange={(e) => onDate(e.target.value)} />
+          {timeInputs}
+        </div>
+      )}
     </EventDrawerShell>
   );
 }

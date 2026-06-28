@@ -5,13 +5,13 @@ import { Plus } from "lucide-react";
 import EventBadges from "./EventBadges";
 import { Vp, Hover } from "./types";
 import { LABEL_W } from "./constants";
-import { frameFor } from "./frames";
-import { hourMetrics, relDomOf } from "./eventGeom";
+import { frameFor, type MonthAnim } from "./frames";
+import { hourMetrics, relDomOf, incomingDetailReveal } from "./eventGeom";
 import { daysInMonth } from "./mock";
 import { weekStartDOM, resolveDate } from "./dates";
 import { Deadline } from "./deadlineTypes";
 import { deadlineTimeLabel } from "./deadlineFormat";
-import { occurrenceDates, occKey, occDate } from "./occurrences";
+import { occurrenceDates, occKey, occDate, baseHidden } from "./occurrences";
 
 interface Props {
   vp: Vp;
@@ -30,9 +30,11 @@ interface Props {
   onSelect: (id: string | null, occ?: string | null) => void;
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
+  detailMul?: number; // timeline opacity multiplier during month↕month paging (outgoing month)
+  monthAnim?: MonthAnim | null; // active page-turn → render the incoming month's deadlines too
 }
 
-export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, year, mainTz, hover, deadlines, addDeadline, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu }: Props) {
+export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, year, mainTz, hover, deadlines, addDeadline, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu, detailMul = 1, monthAnim = null }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false); // a real drag happened → suppress the trailing click
   const [movingId, setMovingId] = useState<string | null>(null);
@@ -107,9 +109,26 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
           .filter((g) => g.y >= tlTop && g.y <= tlBottom && g.x + colW >= LABEL_W && g.x <= vp.w))
     : [];
 
+  // Page-turn: the INCOMING month's deadlines, read-only, cross-fading in at the (same) resting
+  // position so they appear as the band approaches. `to`'s deadlines map by their own day number.
+  const inTo = monthAnim ? focus + monthAnim.dir : -1;
+  const inReveal = revealed && monthAnim && inTo >= 0 && inTo <= 11 ? incomingDetailReveal(monthAnim.p) : 0;
+  const inItems = inReveal > 0.02
+    ? [
+        ...deadlines.filter((d) => d.repeat && d.repeat.kind !== "none")
+          .flatMap((d) => occurrenceDates({ year: d.year, month: d.month, day: d.day }, d.repeat, year)
+            .filter((o) => o.year === year && o.month === inTo)
+            .map((o) => ({ d, occ: occDate(o), day: o.day, recurring: true }))),
+        ...deadlines.filter((d) => d.year === year && d.month === inTo && !baseHidden(occDate({ year: d.year, month: d.month, day: d.day }), d.repeat))
+          .map((d) => ({ d, occ: null as string | null, day: d.day, recurring: false })),
+      ]
+        .map((it) => ({ ...it, x: xOf(it.day), y: yOf(it.d.hour) }))
+        .filter((it) => it.y >= tlTop && it.y <= tlBottom && it.x + colW >= LABEL_W && it.x <= vp.w)
+    : [];
+
   return (
     <>
-      <div className="cc-deadlines" ref={layerRef}>
+      <div className="cc-deadlines" ref={layerRef} style={detailMul < 1 ? { opacity: detailMul } : undefined}>
         {ghosts.map(({ d, o, x, y }) => {
           const labelLeft = x - 8 - 120 > LABEL_W;
           return (
@@ -131,7 +150,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
             </div>
           );
         })}
-        {revealed && deadlines.filter((d) => d.year === year).map((d) => {
+        {revealed && deadlines.filter((d) => d.year === year && !baseHidden(occDate({ year: d.year, month: d.month, day: d.day }), d.repeat)).map((d) => {
           // Map to a focus-relative column so deadlines on this week's spillover days (in the
           // previous/next month) render too — those columns only exist in week view.
           const rel = relDomOf(focus, d.month, d.day);
@@ -167,6 +186,27 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
           );
         })}
       </div>
+
+      {inItems.length > 0 && (
+        <div className="cc-deadlines" style={{ opacity: inReveal, pointerEvents: "none" }}>
+          {inItems.map(({ d, occ, x, y, recurring }) => {
+            const labelLeft = x - 8 - 120 > LABEL_W;
+            return (
+              <div key={occ ? occKey(d.id, { year, month: inTo, day: d.day }) : `in-${d.id}`} className={`cc-ddl cc-ev-${d.color}${recurring ? " cc-ghost" : ""}`}>
+                <div className="cc-ddl-line" style={{ transform: `translate(${x}px, ${y - 1}px)`, width: colW }} />
+                <div
+                  className={`cc-ddl-label ${labelLeft ? "cc-ddl-label-l" : "cc-ddl-label-r"}`}
+                  style={{ transform: `translate(${labelLeft ? x - 8 : x + colW + 8}px, ${y}px) translateY(calc(-50% + 1px))${labelLeft ? " translateX(-100%)" : ""}` }}
+                >
+                  <span className="cc-ddl-title">{d.title}</span>
+                  <span className="cc-ddl-time">{deadlineTimeLabel(d, mainTz)}</span>
+                  <EventBadges ai={d.createdByAI} recurring={recurring} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* rendered as a cc-layer sibling so its z-index can sit above the mouse cursor line */}
       {plus && (

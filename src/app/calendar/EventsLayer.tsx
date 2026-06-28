@@ -4,10 +4,11 @@ import { useRef, useState } from "react";
 import EventBadges from "./EventBadges";
 import { Vp } from "./types";
 import { TimedEvent, snapHour, fmtRange } from "./eventTypes";
-import { timelineInfo, eventRect, layoutDay, pointToSlot, EventRect, EventLayout } from "./eventGeom";
-import { occurrenceDates, occKey, occDate } from "./occurrences";
+import { timelineInfo, eventRect, layoutDay, pointToSlot, eventTextLayout, incomingDetailReveal, EventRect, EventLayout } from "./eventGeom";
+import { occurrenceDates, occKey, occDate, baseHidden } from "./occurrences";
 import { resolveDate } from "./dates";
 import { LABEL_W } from "./constants";
+import { type MonthAnim } from "./frames";
 import TimedEventView from "./TimedEventView";
 
 interface Props {
@@ -28,6 +29,8 @@ interface Props {
   tlScroll: number;
   editingId: string | null;
   onEditConsumed: () => void;
+  detailMul?: number; // timeline opacity multiplier during month↕month paging (outgoing month)
+  monthAnim?: MonthAnim | null; // active page-turn → render the incoming month's events too
 }
 
 const MIN = 0.25; // 15-minute minimum duration / gap
@@ -46,7 +49,7 @@ function buildLayout(events: TimedEvent[], year: number): Map<string, EventLayou
   return out;
 }
 
-export default function EventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, onEventHover, onOpenDetail, onContextMenu, selectedId, onSelect, tlScroll, editingId, onEditConsumed }: Props) {
+export default function EventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, onEventHover, onOpenDetail, onContextMenu, selectedId, onSelect, tlScroll, editingId, onEditConsumed, detailMul = 1, monthAnim = null }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   // While resizing, keep the layout frozen so growing an event doesn't reorder it;
   // recompute (and briefly enable CSS transitions to animate the reflow) on release.
@@ -67,7 +70,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
     else if (hoverIdRef.current === id) hoverIdRef.current = null;
     onEventHover(hoverIdRef.current != null);
   };
-  const tl = timelineInfo(z, focus, week, vp, scrollY, tlScroll);
+  const tl = timelineInfo(z, focus, week, vp, scrollY, tlScroll, detailMul);
   const interactive = z >= 1.5; // week view → create / resize enabled
   const [draft, setDraft] = useState<{ dom: number; start: number; end: number } | null>(null);
   const draftRef = useRef<{ dom: number; start: number; end: number } | null>(null);
@@ -192,7 +195,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
 
   const rects = tl.reveal > 0.02
     ? events
-        .filter((ev) => ev.year === year)
+        .filter((ev) => ev.year === year && !baseHidden(occDate({ year: ev.year, month: ev.month, day: ev.day }), ev.repeat))
         .map((ev) => ({ ev, rect: eventRect(ev, focus, tl, vp, layoutMap.get(ev.id)) }))
         .filter((x): x is { ev: TimedEvent; rect: EventRect } => x.rect != null)
         // deeper (more-indented) events render later → stack on top of the ones below them
@@ -206,6 +209,26 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
     ? events.filter((ev) => ev.repeat && ev.repeat.kind !== "none")
         .flatMap((ev) => occurrenceDates({ year: ev.year, month: ev.month, day: ev.day }, ev.repeat, year)
           .map((o) => ({ ev, o, rect: eventRect({ month: o.month, day: o.day, startHour: ev.startHour, endHour: ev.endHour }, focus, tl, vp) }))
+          .filter((x): x is { ev: TimedEvent; o: { year: number; month: number; day: number }; rect: EventRect } => x.rect != null))
+    : [];
+
+  // Page-turn: the INCOMING month's events, read-only, cross-fading in at the same resting timeline
+  // position (tl never moves during paging) so they appear as the band approaches. `to`'s events are
+  // placed as if it were the focused month (eventRect(…, to, …)); opacity rides incomingDetailReveal.
+  const inTo = monthAnim ? focus + monthAnim.dir : -1;
+  const inReveal = monthAnim && inTo >= 0 && inTo <= 11 ? incomingDetailReveal(monthAnim.p) : 0;
+  const inLayout = inReveal > 0.02 ? buildLayout(events, year) : null;
+  const inRects = inReveal > 0.02
+    ? events
+        .filter((ev) => ev.year === year && ev.month === inTo && !baseHidden(occDate({ year: ev.year, month: ev.month, day: ev.day }), ev.repeat))
+        .map((ev) => ({ ev, rect: eventRect(ev, inTo, tl, vp, inLayout!.get(ev.id)) }))
+        .filter((x): x is { ev: TimedEvent; rect: EventRect } => x.rect != null)
+    : [];
+  const inGhosts = inReveal > 0.02
+    ? events.filter((ev) => ev.repeat && ev.repeat.kind !== "none")
+        .flatMap((ev) => occurrenceDates({ year: ev.year, month: ev.month, day: ev.day }, ev.repeat, year)
+          .filter((o) => o.month === inTo)
+          .map((o) => ({ ev, o, rect: eventRect({ month: o.month, day: o.day, startHour: ev.startHour, endHour: ev.endHour }, inTo, tl, vp) }))
           .filter((x): x is { ev: TimedEvent; o: { year: number; month: number; day: number }; rect: EventRect } => x.rect != null))
     : [];
 
@@ -223,12 +246,14 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
       {tl.hourH > 0 && (
         <div className="cc-events-clip" style={{ top: tl.tlTop, width: vp.w, height: tl.viewH }}>
           <div className="cc-events-scroll" style={{ transform: `translateY(${-tl.scroll}px)` }}>
-            {ghosts.map(({ ev, o, rect }) => (
+            {ghosts.map(({ ev, o, rect }) => {
+              const { tiny, short, titleLines } = eventTextLayout(rect.h);
+              return (
               <div
                 key={occKey(ev.id, o)}
                 data-ev-id={ev.id}
                 data-occ={occDate(o)}
-                className={`cc-item cc-tevent cc-ev-${ev.color} cc-ghost${ev.id === selectedId ? " selected" : ""}`}
+                className={`cc-item cc-tevent cc-ev-${ev.color} cc-ghost${ev.id === selectedId ? " selected" : ""}${short ? " cc-tevent-short" : ""}${tiny ? " cc-tevent-tiny" : ""}`}
                 style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, opacity: tl.reveal, pointerEvents: interactive ? "auto" : "none" }}
                 onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
@@ -237,12 +262,13 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(ev.id, r.left + r.width / 2, r.top, occDate(o)); }}
               >
                 <div className="cc-tevent-inner">
-                  {tl.wide && <div className="cc-tevent-title">{ev.title}</div>}
-                  {tl.wide && <div className="cc-tevent-time">{fmtRange(ev.startHour, ev.endHour)}</div>}
+                  {tl.wide && <div className="cc-tevent-title" style={{ WebkitLineClamp: titleLines } as React.CSSProperties}>{ev.title}</div>}
+                  {tl.wide && !short && <div className="cc-tevent-time">{fmtRange(ev.startHour, ev.endHour)}</div>}
                 </div>
                 <EventBadges ai={ev.createdByAI} recurring />
               </div>
-            ))}
+              );
+            })}
             {rects.map(({ ev, rect }) => (
               <TimedEventView
                 key={ev.id}
@@ -265,6 +291,24 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                 onEditConsumed={onEditConsumed}
               />
             ))}
+            {/* incoming month's events (read-only) — cross-fade in during a page-turn */}
+            {[...inGhosts.map((g) => ({ key: occKey(g.ev.id, g.o), ev: g.ev, rect: g.rect, recurring: true })),
+              ...inRects.map((r) => ({ key: `in-${r.ev.id}`, ev: r.ev, rect: r.rect, recurring: false }))].map(({ key, ev, rect, recurring }) => {
+              const { tiny, short, titleLines } = eventTextLayout(rect.h);
+              return (
+                <div
+                  key={key}
+                  className={`cc-item cc-tevent cc-ev-${ev.color}${recurring ? " cc-ghost" : ""}${short ? " cc-tevent-short" : ""}${tiny ? " cc-tevent-tiny" : ""}`}
+                  style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, opacity: inReveal, pointerEvents: "none" }}
+                >
+                  <div className="cc-tevent-inner">
+                    {tl.wide && <div className="cc-tevent-title" style={{ WebkitLineClamp: titleLines } as React.CSSProperties}>{ev.title}</div>}
+                    {tl.wide && !short && <div className="cc-tevent-time">{fmtRange(ev.startHour, ev.endHour)}</div>}
+                  </div>
+                  <EventBadges ai={ev.createdByAI} recurring={recurring} />
+                </div>
+              );
+            })}
             {draft && (
               <div
                 className="cc-tevent-preview"

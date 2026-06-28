@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Vp, Hover } from "./types";
 import { easeInOut, TOP_PAD, TRACK_H } from "./constants";
-import { yearMaxScroll } from "./frames";
+import { yearMaxScroll, MonthAnim } from "./frames";
 import { hourMetrics, clampHourH, setWeekHourH as syncWeekHourH } from "./eventGeom";
 import { weeksInMonth } from "./dates";
 import {
   monthAtPoint, monthNameAtPoint, monthRowAtPoint, weekAtPointInMonth, dayAtPointInWeek,
   domInMonthBand, domInFocus, cellInWeek,
 } from "./hittest";
+
+// Vertical month paging (gesture-tracked). The drag distance that equals one full page is
+// `viewportHeight * MONTH_PAGE_FRAC` (floored at MONTH_PAGE_MIN px); releasing past
+// MONTH_COMMIT_P of a page (or with momentum carrying it there) turns the month, else it snaps back.
+const MONTH_PAGE_FRAC = 0.62;
+const MONTH_PAGE_MIN = 280;
+const MONTH_COMMIT_P = 0.4;
 
 const NO_HOVER: Hover = { month: null, dom: null, week: null, hour: null, hourFrac: null, nameMonth: null, nearLeft: null };
 const sameHover = (a: Hover, b: Hover) =>
@@ -71,6 +78,10 @@ export function useCalendarInteractions() {
   const [now, setNow] = useState(() => Date.now());
   const [year, setYearState] = useState(init.year);
   const currentYear = new Date().getFullYear();
+  // Vertical month↕month paging (month view): the active slide, + a 0–1 timeline-opacity
+  // multiplier (1 idle; fades to 0 mid-slide; fades back to 1 as the new month's timeline appears).
+  const [monthAnim, setMonthAnim] = useState<MonthAnim | null>(null);
+  const [detailMul, setDetailMul] = useState(1);
 
   const zRef = useRef(z); zRef.current = z;
   const yearRef = useRef(year); yearRef.current = year;
@@ -85,6 +96,9 @@ export function useCalendarInteractions() {
   const tweenRef = useRef<number | null>(null);
   const weekTweenRef = useRef<number | null>(null);
   const snapRef = useRef<number | null>(null);
+  const monthTweenRef = useRef<number | null>(null);
+  const monthAnimRef = useRef(monthAnim); monthAnimRef.current = monthAnim;
+  const monthSnapRef = useRef(false); // true while a release-snap tween (and its timeline fade) is running
 
   // measure the viewport
   useLayoutEffect(() => {
@@ -99,6 +113,52 @@ export function useCalendarInteractions() {
   const clearSnap = () => { if (snapRef.current != null) { clearTimeout(snapRef.current); snapRef.current = null; } };
   const cancelTween = () => { if (tweenRef.current != null) cancelAnimationFrame(tweenRef.current); tweenRef.current = null; };
   const cancelWeekTween = () => { if (weekTweenRef.current != null) cancelAnimationFrame(weekTweenRef.current); weekTweenRef.current = null; };
+  const cancelMonthTween = () => {
+    if (monthTweenRef.current != null) cancelAnimationFrame(monthTweenRef.current);
+    monthTweenRef.current = null;
+    monthSnapRef.current = false;
+    setMonthAnim(null);
+    setDetailMul(1);
+  };
+
+  // Vertical month paging is GESTURE-TRACKED: the wheel handler drives monthAnim.p directly so
+  // the bands follow the scroll (iPhone-homescreen feel). On release, snapMonth eases p to its
+  // resting state — → 1 commits to focus+dir, → 0 cancels back to focus. `fromP` is the live drag
+  // progress at release; `dur` is velocity-matched by the caller (a slow drag snaps slowly). Uses
+  // ease-OUT (start at the release speed, decelerate to rest) so there's no acceleration on release.
+  // The incoming month's detail has already cross-faded in during the drag/snap (see the layers),
+  // so commit just lands focus at full detail — no post-settle fade-in delay.
+  const snapMonth = useCallback((dir: 1 | -1, fromP: number, commit: boolean, dur: number) => {
+    if (monthTweenRef.current != null) cancelAnimationFrame(monthTweenRef.current);
+    const to = focusRef.current + dir;
+    const canCommit = commit && to >= 0 && to <= 11;
+    const target = canCommit ? 1 : 0;
+    const finalize = () => {
+      setMonthAnim(null);
+      monthAnimRef.current = null;
+      monthTweenRef.current = null;
+      monthSnapRef.current = false;
+      if (canCommit) { focusRef.current = to; setFocus(to); setDetailMul(1); } // land at full detail (already faded in)
+      else setDetailMul(1); // cancelled → restore the original month's detail
+    };
+    // Already at the target (e.g. a strong swipe that dragged the band fully to the edge) → commit
+    // synchronously so focus/hover come alive at once instead of waiting out an empty tween.
+    if (Math.abs(target - fromP) < 0.005) { finalize(); return; }
+    monthSnapRef.current = true;
+    const DUR = Math.max(80, dur);
+    const easeOut = (k: number) => 1 - Math.pow(1 - k, 3);
+    let t0 = 0;
+    const step = (ts: number) => {
+      if (!t0) t0 = ts;
+      const k = DUR > 0 ? Math.min(1, (ts - t0) / DUR) : 1;
+      const p = fromP + (target - fromP) * easeOut(k);
+      setMonthAnim({ dir, p });
+      setDetailMul(1 - Math.min(1, p / 0.35));
+      if (k < 1) { monthTweenRef.current = requestAnimationFrame(step); return; }
+      finalize();
+    };
+    monthTweenRef.current = requestAnimationFrame(step);
+  }, []);
 
   const tweenWeek = useCallback((target: number, dur = 240) => {
     cancelWeekTween();
@@ -115,7 +175,7 @@ export function useCalendarInteractions() {
   }, []);
 
   const tweenTo = useCallback((targetZ: number, dur = 520, onComplete?: () => void) => {
-    cancelTween(); clearSnap();
+    cancelTween(); clearSnap(); cancelMonthTween();
     const startZ = zRef.current;
     let t0 = 0;
     const step = (ts: number) => {
@@ -209,6 +269,11 @@ export function useCalendarInteractions() {
     if (!el) return;
     let session = false, pos = 0; // pos = live (fractional) week index during a swipe
     let idleTimer = 0;
+    // month-view vertical drag: signed pixels accumulated this gesture (>0 → next month, <0 → prev),
+    // plus a smoothed velocity (px/ms) so the release snap can match the drag speed. `mLockout`
+    // swallows the trackpad's momentum tail after a gesture ends (so it neither re-pages nor holds
+    // the turn open — hover comes back at once); `mLastWheelT` detects the pause that ends lockout.
+    let mDragging = false, mDrag = 0, mIdle = 0, mVel = 0, mLastT = 0, mLockout = false, mLastWheelT = 0, mDecay = 0;
     const lastIdx = () => weeksInMonth(focusRef.current) - 1;
     // Nearest day boundary (1 week = 7 days), clamped to the first/last week (incl. spillover).
     const snapDay = (w: number) => Math.max(0, Math.min(lastIdx(), Math.round(w * 7) / 7));
@@ -218,6 +283,25 @@ export function useCalendarInteractions() {
       const target = snapDay(pos);
       if (Math.abs(target - pos) > 0.0005) tweenWeek(target, 200); else setWeek(target);
     };
+    const pageDist = () => Math.max(MONTH_PAGE_MIN, el.clientHeight * MONTH_PAGE_FRAC);
+    // Gesture released (wheel idle): snap the live drag to commit or cancel.
+    const endMonthDrag = () => {
+      if (!mDragging) return;
+      mDragging = false;
+      mLockout = true; mDecay = Infinity; // arm: ignore the trailing momentum until the wheel goes quiet
+      const PAGE = pageDist();
+      const norm = mDrag / PAGE;
+      mDrag = 0;
+      const p = Math.min(1, Math.abs(norm));
+      if (p < 0.001) { setMonthAnim(null); setDetailMul(1); mVel = 0; return; } // never really moved
+      const commit = p >= MONTH_COMMIT_P;
+      // Match the snap speed to the release velocity (slow drag → slow snap), capped to a sane range.
+      const remPx = Math.abs((commit ? 1 : 0) - p) * PAGE;
+      const speed = Math.abs(mVel); // px/ms at release
+      const dur = speed > 0.02 ? Math.max(180, Math.min(660, remPx / speed)) : 560;
+      mVel = 0;
+      snapMonth(norm >= 0 ? 1 : -1, p, commit, dur);
+    };
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // pinch handled via gesture events
       if (drawerOpen()) return; // a drawer is open → freeze the canvas (scroll/zoom disabled)
@@ -225,6 +309,55 @@ export function useCalendarInteractions() {
         e.preventDefault();
         const max = yearMaxScroll({ w: el.clientWidth, h: el.clientHeight });
         setScrollY(Math.max(0, Math.min(max, scrollYRef.current + e.deltaY)));
+        return;
+      }
+      // month view: vertical wheel pages months as vertical pages, GESTURE-TRACKED — the bands
+      // follow the scroll (scroll down/swipe up → next month, up → prev) and snap on release
+      // (wheel idle). Clamped at Jan/Dec (no wrap).
+      if (zRef.current >= 0.5 && zRef.current < 1.5 && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault();
+        const gap = mLastWheelT ? e.timeStamp - mLastWheelT : 999;
+        mLastWheelT = e.timeStamp;
+        // Post-gesture momentum tail: a continuous, monotonically-decaying stream → swallow it so it
+        // can't re-page or keep the turn open. Release the lockout for a genuine new swipe — detected
+        // by a pause (gap) OR a fresh push that spikes above the decaying momentum.
+        if (mLockout && !mDragging) {
+          if (gap >= 120 || Math.abs(e.deltaY) > mDecay * 1.4) mLockout = false;
+          else { mDecay = Math.abs(e.deltaY); return; }
+        }
+        clearTimeout(mIdle);
+        mIdle = window.setTimeout(endMonthDrag, 80);
+        // A release-snap is finishing → interrupt it and resume tracking from where it sits.
+        if (monthSnapRef.current) {
+          if (monthTweenRef.current != null) cancelAnimationFrame(monthTweenRef.current);
+          monthTweenRef.current = null;
+          monthSnapRef.current = false;
+          const cur = monthAnimRef.current;
+          mDrag = cur ? cur.dir * cur.p * pageDist() : 0;
+          mDragging = true;
+          mVel = 0; mLastT = 0;
+        }
+        if (!mDragging) { mDragging = true; mDrag = 0; mVel = 0; mLastT = 0; }
+        // smoothed release velocity (px/ms), from inter-event timing
+        const dt = mLastT ? e.timeStamp - mLastT : 0;
+        if (dt > 0 && dt < 200) mVel = mVel * 0.5 + (e.deltaY / dt) * 0.5;
+        mLastT = e.timeStamp;
+        mDrag += e.deltaY;
+        const PAGE = pageDist();
+        let norm = mDrag / PAGE;
+        if (focusRef.current >= 11) norm = Math.min(0, norm); // Dec → no next month
+        if (focusRef.current <= 0) norm = Math.max(0, norm);  // Jan → no prev month
+        norm = Math.max(-1, Math.min(1, norm));
+        mDrag = norm * PAGE; // re-clamp so momentum can't run the accumulator past one page
+        if (norm === 0) { setMonthAnim(null); setDetailMul(1); }
+        else {
+          const p = Math.abs(norm);
+          setMonthAnim({ dir: norm > 0 ? 1 : -1, p });
+          setDetailMul(1 - Math.min(1, p / 0.35)); // timeline fades as the drag progresses
+        }
+        // Reached a full page → commit now (don't wait out the momentum tail). The lockout then
+        // swallows the remaining momentum, so focus/hover come alive immediately.
+        if (Math.abs(norm) >= 1) { clearTimeout(mIdle); endMonthDrag(); }
         return;
       }
       // week view: vertical wheel scrolls the hourly timeline
@@ -246,8 +379,8 @@ export function useCalendarInteractions() {
       setWeek(pos);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => { el.removeEventListener("wheel", onWheel); clearTimeout(idleTimer); };
-  }, [tweenWeek]);
+    return () => { el.removeEventListener("wheel", onWheel); clearTimeout(idleTimer); clearTimeout(mIdle); };
+  }, [tweenWeek, snapMonth]);
 
   // Tick once a minute so the current-time line advances while idle.
   useEffect(() => {
@@ -412,5 +545,12 @@ export function useCalendarInteractions() {
     }
   }, [tweenTo, tweenWeek]);
 
-  return { wrapRef, vp, z, focus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToCurrentWeek, goToMonth, tweenTo, onMove, onClick, clearHover };
+  // The month the breadcrumb should show: flips to the page-turn target as soon as the gesture
+  // passes the commit threshold (during drag AND snap), so the label updates the moment the new
+  // month is committed-to — not after the animation settles. Reverts if the drag is pulled back.
+  const displayFocus = monthAnim && monthAnim.p >= MONTH_COMMIT_P
+    ? Math.max(0, Math.min(11, focus + monthAnim.dir))
+    : focus;
+
+  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, selectYear, goToCurrentYear, goToCurrentWeek, goToMonth, tweenTo, onMove, onClick, clearHover };
 }

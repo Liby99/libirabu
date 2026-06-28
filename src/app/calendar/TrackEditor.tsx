@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Vp } from "./types";
 import { LABEL_W, MNAME_W, RIGHT_PAD, TRACK_H } from "./constants";
-import { bandYFor } from "./frames";
+import { bandYFor, type MonthAnim } from "./frames";
 
 interface Props {
   trackNames: string[][];
@@ -11,12 +11,13 @@ interface Props {
   focus: number;
   week: number;
   scrollY: number;
+  monthAnim: MonthAnim | null;
 }
 
 // Per-month track-name editor. The 4 inputs of each month are memoized (so they
 // never re-reconcile during a zoom); each month's container is translated to its
 // live band position every frame, so the inputs travel with the band.
-export default function TrackEditor({ trackNames, editTrack, vp, z, focus, week, scrollY }: Props) {
+export default function TrackEditor({ trackNames, editTrack, vp, z, focus, week, scrollY, monthAnim }: Props) {
   const monthInputs = useMemo(() => {
     const left = MNAME_W;
     const width = LABEL_W - MNAME_W - RIGHT_PAD;
@@ -44,7 +45,7 @@ export default function TrackEditor({ trackNames, editTrack, vp, z, focus, week,
   return (
     <div className="cc-track-edit">
       {Array.from({ length: 12 }, (_, m) => m).map((m) => {
-        const by = bandYFor(m, z, focus, week, vp, scrollY);
+        const by = bandYFor(m, z, focus, week, vp, scrollY, monthAnim);
         if (by + TRACK_H * 4 < -4 || by > vp.h + 4) return null;
         return (
           <div key={m} className="cc-track-month" style={{ transform: `translateY(${by}px)` }}>
