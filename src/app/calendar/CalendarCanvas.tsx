@@ -1,15 +1,20 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { buildScene } from "./scene";
-import { fmtRange, TimedEvent } from "./eventTypes";
+import { fmtRange, snapHour, TimedEvent } from "./eventTypes";
 import { LABEL_W } from "./constants";
 import { MONTH_LONG, weekStartDOM, resolveDate } from "./dates";
-import { COMMON_TZS, tzDeltaHours, tzAbbrev } from "./timezones";
-import { timelineInfo } from "./eventGeom";
+import { tzDeltaHours, tzAbbrev } from "./timezones";
+import { timelineInfo, pointToSlot } from "./eventGeom";
+import { bandSlotAtPoint } from "./bandGeom";
+import { daysInMonth } from "./mock";
+import { BandEvent } from "./bandEventTypes";
+import { Deadline } from "./deadlineTypes";
 import TimelineScrollbar from "./TimelineScrollbar";
 import { useCalendarInteractions } from "./useCalendarInteractions";
 import { useCalendarSettings } from "./useCalendarSettings";
+import { useHistory } from "./history";
 import { useEvents } from "./useEvents";
 import { useBandEvents } from "./useBandEvents";
 import { useDeadlines } from "./useDeadlines";
@@ -20,6 +25,8 @@ import EventDrawer from "./EventDrawer";
 import BandEventDrawer from "./BandEventDrawer";
 import DeadlineDrawer from "./DeadlineDrawer";
 import EventContextMenu from "./EventContextMenu";
+import EditMenu from "./EditMenu";
+import TagFilterMenu, { TagRow, UNTAGGED } from "./TagFilterMenu";
 import BandEventsLayer from "./BandEventsLayer";
 import DeadlinesLayer from "./DeadlinesLayer";
 import { deadlineTimeLabel } from "./deadlineFormat";
@@ -28,22 +35,44 @@ import { NO_REPEAT, Repeat } from "@/lib/calendar/api";
 export default function CalendarCanvas() {
   const { wrapRef, vp, z, focus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToCurrentWeek, goToMonth, tweenTo, onMove, onClick, clearHover } =
     useCalendarInteractions();
-  const { trackNames, editTrack, mainTz, altTz, setAltTz } = useCalendarSettings();
-  const { events, addEvent, updateEvent, removeEvent } = useEvents(year);
-  const { events: bandEvents, addEvent: addBandEvent, updateEvent: updateBandEvent, removeEvent: removeBandEvent } = useBandEvents(year);
-  const { deadlines, addDeadline, updateDeadline, removeDeadline } = useDeadlines(year);
+  const { trackNames, editTrack, mainTz, altTz, setAltTz } = useCalendarSettings(year);
+  const history = useHistory();
+  const { events, addEvent, updateEvent, removeEvent } = useEvents(year, history);
+  const { events: bandEvents, addEvent: addBandEvent, updateEvent: updateBandEvent, removeEvent: removeBandEvent } = useBandEvents(year, history);
+  const { deadlines, addDeadline, updateDeadline, removeDeadline } = useDeadlines(year, history);
+
+  // Each year loads its own events; entries referencing other years would be stale.
+  // Depend on the stable `clear` only — `history` identity flips when canUndo/canRedo
+  // change, which must NOT re-trigger a wipe.
+  const clearHistory = history.clear;
+  useEffect(() => { clearHistory(); }, [year, clearHistory]);
 
   const [yearMenuOpen, setYearMenuOpen] = useState(false);
-  const [tzMenuOpen, setTzMenuOpen] = useState(false);
+  // Tag filter: keys (lowercased tag, or UNTAGGED) toggled OFF. Empty = show everything.
+  const [tagHidden, setTagHidden] = useState<Set<string>>(new Set());
   const [overEvent, setOverEvent] = useState(false);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [previewColor, setPreviewColor] = useState<string | null>(null); // hover a swatch → preview on the spotlight copy
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  // True when an event was selected at the moment a click began — that click only clears the
+  // selection, so it must NOT also navigate (open a month/week). Snapshotted at mousedown
+  // (capture phase, before the deselect listener runs) so the click handler can read it.
+  const hadSelectionAtDownRef = useRef(false);
   const [focusedOcc, setFocusedOcc] = useState<string | null>(null); // the clicked occurrence date "YYYY-MM-DD" (null = the base)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // Clipboard for copy/cut/paste of events (snapshot, kept across the source's deletion on cut).
+  const [clip, setClip] = useState<
+    | { kind: "timed"; ev: TimedEvent }
+    | { kind: "band"; ev: BandEvent }
+    | { kind: "deadline"; ev: Deadline }
+    | null
+  >(null);
+  // Latest cursor position over the calendar — where ⌘V / Edit▸Paste drops the event.
+  const pasteAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const yearWrapRef = useRef<HTMLDivElement>(null);
-  const tzWrapRef = useRef<HTMLDivElement>(null);
 
   // Interactions carry which occurrence (date) was clicked, so per-occurrence actions work.
   const selectEvent = (id: string | null, occ?: string | null) => { setSelectedId(id); setFocusedOcc(occ ?? null); };
@@ -72,6 +101,9 @@ export default function CalendarCanvas() {
   const drawerIsDeadline = drawerDeadline != null;
   const drawerSig = drawerEv ? JSON.stringify(drawerEv) : "";
 
+  // If an undo/redo (or any delete) removes the event a drawer/menu is showing, dismiss it.
+  useEffect(() => { if (drawerId && !drawerEv) setDrawerId(null); }, [drawerId, drawerEv]);
+
   // ── Recurrence edits (work on any kind via the right store) ──
   const repeatOf = (id: string): Repeat | null =>
     events.find((e) => e.id === id)?.repeat ?? bandEvents.find((e) => e.id === id)?.repeat ?? deadlines.find((e) => e.id === id)?.repeat ?? null;
@@ -88,9 +120,74 @@ export default function CalendarCanvas() {
   };
   const deleteOccurrence = (id: string, occ: string) => patchRepeat(id, { ...(repeatOf(id) ?? NO_REPEAT), exdates: [...(repeatOf(id)?.exdates ?? []), occ] });
   const deleteFuture = (id: string, occ: string) => patchRepeat(id, { ...(repeatOf(id) ?? NO_REPEAT), until: isoMinus1(occ) });
-  const goToFirst = () => { if (drawerEv) { setFocusedOcc(null); goToMonth(drawerEv.month); } };
+  // "Go to first occurrence": close the drawer (leaving it open over a now-navigated calendar
+  // strands the UI — the canvas handlers stay disabled and the spotlight goes stale), then
+  // jump to the base event's month with it selected.
+  const goToFirst = () => {
+    if (!drawerEv) return;
+    const ev = drawerEv;
+    setDrawerId(null);
+    setSelectedId(ev.id);
+    setFocusedOcc(null);
+    goToMonth(ev.month);
+  };
   const menuRepeat = menu ? repeatOf(menu.id) : null;
   const menuRecurring = !!menuRepeat && menuRepeat.kind !== "none";
+
+  // ── Copy / cut / paste (the selected event) ──
+  // Copy snapshots the selected event into `clip` (a shallow copy, so a later edit of the
+  // original doesn't mutate it). Cut also deletes the source — the snapshot survives.
+  const doCopy = () => {
+    if (!selectedId) return;
+    const t = events.find((e) => e.id === selectedId);
+    if (t) { setClip({ kind: "timed", ev: { ...t } }); return; }
+    const b = bandEvents.find((e) => e.id === selectedId);
+    if (b) { setClip({ kind: "band", ev: { ...b } }); return; }
+    const d = deadlines.find((e) => e.id === selectedId);
+    if (d) { setClip({ kind: "deadline", ev: { ...d } }); return; }
+  };
+  const doCut = () => {
+    if (!selectedId) return;
+    doCopy();
+    deleteAny(selectedId);
+    setSelectedId(null);
+  };
+  // Paste at the cursor. A band (all-day) event only lands on a month track lane; a timed
+  // event or deadline only lands on the day timeline (week view), snapped to the nearest
+  // 30 minutes. A pasted copy is always a single event (recurrence is dropped).
+  const doPaste = () => {
+    const wrap = wrapRef.current;
+    const anchor = pasteAnchorRef.current;
+    if (!clip || !wrap || !anchor) return;
+    const r = wrap.getBoundingClientRect();
+    const px = anchor.x - r.left, py = anchor.y - r.top;
+    if (clip.kind === "band") {
+      const slot = bandSlotAtPoint(px, py, z, focus, week, vp, scrollY);
+      if (!slot) return;
+      const len = clip.ev.endDay - clip.ev.startDay;
+      const startDay = Math.max(1, Math.min(daysInMonth(slot.month) - len, slot.day));
+      const created = addBandEvent({ year, month: slot.month, track: slot.track, startDay, endDay: startDay + len, title: clip.ev.title, color: clip.ev.color, notes: clip.ev.notes, tags: clip.ev.tags, repeat: NO_REPEAT });
+      selectEvent(created.id);
+      return;
+    }
+    if (z < 1.5) return; // timed/deadline paste needs the day timeline (week view)
+    const ptl = timelineInfo(z, focus, week, vp, scrollY, tlScroll);
+    if (ptl.hourH <= 0 || py < ptl.tlTop || py > ptl.tlBottom) return;
+    const slot = pointToSlot(px, py, ptl);
+    if (slot.dom == null) return;
+    const date = resolveDate(focus, slot.dom);
+    if (!date) return;
+    if (clip.kind === "timed") {
+      const dur = clip.ev.endHour - clip.ev.startHour;
+      const start = Math.max(0, Math.min(24 - dur, snapHour(slot.hourFrac, 30)));
+      const created = addEvent({ year, month: date.month, day: date.day, startHour: start, endHour: start + dur, title: clip.ev.title, color: clip.ev.color, notes: clip.ev.notes, tags: clip.ev.tags, repeat: NO_REPEAT });
+      selectEvent(created.id);
+    } else {
+      const hour = Math.max(0, Math.min(23.75, snapHour(slot.hourFrac, 30)));
+      const created = addDeadline({ year, month: date.month, day: date.day, hour, title: clip.ev.title, color: clip.ev.color, notes: clip.ev.notes, tags: clip.ev.tags, originTz: null, repeat: NO_REPEAT });
+      selectEvent(created.id);
+    }
+  };
   // Measure the real rendered event (handles overlap/clip/scroll/spillover) relative to
   // .cc-wrap, so the bright duplicate can sit exactly over the dimmed original — and ride
   // along with the same left-shift. Re-measured when the event moves or the viewport resizes.
@@ -111,12 +208,22 @@ export default function CalendarCanvas() {
     setSpotBoxes([...wrap.querySelectorAll(`[data-ev-id="${drawerId}"]`)].map(rel));
     setSpotLines(drawerIsDeadline ? [...wrap.querySelectorAll(`[data-ev-line-id="${drawerId}"]`)].map(rel) : []);
   }, [drawerId, drawerSig, vp.w, vp.h, wrapRef, drawerIsDeadline, focusedOcc]);
+  // Snapshot, at the very start of every click (capture phase, before any stopPropagation or
+  // the deselect below), whether an event was selected — so a click that merely clears the
+  // selection doesn't also trigger navigation.
+  useEffect(() => {
+    const onDown = () => { hadSelectionAtDownRef.current = selectedIdRef.current != null; };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, []);
   // Deselect the selected event when clicking anywhere that isn't an event/drawer/menu.
   useEffect(() => {
     if (selectedId == null) return;
     const onDown = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
-      if (!t.closest(".cc-tevent, .cc-drawer, .cc-sticker, .cc-ddl-label, .cc-ddl-add")) setSelectedId(null);
+      // The top bar is chrome (Edit menu / breadcrumb / dropdowns) — clicking it must keep
+      // the selection so Edit▸Cut/Copy still act on the selected event.
+      if (!t.closest(".cc-tevent, .cc-drawer, .cc-sticker, .cc-ddl-label, .cc-ddl-add, .cc-bar")) setSelectedId(null);
     };
     document.addEventListener("mousedown", onDown, true); // capture → robust to stopPropagation
     return () => document.removeEventListener("mousedown", onDown, true);
@@ -126,6 +233,28 @@ export default function CalendarCanvas() {
   // still the untouched "Event" placeholder). Enter/Esc resolve the confirm dialog.
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
   keyHandlerRef.current = (e: KeyboardEvent) => {
+    // Calendar-level undo/redo. While a text field is focused, Cmd+Z belongs to the
+    // browser (native per-field text history) — bail and let it through.
+    if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
+      const a = e.target as HTMLElement | null;
+      if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
+      e.preventDefault();
+      const redo = e.key === "y" || e.key === "Y" || ((e.key === "z" || e.key === "Z") && e.shiftKey);
+      if (redo) history.redo(); else history.undo();
+      return;
+    }
+    // Clipboard: ⌘C copy / ⌘X cut (need a selection), ⌘V paste at the cursor. Skip while a
+    // text field is focused so the browser's native clipboard handling wins.
+    if (e.metaKey || e.ctrlKey) {
+      const a = e.target as HTMLElement | null;
+      const editable = !!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable);
+      if (!editable) {
+        const k = e.key.toLowerCase();
+        if (k === "c" && selectedId) { e.preventDefault(); doCopy(); return; }
+        if (k === "x" && selectedId) { e.preventDefault(); doCut(); return; }
+        if (k === "v" && clip) { e.preventDefault(); doPaste(); return; }
+      }
+    }
     if (confirmDeleteId != null) {
       if (e.key === "Escape") { e.preventDefault(); setConfirmDeleteId(null); }
       else if (e.key === "Enter") { e.preventDefault(); removeEvent(confirmDeleteId); removeBandEvent(confirmDeleteId); removeDeadline(confirmDeleteId); setSelectedId(null); setConfirmDeleteId(null); }
@@ -154,15 +283,66 @@ export default function CalendarCanvas() {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [yearMenuOpen]);
-  // Close the alt-timezone dropdown on any click outside it.
+  // Track the cursor so ⌘V / Edit▸Paste knows where to drop the event. Moves over the top
+  // bar (and its menus) are ignored, so opening Edit keeps the last in-calendar anchor.
   useEffect(() => {
-    if (!tzMenuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (tzWrapRef.current && !tzWrapRef.current.contains(e.target as Node)) setTzMenuOpen(false);
+    const onMM = (e: MouseEvent) => {
+      if ((e.target as HTMLElement).closest(".cc-bar")) return;
+      pasteAnchorRef.current = { x: e.clientX, y: e.clientY };
     };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [tzMenuOpen]);
+    window.addEventListener("mousemove", onMM);
+    return () => window.removeEventListener("mousemove", onMM);
+  }, []);
+
+  // ── Tag filter ──
+  // Aggregate every event's tags (case-insensitive) into {key,label,count}, sorted by how
+  // many events carry each, plus a count of untagged events. `key` (lowercased) is the
+  // filter identity; `label` keeps a readable casing (first seen).
+  const norm = (t: string) => t.trim().toLowerCase();
+  const { tagRows, untaggedCount, allKeys } = useMemo(() => {
+    const agg = new Map<string, { label: string; count: number }>();
+    let untagged = 0;
+    const tally = (tags?: string[]) => {
+      const keys = new Set((tags ?? []).map(norm).filter(Boolean)); // distinct per event
+      if (keys.size === 0) { untagged++; return; }
+      for (const raw of tags ?? []) {
+        const k = norm(raw);
+        if (!k || !keys.has(k)) continue;
+        keys.delete(k); // count each tag once per event
+        const e = agg.get(k);
+        if (e) e.count++; else agg.set(k, { label: raw.trim(), count: 1 });
+      }
+    };
+    for (const e of events) tally(e.tags);
+    for (const e of bandEvents) tally(e.tags);
+    for (const e of deadlines) tally(e.tags);
+    const rows: TagRow[] = [...agg.entries()]
+      .map(([key, v]) => ({ key, label: v.label, count: v.count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    const keys = new Set<string>(rows.map((r) => r.key));
+    keys.add(UNTAGGED);
+    return { tagRows: rows, untaggedCount: untagged, allKeys: keys };
+  }, [events, bandEvents, deadlines]);
+
+  // "If Any": an event shows if it has at least one tag that is NOT hidden; an untagged
+  // event shows unless UNTAGGED is hidden. Empty filter → everything shows (fast path).
+  const tagVisible = (tags?: string[]): boolean => {
+    if (tagHidden.size === 0) return true;
+    const ts = (tags ?? []).map(norm).filter(Boolean);
+    if (ts.length === 0) return !tagHidden.has(UNTAGGED);
+    return ts.some((t) => !tagHidden.has(t));
+  };
+  const visEvents = tagHidden.size === 0 ? events : events.filter((e) => tagVisible(e.tags));
+  const visBand = tagHidden.size === 0 ? bandEvents : bandEvents.filter((e) => tagVisible(e.tags));
+  const visDeadlines = tagHidden.size === 0 ? deadlines : deadlines.filter((e) => tagVisible(e.tags));
+
+  const toggleTag = (key: string) => setTagHidden((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key); // on→off / off→on
+    return next;
+  });
+  const showAllTags = () => setTagHidden(new Set());
+  const hideAllTags = () => setTagHidden(new Set(allKeys));
 
   if (vp.w === 0) return <div ref={wrapRef} className="cc-wrap" />;
 
@@ -189,7 +369,7 @@ export default function CalendarCanvas() {
   for (let y = 2024; y <= currentYear + 3; y++) years.push(y);
 
   return (
-    <div ref={wrapRef} className={`cc-wrap${hoverMonth != null ? " cc-clickable" : ""}${overEvent ? " cc-over-event" : ""}`} onMouseMove={drawerId ? undefined : onMove} onMouseLeave={clearHover} onClick={drawerId ? undefined : onClick}>
+    <div ref={wrapRef} className={`cc-wrap${hoverMonth != null ? " cc-clickable" : ""}${overEvent ? " cc-over-event" : ""}`} onMouseMove={drawerId ? undefined : onMove} onMouseLeave={clearHover} onClick={drawerId ? undefined : (e) => { if (hadSelectionAtDownRef.current) return; onClick(e); }}>
       <div className="cc-bar">
         <div className="cc-crumbs" role="navigation" aria-label="Breadcrumb" onClick={(e) => e.stopPropagation()}>
           <div className="cc-year-wrap" ref={yearWrapRef}>
@@ -228,29 +408,26 @@ export default function CalendarCanvas() {
         </div>
         <span className="cc-hint">{hint}</span>
         <div className="cc-bar-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="cc-action" onClick={goToCurrentWeek}>Current Week</button>
+          <button className="cc-action cc-action-sm cc-action-plain" onClick={goToCurrentWeek} title="Jump to the current week">Now</button>
           {year !== currentYear && (
-            <button className="cc-action cc-action-accent" onClick={goToCurrentYear}>Back to Current Year</button>
+            <button className="cc-action cc-action-accent cc-action-sm" onClick={goToCurrentYear}>Back to Current Year</button>
           )}
-          <div className="cc-year-wrap" ref={tzWrapRef}>
-            <button className="cc-action" onClick={() => setTzMenuOpen((o) => !o)}>
-              {COMMON_TZS.find((t) => t.id === altTz)?.label ?? "Alt Timezone"}<span className="cc-caret">▾</span>
-            </button>
-            {tzMenuOpen && (
-              <div className="cc-year-menu cc-tz-menu" role="listbox">
-                <button className={`cc-year-opt${!altTz ? " sel" : ""}`} onClick={() => { setAltTz(null); setTzMenuOpen(false); }}>None</button>
-                {COMMON_TZS.map((t) => (
-                  <button
-                    key={t.id}
-                    className={`cc-year-opt${altTz === t.id ? " sel" : ""}`}
-                    onClick={() => { setAltTz(t.id); setTzMenuOpen(false); }}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <TagFilterMenu
+            tags={tagRows}
+            untaggedCount={untaggedCount}
+            hidden={tagHidden}
+            onToggle={toggleTag}
+            onShowAll={showAllTags}
+            onHideAll={hideAllTags}
+          />
+          <EditMenu
+            canUndo={history.canUndo} onUndo={() => history.undo()}
+            canRedo={history.canRedo} onRedo={() => history.redo()}
+            canCut={selectedId != null} onCut={doCut}
+            canCopy={selectedId != null} onCopy={doCopy}
+            canPaste={clip != null} onPaste={doPaste}
+            altTz={altTz} onAltTz={setAltTz}
+          />
         </div>
       </div>
 
@@ -259,9 +436,9 @@ export default function CalendarCanvas() {
 
       <div className="cc-layer">
         {scene.items.map((it) => <ItemView key={it.key} it={it} />)}
-        <BandEventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={bandEvents} addEvent={addBandEvent} updateEvent={updateBandEvent} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} />
-        <EventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={events} addEvent={addEvent} updateEvent={updateEvent} onEventHover={setOverEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} selectedId={selectedId} onSelect={selectEvent} tlScroll={tlScroll} />
-        <DeadlinesLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} tlScroll={tlScroll} year={year} mainTz={mainTz} hover={hover} deadlines={deadlines} addDeadline={addDeadline} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} />
+        <BandEventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visBand} addEvent={addBandEvent} updateEvent={updateBandEvent} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} />
+        <EventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visEvents} addEvent={addEvent} updateEvent={updateEvent} onEventHover={setOverEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} selectedId={selectedId} onSelect={selectEvent} tlScroll={tlScroll} />
+        <DeadlinesLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} tlScroll={tlScroll} year={year} mainTz={mainTz} hover={hover} deadlines={visDeadlines} addDeadline={addDeadline} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} />
         <TrackEditor trackNames={trackNames} editTrack={editTrack} vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} />
       </div>
 

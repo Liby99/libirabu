@@ -46,11 +46,13 @@ LLM tools.
 | `updatedAt` | string (ISO-8601 UTC)      | |
 
 ### Recurrence (`repeat`)
-`{ "kind": "none" | "daily" | "weekly" | "weekdays", "n"?: 1–4, "until"?: "YYYY-MM-DD"|null, "days"?: number[] }`
+`{ "kind": "none" | "daily" | "weekly" | "weekdays" | "yearly", "n"?: 1–4, "until"?: "YYYY-MM-DD"|null, "days"?: number[] }`
 - `daily` → every day until `until`.
 - `weekly` → every `n` weeks on the event's own weekday, until `until`.
 - `weekdays` → every `n` weeks on the weekdays in `days` (0=Sun..6=Sat; the event's own
   weekday is always included), until `until`.
+- `yearly` → every year on the event's own month/day, until `until` (set `until` to a date in
+  a later year to stop the series).
 - omitted/`{kind:"none"}` → single occurrence. (Occurrence expansion on the grid is not
   rendered yet; the config is stored.)
 
@@ -68,7 +70,10 @@ List events overlapping a window. Query params (one of):
 - `?from=2026-06-01&to=2026-07-01` — half-open `[from, to)` date range.
 - optional `&kind=timed|band` filter.
 
-Response `200`: `{ "events": Event[] }` (ordered by `start`).
+Response `200`: `{ "events": Event[] }` (ordered by `start`). For `?year=`, the result also
+includes recurring events whose **base lives in an earlier year** but whose occurrences reach
+the requested year (so cross-year recurrence renders); expand their `repeat` to place the
+in-year occurrences. (Not applied to the `from/to` range form.)
 
 ### `POST /api/calendar/events`
 Create an event. Body = Event without the read-only fields; `id` optional (supply your own
@@ -108,13 +113,15 @@ its kind. Response `200`: the updated Event.
 Response `204` on success, `404` if not found.
 
 ### `GET /api/calendar/settings`
-Response `200`: `{ "mainTz": string, "altTz": string|null, "trackNames": string[12][4] }`
-(defaults if never set). `trackNames[m][lane]` is the editable name of lane `0–3` in month
-`m` (`0`=Jan).
+Response `200`: `{ "mainTz": string, "altTz": string|null, "trackNames": { [year: string]: string[12][4] } }`
+(defaults if never set). Track-lane names are **per-year**: `trackNames[year][m][lane]` is the
+editable name of lane `0–3` in month `m` (`0`=Jan) of that 4-digit `year`. Years absent from the
+map have no custom names. `mainTz`/`altTz` are global.
 
 ### `PUT /api/calendar/settings`
 Partial update of `mainTz` (IANA id), `altTz` (IANA id or `null` to clear), and/or
-`trackNames` (full `12×4` grid). Upserts. Response `200`: the resulting settings.
+`trackNames` (the full per-year map `{ year: 12×4 grid }`). Upserts. Response `200`: the
+resulting settings.
 
 ## Examples (curl)
 

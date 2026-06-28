@@ -198,8 +198,10 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
     : [];
 
   // Recurrence: read-only ghost copies of each repeating event on its occurrence days.
+  // No year filter — a cross-year base (loaded from an earlier year) projects ghosts into
+  // this year; occurrenceDates windows to `year`, so non-reaching events expand to nothing.
   const ghosts = tl.reveal > 0.02
-    ? events.filter((ev) => ev.year === year && ev.repeat && ev.repeat.kind !== "none")
+    ? events.filter((ev) => ev.repeat && ev.repeat.kind !== "none")
         .flatMap((ev) => occurrenceDates({ year: ev.year, month: ev.month, day: ev.day }, ev.repeat, year)
           .map((o) => ({ ev, o, rect: eventRect({ month: o.month, day: o.day, startHour: ev.startHour, endHour: ev.endHour }, focus, tl, vp) }))
           .filter((x): x is { ev: TimedEvent; o: { year: number; month: number; day: number }; rect: EventRect } => x.rect != null))
@@ -224,7 +226,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                 key={occKey(ev.id, o)}
                 data-ev-id={ev.id}
                 data-occ={occDate(o)}
-                className={`cc-item cc-tevent cc-ev-${ev.color} cc-ghost`}
+                className={`cc-item cc-tevent cc-ev-${ev.color} cc-ghost${ev.id === selectedId ? " selected" : ""}`}
                 style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, opacity: tl.reveal, pointerEvents: interactive ? "auto" : "none" }}
                 onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}

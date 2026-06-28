@@ -3,8 +3,9 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   ApiEvent, EVENT_KINDS, EventKind, eventCreateSchema, eventSemanticIssues,
-  eventCreateData, resolveStartWall, toApiEvent, wallClock, DEFAULT_MAIN_TZ,
+  eventCreateData, resolveStartWall, toApiEvent, wallClock, DEFAULT_MAIN_TZ, Repeat,
 } from "@/lib/calendar/api";
+import { occurrenceDates } from "@/app/calendar/occurrences";
 import { requireUser, badRequest, serverError, getMainTz } from "../_helpers";
 
 // GET /api/calendar/events?year=2026[&kind=timed|band][&from=YYYY-MM-DD&to=YYYY-MM-DD]
@@ -49,6 +50,29 @@ export async function GET(req: NextRequest) {
       orderBy: { start: "asc" },
     });
     const events: ApiEvent[] = rows.map(toApiEvent);
+
+    // Cross-year recurrence: a recurring base living in an EARLIER year still projects
+    // occurrences into this window, but its row sits before the window so the query above
+    // misses it. Pull recurring bases that start before the window and keep the ones that
+    // actually reach the requested year (the "special small set"). Whole-year query only;
+    // their own base day is in another year, so the client renders only their ghosts here.
+    if (yearParam) {
+      const year = Number(yearParam);
+      const recurringBases = await prisma.calendarItem.findMany({
+        where: {
+          userId,
+          ...(kind ? { kind } : {}),
+          start: { lt: rangeStart },                // base is in an earlier year
+          repeat: { path: ["kind"], not: "none" },  // …and it recurs
+        },
+        orderBy: { start: "asc" },
+      });
+      for (const row of recurringBases) {
+        const s = row.start; // floating wall-clock → read with UTC getters
+        const base = { year: s.getUTCFullYear(), month: s.getUTCMonth(), day: s.getUTCDate() };
+        if (occurrenceDates(base, row.repeat as unknown as Repeat, year).length > 0) events.push(toApiEvent(row));
+      }
+    }
     return NextResponse.json({ events });
   } catch (e) {
     return serverError(e);

@@ -7,6 +7,7 @@ const TABS: { kind: RepeatKind; label: string }[] = [
   { kind: "daily", label: "Daily" },
   { kind: "weekly", label: "Weekly" },
   { kind: "weekdays", label: "Weekdays" },
+  { kind: "yearly", label: "Yearly" },
 ];
 const DOW = ["Su", "M", "Tu", "W", "Th", "F", "Sa"];
 
@@ -16,9 +17,11 @@ const withAnchor = (days: number[] | undefined, anchor: number) => {
   return [...set].sort((a, b) => a - b);
 };
 
-// Recurrence editor: 4 equal tabs; the fields below depend on the chosen kind. The
-// event's own weekday is pre-selected and locked in the "Weekdays" toggle group.
-export default function RepeatEditor({ repeat, anchorDow, focusOcc, onChange }: { repeat: Repeat; anchorDow: number; focusOcc?: string | null; onChange: (r: Repeat) => void }) {
+// Recurrence editor: tabs pick the kind; the fields below depend on it. The event's own
+// weekday is pre-selected and locked in "Weekdays". Every recurring kind shares one "until"
+// control — a None | Date toggle, where Date reveals a date picker + a "this event" shortcut
+// (yearly → set Date to a future year to stop the series).
+export default function RepeatEditor({ repeat, anchorDow, anchorDate, focusOcc, onChange }: { repeat: Repeat; anchorDow: number; anchorDate: string; focusOcc?: string | null; onChange: (r: Repeat) => void }) {
   const r = repeat ?? { kind: "none" as RepeatKind };
   const patch = (p: Partial<Repeat>) => onChange({ ...r, ...p });
 
@@ -26,6 +29,7 @@ export default function RepeatEditor({ repeat, anchorDow, focusOcc, onChange }: 
     if (kind === "none") onChange({ kind: "none" });
     else if (kind === "daily") onChange({ kind: "daily", until: r.until ?? null });
     else if (kind === "weekly") onChange({ kind: "weekly", n: r.n ?? 1, until: r.until ?? null });
+    else if (kind === "yearly") onChange({ kind: "yearly", until: r.until ?? null });
     else onChange({ kind: "weekdays", n: r.n ?? 1, days: withAnchor(r.days, anchorDow), until: r.until ?? null });
   };
   const toggleDay = (i: number) => {
@@ -37,6 +41,7 @@ export default function RepeatEditor({ repeat, anchorDow, focusOcc, onChange }: 
   };
 
   const hasN = r.kind === "weekly" || r.kind === "weekdays";
+  const untilTarget = focusOcc ?? anchorDate; // "this event" date / default when switching to Date
   return (
     <div className="cc-rep">
       <div className="cc-rep-tabs">
@@ -57,14 +62,15 @@ export default function RepeatEditor({ repeat, anchorDow, focusOcc, onChange }: 
             </label>
           )}
           {r.kind === "weekdays" && (
-            <div className="cc-rep-days">
+            <div className="cc-seg cc-seg-fill cc-rep-days" role="group" aria-label="Weekdays">
               {DOW.map((d, i) => {
                 const sel = (r.days ?? [anchorDow]).includes(i);
                 const locked = i === anchorDow;
                 return (
                   <button
                     key={i}
-                    className={`cc-rep-day${sel ? " sel" : ""}${locked ? " locked" : ""}`}
+                    type="button"
+                    className={`cc-seg-btn${sel ? " sel" : ""}${locked ? " locked" : ""}`}
                     onClick={() => toggleDay(i)}
                     title={locked ? "the event's own day" : ""}
                   >
@@ -74,11 +80,20 @@ export default function RepeatEditor({ repeat, anchorDow, focusOcc, onChange }: 
               })}
             </div>
           )}
-          <label className="cc-rep-field">
+          {/* until: None | Date toggle; Date reveals the picker + a "this event" shortcut */}
+          <div className="cc-rep-field cc-rep-until">
             until
-            <input type="date" value={r.until ?? ""} onChange={(e) => patch({ until: e.target.value || null })} />
-            {focusOcc && <button type="button" className="cc-rep-until-here" onClick={() => patch({ until: focusOcc })}>this event</button>}
-          </label>
+            <div className="cc-rep-toggle" role="group">
+              <button type="button" className={`cc-rep-toggle-btn${r.until == null ? " sel" : ""}`} onClick={() => patch({ until: null })}>None</button>
+              <button type="button" className={`cc-rep-toggle-btn${r.until != null ? " sel" : ""}`} onClick={() => { if (r.until == null) patch({ until: untilTarget }); }}>Date</button>
+            </div>
+            {r.until != null && (
+              <>
+                <input type="date" value={r.until} onChange={(e) => patch({ until: e.target.value || null })} />
+                <button type="button" className="cc-rep-until-here" onClick={() => patch({ until: untilTarget })}>this event</button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

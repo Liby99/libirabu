@@ -144,8 +144,10 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
     .filter((x): x is { ev: BandEvent; rect: BandRect } => x.rect != null);
 
   // Recurrence: read-only ghost copies of repeating band events on their occurrence weeks.
+  // No year filter — a cross-year base (loaded from an earlier year) projects ghosts into
+  // this year; occurrenceDates windows to `year`, so non-reaching events expand to nothing.
   const ghosts = events
-    .filter((ev) => ev.year === year && ev.repeat && ev.repeat.kind !== "none")
+    .filter((ev) => ev.repeat && ev.repeat.kind !== "none")
     .flatMap((ev) => {
       const span = ev.endDay - ev.startDay;
       return occurrenceDates({ year: ev.year, month: ev.month, day: ev.startDay }, ev.repeat, year)
@@ -156,20 +158,26 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
         .filter((x): x is { ev: BandEvent; o: { year: number; month: number; day: number }; rect: BandRect } => x.rect != null);
     });
 
-  // Per (month, track), the px distance from each event's left to the next event's left —
-  // used to clip its title so it stops before the next event on the lane.
-  const gapById = new Map<string, number>();
+  // Per (month, track) lane, the px distance from each bar's left to the NEXT bar's left —
+  // counting real events AND recurrence ghosts together — so every title (real or ghost)
+  // clips before the following bar instead of overlapping it. Keyed per bar.
+  const gapByKey = new Map<string, number>();
   {
-    const groups = new Map<string, { ev: BandEvent; rect: BandRect }[]>();
-    for (const r of rects) {
-      const k = `${r.ev.month}-${r.ev.track}`;
-      const arr = groups.get(k); if (arr) arr.push(r); else groups.set(k, [r]);
+    type Bar = { key: string; month: number; track: number; start: number; x: number };
+    const bars: Bar[] = [
+      ...rects.map((r) => ({ key: r.ev.id, month: r.ev.month, track: r.ev.track, start: r.ev.startDay, x: r.rect.x })),
+      ...ghosts.map((g) => ({ key: occKey(g.ev.id, g.o), month: g.o.month, track: g.ev.track, start: g.o.day, x: g.rect.x })),
+    ];
+    const groups = new Map<string, Bar[]>();
+    for (const b of bars) {
+      const k = `${b.month}-${b.track}`;
+      const arr = groups.get(k); if (arr) arr.push(b); else groups.set(k, [b]);
     }
     for (const arr of groups.values()) {
-      arr.sort((a, b) => a.ev.startDay - b.ev.startDay);
+      arr.sort((a, b) => a.start - b.start);
       for (let i = 0; i < arr.length - 1; i++) {
-        const d = arr[i + 1].rect.x - arr[i].rect.x;
-        if (d > 0) gapById.set(arr[i].ev.id, d);
+        const d = arr[i + 1].x - arr[i].x;
+        if (d > 0) gapByKey.set(arr[i].key, d);
       }
     }
   }
@@ -182,27 +190,31 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
         onMouseDown={onCreateDown}
         onClick={(e) => { if (createdRef.current) e.stopPropagation(); }} // let plain clicks navigate/deselect
       />
-      {ghosts.map(({ ev, o, rect }) => (
-        <div
-          key={occKey(ev.id, o)}
-          data-ev-id={ev.id}
-          data-occ={occDate(o)}
-          className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color} cc-ghost`}
-          style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto" }}
-          onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
-          onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
-          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(ev.id, r.left + r.width / 2, r.top, occDate(o)); }}
-        >
-          <div className="cc-tevent-inner"><div className="cc-tevent-title">{ev.title}</div></div>
-          <RotateCw className="cc-rec-badge" size={10} strokeWidth={2.5} aria-hidden />
-        </div>
-      ))}
+      {ghosts.map(({ ev, o, rect }) => {
+        const gap = gapByKey.get(occKey(ev.id, o)); // clip the title before the next bar on the lane
+        return (
+          <div
+            key={occKey(ev.id, o)}
+            data-ev-id={ev.id}
+            data-occ={occDate(o)}
+            className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color} cc-ghost${gap != null ? " cc-band-clip" : ""}${ev.id === selectedId ? " selected" : ""}`}
+            style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}) }}
+            onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
+            onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
+            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(ev.id, r.left + r.width / 2, r.top, occDate(o)); }}
+          >
+            <div className="cc-tevent-inner"><div className="cc-tevent-title">{ev.title}</div></div>
+            <RotateCw className="cc-rec-badge" size={10} strokeWidth={2.5} aria-hidden />
+          </div>
+        );
+      })}
       {rects.map(({ ev, rect }) => (
         <BandEventView
           key={ev.id}
           ev={ev}
           rect={rect}
-          gap={gapById.get(ev.id)}
+          vw={vp.w}
+          gap={gapByKey.get(ev.id)}
           raised={ev.id === hoveredId}
           onHover={setHoveredId}
           selected={ev.id === selectedId}

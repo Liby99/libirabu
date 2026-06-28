@@ -5,9 +5,9 @@ import { Plus, RotateCw } from "lucide-react";
 import { Vp, Hover } from "./types";
 import { LABEL_W } from "./constants";
 import { frameFor } from "./frames";
-import { hourMetrics } from "./eventGeom";
+import { hourMetrics, relDomOf } from "./eventGeom";
 import { daysInMonth } from "./mock";
-import { weekStartDOM } from "./dates";
+import { weekStartDOM, resolveDate } from "./dates";
 import { Deadline } from "./deadlineTypes";
 import { deadlineTimeLabel } from "./deadlineFormat";
 import { occurrenceDates, occKey, occDate } from "./occurrences";
@@ -81,22 +81,28 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
 
   // The + quick-create affordance: only when the cursor is near the hovered day column's
   // left edge (hover.nearLeft), snapped to the nearest hour line (week view only).
-  let plus: { day: number; hour: number; x: number; y: number } | null = null;
+  let plus: { month: number; day: number; hour: number; x: number; y: number } | null = null;
   if (revealed && weekly && hover && hover.nearLeft && hover.dom != null && hover.hourFrac != null) {
-    const hour = Math.min(23, Math.max(0, Math.round(hover.hourFrac)));
-    const x = xOf(hover.dom);
-    const y = yOf(hour);
-    // don't offer to create where a deadline already sits (same day + hour-line)
-    const occupied = deadlines.some((d) => d.year === year && d.month === focus && d.day === hover.dom && Math.abs(d.hour - hour) < 1e-6);
-    if (!occupied && y >= tlTop && y <= tlBottom && x >= LABEL_W - 1 && x <= vp.w) plus = { day: hover.dom, hour, x, y };
+    // The hovered column can be a spillover day → resolve to its real month/day before create.
+    const r = resolveDate(focus, hover.dom);
+    if (r) {
+      const hour = Math.min(23, Math.max(0, Math.round(hover.hourFrac)));
+      const x = xOf(hover.dom);
+      const y = yOf(hour);
+      // don't offer to create where a deadline already sits (same day + hour-line)
+      const occupied = deadlines.some((d) => d.year === year && d.month === r.month && d.day === r.day && Math.abs(d.hour - hour) < 1e-6);
+      if (!occupied && y >= tlTop && y <= tlBottom && x >= LABEL_W - 1 && x <= vp.w) plus = { month: r.month, day: r.day, hour, x, y };
+    }
   }
 
   // Recurrence: read-only ghost copies of repeating deadlines on their occurrence days.
   const ghosts = revealed
     ? deadlines.filter((d) => d.repeat && d.repeat.kind !== "none")
         .flatMap((d) => occurrenceDates({ year: d.year, month: d.month, day: d.day }, d.repeat, year)
-          .filter((o) => o.month === focus && o.year === year)
-          .map((o) => ({ d, o, x: xOf(o.day), y: yOf(d.hour) }))
+          .filter((o) => o.year === year)
+          .map((o) => ({ d, o, rel: relDomOf(focus, o.month, o.day) }))
+          .filter((g) => g.rel != null && (g.o.month === focus || weekly))
+          .map((g) => ({ d: g.d, o: g.o, x: xOf(g.rel as number), y: yOf(g.d.hour) }))
           .filter((g) => g.y >= tlTop && g.y <= tlBottom && g.x + colW >= LABEL_W && g.x <= vp.w))
     : [];
 
@@ -106,7 +112,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
         {ghosts.map(({ d, o, x, y }) => {
           const labelLeft = x - 8 - 120 > LABEL_W;
           return (
-            <div key={occKey(d.id, o)} className={`cc-ddl cc-ev-${d.color} cc-ghost`}>
+            <div key={occKey(d.id, o)} className={`cc-ddl cc-ev-${d.color} cc-ghost${d.id === selectedId ? " selected" : ""}`}>
               <div data-ev-line-id={d.id} data-occ={occDate(o)} className="cc-ddl-line" style={{ transform: `translate(${x}px, ${y - 1}px)`, width: colW }} />
               <div
                 data-ev-id={d.id}
@@ -124,8 +130,12 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
             </div>
           );
         })}
-        {revealed && deadlines.filter((d) => d.month === focus && d.year === year).map((d) => {
-          const x = xOf(d.day);
+        {revealed && deadlines.filter((d) => d.year === year).map((d) => {
+          // Map to a focus-relative column so deadlines on this week's spillover days (in the
+          // previous/next month) render too — those columns only exist in week view.
+          const rel = relDomOf(focus, d.month, d.day);
+          if (rel == null || (d.month !== focus && !weekly)) return null;
+          const x = xOf(rel);
           const y = yOf(d.hour);
           if (y < tlTop - 1 || y > tlBottom + 1) return null;
           if (x + colW < LABEL_W || x > vp.w) return null;
@@ -165,7 +175,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            const created = addDeadline({ year, month: focus, day: plus!.day, hour: plus!.hour, title: "Deadline", color: "default", originTz: null });
+            const created = addDeadline({ year, month: plus!.month, day: plus!.day, hour: plus!.hour, title: "Deadline", color: "default", originTz: null });
             onSelect(created.id);
           }}
         >

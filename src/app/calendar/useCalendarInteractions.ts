@@ -17,15 +17,43 @@ const sameHover = (a: Hover, b: Hover) =>
 // Safari's GestureEvent isn't in the standard DOM lib types.
 type GestureLikeEvent = { scale: number; clientX: number; clientY: number; preventDefault: () => void };
 
+// ── URL state (year / view level / month / week) ───────────────────────────
+// The calendar position is mirrored in the query string so a refresh restores it:
+//   year view → ?y=2026 · month view → ?y=2026&m=7 · week view → ?y=2026&m=7&w=2
+// `m` is 1–12 and `w` is 1-based (matching the breadcrumb labels); the level is inferred
+// from which params are present (w → week, m → month, else year).
+interface UrlState { year: number; focus: number; week: number; z: number }
+function readUrlState(): UrlState {
+  const now = new Date();
+  const def: UrlState = { year: now.getFullYear(), focus: now.getMonth(), week: 0, z: 0 };
+  if (typeof window === "undefined") return def;
+  const p = new URLSearchParams(window.location.search);
+  const y = parseInt(p.get("y") ?? "", 10);
+  const m = parseInt(p.get("m") ?? "", 10);
+  const w = parseInt(p.get("w") ?? "", 10);
+  const hasM = Number.isFinite(m) && m >= 1 && m <= 12;
+  const hasW = hasM && Number.isFinite(w) && w >= 1;
+  return {
+    year: Number.isFinite(y) ? y : def.year,
+    focus: hasM ? m - 1 : def.focus,
+    week: hasW ? Math.min(5, w - 1) : 0, // a month spans ≤6 week-rows (index 0–5)
+    z: hasW ? 2 : hasM ? 1 : 0,
+  };
+}
+
 // Owns all zoom/pan/scroll state and the gesture handling: pinch-zoom (Safari
 // gesture events), iPhone-style horizontal week paging, vertical year scroll,
 // click-to-open, and the tween/snap animations.
 export function useCalendarInteractions() {
   const wrapRef = useRef<HTMLDivElement>(null);
+  // Parse the URL once, on mount, for the initial view position.
+  const initRef = useRef<UrlState | null>(null);
+  if (initRef.current === null) initRef.current = readUrlState();
+  const init = initRef.current;
   const [vp, setVp] = useState<Vp>({ w: 0, h: 0 });
-  const [z, setZ] = useState(0);
-  const [focus, setFocus] = useState(new Date().getMonth());
-  const [week, setWeek] = useState(0);
+  const [z, setZ] = useState(init.z);
+  const [focus, setFocus] = useState(init.focus);
+  const [week, setWeek] = useState(init.week);
   const [scrollY, setScrollY] = useState(0);
   const [tlScroll, setTlScroll] = useState(0); // week-view timeline vertical scroll
   const [weekHourH, setWeekHourHState] = useState(60); // week-view per-hour height (slider)
@@ -35,7 +63,7 @@ export function useCalendarInteractions() {
   const [hoverWeek, setHoverWeek] = useState<number | null>(null);
   const [hover, setHover] = useState<Hover>(NO_HOVER);
   const [now, setNow] = useState(() => Date.now());
-  const [year, setYearState] = useState(() => new Date().getFullYear());
+  const [year, setYearState] = useState(init.year);
   const currentYear = new Date().getFullYear();
 
   const zRef = useRef(z); zRef.current = z;
@@ -232,9 +260,34 @@ export function useCalendarInteractions() {
     return () => window.clearInterval(id);
   }, []);
 
-  // Esc → zoom out to year.
+  // Persist the view position (year / level / month / week) in the URL so a refresh lands
+  // in the same place. replaceState (no Back-button spam); debounced so a zoom/page tween
+  // writes only its settled values. Only the params relevant to the current level are kept.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") tweenTo(0); };
+    if (typeof window === "undefined") return;
+    const id = window.setTimeout(() => {
+      const level = z < 0.5 ? 0 : z < 1.5 ? 1 : 2;
+      const p = new URLSearchParams(window.location.search);
+      p.set("y", String(year));
+      if (level >= 1) p.set("m", String(focus + 1)); else p.delete("m");
+      if (level >= 2) p.set("w", String(Math.round(week) + 1)); else p.delete("w");
+      const qs = p.toString();
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
+    }, 150);
+    return () => window.clearTimeout(id);
+  }, [z, focus, week, year]);
+
+  // Esc → zoom out ONE level (week→month→year). Stands down when an overlay or field owns
+  // the Esc: a drawer (its own Esc closes it), or a focused input/textarea/editor.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (document.body.classList.contains("cc-drawer-open")) return; // drawer handles it
+      const a = document.activeElement as HTMLElement | null;
+      if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
+      const lvl = zRef.current < 0.5 ? 0 : zRef.current < 1.5 ? 1 : 2;
+      if (lvl > 0) tweenTo(lvl - 1);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [tweenTo]);
@@ -341,6 +394,17 @@ export function useCalendarInteractions() {
         setFocus(cm); setWeek(cw);
         window.setTimeout(() => tweenTo(2, 1050), 180);
       });
+    }
+
+    // Center the day timeline on the current time (clamped to top/bottom). Computed with
+    // the settled week-view geometry (z=2); tlScroll persists, so it's correct once the
+    // timeline reveals regardless of which animation path above we took.
+    const el = wrapRef.current;
+    if (el) {
+      const tlTop = TOP_PAD + 4 * TRACK_H + 18;
+      const { hourH, viewH, maxScroll } = hourMetrics(tlTop, el.clientHeight - 8, 2, 0);
+      const nowFrac = d.getHours() + d.getMinutes() / 60;
+      setTlScroll(maxScroll <= 0 ? 0 : Math.max(0, Math.min(maxScroll, nowFrac * hourH - viewH / 2)));
     }
   }, [tweenTo, tweenWeek]);
 

@@ -11,11 +11,14 @@ export default function TagEditor({ tags, onChange }: { tags: string[]; onChange
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { if (adding) inputRef.current?.focus(); }, [adding]);
 
-  const add = () => {
+  // Commit the current draft. keepOpen=true (Enter) clears the field but keeps it focused so
+  // you can type the next tag straight away; keepOpen=false (blur) closes the editor.
+  const add = (keepOpen = false) => {
     const t = draft.trim().replace(/^#+/, "").trim();
     if (t && !tags.includes(t)) onChange([...tags, t]);
     setDraft("");
-    setAdding(false);
+    if (keepOpen) inputRef.current?.focus();
+    else setAdding(false);
   };
 
   return (
@@ -35,10 +38,10 @@ export default function TagEditor({ tags, onChange }: { tags: string[]; onChange
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); add(); }
+            if (e.key === "Enter") { e.preventDefault(); add(true); }
             else if (e.key === "Escape") { setDraft(""); setAdding(false); }
           }}
-          onBlur={add}
+          onBlur={() => add(false)}
           placeholder="tag"
         />
       ) : (

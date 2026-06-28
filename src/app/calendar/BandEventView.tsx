@@ -7,6 +7,7 @@ import { BandRect } from "./bandGeom";
 interface Props {
   ev: BandEvent;
   rect: BandRect;
+  vw: number;          // viewport width → cap the inline editor so it can't run off-screen
   gap?: number;        // px to the next event on the lane → clip the title to this width
   raised: boolean;     // hovered → lift above neighbours so the full title can show
   onHover: (id: string | null) => void;
@@ -22,7 +23,7 @@ interface Props {
 }
 
 // All-day event bar — identical look to a timed event (two-layer + left bar), title only.
-export default function BandEventView({ ev, rect, gap, raised, onHover, selected, moving, movedRef, onMoveStart, onResizeStart, onSelect, onTitleCommit, onOpenDetail, onContextMenu }: Props) {
+export default function BandEventView({ ev, rect, vw, gap, raised, onHover, selected, moving, movedRef, onMoveStart, onResizeStart, onSelect, onTitleCommit, onOpenDetail, onContextMenu }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ev.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,6 +47,13 @@ export default function BandEventView({ ev, rect, gap, raised, onHover, selected
     setDraft(t);
     if (t !== ev.title) onTitleCommit(ev.id, t);
   };
+
+  // The editor overflows the bar to the right (overflow:visible + min-width:100px), so on a
+  // bar near the screen edge it would run off-screen. Cap its width to the space left up to
+  // the viewport's right edge; minWidth shrinks too so the cap actually binds there.
+  const inputLeft = rect.x + 9; // event left + inner margin/border/padding
+  const avail = Math.max(24, vw - 8 - inputLeft);
+  const inputStyle: React.CSSProperties = { maxWidth: avail, minWidth: Math.min(100, avail) };
 
   const style: React.CSSProperties = {
     transform: `translate(${rect.x}px, ${rect.y}px)`,
@@ -87,6 +95,7 @@ export default function BandEventView({ ev, rect, gap, raised, onHover, selected
           <input
             ref={inputRef}
             className="cc-tevent-title-input"
+            style={inputStyle}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}

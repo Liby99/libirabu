@@ -38,6 +38,7 @@ export default function BandEventDrawer({ event, onChange, onDelete, onClose, on
       repeat={event.repeat ?? NO_REPEAT}
       onRepeat={(r) => onChange(event.id, { repeat: r })}
       anchorDow={new Date(event.year, event.month, event.startDay).getDay()}
+      anchorDate={`${monthPrefix}-${pad(event.startDay)}`}
       focusOcc={focusOcc}
       onGoToFirst={onGoToFirst}
       tags={event.tags ?? []}
@@ -48,9 +49,19 @@ export default function BandEventDrawer({ event, onChange, onDelete, onClose, on
       onClose={onClose}
     >
       <div className="cc-dw-row cc-dw-when">
-        <select value={event.track} onChange={(e) => onChange(event.id, { track: Number(e.target.value) })}>
-          {[0, 1, 2, 3].map((t) => <option key={t} value={t}>Track {t + 1}</option>)}
-        </select>
+        <span className="cc-dw-label">Track</span>
+        <div className="cc-seg" role="group" aria-label="Track">
+          {[0, 1, 2, 3].map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={`cc-seg-btn${event.track === t ? " sel" : ""}`}
+              onClick={() => onChange(event.id, { track: t })}
+            >
+              T{t + 1}
+            </button>
+          ))}
+        </div>
         <input
           type="date" min={minDate} max={maxDate}
           value={`${monthPrefix}-${pad(event.startDay)}`}

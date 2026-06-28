@@ -12,7 +12,7 @@ export type EventKind = (typeof EVENT_KINDS)[number];
 
 // Recurrence config (null/none = single occurrence). `n` = every N weeks (1–4);
 // `days` (0=Sun..6=Sat) for "weekdays"; `until` = inclusive YYYY-MM-DD or null.
-export type RepeatKind = "none" | "daily" | "weekly" | "weekdays";
+export type RepeatKind = "none" | "daily" | "weekly" | "weekdays" | "yearly";
 export interface Repeat {
   kind: RepeatKind;
   n?: number;
@@ -21,7 +21,7 @@ export interface Repeat {
   exdates?: string[]; // "YYYY-MM-DD" occurrences removed individually
 }
 export const repeatSchema = z.object({
-  kind: z.enum(["none", "daily", "weekly", "weekdays"]),
+  kind: z.enum(["none", "daily", "weekly", "weekdays", "yearly"]),
   n: z.number().int().min(1).max(4).optional(),
   until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
   days: z.array(z.number().int().min(0).max(6)).max(7).optional(),
@@ -109,7 +109,9 @@ export interface ApiEvent {
 export interface ApiSettings {
   mainTz: string;
   altTz: string | null;
-  trackNames: string[][]; // [12][4]
+  // Track-lane names are PER-YEAR: a map from 4-digit year → [12][4] grid. Years absent
+  // from the map have no custom names (lanes render blank). mainTz/altTz stay global.
+  trackNames: Record<string, string[][]>;
 }
 
 // ── Validation (shape) ─────────────────────────────────────────────────
@@ -150,7 +152,8 @@ export type EventUpdate = z.infer<typeof eventUpdateSchema>;
 export const settingsUpdateSchema = z.object({
   mainTz: z.string().min(1).max(64).optional(),
   altTz: z.string().min(1).max(64).nullable().optional(),
-  trackNames: z.array(z.array(z.string().max(80)).length(TRACK_LANES)).length(12).optional(),
+  // per-year map: { "2026": [12][4], … }; keys are 4-digit years
+  trackNames: z.record(z.string().regex(/^\d{4}$/), z.array(z.array(z.string().max(80)).length(TRACK_LANES)).length(12)).optional(),
 });
 export type SettingsUpdate = z.infer<typeof settingsUpdateSchema>;
 

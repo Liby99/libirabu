@@ -4,36 +4,43 @@ import { fetchSettings, putSettings } from "./apiClient";
 
 const PUT_DEBOUNCE = 500; // coalesce keystrokes while renaming a track lane
 
-// Calendar preferences (per-month track lane names + main/alt timezone), persisted via
-// /api/calendar/settings. Replaces the old localStorage useTrackNames + in-memory
-// useTimezones. Optimistic local state; debounced background saves.
-export function useCalendarSettings() {
-  const [trackNames, setTrackNames] = useState<string[][]>(defaultTrackNames());
+// Calendar preferences, persisted via /api/calendar/settings. Track-lane names are PER-YEAR
+// (a map year→[12][4]); main/alt timezone are global. The whole map is fetched once and
+// indexed by the active `year` on the client, so switching years re-derives instantly and a
+// year with no saved names shows blank (cleared). Optimistic local state; debounced saves.
+export function useCalendarSettings(year: number) {
+  const [trackMap, setTrackMap] = useState<Record<string, string[][]>>({});
   const [mainTz, setMainTzState] = useState<string>(DEFAULT_MAIN_TZ);
   const [altTz, setAltTzState] = useState<string | null>(null);
-  const trackRef = useRef<string[][]>(trackNames);
-  trackRef.current = trackNames;
+  const mapRef = useRef<Record<string, string[][]>>(trackMap);
+  mapRef.current = trackMap;
+  const yearRef = useRef(year);
+  yearRef.current = year;
   const trackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let alive = true;
     fetchSettings()
-      .then((s) => { if (alive) { setTrackNames(s.trackNames); setMainTzState(s.mainTz); setAltTzState(s.altTz); } })
+      .then((s) => { if (alive) { setTrackMap(s.trackNames ?? {}); setMainTzState(s.mainTz); setAltTzState(s.altTz); } })
       .catch((e) => console.error("[calendar] load settings", e));
     return () => { alive = false; };
   }, []);
 
   useEffect(() => () => { if (trackTimer.current) clearTimeout(trackTimer.current); }, []);
 
+  // The active year's [12][4] grid — blank default when the year has no saved names.
+  const trackNames = trackMap[String(year)] ?? defaultTrackNames();
+
   const editTrack = useCallback((m: number, i: number, val: string) => {
-    setTrackNames((prev) => {
-      const next = prev.map((r) => r.slice());
-      next[m][i] = val;
-      return next;
+    setTrackMap((prev) => {
+      const key = String(yearRef.current);
+      const grid = (prev[key] ?? defaultTrackNames()).map((r) => r.slice());
+      grid[m][i] = val;
+      return { ...prev, [key]: grid };
     });
     if (trackTimer.current) clearTimeout(trackTimer.current);
     trackTimer.current = setTimeout(() => {
-      putSettings({ trackNames: trackRef.current }).catch((e) => console.error("[calendar] save track names", e));
+      putSettings({ trackNames: mapRef.current }).catch((e) => console.error("[calendar] save track names", e));
     }, PUT_DEBOUNCE);
   }, []);
 

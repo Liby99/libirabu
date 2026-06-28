@@ -49,6 +49,7 @@ export default function DeadlineDrawer({ event, mainTz, onChange, onDelete, onCl
       repeat={event.repeat ?? NO_REPEAT}
       onRepeat={(r) => onChange(event.id, { repeat: r })}
       anchorDow={new Date(event.year, event.month, event.day).getDay()}
+      anchorDate={`${event.year}-${pad(event.month + 1)}-${pad(event.day)}`}
       focusOcc={focusOcc}
       onGoToFirst={onGoToFirst}
       tags={event.tags ?? []}

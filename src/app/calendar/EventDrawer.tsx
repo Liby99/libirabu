@@ -28,6 +28,7 @@ export default function EventDrawer({ event, onChange, onDelete, onClose, onColo
       repeat={event.repeat ?? NO_REPEAT}
       onRepeat={(r) => onChange(event.id, { repeat: r })}
       anchorDow={new Date(event.year, event.month, event.day).getDay()}
+      anchorDate={dateStr}
       focusOcc={focusOcc}
       onGoToFirst={onGoToFirst}
       tags={event.tags ?? []}
