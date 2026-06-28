@@ -21,15 +21,21 @@ interface Props {
   onTitleCommit: (id: string, title: string) => void;
   onOpenDetail: (id: string) => void;
   onContextMenu: (id: string, x: number, y: number) => void;
+  requestEdit?: boolean;       // parent asks to start inline rename (Enter on the selection)
+  onEditConsumed?: () => void; // clear the parent's one-shot edit request
 }
 
 // All-day event bar — identical look to a timed event (two-layer + left bar), title only.
-export default function BandEventView({ ev, rect, vw, gap, raised, onHover, selected, moving, movedRef, onMoveStart, onResizeStart, onSelect, onTitleCommit, onOpenDetail, onContextMenu }: Props) {
+export default function BandEventView({ ev, rect, vw, gap, raised, onHover, selected, moving, movedRef, onMoveStart, onResizeStart, onSelect, onTitleCommit, onOpenDetail, onContextMenu, requestEdit, onEditConsumed }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ev.title);
   const inputRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+  // Parent requested inline rename (Enter on the selected event) → enter edit mode once.
+  useEffect(() => {
+    if (requestEdit && !editing) { setDraft(ev.title); setEditing(true); onEditConsumed?.(); }
+  }, [requestEdit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // On hover, a frosted mask covers the title's spill — but ONLY when the title actually
   // runs into a following event (its right end passes the next event's left). With no next

@@ -32,13 +32,13 @@ export function apiToTimed(e: ApiEvent): TimedEvent {
     id: e.id, year: y, month: mo - 1, day: d,
     startHour: (msOf(e.start) - startMid) / HOUR_MS,
     endHour: (msOf(e.end) - startMid) / HOUR_MS, // 24 → next-day midnight
-    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, createdByAI: e.createdByAI,
+    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, createdByAI: e.createdByAI, promoteTrack: e.promoteTrack ?? null, occurrenceNotes: e.occurrenceNotes,
   };
 }
 function timedBody(ev: TimedEvent) {
   const startMid = Date.UTC(ev.year, ev.month, ev.day);
   return {
-    id: ev.id, kind: "timed" as EventKind, title: ev.title, color: ev.color, notes: ev.notes ?? null, tags: ev.tags ?? [], repeat: ev.repeat, createdByAI: ev.createdByAI ?? false,
+    id: ev.id, kind: "timed" as EventKind, title: ev.title, color: ev.color, notes: ev.notes ?? null, tags: ev.tags ?? [], repeat: ev.repeat, createdByAI: ev.createdByAI ?? false, promoteTrack: ev.promoteTrack ?? null, occurrenceNotes: ev.occurrenceNotes ?? {},
     start: fmtDateTime(startMid + ev.startHour * HOUR_MS),
     end: fmtDateTime(startMid + ev.endHour * HOUR_MS),
   };
@@ -50,13 +50,13 @@ export function apiToBand(e: ApiEvent): BandEvent {
   const [, , ed] = e.end.split("-").map(Number);
   return {
     id: e.id, year: sy, month: smo - 1, track: e.track ?? 0, startDay: sd, endDay: ed,
-    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, createdByAI: e.createdByAI,
+    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, createdByAI: e.createdByAI, occurrenceNotes: e.occurrenceNotes,
   };
 }
 function bandBody(ev: BandEvent) {
   const date = (day: number) => `${ev.year}-${pad(ev.month + 1)}-${pad(day)}`;
   return {
-    id: ev.id, kind: "band" as EventKind, title: ev.title, color: ev.color, notes: ev.notes ?? null, tags: ev.tags ?? [], repeat: ev.repeat, createdByAI: ev.createdByAI ?? false,
+    id: ev.id, kind: "band" as EventKind, title: ev.title, color: ev.color, notes: ev.notes ?? null, tags: ev.tags ?? [], repeat: ev.repeat, createdByAI: ev.createdByAI ?? false, occurrenceNotes: ev.occurrenceNotes ?? {},
     track: ev.track, start: date(ev.startDay), end: date(ev.endDay),
   };
 }
@@ -69,13 +69,13 @@ export function apiToDeadline(e: ApiEvent): Deadline {
   return {
     id: e.id, year: y, month: mo - 1, day: d,
     hour: (msOf(e.start) - startMid) / HOUR_MS,
-    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, originTz: e.originTz ?? null, createdByAI: e.createdByAI,
+    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, originTz: e.originTz ?? null, createdByAI: e.createdByAI, promoteTrack: e.promoteTrack ?? null, occurrenceNotes: e.occurrenceNotes,
   };
 }
 function deadlineBody(d: Deadline) {
   const mid = Date.UTC(d.year, d.month, d.day);
   return {
-    id: d.id, kind: "deadline" as EventKind, title: d.title, color: d.color, notes: d.notes ?? null, tags: d.tags ?? [], repeat: d.repeat, createdByAI: d.createdByAI ?? false,
+    id: d.id, kind: "deadline" as EventKind, title: d.title, color: d.color, notes: d.notes ?? null, tags: d.tags ?? [], repeat: d.repeat, createdByAI: d.createdByAI ?? false, promoteTrack: d.promoteTrack ?? null, occurrenceNotes: d.occurrenceNotes ?? {},
     start: fmtDateTime(mid + d.hour * HOUR_MS), // always main-tz wall-clock
     originTz: d.originTz ?? null,
   };

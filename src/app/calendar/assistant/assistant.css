@@ -38,7 +38,7 @@
   flex-direction: column;
   width: min(370px, calc(100vw - 32px));
   height: min(70vh, 620px);
-  border-radius: 22px;
+  border-radius: 12px;
   overflow: hidden;
   color: var(--foreground, #1c1c1e);
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.22);
@@ -49,14 +49,32 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--popup-bg, #ffffff) 78%, transparent);
-  backdrop-filter: blur(22px) saturate(1.3);
-  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  background: color-mix(in srgb, var(--popup-bg, #ffffff) 60%, transparent);
+  backdrop-filter: blur(9px) saturate(1.15);
+  -webkit-backdrop-filter: blur(9px) saturate(1.15);
   -webkit-mask-image: radial-gradient(135% 130% at 50% 40%, #000 72%, transparent 100%);
   mask-image: radial-gradient(135% 130% at 50% 40%, #000 72%, transparent 100%);
   z-index: 0;
 }
 .ca-panel > * { position: relative; z-index: 1; }
+/* drag-and-drop attachment overlay (shown while files are dragged over the panel) */
+.ca-drop {
+  position: absolute;
+  inset: 8px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed color-mix(in srgb, var(--accent-dark, #555) 55%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--popup-bg, #fff) 74%, transparent);
+  color: var(--accent-dark, #555);
+  font-size: 0.85rem;
+  font-weight: 600;
+  pointer-events: none; /* let the drag/drop events reach the panel underneath */
+}
 /* The calendar disables text selection for its drag gestures; re-enable it inside the
    chat so the user can select/copy bubble text, action summaries, and errors. */
 .ca-panel, .ca-bubble, .ca-md, .ca-md *, .ca-action-text, .ca-empty {
@@ -71,7 +89,7 @@
   justify-content: space-between;
   padding: 12px 14px 8px;
 }
-.ca-title { font-size: 0.82rem; font-weight: 600; letter-spacing: 0.02em; color: var(--accent-grey, #6b6b70); }
+.ca-title { font-size: 0.74rem; font-weight: 600; letter-spacing: 0.02em; color: var(--accent-grey, #6b6b70); }
 .ca-head-actions { display: flex; align-items: center; gap: 2px; }
 .ca-close {
   display: flex; border: none; background: transparent; cursor: pointer;
@@ -79,10 +97,60 @@
 }
 .ca-close:hover { background: var(--accent-bg-hover, rgba(0, 0, 0, 0.06)); }
 .ca-close:disabled { opacity: 0.35; cursor: default; }
+.ca-head-active { background: var(--accent-bg-active, rgba(0, 0, 0, 0.1)); color: var(--foreground, #1c1c1e); }
+
+/* ── AI change history ──────────────────────────────────────────────────── */
+.ca-history { gap: 4px; }
+.ca-hist-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 7px;
+  background: color-mix(in srgb, var(--accent-bg, #f0f0f2) 60%, transparent);
+}
+.ca-hist-icon { display: flex; color: var(--accent-grey, #6b6b70); flex: none; }
+.ca-hist-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ca-hist-summary { font-size: 0.74rem; color: var(--foreground, #1c1c1e); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-hist-time { font-size: 0.68rem; color: var(--accent-grey, #6b6b70); }
+.ca-hist-revert {
+  display: inline-flex; align-items: center; gap: 3px; flex: none;
+  font: inherit; font-size: 0.68rem; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+  background: transparent; color: var(--accent-grey, #6b6b70);
+  border: 1px solid color-mix(in srgb, var(--accent-grey, #888) 30%, transparent);
+}
+.ca-hist-revert:hover { color: var(--foreground, #1c1c1e); border-color: var(--accent-grey, #888); }
+.ca-hist-revert:disabled { opacity: 0.5; cursor: default; }
+.ca-hist-reverted { opacity: 0.55; }
+/* ── Settings (model picker) ─────────────────────────────────────────────── */
+.ca-settings { gap: 5px; }
+.ca-settings-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent-grey, #6b6b70); padding: 2px 2px 4px; }
+.ca-model {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  padding: 8px 10px; border-radius: 9px; cursor: pointer; font: inherit;
+  background: color-mix(in srgb, var(--accent-bg, #f0f0f2) 55%, transparent);
+  border: 1px solid transparent;
+}
+.ca-model:hover { background: color-mix(in srgb, var(--accent-bg, #f0f0f2) 90%, transparent); }
+.ca-model-active { border-color: color-mix(in srgb, var(--highlight, #5b8def) 55%, transparent); }
+.ca-model-radio {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--accent-grey, #888) 45%, transparent);
+  color: #fff;
+}
+.ca-model-active .ca-model-radio { background: var(--highlight, #5b8def); border-color: var(--highlight, #5b8def); }
+.ca-model-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ca-model-name { font-size: 0.82rem; color: var(--foreground, #1c1c1e); }
+.ca-model-note { font-size: 0.68rem; color: var(--accent-grey, #6b6b70); }
+.ca-model-warn { color: var(--event-orange-border-dark, #c0392b); }
+.ca-settings-hint { font-size: 0.68rem; line-height: 1.5; color: var(--accent-grey, #6b6b70); padding: 8px 2px 2px; }
+
+/* a conversation row's open area is a button spanning the title/time */
+.ca-conv-open { border: none; background: transparent; cursor: pointer; text-align: left; padding: 0; font: inherit; }
+.ca-conv-open:hover .ca-hist-summary { text-decoration: underline; }
+.ca-hist-tag { font-size: 0.68rem; color: var(--accent-grey, #6b6b70); flex: none; font-style: italic; }
 
 /* ── Transcript ─────────────────────────────────────────────────────────── */
 .ca-scroll { flex: 1; overflow-y: auto; padding: 6px 12px 8px; display: flex; flex-direction: column; gap: 8px; }
-.ca-empty { margin: auto; padding: 20px; text-align: center; font-size: 0.8rem; line-height: 1.6; color: var(--accent-grey, #6b6b70); }
+.ca-empty { margin: auto; padding: 20px; text-align: center; font-size: 0.74rem; line-height: 1.6; color: var(--accent-grey, #6b6b70); }
 .ca-empty em { font-style: normal; color: var(--foreground, #1c1c1e); }
 
 .ca-row { display: flex; }
@@ -90,11 +158,13 @@
 .ca-row-asst { justify-content: flex-start; }
 .ca-asst-blocks { display: flex; flex-direction: column; gap: 6px; max-width: 88%; }
 
-.ca-bubble { font-size: 0.84rem; line-height: 1.5; padding: 8px 12px; border-radius: 16px; word-wrap: break-word; overflow-wrap: anywhere; }
+.ca-bubble { font-size: 0.77rem; line-height: 1.5; padding: 7px 11px; border-radius: 9px; word-wrap: break-word; overflow-wrap: anywhere; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); }
 /* Inverted "ink on paper" bubble — readable in both light & dark themes (--accent-dark and
    --background always contrast, unlike --highlight which is a light tint in dark mode). */
-.ca-bubble-user { background: var(--accent-dark, #2b2b2e); color: var(--background, #fff); border-bottom-right-radius: 5px; max-width: 88%; }
-.ca-bubble-asst { background: color-mix(in srgb, var(--accent-bg, #f0f0f2) 92%, transparent); color: var(--foreground, #1c1c1e); border-bottom-left-radius: 5px; }
+.ca-bubble-user { background: var(--accent-dark, #2b2b2e); color: var(--background, #fff); border-bottom-right-radius: 3px; max-width: 88%; }
+/* solid bubble: popup-bg is fully opaque; a stronger accent tint makes it read as a distinct
+   card over the (now more transparent) panel rather than blending into it. */
+.ca-bubble-asst { background: color-mix(in srgb, var(--accent-dark, #2b2b2e) 15%, var(--popup-bg, #f0f0f2)); color: var(--foreground, #1c1c1e); border-bottom-left-radius: 3px; }
 
 /* markdown inside an assistant bubble */
 .ca-md p { margin: 0 0 0.5em; }
@@ -103,14 +173,14 @@
 .ca-md li { margin: 0.15em 0; }
 .ca-md a { color: #5b8def; text-decoration: underline; }
 .ca-md code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 0.92em; background: var(--accent-bg-dark, rgba(0, 0, 0, 0.08)); padding: 0.05em 0.3em; border-radius: 4px; }
-.ca-md h1, .ca-md h2, .ca-md h3 { font-size: 0.92rem; margin: 0.4em 0 0.2em; }
-.ca-md table { border-collapse: collapse; font-size: 0.78rem; }
+.ca-md h1, .ca-md h2, .ca-md h3 { font-size: 0.84rem; margin: 0.4em 0 0.2em; }
+.ca-md table { border-collapse: collapse; font-size: 0.72rem; }
 .ca-md th, .ca-md td { border: 1px solid var(--accent-bg-dark, rgba(0,0,0,0.12)); padding: 2px 6px; }
 
 /* action cards */
 .ca-action {
   display: flex; align-items: center; gap: 7px;
-  font-size: 0.76rem; padding: 5px 10px; border-radius: 11px;
+  font-size: 0.7rem; padding: 5px 10px; border-radius: 7px;
   background: color-mix(in srgb, var(--accent-bg, #f0f0f2) 70%, transparent);
   color: var(--accent-grey, #6b6b70);
   border: 1px solid color-mix(in srgb, var(--accent-grey, #888) 14%, transparent);
@@ -121,6 +191,16 @@
 .ca-action-done { color: var(--foreground, #1c1c1e); }
 .ca-action-error { color: var(--event-red-border-dark, #c0392b); border-color: color-mix(in srgb, var(--event-red, #e74c3c) 30%, transparent); }
 .ca-action-blocked { color: var(--event-red-border-dark, #c0392b); border-color: color-mix(in srgb, var(--event-red, #e74c3c) 30%, transparent); }
+.ca-action-cancelled { opacity: 0.6; }
+.ca-action-confirm { color: var(--foreground, #1c1c1e); border-color: color-mix(in srgb, var(--event-red, #e74c3c) 35%, transparent); }
+.ca-confirm-btns { display: flex; gap: 5px; flex: none; }
+.ca-confirm-yes, .ca-confirm-no {
+  font: inherit; font-size: 0.68rem; padding: 2px 9px; border-radius: 6px; cursor: pointer; border: 1px solid transparent;
+}
+.ca-confirm-yes { background: var(--event-red, #e74c3c); color: #fff; }
+.ca-confirm-yes:hover { background: var(--event-red-border-dark, #c0392b); }
+.ca-confirm-no { background: transparent; border-color: color-mix(in srgb, var(--accent-grey, #888) 30%, transparent); color: var(--accent-grey, #6b6b70); }
+.ca-confirm-no:hover { color: var(--foreground, #1c1c1e); }
 .ca-spin { animation: ca-spin 0.9s linear infinite; }
 
 /* typing dots */
@@ -136,8 +216,8 @@
 .ca-att-tray { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 0 12px 6px; }
 .ca-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  font-size: 0.72rem; max-width: 200px;
-  padding: 3px 7px; border-radius: 9px;
+  font-size: 0.68rem; max-width: 200px;
+  padding: 3px 7px; border-radius: 6px;
   background: color-mix(in srgb, var(--accent-bg, #f0f0f2) 80%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent-grey, #888) 18%, transparent);
   color: var(--foreground, #1c1c1e);
@@ -146,21 +226,21 @@
 .ca-chip-x { display: flex; border: none; background: none; cursor: pointer; padding: 0; color: var(--accent-grey, #6b6b70); }
 .ca-chip-x:hover { color: var(--foreground, #1c1c1e); }
 .ca-chip-loading { color: var(--accent-grey, #6b6b70); }
-.ca-att-err { font-size: 0.72rem; color: var(--event-red-border-dark, #c0392b); }
+.ca-att-err { font-size: 0.68rem; color: var(--event-red-border-dark, #c0392b); }
 
 /* ── Composer ───────────────────────────────────────────────────────────── */
 .ca-composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 12px 12px; }
 .ca-attach {
   display: flex; align-items: center; justify-content: center;
-  width: 38px; height: 38px; border: none; border-radius: 50%; cursor: pointer; flex: none;
+  width: 36px; height: 36px; border: none; border-radius: 10px; cursor: pointer; flex: none;
   background: transparent; color: var(--accent-grey, #6b6b70);
 }
 .ca-attach:hover { background: var(--accent-bg-hover, rgba(0, 0, 0, 0.06)); color: var(--foreground, #1c1c1e); }
 .ca-attach:disabled { opacity: 0.4; cursor: default; }
 .ca-input {
-  flex: 1; resize: none; max-height: 120px; min-height: 38px;
-  font: inherit; font-size: 0.84rem; line-height: 1.4;
-  padding: 9px 12px; border-radius: 14px; color: var(--foreground, #1c1c1e);
+  flex: 1; resize: none; max-height: 112px; min-height: 36px; overflow-y: auto;
+  font: inherit; font-size: 0.78rem; line-height: 1.4;
+  padding: 8px 11px; border-radius: 9px; color: var(--foreground, #1c1c1e);
   background: color-mix(in srgb, var(--background, #fff) 75%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent-grey, #888) 22%, transparent);
   outline: none;
@@ -168,10 +248,21 @@
 .ca-input:focus { border-color: color-mix(in srgb, var(--highlight, #5b8def) 55%, transparent); }
 .ca-send {
   display: flex; align-items: center; justify-content: center;
-  width: 38px; height: 38px; border: none; border-radius: 50%; cursor: pointer;
+  width: 36px; height: 36px; border: none; border-radius: 10px; cursor: pointer;
   color: var(--background, #fff); background: var(--accent-dark, #2b2b2e); flex: none;
 }
 .ca-send:disabled { opacity: 0.4; cursor: default; }
+.ca-send.ca-stop { background: var(--event-red-border-dark, #c0392b); color: #fff; }
+
+/* Retry control under the last assistant turn (resurrect a dropped/errored turn). */
+.ca-retry-row { display: flex; justify-content: flex-start; }
+.ca-retry {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: inherit; font-size: 0.72rem; padding: 3px 9px; border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--accent-grey, #6b6b70);
+  border: 1px solid color-mix(in srgb, var(--accent-grey, #888) 30%, transparent);
+}
+.ca-retry:hover { color: var(--foreground, #1c1c1e); border-color: var(--accent-grey, #888); }
 
 @keyframes ca-spin { to { transform: rotate(360deg); } }
 @keyframes ca-blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }

@@ -3,6 +3,7 @@
 import { TimedEvent, hourToTimeInput, timeInputToHour } from "./eventTypes";
 import { NO_REPEAT } from "@/lib/calendar/api";
 import EventDrawerShell from "./EventDrawerShell";
+import PromoteEditor from "./PromoteEditor";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -18,6 +19,7 @@ interface Props {
 
 export default function EventDrawer({ event, onChange, onDelete, onClose, onColorPreview, focusOcc, onGoToFirst }: Props) {
   const dateStr = `${event.year}-${pad(event.month + 1)}-${pad(event.day)}`;
+  const occKey = focusOcc ?? dateStr; // the occurrence this drawer's per-occurrence note belongs to
   return (
     <EventDrawerShell
       name={event.title}
@@ -35,8 +37,12 @@ export default function EventDrawer({ event, onChange, onDelete, onClose, onColo
       onTags={(t) => onChange(event.id, { tags: t })}
       notes={event.notes ?? ""}
       onNotes={(v) => onChange(event.id, { notes: v })}
+      recurring={(event.repeat?.kind ?? "none") !== "none"}
+      occNotes={event.occurrenceNotes?.[occKey] ?? ""}
+      onOccNotes={(v) => onChange(event.id, { occurrenceNotes: { ...(event.occurrenceNotes ?? {}), [occKey]: v } })}
       onDelete={() => onDelete(event.id)}
       onClose={onClose}
+      configChildren={<PromoteEditor promoteTrack={event.promoteTrack} onChange={(t) => onChange(event.id, { promoteTrack: t })} />}
     >
       <div className="cc-dw-row cc-dw-when">
         <input

@@ -15,6 +15,12 @@ export async function recallAll(userId: string): Promise<Record<string, unknown>
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
 }
 
+/** The user's selected assistant model id (AssistantMemory key "assistant.model"), or undefined. */
+export async function getSelectedModel(userId: string): Promise<string | undefined> {
+  const row = await prisma.assistantMemory.findUnique({ where: { userId_key: { userId, key: "assistant.model" } } });
+  return typeof row?.value === "string" ? row.value : undefined;
+}
+
 /** Upsert one remembered fact. */
 export async function remember(userId: string, key: string, value: unknown): Promise<void> {
   await prisma.assistantMemory.upsert({

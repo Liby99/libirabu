@@ -21,14 +21,20 @@ interface Props {
   onSelect: (id: string | null) => void;
   moving: boolean;
   movedRef: React.MutableRefObject<boolean>;
+  requestEdit?: boolean;       // parent asks to start inline rename (Enter on the selection)
+  onEditConsumed?: () => void; // clear the parent's one-shot edit request
 }
 
-export default function TimedEventView({ ev, rect, wide, reveal, interactive, onResizeStart, onMoveStart, onTitleCommit, onHover, onOpenDetail, onContextMenu, selected, onSelect, moving, movedRef }: Props) {
+export default function TimedEventView({ ev, rect, wide, reveal, interactive, onResizeStart, onMoveStart, onTitleCommit, onHover, onOpenDetail, onContextMenu, selected, onSelect, moving, movedRef, requestEdit, onEditConsumed }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ev.title);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+  // Parent requested inline rename (Enter on the selected event) → enter edit mode once.
+  useEffect(() => {
+    if (requestEdit && interactive && !editing) { setDraft(ev.title); setEditing(true); onEditConsumed?.(); }
+  }, [requestEdit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const commit = () => {
     setEditing(false);

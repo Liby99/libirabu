@@ -95,10 +95,12 @@ export interface ApiEvent {
   title: string;
   color: string;
   notes: string | null;
+  occurrenceNotes: Record<string, string>; // recurring events: per-occurrence notes by date ({} when none)
   allDay: boolean; // false for timed/deadline, true for band
   start: string;
   end: string;
   track: number | null;
+  promoteTrack: number | null; // timed/deadline: also shown as a 1-day ghost band on this lane 0–3; null = not promoted
   originTz: string | null; // deadline only
   tags: string[];
   repeat: Repeat; // {kind:"none"} when not recurring
@@ -124,10 +126,13 @@ export const eventCreateSchema = z.object({
   kind: z.enum(EVENT_KINDS),
   title: z.string().min(1).max(200),
   notes: z.string().max(4000).nullish(),
+  occurrenceNotes: z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.string().max(4000)).optional(), // per-occurrence notes
+
   color: z.string().min(1).max(40).optional(),
   start: z.string().min(1).optional(),       // main-tz wall-clock; for deadlines may be derived from origin
   end: z.string().min(1).optional(),         // timed/band only
   track: z.number().int().min(0).max(TRACK_LANES - 1).nullish(),
+  promoteTrack: z.number().int().min(0).max(TRACK_LANES - 1).nullish(), // timed/deadline ghost-band lane
   originTz: z.string().min(1).max(64).nullish(),  // deadline only
   originAt: z.string().min(1).nullish(),          // deadline only: wall-clock in originTz (server → main)
   tags: z.array(z.string().min(1).max(40)).max(50).optional(),
@@ -140,10 +145,13 @@ export type EventCreate = z.infer<typeof eventCreateSchema>;
 export const eventUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   notes: z.string().max(4000).nullish(),
+  occurrenceNotes: z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.string().max(4000)).optional(), // per-occurrence notes
+
   color: z.string().min(1).max(40).optional(),
   start: z.string().min(1).optional(),
   end: z.string().min(1).optional(),
   track: z.number().int().min(0).max(TRACK_LANES - 1).nullish(),
+  promoteTrack: z.number().int().min(0).max(TRACK_LANES - 1).nullish(), // timed/deadline ghost-band lane
   originTz: z.string().min(1).max(64).nullish(),
   originAt: z.string().min(1).nullish(),
   tags: z.array(z.string().min(1).max(40)).max(50).optional(),
@@ -221,10 +229,12 @@ export interface EventRow {
   kind: string;
   title: string;
   notes: string | null;
+  occurrenceNotes: unknown; // Prisma Json
   color: string;
   start: Date;
   end: Date;
   track: number | null;
+  promoteTrack: number | null;
   originTz: string | null;
   tags: string[];
   repeat: unknown; // Prisma Json
@@ -241,10 +251,12 @@ export function toApiEvent(row: EventRow): ApiEvent {
     title: row.title,
     color: row.color,
     notes: row.notes ?? null,
+    occurrenceNotes: (row.occurrenceNotes as Record<string, string> | null) ?? {},
     allDay,
     start: formatWallClock(row.start, allDay),
     end: formatWallClock(row.end, allDay),
     track: row.track ?? null,
+    promoteTrack: row.promoteTrack ?? null,
     originTz: row.originTz ?? null,
     tags: row.tags ?? [],
     repeat: (row.repeat as Repeat | null) ?? NO_REPEAT,
@@ -274,10 +286,12 @@ export function eventCreateData(input: EventCreate, startWall: string, endWall: 
     kind: input.kind,
     title: input.title,
     notes: input.notes ?? null,
+    occurrenceNotes: input.occurrenceNotes ?? {},
     color: input.color ?? "default",
     start: parseWallClock(startWall),
     end: parseWallClock(endWall),
     track: input.kind === "band" ? input.track ?? null : null,
+    promoteTrack: input.kind === "band" ? null : input.promoteTrack ?? null, // band events ARE bands
     originTz: input.kind === "deadline" ? input.originTz ?? null : null,
     tags: input.tags ?? [],
     repeat: input.repeat ?? NO_REPEAT, // stored as a JSON object (never DB-null)
@@ -293,6 +307,7 @@ export function eventUpdateData(patch: EventUpdate, kind: EventKind, startWall: 
   const data: Record<string, unknown> = {};
   if (patch.title !== undefined) data.title = patch.title;
   if (patch.notes !== undefined) data.notes = patch.notes ?? null;
+  if (patch.occurrenceNotes !== undefined) data.occurrenceNotes = patch.occurrenceNotes ?? {};
   if (patch.color !== undefined) data.color = patch.color;
   if (startWall !== undefined) {
     data.start = parseWallClock(startWall);
@@ -300,6 +315,7 @@ export function eventUpdateData(patch: EventUpdate, kind: EventKind, startWall: 
   }
   if (patch.end !== undefined && kind !== "deadline") data.end = parseWallClock(patch.end);
   if (patch.track !== undefined) data.track = patch.track ?? null;
+  if (patch.promoteTrack !== undefined) data.promoteTrack = patch.promoteTrack ?? null;
   if (patch.originTz !== undefined) data.originTz = patch.originTz ?? null;
   if (patch.tags !== undefined) data.tags = patch.tags ?? [];
   if (patch.repeat !== undefined) data.repeat = patch.repeat ?? NO_REPEAT;

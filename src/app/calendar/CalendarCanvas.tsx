@@ -28,6 +28,7 @@ import EventContextMenu from "./EventContextMenu";
 import EditMenu from "./EditMenu";
 import TagFilterMenu, { TagRow, UNTAGGED } from "./TagFilterMenu";
 import BandEventsLayer from "./BandEventsLayer";
+import PromotedBandLayer from "./PromotedBandLayer";
 import DeadlinesLayer from "./DeadlinesLayer";
 import { deadlineTimeLabel } from "./deadlineFormat";
 import { NO_REPEAT, Repeat } from "@/lib/calendar/api";
@@ -75,6 +76,9 @@ export default function CalendarCanvas() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
+  // One-shot trigger to start INLINE name editing on a specific event (Enter on a selection).
+  // The matching event view consumes it (enters edit mode) and clears it via onEditConsumed.
+  const [editingId, setEditingId] = useState<string | null>(null);
   // True when an event was selected at the moment a click began — that click only clears the
   // selection, so it must NOT also navigate (open a month/week). Snapshotted at mousedown
   // (capture phase, before the deselect listener runs) so the click handler can read it.
@@ -115,8 +119,6 @@ export default function CalendarCanvas() {
   const drawerBand = drawerId ? bandEvents.find((e) => e.id === drawerId) ?? null : null;
   const drawerDeadline = drawerId ? deadlines.find((e) => e.id === drawerId) ?? null : null;
   const drawerEv = drawerTimed ?? drawerBand ?? drawerDeadline;
-  const drawerIsBand = drawerBand != null;
-  const drawerIsDeadline = drawerDeadline != null;
   const drawerSig = drawerEv ? JSON.stringify(drawerEv) : "";
 
   // If an undo/redo (or any delete) removes the event a drawer/menu is showing, dismiss it.
@@ -212,7 +214,10 @@ export default function CalendarCanvas() {
   // Measure EVERY rendered element of the drawer's event — the base plus all recurrence
   // ghosts (data-occ) — so the spotlight can lift them all above the dim. `ghost` flags the
   // recurrence copies (the base, non-ghost, keeps the "selected" style).
-  type Spot = { left: number; top: number; width: number; height: number; occ: string | null };
+  // `shape` is read from each measured element's own class — so a promoted timed/deadline
+  // event (which is a BAND element) is duplicated band-shaped even though its drawer is timed
+  // /deadline, and is visible in year view where the original (timeline) element isn't drawn.
+  type Spot = { left: number; top: number; width: number; height: number; occ: string | null; shape: "ddl" | "band" | "timed" };
   const [spotBoxes, setSpotBoxes] = useState<Spot[]>([]);
   const [spotLines, setSpotLines] = useState<Spot[]>([]); // deadline lines
   useLayoutEffect(() => {
@@ -221,11 +226,13 @@ export default function CalendarCanvas() {
     const wr = wrap.getBoundingClientRect();
     const rel = (el: Element): Spot => {
       const r = el.getBoundingClientRect();
-      return { left: r.left - wr.left, top: r.top - wr.top, width: r.width, height: r.height, occ: (el as HTMLElement).getAttribute("data-occ") };
+      const cl = (el as HTMLElement).classList;
+      const shape = cl.contains("cc-ddl-label") ? "ddl" : cl.contains("cc-tevent-band") ? "band" : "timed";
+      return { left: r.left - wr.left, top: r.top - wr.top, width: r.width, height: r.height, occ: (el as HTMLElement).getAttribute("data-occ"), shape };
     };
     setSpotBoxes([...wrap.querySelectorAll(`[data-ev-id="${drawerId}"]`)].map(rel));
-    setSpotLines(drawerIsDeadline ? [...wrap.querySelectorAll(`[data-ev-line-id="${drawerId}"]`)].map(rel) : []);
-  }, [drawerId, drawerSig, vp.w, vp.h, wrapRef, drawerIsDeadline, focusedOcc]);
+    setSpotLines([...wrap.querySelectorAll(`[data-ev-line-id="${drawerId}"]`)].map(rel)); // deadline lines only (empty otherwise)
+  }, [drawerId, drawerSig, vp.w, vp.h, wrapRef, focusedOcc]);
   // Snapshot, at the very start of every click (capture phase, before any stopPropagation or
   // the deselect below), whether an event was selected — so a click that merely clears the
   // selection doesn't also trigger navigation.
@@ -249,6 +256,21 @@ export default function CalendarCanvas() {
 
   // Keyboard: Delete/Backspace on a selected event → confirm (or delete outright if it's
   // still the untouched "Event" placeholder). Enter/Esc resolve the confirm dialog.
+  // Move the selected timed event / deadline earlier (−) or later (+) by `delta` hours (15 min).
+  // Band events are all-day (no time) → unaffected.
+  const nudgeSelected = (delta: number) => {
+    if (!selectedId) return;
+    const t = events.find((x) => x.id === selectedId);
+    if (t) {
+      const dur = t.endHour - t.startHour;
+      const start = Math.max(0, Math.min(24 - dur, t.startHour + delta));
+      updateEvent(selectedId, { startHour: start, endHour: start + dur });
+      return;
+    }
+    const d = deadlines.find((x) => x.id === selectedId);
+    if (d) updateDeadline(selectedId, { hour: Math.max(0, Math.min(23.75, d.hour + delta)) });
+  };
+
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
   keyHandlerRef.current = (e: KeyboardEvent) => {
     // Calendar-level undo/redo. While a text field is focused, Cmd+Z belongs to the
@@ -277,6 +299,22 @@ export default function CalendarCanvas() {
       if (e.key === "Escape") { e.preventDefault(); setConfirmDeleteId(null); }
       else if (e.key === "Enter") { e.preventDefault(); removeEvent(confirmDeleteId); removeBandEvent(confirmDeleteId); removeDeadline(confirmDeleteId); setSelectedId(null); setConfirmDeleteId(null); }
       return;
+    }
+    // Selected-event shortcuts: Enter = inline rename, Space = open drawer, Up/Down = ±15 min.
+    if (selectedId != null) {
+      const tgt = e.target as HTMLElement | null;
+      const editable = !!tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable);
+      if (!editable) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          // timed/band rename inline; deadlines (no inline edit) open the drawer (also name-focused).
+          if (deadlines.some((d) => d.id === selectedId)) openDrawer(selectedId, focusedOcc);
+          else setEditingId(selectedId);
+          return;
+        }
+        if (e.key === " " || e.key === "Spacebar") { e.preventDefault(); openDrawer(selectedId, focusedOcc); return; }
+        if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); nudgeSelected(e.key === "ArrowUp" ? -0.25 : 0.25); return; }
+      }
     }
     if (selectedId == null || (e.key !== "Delete" && e.key !== "Backspace")) return;
     const t = e.target as HTMLElement | null;
@@ -454,8 +492,9 @@ export default function CalendarCanvas() {
 
       <div className="cc-layer">
         {scene.items.map((it) => <ItemView key={it.key} it={it} />)}
-        <BandEventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visBand} addEvent={addBandEvent} updateEvent={updateBandEvent} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} />
-        <EventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visEvents} addEvent={addEvent} updateEvent={updateEvent} onEventHover={setOverEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} selectedId={selectedId} onSelect={selectEvent} tlScroll={tlScroll} />
+        <BandEventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visBand} addEvent={addBandEvent} updateEvent={updateBandEvent} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} editingId={editingId} onEditConsumed={() => setEditingId(null)} />
+        <PromotedBandLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} timed={visEvents} deadlines={visDeadlines} bandEvents={visBand} updateTimed={updateEvent} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} />
+        <EventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visEvents} addEvent={addEvent} updateEvent={updateEvent} onEventHover={setOverEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} selectedId={selectedId} onSelect={selectEvent} tlScroll={tlScroll} editingId={editingId} onEditConsumed={() => setEditingId(null)} />
         <DeadlinesLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} tlScroll={tlScroll} year={year} mainTz={mainTz} hover={hover} deadlines={visDeadlines} addDeadline={addDeadline} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} />
         <TrackEditor trackNames={trackNames} editTrack={editTrack} vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} />
       </div>
@@ -467,46 +506,49 @@ export default function CalendarCanvas() {
       {/* Drawer spotlight: dim+blur veil over the calendar (click closes), with bright
           duplicates of the edited event — and all its visible recurrence occurrences —
           lifted above it. The base copy keeps the "selected" style; ghosts are plain. */}
+      {/* Dim+blur veil — rendered whenever a drawer is open, INDEPENDENT of the measured
+          spotlight below. Previously the whole block (veil included) was gated on
+          spotBoxes.length > 0, so editing an event off-screen (e.g. to a non-visible day/month)
+          left spotBoxes empty → the veil vanished while the drawer stayed open, with no way to
+          click-to-close. Decoupling keeps the click-to-close veil always available. */}
+      {drawerId && drawerEv && (
+        <div className="cc-spot-mask" onMouseDown={() => setDrawerId(null)} onClick={(e) => e.stopPropagation()} />
+      )}
       {drawerId && spotBoxes.length > 0 && drawerEv && (() => {
         const evColor = previewColor ?? drawerEv.color;
         return (
           <>
-            <div className="cc-spot-mask" onMouseDown={() => setDrawerId(null)} onClick={(e) => e.stopPropagation()} />
-            {drawerIsDeadline ? (
-              <>
-                {spotLines.map((b, i) => (
-                  <div key={`l${i}`} className={`cc-ddl cc-ev-${evColor}${b.occ === focusedOcc ? " selected" : ""}`} style={{ position: "absolute", inset: 0, zIndex: 91, pointerEvents: "none" }}>
-                    <div className="cc-ddl-line" style={{ position: "absolute", left: b.left, top: b.top, width: b.width, transform: "none" }} />
-                  </div>
-                ))}
-                {spotBoxes.map((b, i) => (
-                  <div key={`b${i}`} className={`cc-ddl cc-ev-${evColor}${b.occ === focusedOcc ? " selected" : ""}`} style={{ position: "absolute", inset: 0, zIndex: 91, pointerEvents: "none" }}>
-                    <div
-                      className="cc-ddl-label"
-                      style={{ position: "absolute", left: b.left, top: b.top, width: b.width, height: b.height, transform: "none", pointerEvents: b.occ === focusedOcc ? "auto" : "none" }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      <span className="cc-ddl-title">{drawerEv.title}</span>
-                      <span className="cc-ddl-time">{deadlineTimeLabel(drawerDeadline!, mainTz)}</span>
-                    </div>
-                  </div>
-                ))}
-              </>
-            ) : (
-              spotBoxes.map((b, i) => (
+            {/* deadline lines (only present for deadline events) */}
+            {spotLines.map((b, i) => (
+              <div key={`l${i}`} className={`cc-ddl cc-ev-${evColor}${b.occ === focusedOcc ? " selected" : ""}`} style={{ position: "absolute", inset: 0, zIndex: 91, pointerEvents: "none" }}>
+                <div className="cc-ddl-line" style={{ position: "absolute", left: b.left, top: b.top, width: b.width, transform: "none" }} />
+              </div>
+            ))}
+            {/* each measured element duplicated in its own shape (deadline label / band / timed) */}
+            {spotBoxes.map((b, i) => b.shape === "ddl" ? (
+              <div key={i} className={`cc-ddl cc-ev-${evColor}${b.occ === focusedOcc ? " selected" : ""}`} style={{ position: "absolute", inset: 0, zIndex: 91, pointerEvents: "none" }}>
                 <div
-                  key={i}
-                  className={`cc-item cc-tevent ${drawerIsBand ? "cc-tevent-band " : ""}cc-ev-${evColor}${b.occ === focusedOcc ? " selected" : ""} cc-spot-dup`}
-                  style={{ left: b.left, top: b.top, width: b.width, height: b.height, zIndex: 91, pointerEvents: b.occ === focusedOcc ? "auto" : "none" }}
+                  className="cc-ddl-label"
+                  style={{ position: "absolute", left: b.left, top: b.top, width: b.width, height: b.height, transform: "none", pointerEvents: b.occ === focusedOcc ? "auto" : "none" }}
                   onMouseDown={(e) => e.stopPropagation()}
                 >
-                  <div className="cc-tevent-inner">
-                    <div className="cc-tevent-title">{drawerEv.title}</div>
-                    {!drawerIsBand && <div className="cc-tevent-time">{fmtRange((drawerEv as TimedEvent).startHour, (drawerEv as TimedEvent).endHour)}</div>}
-                  </div>
+                  <span className="cc-ddl-title">{drawerEv.title}</span>
+                  {drawerDeadline && <span className="cc-ddl-time">{deadlineTimeLabel(drawerDeadline, mainTz)}</span>}
                 </div>
-              ))
-            )}
+              </div>
+            ) : (
+              <div
+                key={i}
+                className={`cc-item cc-tevent ${b.shape === "band" ? "cc-tevent-band " : ""}cc-ev-${evColor}${b.occ === focusedOcc ? " selected" : ""} cc-spot-dup`}
+                style={{ left: b.left, top: b.top, width: b.width, height: b.height, zIndex: 91, pointerEvents: b.occ === focusedOcc ? "auto" : "none" }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="cc-tevent-inner">
+                  <div className="cc-tevent-title">{drawerEv.title}</div>
+                  {b.shape === "timed" && drawerTimed && <div className="cc-tevent-time">{fmtRange(drawerTimed.startHour, drawerTimed.endHour)}</div>}
+                </div>
+              </div>
+            ))}
           </>
         );
       })()}

@@ -1,0 +1,36 @@
+- Drawer behavior:
+    - A drawer will appear when I double click on an event. Currently, a huge drawer will be drawn out from the right
+    - There is a current problem that, if I do not move the main calendar canvas, if the event is towards the right hand side of the screen, then the drawer will occlude that event; If I do shift the main calendar canvas to the left, then if the event is on the left hand side of the canvas, the event will go out-of-screen
+    - The proposed solution is that, we should understand which event that we are clicking on, and the goal is to shift the main canvas to a point where the event is horizontally centered in the remaining space.
+    - The computation is the following:
+        - Say the screen width is X
+        - Say the drawer's width is D, D < X
+        - When the drawer is drawn out, the left-hand-side masked-out space is of width X - D
+        - Say the event is originally horizontally located at U < X (suppose U is the left-hand-side)
+        - The goal would be shifting the main canvas left such that the new event location U' is in the center of X - D, meaning (X - D) / 2 == U'
+        - Therefore, the left shift delta of the main canvas is U - (X - D) / 2
+            - We do want to cap the shift delta to be above zero, because we do not want the main canvas to shift rightwards
+            - Meaning that is an event is already placed towards the left hand side of the screen and even to the left of the middle point in the free area, we do not need to move the canvas.
+    - A few note:
+        - When we resize the drawer, the main canvas should be responsive and move accordingly.
+
+- Scroll-up/down behavior in monthly view
+    - When we scroll up or down in the monthly view, we should be able to go to previous month and next month
+    - The current behavior is that in the monthly view, we cannot scroll, neither left/right nor up/down
+    - The scroll behavior should be the following:
+        - Treat each month as if they are vertical pages
+        - We are swiping across pages like they are iPhone's homescreen, just put vertical
+        - When we swipe up (from current month to next month), the action should be:
+            - The daily timeline view first fades out (without distortion)
+            - The next month's tracks come up from the bottom
+            - When it gets closer to the top, the current month's track (originally stayed on the top) will move upwards and disappear out at the top
+            - And the next month's tracks take the place of the current month's track
+            - And the next month's daily view starts appearing (fade-in, without distortion)
+        - When we swipe down (from current month to prev month), the action would be the mostly the reverted
+            - The daily timeline view first fades out
+            - The current month's tracks start moving downwards
+            - While that is happening, the previous month's tracks comes down from the top
+            - The previous month's tracks stopped at taking place of the current month's tracks
+            - The current month's tracks keeps moving down and go out of the screen
+            - The previous month's daily view starts appearing (fade-in)
+

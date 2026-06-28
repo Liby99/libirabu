@@ -151,7 +151,9 @@ model CalendarItem {
   userId String
   kind   String // "timed" (hourly, single day) | "band" (all-day, multi-day on a lane)
   title  String
-  notes  String?
+  notes  String? // the "series" note (the whole event / all occurrences)
+  // recurring events: per-occurrence notes, keyed by occurrence date → text { "YYYY-MM-DD": "…" }
+  occurrenceNotes Json?
   color  String   @default("default") // palette key shared with the UI (EVENT_COLORS)
   tags   String[] @default([]) // freeform #tags
   repeat Json? // recurrence config { kind, n?, until?, days? }; null/absent = none
@@ -159,6 +161,10 @@ model CalendarItem {
   start DateTime // timed: date+time of start; band: 00:00 of the first day; deadline: the moment (main-tz wall-clock)
   end   DateTime // timed: date+time of end (same day); band: 00:00 of the last day (inclusive); deadline: == start
   track Int? // band lane 0–3; null for timed/deadline events
+
+  // "promote": a timed/deadline event also shown as a 1-day ghost band on this lane 0–3;
+  // null = not promoted. Band events don't use it (they ARE bands).
+  promoteTrack Int?
 
   // deadline only: IANA tz (or "AOE") it was originally specified in; null = main tz is canonical
   originTz String?
@@ -537,6 +543,7 @@ model AIConversation {
   title     String?
   messages  AIMessage[]
   createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
   @@index([userId])
 }

@@ -593,9 +593,19 @@ it can be replayed/scored. The schema lives in `lib/assistant/types.ts` as `Traj
     so a malicious file can't reach the auditor).
   - **Provenance (bonus):** `CalendarItem.createdByAI` + a Sparkles badge cluster (`EventBadges`) so
     AI-made events are visibly marked next to the recurrence icon.
-- **P3 — Edit/delete + occurrence edits + confirmation UX.** Enable `update_event`/`delete_event`
-  (incl. `occurrenceDate` exdates) behind flags + optional human confirmation; tighten the auditor
-  prompt with the gold trajectories as evals.
+- **P3 — Edit/delete + occurrence edits + confirmation UX. ✅ DONE (2026-06-28).**
+  - **Shared helpers:** `updateEventForUser` / `deleteEventForUser(…, occurrenceDate?)` in `_helpers.ts`
+    (with `EventNotFoundError`); the PATCH/DELETE routes were refactored onto them (one code path).
+    `deleteEventForUser` with `occurrenceDate` appends to `repeat.exdates` (series preserved).
+  - **`update_event` tool** — auto (auditor-gated), applies immediately; stamps `createdByAI` (AI badge
+    now also marks AI-*edited* events).
+  - **`delete_event` tool** — `confirm: true`: its `run()` only RESOLVES a spec (id/title/occurrenceDate/
+    mode, no mutation); the loop runs the auditor, emits an action card with `status:"confirm"`, and tells
+    the actor it's staged. The user clicks **Delete/Cancel** in the chat → `POST /api/assistant/execute`
+    runs `deleteEventForUser` → `calendar:changed`. True human-in-the-loop (the **confirm-delete** policy).
+  - Occurrence skips: `delete_event({id, occurrenceDate})` → exdate (never the whole series).
+  - Client: `resolveDelete` in `useAssistant`, Confirm/Cancel buttons on the card, `update_event`
+    (Pencil) / `delete_event` (Trash2) icons. Makes the NeurIPS-shift & piano-skip trajectories runnable.
 - **P4 — Cost down.** Swap aliases to gpt-oss/Kimi/GLM (Workers-AI ids); measure against the
   trajectory eval set; add fallbacks; optional MCP export of the tool registry.
 - **Later (separate, non-blocking) — TODO view + domain modules.** The centralized TODO index (§17)

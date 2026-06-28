@@ -71,11 +71,14 @@ export async function createEventForUser(userId: string, body: unknown, actor: "
     data: {
       userId, ...data,
       repeat: data.repeat as unknown as Prisma.InputJsonValue,
+      occurrenceNotes: data.occurrenceNotes as unknown as Prisma.InputJsonValue,
       createdByAI: actor === "ai" || data.createdByAI, // AI path forces provenance true
       ...(input.id ? { id: input.id } : {}),
     },
   });
-  return toApiEvent(row);
+  const ev = toApiEvent(row);
+  if (actor === "ai") await logAiAction(userId, "create", null, ev).catch(() => {});
+  return ev;
 }
 
 // Partial-update one event (kind immutable). Shared by the PATCH route and the assistant's
@@ -84,6 +87,7 @@ export async function createEventForUser(userId: string, body: unknown, actor: "
 export async function updateEventForUser(userId: string, id: string, body: unknown, actor: "user" | "ai" = "user"): Promise<ApiEvent> {
   const existing = await prisma.calendarItem.findFirst({ where: { id, userId } });
   if (!existing) throw new EventNotFoundError();
+  const before = toApiEvent(existing);
 
   const parsed = eventUpdateSchema.safeParse(body);
   if (!parsed.success) throw new EventValidationError(parsed.error.issues.map((i) => i.message).join("; "));
@@ -116,7 +120,9 @@ export async function updateEventForUser(userId: string, id: string, body: unkno
     where: { id },
     data: { ...data, ...(actor === "ai" ? { createdByAI: true } : {}) },
   });
-  return toApiEvent(row);
+  const ev = toApiEvent(row);
+  if (actor === "ai") await logAiAction(userId, "update", before, ev).catch(() => {});
+  return ev;
 }
 
 export interface DeleteResult { ok: true; mode: "series" | "occurrence"; id: string }
@@ -124,20 +130,77 @@ export interface DeleteResult { ok: true; mode: "series" | "occurrence"; id: str
 // Delete an event. With `occurrenceDate` (YYYY-MM-DD) on a recurring event, punches a hole by
 // appending to repeat.exdates (series preserved); otherwise deletes the event/series. Shared by the
 // DELETE route and the assistant's confirm-gated delete execution.
-export async function deleteEventForUser(userId: string, id: string, occurrenceDate?: string): Promise<DeleteResult> {
+export async function deleteEventForUser(userId: string, id: string, occurrenceDate?: string, actor: "user" | "ai" = "user"): Promise<DeleteResult> {
   const existing = await prisma.calendarItem.findFirst({ where: { id, userId } });
   if (!existing) throw new EventNotFoundError();
+  const before = toApiEvent(existing);
 
   if (occurrenceDate) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(occurrenceDate)) throw new EventValidationError("occurrenceDate must be YYYY-MM-DD");
     const repeat = (existing.repeat as Repeat | null) ?? { kind: "none" };
     if (repeat.kind && repeat.kind !== "none") {
       const exdates = Array.from(new Set([...(repeat.exdates ?? []), occurrenceDate]));
-      await prisma.calendarItem.update({ where: { id }, data: { repeat: { ...repeat, exdates } as unknown as Prisma.InputJsonValue } });
+      const updated = await prisma.calendarItem.update({ where: { id }, data: { repeat: { ...repeat, exdates } as unknown as Prisma.InputJsonValue } });
+      if (actor === "ai") await logAiAction(userId, "delete", before, toApiEvent(updated), occurrenceDate).catch(() => {});
       return { ok: true, mode: "occurrence", id };
     }
     // Not recurring → "this occurrence" is the whole event.
   }
   await prisma.calendarItem.delete({ where: { id } });
+  if (actor === "ai") await logAiAction(userId, "delete", before, null, occurrenceDate).catch(() => {});
   return { ok: true, mode: "series", id };
+}
+
+// ── AI operation log (design §16 / ActionLog): durable, per-user record of AI calendar
+// mutations so the user can review and back-track them, independent of the in-session ⌘Z stack.
+// Payload stores before/after ApiEvent snapshots → revert is a per-op inverse.
+
+interface OpPayload { eventId?: string; before: ApiEvent | null; after: ApiEvent | null; occurrenceDate: string | null }
+
+async function logAiAction(userId: string, kind: "create" | "update" | "delete", before: ApiEvent | null, after: ApiEvent | null, occurrenceDate?: string): Promise<void> {
+  const payload: OpPayload = { eventId: (after ?? before)?.id, before, after, occurrenceDate: occurrenceDate ?? null };
+  await prisma.actionLog.create({ data: { userId, actor: "AI", kind, status: "APPLIED", payload: payload as unknown as Prisma.InputJsonValue } });
+}
+
+/** An ApiEvent snapshot → a create-route body (to restore it verbatim, preserving id + provenance). */
+function apiEventToCreateBody(ev: ApiEvent) {
+  return {
+    id: ev.id, kind: ev.kind, title: ev.title, notes: ev.notes, color: ev.color,
+    start: ev.start, end: ev.end, track: ev.track, originTz: ev.originTz,
+    tags: ev.tags, repeat: ev.repeat, createdByAI: ev.createdByAI,
+  };
+}
+
+export interface AiActionSummary { id: string; kind: string; status: string; createdAt: string; title: string; occurrenceDate: string | null }
+
+export async function listAiActions(userId: string): Promise<AiActionSummary[]> {
+  const rows = await prisma.actionLog.findMany({ where: { userId, actor: "AI" }, orderBy: { createdAt: "desc" }, take: 50 });
+  return rows.map((r) => {
+    const p = r.payload as unknown as OpPayload;
+    return { id: r.id, kind: r.kind, status: r.status, createdAt: r.createdAt.toISOString(), title: (p.after ?? p.before)?.title ?? "event", occurrenceDate: p.occurrenceDate ?? null };
+  });
+}
+
+// Per-op inverse: create → delete the event; update/delete → restore the before-snapshot. Also
+// marks this op AND any newer AI ops on the SAME event as reverted (reverting a create removes the
+// event, so later edits to it are moot — matches the user's "back-track the creation" intent).
+export async function revertAiAction(userId: string, logId: string): Promise<{ ok: true }> {
+  const entry = await prisma.actionLog.findFirst({ where: { id: logId, userId, actor: "AI" } });
+  if (!entry) throw new EventNotFoundError();
+  if (entry.status === "REVERTED") throw new EventValidationError("This action was already reverted.");
+  const p = entry.payload as unknown as OpPayload;
+
+  if (!p.before && p.after) {
+    await deleteEventForUser(userId, p.after.id).catch((e) => { if (!(e instanceof EventNotFoundError)) throw e; });
+  } else if (p.before) {
+    await deleteEventForUser(userId, p.before.id).catch((e) => { if (!(e instanceof EventNotFoundError)) throw e; });
+    await createEventForUser(userId, apiEventToCreateBody(p.before), "user");
+  }
+
+  const eventId = p.eventId ?? (p.after ?? p.before)?.id;
+  await prisma.actionLog.updateMany({
+    where: { userId, actor: "AI", status: "APPLIED", createdAt: { gte: entry.createdAt }, ...(eventId ? { payload: { path: ["eventId"], equals: eventId } } : {}) },
+    data: { status: "REVERTED" },
+  });
+  return { ok: true };
 }

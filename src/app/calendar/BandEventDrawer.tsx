@@ -45,23 +45,30 @@ export default function BandEventDrawer({ event, onChange, onDelete, onClose, on
       onTags={(t) => onChange(event.id, { tags: t })}
       notes={event.notes ?? ""}
       onNotes={(v) => onChange(event.id, { notes: v })}
+      recurring={(event.repeat?.kind ?? "none") !== "none"}
+      occNotes={event.occurrenceNotes?.[focusOcc ?? `${monthPrefix}-${pad(event.startDay)}`] ?? ""}
+      onOccNotes={(v) => { const k = focusOcc ?? `${monthPrefix}-${pad(event.startDay)}`; onChange(event.id, { occurrenceNotes: { ...(event.occurrenceNotes ?? {}), [k]: v } }); }}
       onDelete={() => onDelete(event.id)}
       onClose={onClose}
+      configChildren={
+        <div className="cc-dw-row cc-dw-when">
+          <span className="cc-dw-label">Track</span>
+          <div className="cc-seg" role="group" aria-label="Track">
+            {[0, 1, 2, 3].map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={`cc-seg-btn${event.track === t ? " sel" : ""}`}
+                onClick={() => onChange(event.id, { track: t })}
+              >
+                T{t + 1}
+              </button>
+            ))}
+          </div>
+        </div>
+      }
     >
       <div className="cc-dw-row cc-dw-when">
-        <span className="cc-dw-label">Track</span>
-        <div className="cc-seg" role="group" aria-label="Track">
-          {[0, 1, 2, 3].map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={`cc-seg-btn${event.track === t ? " sel" : ""}`}
-              onClick={() => onChange(event.id, { track: t })}
-            >
-              T{t + 1}
-            </button>
-          ))}
-        </div>
         <input
           type="date" min={minDate} max={maxDate}
           value={`${monthPrefix}-${pad(event.startDay)}`}

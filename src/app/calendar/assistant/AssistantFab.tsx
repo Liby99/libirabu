@@ -7,8 +7,9 @@ import AssistantPanel from "./AssistantPanel";
 import { useAssistant } from "./useAssistant";
 import "./assistant.css";
 
-const SIZE = 52; // FAB diameter (px)
+const SIZE = 42; // FAB diameter (px)
 const INSET = 20; // distance from the viewport edge
+const ACTIVITY_W = 52; // left activity bar — keep the FAB clear of it (it spans the full height)
 const STORE_KEY = "assistant.fab.pos";
 const F = [0, 1 / 3, 1 / 2, 2 / 3, 1]; // fractional positions along an edge
 
@@ -21,8 +22,9 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 3); // easeOutCubic
 
 function anchorPixel(a: Anchor, W: number, H: number): Pos {
+  const left = ACTIVITY_W + INSET; // leftmost x — just to the right of the activity bar
   return {
-    x: clamp(INSET + a.fx * (W - SIZE - 2 * INSET), 0, Math.max(0, W - SIZE)),
+    x: clamp(left + a.fx * (W - SIZE - INSET - left), ACTIVITY_W, Math.max(0, W - SIZE)),
     y: clamp(INSET + a.fy * (H - SIZE - 2 * INSET), 0, Math.max(0, H - SIZE)),
   };
 }
@@ -50,7 +52,7 @@ export default function AssistantFab() {
   const anchorRef = useRef<Anchor>({ fx: 1, fy: 1 }); // current snapped anchor (default: bottom-right)
   const draggingRef = useRef(false);
   const animRef = useRef<number | null>(null);
-  const { messages, busy, send, clear } = useAssistant();
+  const { messages, busy, send, stop, retry, clear, resolveDelete, listConversations, loadConversation, deleteConversation, getSettings, setModel } = useAssistant();
 
   const cancelAnim = useCallback(() => {
     if (animRef.current != null) { cancelAnimationFrame(animRef.current); animRef.current = null; }
@@ -111,7 +113,7 @@ export default function AssistantFab() {
     let moved = false;
     const onMove = (me: MouseEvent) => {
       if (Math.abs(me.movementX) + Math.abs(me.movementY) > 0) { moved = true; draggingRef.current = true; }
-      setPos({ x: clamp(me.clientX - dx, 0, window.innerWidth - SIZE), y: clamp(me.clientY - dy, 0, window.innerHeight - SIZE) });
+      setPos({ x: clamp(me.clientX - dx, ACTIVITY_W, window.innerWidth - SIZE), y: clamp(me.clientY - dy, 0, window.innerHeight - SIZE) });
     };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
@@ -148,11 +150,11 @@ export default function AssistantFab() {
         title="AI assistant"
         aria-label="AI assistant"
       >
-        <Sparkles size={20} />
+        <Sparkles size={17} />
       </button>
       {open && (
         <div style={panelStyle} className="ca-panel-wrap">
-          <AssistantPanel messages={messages} busy={busy} send={send} onClear={clear} onClose={() => setOpen(false)} />
+          <AssistantPanel messages={messages} busy={busy} send={send} onStop={stop} onRetry={retry} onClear={clear} onClose={() => setOpen(false)} onResolveDelete={resolveDelete} onListConversations={listConversations} onLoadConversation={loadConversation} onDeleteConversation={deleteConversation} onGetSettings={getSettings} onSetModel={setModel} />
         </div>
       )}
     </>,

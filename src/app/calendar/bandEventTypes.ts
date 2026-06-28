@@ -13,4 +13,5 @@ export interface BandEvent {
   tags?: string[];
   repeat?: import("@/lib/calendar/api").Repeat;
   createdByAI?: boolean; // provenance: created/edited by the AI assistant
+  occurrenceNotes?: Record<string, string>; // recurring: per-occurrence notes keyed by date
 }

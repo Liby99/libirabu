@@ -14,6 +14,8 @@ export interface TimedEvent {
   tags?: string[];
   repeat?: import("@/lib/calendar/api").Repeat;
   createdByAI?: boolean; // provenance: created/edited by the AI assistant
+  promoteTrack?: number | null; // promoted to a ghost band on this lane 0–3; null = not promoted
+  occurrenceNotes?: Record<string, string>; // recurring: per-occurrence notes keyed by date
 }
 
 export const EVENT_COLORS = ["default", "blue", "indigo", "cyan", "green", "darkgreen", "yellow", "orange", "red", "purple"] as const;

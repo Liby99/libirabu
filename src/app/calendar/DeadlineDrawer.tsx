@@ -3,6 +3,7 @@
 import { Deadline } from "./deadlineTypes";
 import { DEADLINE_TZS, convertWallClock, NO_REPEAT } from "@/lib/calendar/api";
 import EventDrawerShell from "./EventDrawerShell";
+import PromoteEditor from "./PromoteEditor";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const hhmm = (hour: number) => {
@@ -56,8 +57,12 @@ export default function DeadlineDrawer({ event, mainTz, onChange, onDelete, onCl
       onTags={(t) => onChange(event.id, { tags: t })}
       notes={event.notes ?? ""}
       onNotes={(v) => onChange(event.id, { notes: v })}
+      recurring={(event.repeat?.kind ?? "none") !== "none"}
+      occNotes={event.occurrenceNotes?.[focusOcc ?? `${event.year}-${pad(event.month + 1)}-${pad(event.day)}`] ?? ""}
+      onOccNotes={(v) => { const k = focusOcc ?? `${event.year}-${pad(event.month + 1)}-${pad(event.day)}`; onChange(event.id, { occurrenceNotes: { ...(event.occurrenceNotes ?? {}), [k]: v } }); }}
       onDelete={() => onDelete(event.id)}
       onClose={onClose}
+      configChildren={<PromoteEditor promoteTrack={event.promoteTrack} onChange={(t) => onChange(event.id, { promoteTrack: t })} />}
     >
       <div className="cc-dw-row cc-dw-when">
         <input type="date" value={editDate} onChange={(e) => { if (e.target.value) applyEdit(e.target.value, editTime); }} />

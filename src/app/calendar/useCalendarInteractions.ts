@@ -17,6 +17,10 @@ const sameHover = (a: Hover, b: Hover) =>
 // Safari's GestureEvent isn't in the standard DOM lib types.
 type GestureLikeEvent = { scale: number; clientX: number; clientY: number; preventDefault: () => void };
 
+// True while an event drawer is open (CalendarCanvas toggles this class on <body>). The
+// canvas freezes its scroll/zoom gestures then, so the masked calendar can't move underneath.
+const drawerOpen = () => typeof document !== "undefined" && document.body.classList.contains("cc-drawer-open");
+
 // ── URL state (year / view level / month / week) ───────────────────────────
 // The calendar position is mirrored in the query string so a refresh restores it:
 //   year view → ?y=2026 · month view → ?y=2026&m=7 · week view → ?y=2026&m=7&w=2
@@ -158,6 +162,7 @@ export function useCalendarInteractions() {
     const arm = () => { clearTimeout(idle); idle = window.setTimeout(() => { idle = 0; snapNow(); }, 240); };
     const onStart = (e: GestureLikeEvent) => {
       e.preventDefault();
+      if (drawerOpen()) return; // a drawer is open → freeze the canvas (zoom disabled)
       cancelTween(); cancelWeekTween(); clearSnap();
       startZ = zRef.current;
       const rect = el.getBoundingClientRect();
@@ -166,6 +171,7 @@ export function useCalendarInteractions() {
     };
     const onChange = (e: GestureLikeEvent) => {
       e.preventDefault();
+      if (drawerOpen()) return;
       const vpNow = { w: el.clientWidth, h: el.clientHeight };
       const nz = Math.max(0, Math.min(2, startZ + Math.log2(e.scale) * 0.6)); // lower = slower
       // Lock focus/week once, based on the level we STARTED at + the gesture origin.
@@ -214,6 +220,7 @@ export function useCalendarInteractions() {
     };
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // pinch handled via gesture events
+      if (drawerOpen()) return; // a drawer is open → freeze the canvas (scroll/zoom disabled)
       if (zRef.current < 0.5 && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
         e.preventDefault();
         const max = yearMaxScroll({ w: el.clientWidth, h: el.clientHeight });

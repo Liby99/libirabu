@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       async start(controller) {
         const send = (obj: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
         try {
-          for await (const ev of runAgent({ userId, message, view, history: history as ChatMessage[] | undefined, attachments })) {
+          for await (const ev of runAgent({ userId, message, view, history: history as ChatMessage[] | undefined, attachments, signal: req.signal })) {
             send(ev);
           }
         } catch (e) {

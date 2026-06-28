@@ -11,6 +11,7 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  cursorLine?: number | null; // ⌘-clicked source line → place the caret there + focus on mount
 }
 
 const MONO = "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace)";
@@ -23,6 +24,8 @@ const theme = EditorView.theme({
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": { fontFamily: MONO, lineHeight: "1.55" },
   ".cm-content": { padding: "12px 0 40px", caretColor: "var(--accent-dark)" },
+  // drop CodeMirror's default left line padding so text/placeholder align with the drawer edge
+  ".cm-line": { padding: "0 2px 0 0" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent-dark)" },
   ".cm-gutters": { display: "none" },
   // a translucent tint so selected text stays readable. !important is required: CodeMirror's
@@ -81,12 +84,22 @@ const openLinks = EditorView.domEventHandlers({
   },
 });
 
-export default function NotesEditor({ value, onChange, placeholder }: Props) {
+export default function NotesEditor({ value, onChange, placeholder, cursorLine }: Props) {
+  // On mount (the editor remounts when you switch into it), drop the caret on the ⌘-clicked
+  // line and focus, so editing continues from where the preview was clicked.
+  const onCreate = (view: EditorView) => {
+    if (cursorLine == null) return;
+    const ln = Math.max(1, Math.min(view.state.doc.lines, Math.round(cursorLine)));
+    const pos = view.state.doc.line(ln).from;
+    view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+    view.focus();
+  };
   return (
     <CodeMirror
       className="cc-dw-cm"
       value={value}
       onChange={onChange}
+      onCreateEditor={onCreate}
       placeholder={placeholder}
       height="100%"
       theme={theme}

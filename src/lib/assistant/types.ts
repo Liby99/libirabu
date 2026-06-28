@@ -43,6 +43,10 @@ export interface AssistantTool {
   def: ToolDef;
   /** false → mutating: gated by the auditor and emits calendar_changed (design §7). */
   readOnly: boolean;
+  /** true → require explicit human confirmation in the UI before executing (e.g. delete).
+   *  run() must be a non-mutating RESOLVE that returns the spec to confirm; the actual
+   *  mutation happens via /api/assistant/execute when the user clicks Confirm. */
+  confirm?: boolean;
   /** The action-card kind to surface when this tool runs. */
   actionKind: ActionKind;
   /** A short, human summary of an invocation (for the action bubble). */

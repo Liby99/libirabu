@@ -26,6 +26,8 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string | null, occ?: string | null) => void;
   tlScroll: number;
+  editingId: string | null;
+  onEditConsumed: () => void;
 }
 
 const MIN = 0.25; // 15-minute minimum duration / gap
@@ -44,7 +46,7 @@ function buildLayout(events: TimedEvent[], year: number): Map<string, EventLayou
   return out;
 }
 
-export default function EventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, onEventHover, onOpenDetail, onContextMenu, selectedId, onSelect, tlScroll }: Props) {
+export default function EventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, onEventHover, onOpenDetail, onContextMenu, selectedId, onSelect, tlScroll, editingId, onEditConsumed }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   // While resizing, keep the layout frozen so growing an event doesn't reorder it;
   // recompute (and briefly enable CSS transitions to animate the reflow) on release.
@@ -259,6 +261,8 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                 onContextMenu={onContextMenu}
                 selected={ev.id === selectedId}
                 onSelect={onSelect}
+                requestEdit={editingId === ev.id}
+                onEditConsumed={onEditConsumed}
               />
             ))}
             {draft && (

@@ -51,6 +51,7 @@ export async function audit(
   userTurns: string[],
   call: { name: string; arguments: unknown },
   context = "",
+  model?: string,
 ): Promise<AuditVerdict> {
   const today = new Date().toISOString().slice(0, 10);
   const messages: ChatMessage[] = [
@@ -65,8 +66,9 @@ export async function audit(
   ];
   try {
     // Generous budget: gpt-oss spends tokens on hidden reasoning before the JSON verdict; too small
-    // a cap yields empty content and the auditor silently fails open.
-    const res = await getLLM().chat(messages, { temperature: 0, maxTokens: 512 });
+    // a cap yields empty content (finish=length) and the auditor silently fails open.
+    const res = await getLLM().chat(messages, { temperature: 0, maxTokens: 1536, model });
+    console.log(`[asst-audit] finish=${res.finishReason} verdict=${(res.message.content || "(empty)").replace(/\s+/g, " ").slice(0, 140)}`);
     const v = parseVerdict(res.message.content);
     if (v) return v;
     // Unparseable verdict: for the additive-only P1 surface, fail OPEN (permit) but flag it.

@@ -25,11 +25,13 @@ interface Props {
   onSelect: (id: string | null, occ?: string | null) => void;
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
+  editingId: string | null;
+  onEditConsumed: () => void;
 }
 
 type Draft = { month: number; track: number; a: number; b: number };
 
-export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, selectedId, onSelect, onOpenDetail, onContextMenu }: Props) {
+export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, selectedId, onSelect, onOpenDetail, onContextMenu, editingId, onEditConsumed }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false);
   const createdRef = useRef(false); // suppress the trailing click only after a real create-drag
@@ -226,6 +228,8 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
           onTitleCommit={(eid, title) => updateEvent(eid, { title })}
           onOpenDetail={onOpenDetail}
           onContextMenu={onContextMenu}
+          requestEdit={editingId === ev.id}
+          onEditConsumed={onEditConsumed}
         />
       ))}
       {draft && (() => {

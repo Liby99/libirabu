@@ -2,8 +2,8 @@
 // They read the same Postgres source of truth as the calendar UI (design §8).
 
 import { prisma } from "@/lib/prisma";
-import { EVENT_KINDS, EventKind, toApiEvent, wallClock, parseWallClock } from "@/lib/calendar/api";
-import { createEventForUser } from "@/app/api/calendar/_helpers";
+import { EVENT_KINDS, EventKind, Repeat, toApiEvent, wallClock, parseWallClock } from "@/lib/calendar/api";
+import { createEventForUser, updateEventForUser } from "@/app/api/calendar/_helpers";
 import type { AssistantTool } from "../types";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -162,4 +162,72 @@ const setView: AssistantTool = {
   },
 };
 
-export const calendarTools: AssistantTool[] = [getScreenState, listEvents, createEvent, setView];
+const updateEvent: AssistantTool = {
+  readOnly: false, // mutating → auditor-gated; applies immediately (auto-update policy)
+  actionKind: "update_event",
+  summarize: (a) => {
+    const p = a.patch as Record<string, unknown> | undefined;
+    return `Updated ${p && typeof p.title === "string" ? `"${p.title}"` : "an event"}`;
+  },
+  def: {
+    name: "update_event",
+    description:
+      "Edit an existing event by id. `patch` may include any of: title, notes, color, start, end, track, originTz, originAt, tags, repeat (kind cannot change). Times use the same formats as create_event. Use this to move/rename/recolor an event or change its notes/tags.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        patch: {
+          type: "object",
+          properties: {
+            title: { type: "string" }, notes: { type: "string" }, color: { type: "string" },
+            start: { type: "string" }, end: { type: "string" }, track: { type: "integer", minimum: 0, maximum: 3 },
+            originTz: { type: "string" }, originAt: { type: "string" },
+            tags: { type: "array", items: { type: "string" } },
+            repeat: { type: "object" },
+          },
+        },
+      },
+      required: ["id", "patch"],
+      additionalProperties: false,
+    },
+  },
+  async run(args, ctx) {
+    return updateEventForUser(ctx.userId, String(args.id), (args.patch as unknown) ?? {}, "ai");
+  },
+};
+
+const deleteEvent: AssistantTool = {
+  readOnly: false, // mutating → auditor-gated…
+  confirm: true,   // …AND requires explicit human confirmation in the UI before executing
+  actionKind: "delete_event",
+  summarize: (a) =>
+    typeof a.occurrenceDate === "string" ? `Delete one occurrence (${a.occurrenceDate})` : "Delete an event",
+  def: {
+    name: "delete_event",
+    description:
+      "Delete an event by id. To remove only ONE occurrence of a recurring event (a one-time skip), pass occurrenceDate 'YYYY-MM-DD' — never delete the whole series for a single skip. Deletion REQUIRES the user to confirm in the UI; after calling this, tell the user you've queued the deletion for their confirmation (do not say it's already deleted).",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        occurrenceDate: { type: "string", description: "YYYY-MM-DD to remove just that occurrence of a recurring event." },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  // RESOLVE ONLY — no deletion here. Returns the spec the user confirms; /api/assistant/execute
+  // performs the actual delete on confirmation.
+  async run(args, ctx) {
+    const id = String(args.id);
+    const row = await prisma.calendarItem.findFirst({ where: { id, userId: ctx.userId } });
+    if (!row) throw new Error("event not found");
+    const occ = typeof args.occurrenceDate === "string" ? args.occurrenceDate : null;
+    const repeat = (row.repeat as Repeat | null) ?? { kind: "none" };
+    const recurring = !!repeat.kind && repeat.kind !== "none";
+    return { id, title: row.title, occurrenceDate: occ, mode: occ && recurring ? "occurrence" : "series" };
+  },
+};
+
+export const calendarTools: AssistantTool[] = [getScreenState, listEvents, createEvent, updateEvent, deleteEvent, setView];
