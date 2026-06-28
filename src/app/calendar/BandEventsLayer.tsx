@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { RotateCw } from "lucide-react";
+import EventBadges from "./EventBadges";
 import { Vp } from "./types";
 import { LABEL_W } from "./constants";
 import { frameFor } from "./frames";
@@ -204,7 +204,7 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(ev.id, r.left + r.width / 2, r.top, occDate(o)); }}
           >
             <div className="cc-tevent-inner"><div className="cc-tevent-title">{ev.title}</div></div>
-            <RotateCw className="cc-rec-badge" size={10} strokeWidth={2.5} aria-hidden />
+            <EventBadges ai={ev.createdByAI} recurring />
           </div>
         );
       })}

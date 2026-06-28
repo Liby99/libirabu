@@ -1,0 +1,143 @@
+{
+  "schemaVersion": "1.0",
+  "id": "tommy-meeting-002",
+  "task": "My student Tommy is trying to schedule a meeting on the topic of \"Driving Scenario Synthesis\" on Monday 1pm. Help me do that.",
+  "model_as_ideal_agent": "claude-opus-4-8",
+  "authoredOn": "2026-06-28",
+  "today": "2026-06-28",
+  "designNotes": [
+    "Primary purpose: demonstrate GRACEFUL DEGRADATION (design 16) for a 'planned' module. People is not built yet, so the ideal agent attempts to resolve Tommy, gets {available:false}, and degrades — it still creates the meeting fully, asks the user for Tommy's contact, and uses agent-memory as the stand-in until People exists.",
+    "Color is inferred, not hardcoded: the user did not say 'blue' in the prompt (that's their private convention). The agent learns it by searching existing student/research meetings, then remember()s it. initialCalendar seeds a blue research meeting for reproducibility.",
+    "Two-turn trace: a role:'user' step marks the second turn (the user supplies Tommy's info + a doc link). 'final' = the user-facing message that ends each assistant turn.",
+    "Today is Sun 2026-06-28, so the first Monday occurrence is 2026-06-29; recurrence is weekly on Monday (days:[1], 0=Sun..6=Sat).",
+    "The meeting topic IS the project name from pldi-2027-001, so the agent attaches @project:driving-scene-synthesis as a soft reference (resolves once a Projects module exists)."
+  ],
+  "initialView": { "year": 2026, "zoom": "week", "focusedMonth": 5, "focusedWeekStart": "2026-06-28" },
+  "initialCalendar": [
+    {
+      "id": "seed-mtg-alice", "kind": "timed", "title": "Alice — Sim2Real transfer",
+      "color": "blue", "notes": "Weekly check-in. Alice Chen <achen@cs.jhu.edu>.",
+      "allDay": false, "start": "2026-06-30T15:00:00", "end": "2026-06-30T16:00:00",
+      "track": null, "originTz": null, "tags": ["research"],
+      "repeat": { "kind": "weekly", "days": [2] }, "createdAt": "2026-01-15T00:00:00Z", "updatedAt": "2026-01-15T00:00:00Z"
+    },
+    {
+      "id": "seed-mtg-lab", "kind": "timed", "title": "Lab meeting",
+      "color": "blue", "notes": "", "allDay": false, "start": "2026-07-01T10:00:00", "end": "2026-07-01T11:00:00",
+      "track": null, "originTz": null, "tags": ["research"],
+      "repeat": { "kind": "weekly", "days": [3] }, "createdAt": "2026-01-15T00:00:00Z", "updatedAt": "2026-01-15T00:00:00Z"
+    }
+  ],
+  "steps": [
+    {
+      "role": "assistant",
+      "thought": "The user wants a recurring meeting with their student Tommy on 'Driving Scenario Synthesis', Mondays at 1pm. Plan: (1) pick a color the way the user colors similar meetings — by checking existing ones, not guessing; (2) create a weekly timed event Mon 13:00–14:00 starting next Monday (2026-06-29); (3) resolve Tommy's full name + email via the People directory; (4) put attendees in the notes. Let me confirm the current view first.",
+      "tool_call": { "name": "get_screen_state", "args": {} }
+    },
+    {
+      "role": "tool", "name": "get_screen_state",
+      "result": { "year": 2026, "zoom": "week", "focusedMonth": 5, "focusedWeekStart": "2026-06-28" }
+    },
+    {
+      "role": "assistant",
+      "thought": "Choose the color by convention: scan existing meetings to see how the user colors research meetings with students.",
+      "tool_call": { "name": "list_events", "args": { "from": "2026-06-01", "to": "2026-07-31" } }
+    },
+    {
+      "role": "tool", "name": "list_events",
+      "result": { "events": [
+        { "id": "seed-mtg-alice", "kind": "timed", "title": "Alice — Sim2Real transfer", "color": "blue", "tags": ["research"], "start": "2026-06-30T15:00:00", "repeat": { "kind": "weekly", "days": [2] } },
+        { "id": "seed-mtg-lab", "kind": "timed", "title": "Lab meeting", "color": "blue", "tags": ["research"], "start": "2026-07-01T10:00:00", "repeat": { "kind": "weekly", "days": [3] } }
+      ] }
+    },
+    {
+      "role": "assistant",
+      "thought": "The user's existing research meetings (Alice, Lab meeting) are blue + tagged research. I'll match that: blue, tag research. Persist the convention so I don't re-derive it next time.",
+      "tool_call": { "name": "remember", "args": { "key": "color-convention.research-meeting", "value": { "color": "blue", "tag": "research", "source": "inferred from existing recurring student/research meetings" } } }
+    },
+    { "role": "tool", "name": "remember", "result": { "ok": true } },
+    {
+      "role": "assistant",
+      "thought": "Now resolve Tommy's full name + email from the People directory so I can put it in the notes.",
+      "tool_call": { "name": "search_people", "args": { "query": "Tommy" } }
+    },
+    {
+      "role": "tool", "name": "search_people",
+      "result": { "available": false, "module": "people", "note": "The People directory module is planned but not built yet." }
+    },
+    {
+      "role": "assistant",
+      "thought": "Graceful degradation: the People module isn't available, so I can't auto-resolve Tommy's email. I won't fabricate it. I'll create the meeting now (that's the main ask), leave Tommy as an attendee with email TBD plus a TODO, and ask the user for his details — offering to save him to People once that module exists. The topic matches the driving-scene-synthesis project, so I'll attach it as a soft @project reference.",
+      "tool_call": { "name": "create_event", "args": {
+        "kind": "timed",
+        "title": "Tommy — Driving Scenario Synthesis",
+        "start": "2026-06-29T13:00:00", "end": "2026-06-29T14:00:00",
+        "color": "blue",
+        "tags": ["research"],
+        "repeat": { "kind": "weekly", "days": [1] },
+        "notes": "Weekly research meeting with **Tommy** on *Driving Scenario Synthesis*. @project:driving-scene-synthesis\n\nAttendees: Tommy (email TBD).\n\n- [ ] add Tommy's full name + email to this note !! #research"
+      } },
+      "audit": { "decision": "allow", "risk": "low", "reason": "User asked to schedule this exact meeting; an additive recurring event tagged research is a faithful, in-scope action. No People write attempted (module unavailable)." }
+    },
+    {
+      "role": "tool", "name": "create_event",
+      "result": { "id": "ev-tommy-dss", "kind": "timed", "title": "Tommy — Driving Scenario Synthesis", "color": "blue", "start": "2026-06-29T13:00:00", "end": "2026-06-29T14:00:00", "tags": ["research"], "repeat": { "kind": "weekly", "days": [1] }, "allDay": false }
+    },
+    {
+      "role": "assistant",
+      "final": "Set up your weekly meeting with Tommy: **Mondays 1:00–2:00pm**, starting **Mon Jun 29**, colored **blue** and tagged `research` to match your other student/research meetings.\n\nOne thing I couldn't do automatically: I tried to look up **Tommy's full name and email**, but the People directory isn't built yet, so I left him as an attendee with email TBD (and a TODO on the event). **What's his full name and email?** I'll add it to the notes — and once a People module exists I'll save him there so I can resolve him next time.\n\nTwo quick things while I'm here: **is anyone else joining**, and **is there a doc link** (agenda / shared notes) I should attach to the meeting?"
+    },
+    {
+      "role": "user",
+      "text": "It's Tommy Zhang, tzhang@cs.jhu.edu. Yes, attach this doc: https://docs.google.com/document/d/1aBcDeF/edit . No one else for now."
+    },
+    {
+      "role": "assistant",
+      "thought": "Update the meeting notes with Tommy's full name + email and the doc link, and clear the placeholder TODO. The 'add Tommy to People' intent is event-driven (it should fire when the People module ships, not on a date) — so I won't shoehorn it into a start: TODO. Instead I'll record Tommy as a soft contact in agent memory; when People comes online the agent can offer to migrate saved contacts.",
+      "tool_call": { "name": "update_event", "args": {
+        "id": "ev-tommy-dss",
+        "patch": { "notes": "Weekly research meeting with **Tommy Zhang** on *Driving Scenario Synthesis*. @project:driving-scene-synthesis\n\nAttendees: Tommy Zhang <tzhang@cs.jhu.edu>.\nDoc: [shared notes](https://docs.google.com/document/d/1aBcDeF/edit)" }
+      } },
+      "audit": { "decision": "allow", "risk": "low", "reason": "User supplied this contact info and doc link and asked to attach them; updating the same event's notes is directly requested and in scope." }
+    },
+    {
+      "role": "tool", "name": "update_event",
+      "result": { "id": "ev-tommy-dss", "kind": "timed", "title": "Tommy — Driving Scenario Synthesis", "color": "blue", "tags": ["research"], "allDay": false }
+    },
+    {
+      "role": "assistant",
+      "thought": "Persist Tommy as a soft contact in agent memory so future meetings can reuse his email without re-asking, even before People exists.",
+      "tool_call": { "name": "remember", "args": { "key": "contact.tommy", "value": { "fullName": "Tommy Zhang", "email": "tzhang@cs.jhu.edu", "relation": "student", "project": "driving-scene-synthesis", "pendingPeopleImport": true, "note": "saved here until the People module exists; migrate then" } } }
+    },
+    { "role": "tool", "name": "remember", "result": { "ok": true } },
+    {
+      "role": "assistant",
+      "final": "Updated — the meeting now lists **Tommy Zhang <tzhang@cs.jhu.edu>** and links the shared doc. I saved Tommy to my memory so I won't need to ask again, and I'll add him to the People directory automatically once that module ships. You're all set: **Tommy — Driving Scenario Synthesis**, Mondays 1–2pm, blue, `research`."
+    }
+  ],
+  "expectedActions": [
+    "get_screen_state",
+    "list_events -> infer meeting color (blue) from existing research meetings",
+    "remember(color-convention.research-meeting)",
+    "search_people(Tommy) -> available:false (degrade)",
+    "create_event(timed, weekly Mon 1pm, blue, research)",
+    "clarifying follow-up (contact? others? doc link?)",
+    "[turn 2] update_event(notes += Tommy Zhang + doc link)",
+    "remember(contact.tommy)"
+  ],
+  "capabilitiesUsed": ["get_screen_state", "list_events", "remember", "recall", "search_people(unavailable)", "create_event", "update_event", "auditor", "todo-dsl", "convention-inference", "graceful-degradation"],
+  "rubric": [
+    "Creates a weekly timed event on Mondays 13:00–14:00 starting the next Monday (2026-06-29), repeat weekly on Monday.",
+    "Color is blue and tag is research, chosen by inspecting existing student/research meetings (not hardcoded), and the convention is remembered.",
+    "Attempts to resolve Tommy via People, receives available:false, and DEGRADES GRACEFULLY: still creates the meeting, does not fabricate an email, asks the user for it.",
+    "Does NOT call any People write endpoint (module unavailable); instead saves Tommy to agent memory with a pendingPeopleImport flag (event-driven migration when People ships) rather than abusing a date-based start: TODO.",
+    "Asks the clarifying follow-ups: who else is joining, and is there a doc link to attach.",
+    "In turn 2, updates the same event's notes with the supplied name/email and the doc link (native markdown link), and resolves the placeholder TODO.",
+    "Attaches @project:driving-scene-synthesis as a soft reference because the topic matches that project.",
+    "Persists contact.tommy to memory so it need not re-ask next time."
+  ],
+  "openFollowups": [
+    "Recurring end date? (the meeting currently recurs indefinitely)",
+    "Preferred meeting location / video link?"
+  ]
+}

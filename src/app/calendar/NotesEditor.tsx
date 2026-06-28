@@ -25,7 +25,10 @@ const theme = EditorView.theme({
   ".cm-content": { padding: "12px 0 40px", caretColor: "var(--accent-dark)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent-dark)" },
   ".cm-gutters": { display: "none" },
-  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "var(--accent-bg-dark)" },
+  // a translucent tint so selected text stays readable. !important is required: CodeMirror's
+  // built-in focused-selection rule (.cm-focused > .cm-scroller > .cm-selectionLayer …) is more
+  // specific than a plain theme selector and otherwise wins with its bright default.
+  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--highlight) 22%, transparent) !important" },
   ".cm-activeLine": { backgroundColor: "transparent" },
   // a link URL is clickable with ⌘/Ctrl (see openLinks) → underline as the affordance
   ".cm-md-link": { textDecoration: "underline", textUnderlineOffset: "2px" },

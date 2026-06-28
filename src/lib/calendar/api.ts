@@ -102,6 +102,7 @@ export interface ApiEvent {
   originTz: string | null; // deadline only
   tags: string[];
   repeat: Repeat; // {kind:"none"} when not recurring
+  createdByAI: boolean; // provenance: created/edited by the AI assistant
   createdAt: string; // ISO-8601 UTC
   updatedAt: string;
 }
@@ -131,6 +132,7 @@ export const eventCreateSchema = z.object({
   originAt: z.string().min(1).nullish(),          // deadline only: wall-clock in originTz (server → main)
   tags: z.array(z.string().min(1).max(40)).max(50).optional(),
   repeat: repeatSchema.optional(),
+  createdByAI: z.boolean().optional(), // preserved on restore; the AI path forces it true
 });
 export type EventCreate = z.infer<typeof eventCreateSchema>;
 
@@ -226,6 +228,7 @@ export interface EventRow {
   originTz: string | null;
   tags: string[];
   repeat: unknown; // Prisma Json
+  createdByAI: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -245,6 +248,7 @@ export function toApiEvent(row: EventRow): ApiEvent {
     originTz: row.originTz ?? null,
     tags: row.tags ?? [],
     repeat: (row.repeat as Repeat | null) ?? NO_REPEAT,
+    createdByAI: row.createdByAI ?? false,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -277,6 +281,7 @@ export function eventCreateData(input: EventCreate, startWall: string, endWall: 
     originTz: input.kind === "deadline" ? input.originTz ?? null : null,
     tags: input.tags ?? [],
     repeat: input.repeat ?? NO_REPEAT, // stored as a JSON object (never DB-null)
+    createdByAI: input.createdByAI ?? false,
   };
 }
 

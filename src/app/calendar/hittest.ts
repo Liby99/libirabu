@@ -2,9 +2,9 @@
 
 import { Vp } from "./types";
 import { LABEL_W, MNAME_W } from "./constants";
-import { yearFrame, focusGeom } from "./frames";
+import { yearFrame, focusGeom, frameFor } from "./frames";
 import { timelineInfo, pointToSlot } from "./eventGeom";
-import { firstDOW, weeksInMonth, weekStartDOM, weekOfDate, resolveDate } from "./dates";
+import { firstDOW, weeksInMonth, weekOfDate, resolveDate } from "./dates";
 import { daysInMonth } from "./mock";
 
 // Year phase: which month's NAME (left gutter zone) is under the cursor — so only
@@ -85,13 +85,15 @@ export function cellInWeek(px: number, py: number, z: number, focus: number, wee
   };
 }
 
-// Week phase: which day column is under the cursor (may be a spillover day).
-export function dayAtPointInWeek(px: number, focus: number, week: number, vp: Vp): { month: number; day: number; week: number } | null {
-  const dayW = (vp.w - LABEL_W) / 7;
+// Week phase: which day column is under the cursor (may be a spillover day). Uses the LIVE
+// frame (fractional `week` → arbitrary day-aligned start), matching the rendered columns and
+// the create path's `pointToSlot` — `dom = floor((px - x0)/colW) + 1`.
+export function dayAtPointInWeek(px: number, z: number, focus: number, week: number, vp: Vp, scrollY: number): { month: number; day: number; week: number } | null {
   if (px < LABEL_W) return null;
-  const i = Math.floor((px - LABEL_W) / dayW);
-  if (i < 0 || i > 6) return null;
-  const r = resolveDate(focus, weekStartDOM(focus, week) + i);
+  const f = frameFor(focus, z, focus, week, vp, scrollY);
+  if (f.dayW <= 0) return null;
+  const dom = Math.floor((px - f.x0) / f.dayW) + 1; // focus-relative; may be a spillover day
+  const r = resolveDate(focus, dom);
   if (!r) return null;
   return { month: r.month, day: r.day, week: weekOfDate(r.month, r.day) };
 }

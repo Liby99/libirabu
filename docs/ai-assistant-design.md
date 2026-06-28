@@ -34,6 +34,13 @@ Status: **Draft v0.1** · Owner: ziyang · Last updated: 2026-06-27
 - No conversation undo/redo. Sent messages are final (the *calendar* edits the assistant makes
   remain undoable through the existing calendar history stack — see §7.3).
 - No fine-tuning. Gold trajectories (§12) are for few-shot / evals, not training, in v1.
+- **No new domain modules built now** (People, Funding, Travel, reimbursement, …). These are future,
+  *interplaying* subsystems (e.g. a proposal → a Funding entry in state "Preparing"; a conference
+  trip → a Travel entry → a reimbursement TODO due 3 months after the trip). The assistant should
+  **still attempt** them, find via the tool layer that the endpoint isn't live, **decline to call**
+  it, degrade gracefully, and **record the gap in its own memory** so it improves as modules come
+  online (§16). The only adjacent capability used now is **markdown-checkbox TODOs inside event
+  notes** (§17) — which need no new backend, just note editing.
 
 ---
 
@@ -248,8 +255,14 @@ Mutating tools (audited):
   agent may pass `originAt` + `originTz` (e.g. `"AOE"`) and the server converts to the main-tz `start`
   — critical for conference deadlines (see §15.1). A client id may be supplied (409 on dup).
 - `update_event({ id, patch })` → `ApiEvent` (`PATCH /api/calendar/events/:id`; `kind` immutable).
-  *(flag: `ASSISTANT_ALLOW_UPDATE`)*
-- `delete_event({ id })` → `{ ok: true }` (`DELETE /api/calendar/events/:id`).
+  Also the path for **TODO edits**: adding/checking a TODO = patching the event's `notes` markdown
+  (§17). *(flag: `ASSISTANT_ALLOW_UPDATE`)*
+- `delete_event({ id, occurrenceDate? })` → `{ ok: true }`. Without `occurrenceDate`, deletes the
+  event/series (`DELETE /api/calendar/events/:id`). **With** `occurrenceDate` ("YYYY-MM-DD"), it
+  punches a **hole in a recurrence** by appending that date to `repeat.exdates` (a PATCH, not a
+  delete) — e.g. "skip this week's piano lesson" / "drop lectures on holidays" (Tasks 4–5). The
+  occurrence form is the safer default whenever the user references a single instance, and a key
+  **auditor** case (must never collapse "this one" into the whole series).
   *(flag: `ASSISTANT_ALLOW_DELETE`)*
 - `set_view(patch: Partial<ViewContext>)` → echoes the new view; client applies via `view_change`.
   UI-only, not audited.
@@ -478,12 +491,15 @@ src/
     agent.ts                 # the loop (actor ↔ tools ↔ auditor)
     llm.ts                   # LiteLLM (OpenAI-compatible) client + role aliases
     auditor.ts               # sandboxed audit call + prompt
+    memory.ts                # recall()/remember() over /api/assistant/memory (§16.2)
     tools/
       registry.ts            # { name, schema, readOnly, run }[]  (+ future MCP export)
+      capabilities.ts        # intended modules + status available|planned (§16.1)
       web.ts                 # web_search, web_open
       calendar.ts            # get_screen_state, list_events, create/update/delete_event, set_view
+      todos.ts               # parse/edit "- [ ] " checkboxes in event notes (§17)
     prompts/
-      actor.system.md
+      actor.system.md        # rendered from capabilities + recalled memory
       auditor.system.md
     types.ts                 # ServerEvent, Message, Block, ViewContext, Trajectory
 litellm/
@@ -530,16 +546,61 @@ it can be replayed/scored. The schema lives in `lib/assistant/types.ts` as `Traj
 
 ## 13. Phased implementation plan
 
-- **P0 — Skeleton (read-only).** FAB + panel UI; SSE route; agent loop with `get_screen_state`,
-  `list_events`, `web_search`, `web_open`. Text + action bubbles. No mutations. LiteLLM wired to
-  one backend. *Demo: "what's on my calendar next week?" and "what are the PLDI dates?"*
-- **P1 — Additive writes + auditor.** `create_event` behind the auditor; `calendar_changed` sync to
-  the canvas; the PLDI end-to-end task works. Undo via existing history.
-- **P2 — Attachments + navigation.** PDF upload/extract, link chips, `set_view`/`view_change`.
-- **P3 — Edit/delete + confirmation UX.** Enable `update_event`/`delete_event` behind flags +
-  optional human confirmation; tighten auditor prompt with the gold trajectories as evals.
-- **P4 — Cost down.** Swap aliases to gpt-oss/Kimi/GLM; measure against the trajectory eval set;
-  add fallbacks; optional MCP export of the tool registry.
+- **P0 — Skeleton (read-only). ✅ DONE (2026-06-28).** FAB + panel UI; SSE route; agent loop with
+  `get_screen_state`, `list_events`, `web_search`, `web_open`. Text + action bubbles. No mutations.
+  *Demo: "what's on my calendar next week?" and "what are the PLDI dates?"*
+  - **Divergence (intentional):** P0 talks to the JHU gateway through the existing **`src/lib/llm`
+    provider abstraction** (`getLLM()` → `JhuGatewayProvider`, direct OpenAI-compatible calls), *not*
+    a LiteLLM proxy. The provider interface gives the same backend-swappability without standing up a
+    Python process; **LiteLLM becomes one more `LLMProvider` later** (P4/cost-down) when we need
+    routing/fallbacks across Bedrock + cheap tiers. The `litellm/config.yaml` in §9.2 is the target
+    for that step, not P0.
+  - **View context** is read from the **URL** (`?y&m&w`, which the calendar already persists) in
+    `useAssistant.readView()` — decouples the FAB from the canvas's internal state.
+  - **Files:** `src/lib/assistant/{types,agent}.ts` + `tools/{registry,calendar,web}.ts`;
+    `src/app/api/assistant/chat/route.ts` (SSE); `src/app/calendar/assistant/{AssistantFab,
+    AssistantPanel,useAssistant}.tsx` + `assistant.css`; gateway fix in `src/lib/llm/jhuGateway.ts`;
+    `.env.example`. Non-streaming turns (JHU beta caveat) — SSE still streams text-per-turn + action
+    cards. `web_search` needs `TAVILY_API_KEY` (degrades gracefully); `web_open` is keyless.
+- **P1 — Additive writes + auditor + markdown TODOs. ✅ DONE (2026-06-28).** `create_event` behind
+  the auditor; `calendar_changed` sync to the canvas; **markdown-checkbox TODOs in notes** (§17, via
+  prompt + the create tool's `notes`); the PLDI end-to-end path works. Undo via existing history.
+  - **Shared create path:** `createEventForUser(userId, body)` in `api/calendar/_helpers.ts` (zod +
+    deadline-tz resolution + semantic checks) is used by BOTH the POST route and the `create_event`
+    tool — one validation code path.
+  - **Auditor** (`lib/assistant/auditor.ts`): a separate gpt-oss call seeing ONLY the user's verbatim
+    turns + the proposed call (no actor reasoning / tool output). Returns `{decision,reason,risk}`.
+    Additive-only surface → **fails open** (permit) on unparseable/unavailable; flip to fail-closed
+    when destructive tools land (P3). Verified: gpt-oss returns clean JSON verdicts.
+  - **Canvas sync:** agent emits `calendar_changed`; `useAssistant` dispatches a `calendar:changed`
+    window event; `useEvents`/`useBandEvents`/`useDeadlines` each refetch their kind on it.
+  - **Policy:** auto-create (auditor-gated). `update_event`/`delete_event` still deferred to P3
+    (confirm-delete). Verified: gpt-oss emits valid `create_event` calls incl. `originTz:"AOE"`.
+- **P2 — Attachments + navigation + memory/capabilities. ✅ DONE (2026-06-28).**
+  - **Navigation:** `set_view` tool → `view_change` SSE → `calendar:setview` window event →
+    `CalendarCanvas` applies via selectYear/goToMonth/tweenTo (week → its month).
+  - **Capability registry + graceful degradation:** `tools/capabilities.ts` lists `planned` modules
+    (People/Projects/Funding/Travel/Papers) injected into the system prompt; the actor degrades
+    (does what it can, says it's not built, never fabricates). Prompt-based (no stub tools).
+  - **Agent memory:** `AssistantMemory` model (migration), `lib/assistant/memory.ts`
+    (`recallAll`/`remember`), `remember` tool, auto-recalled into the system prompt each turn.
+  - **Auditor upgrade:** single LLM call given **server-built trusted context** — today's date +
+    existing events on the proposed day (`auditContext.ts`), read straight from the DB (no auditor
+    tool loop → stays injection-isolated). Fixed a false-deny (it lacked the date) + made it lenient
+    on intent/scope vs. date math.
+  - **Attachments:** `/api/assistant/upload` (PDF via `unpdf`, .txt/.md) → extracted text; composer
+    paperclip + chips; chat body `attachments`; injected as actor context (kept OUT of `userTurns`
+    so a malicious file can't reach the auditor).
+  - **Provenance (bonus):** `CalendarItem.createdByAI` + a Sparkles badge cluster (`EventBadges`) so
+    AI-made events are visibly marked next to the recurrence icon.
+- **P3 — Edit/delete + occurrence edits + confirmation UX.** Enable `update_event`/`delete_event`
+  (incl. `occurrenceDate` exdates) behind flags + optional human confirmation; tighten the auditor
+  prompt with the gold trajectories as evals.
+- **P4 — Cost down.** Swap aliases to gpt-oss/Kimi/GLM (Workers-AI ids); measure against the
+  trajectory eval set; add fallbacks; optional MCP export of the tool registry.
+- **Later (separate, non-blocking) — TODO view + domain modules.** The centralized TODO index (§17)
+  and the interplaying modules (Funding, Travel, People, …) land over time; each flips from `planned`
+  to `available` in the capability registry, and the agent's memory fills in as they arrive.
 
 ## 14. Open decisions (for the user)
 
@@ -598,4 +659,156 @@ into §5/§9.2.
 > **embeddings** route (`/gateway/openai/embeddings` with `text-embedding-3-small`, or
 > `workers-ai/@cf/qwen/qwen3-embedding-0.6b`). If/when notes & events get semantic backlinks or RAG,
 > the same LiteLLM proxy serves embeddings under an `embedder` alias — no new infra.
+
+---
+
+## 16. Agent memory & evolving capabilities
+
+The app will grow many interplaying domain modules over time — **Funding** (a proposal → an entry in
+state "Preparing" → … "Submitted"/"Awarded"), **Travel** (a conference trip → a reimbursement TODO
+due 3 months later), **People**, and more. We are **not** building these now. But the calendar is the
+hub ([[calendar-centric-vision]]), and the assistant must behave well *while the system is still
+filling in*. Two mechanisms make that work:
+
+### 16.1 Capability discovery + graceful degradation
+
+The tool layer is the source of truth for **what the assistant can actually do right now.** A
+**capability registry** (`tools/capabilities.ts`) lists every *intended* module with a status:
+`available` (wired tool), or `planned` (known, not yet built). The actor's system prompt is rendered
+from this registry, so the model knows both what exists and what's coming.
+
+Behavior contract when a task touches a `planned` module:
+1. The agent **still reasons about the full ideal workflow** (e.g. "a conference trip should also
+   create a Travel entry and a reimbursement TODO").
+2. It **does not fabricate a call** to a missing endpoint. Either the tool isn't registered (so it
+   can't be called), or a stub returns `{ available: false, module, note }` — both lead the agent to
+   **stop and degrade**, not hallucinate success.
+3. It **does what it can with available tools** (e.g. drop a `- [ ] reimbursement…` markdown TODO into
+   the trip's note — §17) and **tells the user plainly** what it deferred and why ("Travel module
+   isn't live yet, so I left a TODO instead").
+4. It **records the gap and any newly-confirmed convention in agent memory** (§16.2).
+
+This is surfaced in the UI as an `action` card with `status: "blocked"`/`kind: "module_unavailable"`,
+distinct from an auditor block.
+
+### 16.2 Persistent agent memory
+
+A small, **DB-backed memory** the assistant reads at the start of every conversation (folded into the
+actor system prompt) and appends to as it learns. Distinct from Claude-the-developer's file memory;
+this is the *product's* memory. It holds:
+
+- **User conventions** — color/tag usage (red = top deadline, yellow = teaching, blue = student
+  meetings, …; see sample-tasks §E), preferred timezones, naming habits. Lets the agent stop
+  re-deriving conventions by searching every time (it still *verifies* by sampling when unsure).
+- **Capability state** — which modules came online, learned endpoint quirks.
+- **Light entity knowledge** — as modules arrive, schema/state facts ("Funding states: Preparing →
+  Submitted → Awarded") so cross-module reasoning improves incrementally.
+
+Storage: a `AssistantMemory` Prisma model (`{ id, scope, key, value(JSON), updatedAt }`) +
+`/api/assistant/memory`, exposed to the agent as `recall()` (read, auto-injected) and
+`remember({ key, value })` (write). Writes are cheap and additive; no migration churn (JSON values).
+
+> This dovetails with the auditor: convention/memory facts inform the **actor**, never the auditor —
+> the auditor stays minimal and injection-isolated (§7.1).
+
+## 17. TODOs as markdown checkboxes (no separate store)
+
+TODOs are **not** a table the assistant writes into. They are **GitHub-style markdown checkboxes in
+event notes** — `- [ ] submit the abstract` — which the assistant already authors via
+`create_event`/`update_event` on `notes`. So **"add a TODO" = edit a note.** No new backend is needed
+for the assistant to satisfy every TODO request in the sample tasks (final-exam date, Zoom-link
+setup, paper-review items).
+
+### 17.1 Inline task token DSL
+
+A checkbox line may carry **semantic tokens** so TODOs scattered across notes are machine-parsable.
+The tokens are **bracket-free and markdown-inert** (angle-bracket forms like `<due:…>` were rejected —
+CommonMark parses `<scheme:…>` as an autolink and `<link>` as raw HTML, so they'd render mangled).
+Lineage: todo.txt / Obsidian-Dataview / org-mode.
+
 ```
+- [ ] <text> <token>*          # tokens may appear anywhere; trailing is conventional
+```
+
+| Token | Meaning | Multiplicity |
+|-------|---------|--------------|
+| `!!!` / `!!` / `!` | priority — highest / high / normal (standalone token) | one |
+| `due:YYYY-MM-DD` | alternative/explicit deadline (ISO 8601; optional `THH:MM`) | one |
+| `start:YYYY-MM-DD` | **show-from / defer date** — the item is hidden from the feed until this date (todo.txt "threshold") so far-future TODOs don't flood it | one |
+| `tz:AOE` | timezone for `due:` (IANA id or `AOE`); else main tz | one |
+| `#slug` | additional tag (case-insensitive, like the calendar's tags) | many |
+| `@slug` | relevant **person** (bare `@` = person) | many |
+| `@project:slug` | relevant project | many |
+| `@funding:slug` | relevant funding source | many |
+| `[label](url)` or bare URL | relevant link (native markdown) | many |
+| `color:KEY` | color override (a palette key from `EVENT_COLORS`) | one |
+| `done:YYYY-MM-DD` | completion date (set when checked, optional) | one |
+
+**Grammar & parsing rules**
+- Entities use one extensible sigil: `@<type>:<slug>`, with `@<slug>` defaulting to `type=person`.
+  New modules add new types (`@venue:`, `@course:`) without new sigils.
+- Every token must be **preceded by whitespace or line-start** (regex anchor `(^|\s)`). This is what
+  prevents `tommy@cs.jhu.edu` from matching `@cs` and a URL `#frag` from matching a tag. Content inside
+  a markdown link destination `(...)` is skipped.
+- Slugs are `[\w][\w-]*`; matched case-insensitively (display keeps first-seen casing).
+- `!!!/!!/!`, `due:`, `start:`, `tz:`, `color:`, `done:` are single-valued (first occurrence wins; a
+  linter can warn on dups). `#`, `@…`, links are multi-valued.
+
+**Entity tokens are soft references.** `@funding:toyota` is just a slug today; when the Funding module
+comes online (§16) the TODO view *resolves* it to the real entity. The DSL and the evolving-capability
+model reinforce each other — notes accrue structured intent before the modules that consume it exist.
+
+**Worked example** (PLDI abstract item):
+```
+- [ ] submit the abstract due:2026-07-01 !! #paper-submission @tommy @project:driving-scene-synthesis @funding:toyota [HotCRP](https://pldi27.hotcrp.com) color:orange
+```
+
+**Parsed shape** (what the TODO index / `tools/todos.ts` yields):
+```ts
+interface ParsedTodo {
+  raw: string; text: string;              // text with tokens stripped
+  done: boolean; doneDate?: string;
+  eventId: string; line: number;          // location, for editing the source line back
+  priority?: 1 | 2 | 3;                   // 1 = highest (!!!)
+  due?: string; dueTz?: string; dueSource: "line" | "event";
+  start?: string;                         // show-from date; item is "active" only once today >= start
+  active: boolean;                        // !done && (start == null || today >= start) — feed visibility
+  tags: string[];                         // event.tags ∪ line #tags  (inherited + added)
+  people: string[]; projects: string[]; funding: string[];
+  links: { label?: string; url: string }[];
+  color?: string; colorSource: "line" | "event";
+}
+```
+
+### 17.2 Inheritance & the future TODO view
+
+A future **TODO view** (a centralized place to manage TODOs from everywhere — primarily the calendar
+at first) is a separate, non-blocking build. Its model:
+
+- It **indexes checkboxes as pointer-references**, not copies — the markdown in the note stays the
+  single source of truth. Checking a box in the view edits the underlying note line.
+- Each indexed TODO **inherits from its parent event, with line tokens overriding**:
+  - **Date** — `due:` if present, else the event's deadline/start (`dueSource`).
+  - **Tag(s)** — event's tags **∪** line `#tags`.
+  - **Color** — `color:` if present, else the event's color.
+  - **Event name** — shown as a prefix. Event `"PLDI 2026 — Abs"` + item `"submit the abstract"`
+    → displays as **"PLDI 2026 — Abs · submit the abstract"**.
+- **No hierarchy** between TODOs; they **group naturally** by event, tag, date, deadline, and
+  (once resolvable) person / project / funding.
+- **Deferred items stay out of the feed.** A TODO with `start:` in the future is *inactive* — hidden
+  from the default feed until its show-from date, so far-out items (e.g. "write rebuttal" months
+  ahead) don't overwhelm what's actionable now. A "Scheduled / Later" toggle can reveal them. Items
+  without `start:` are active immediately. (The item never leaves its note; only feed visibility changes.)
+- Tokens render as **chips** in the view; the raw markdown shows in the note editor (a future
+  CodeMirror decoration can pill-render them inline there too).
+
+Implications for the assistant *now*:
+- "Add a TODO for X" → append `- [ ] X <tokens>` to the relevant event's note (creating a lightweight
+  holder event only if there's no natural home). The agent **emits the §17.1 DSL** — e.g. a paper
+  review item gets `due:`, `!!`, `@project:…`, and a link — so the TODO is structured from birth.
+- **Date cascades come for free:** because a TODO's date is *derived from its event* unless it has a
+  `due:` token, moving an event (Task 3: NeurIPS +2 days) moves its TODOs' effective dates
+  automatically. The agent only edits an item's text if the item carries its *own* `due:`.
+- When listing/operating on TODOs, the agent reads them out of notes (via `list_events` + parsing
+  `- [ ] ` / `- [x] ` lines with the §17.1 tokenizer in `tools/todos.ts`) until the dedicated TODO
+  index exists.

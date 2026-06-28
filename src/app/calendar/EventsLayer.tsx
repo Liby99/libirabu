@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { RotateCw } from "lucide-react";
+import EventBadges from "./EventBadges";
 import { Vp } from "./types";
 import { TimedEvent, snapHour, fmtRange } from "./eventTypes";
 import { timelineInfo, eventRect, layoutDay, pointToSlot, EventRect, EventLayout } from "./eventGeom";
@@ -238,7 +238,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                   {tl.wide && <div className="cc-tevent-title">{ev.title}</div>}
                   {tl.wide && <div className="cc-tevent-time">{fmtRange(ev.startHour, ev.endHour)}</div>}
                 </div>
-                <RotateCw className="cc-rec-badge" size={10} strokeWidth={2.5} aria-hidden />
+                <EventBadges ai={ev.createdByAI} recurring />
               </div>
             ))}
             {rects.map(({ ev, rect }) => (

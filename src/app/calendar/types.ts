@@ -21,7 +21,7 @@ export interface Hover {
 // One positioned visual primitive produced by buildScene().
 export interface Item {
   key: string;
-  kind: "row" | "event" | "monthLabel" | "dayLabel" | "gridline" | "dim" | "hl" | "today" | "now" | "todaytag" | "nowlabel" | "timetag" | "cursor" | "weekdaytag";
+  kind: "row" | "event" | "monthLabel" | "dayLabel" | "gridline" | "dim" | "hl" | "today" | "now" | "todaytag" | "nowlabel" | "timetag" | "cursor" | "weekdaytag" | "weekend";
   x: number; y: number; w: number; h: number;
   opacity: number;
   z: number; // stacking order (CSS z-index)

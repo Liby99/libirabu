@@ -1,0 +1,186 @@
+{
+  "schemaVersion": "1.0",
+  "id": "machine-programming-005",
+  "task": "I'm going to teach the course Machine Programming for the Fall 2026 on Tuesday and Thursday. Can you help me set up the calendar for that?",
+  "model_as_ideal_agent": "claude-opus-4-8",
+  "authoredOn": "2026-06-28",
+  "today": "2026-06-28",
+  "designNotes": [
+    "Richest trace: web research of an institutional calendar -> recurring term-bounded events -> holiday exdates -> a second linked recurrence (hourly) -> turning unknowns into TODOs across several follow-up turns.",
+    "Fall 2026 dates: Labor Day (Mon Sep 7), Fall Break (Oct 22-25), Thanksgiving recess (Nov 23-29, Thanksgiving Nov 26) are confirmed via web search; First day of classes (Mon Aug 31) and Last day (Fri Dec 11) / finals window (Dec 16-22) follow JHU's consistent pattern (official 2025-26 calendar + 2026 partials). A real run reads them off registrar.jhu.edu.",
+    "Tue/Thu lectures run Sep 1 - Dec 10. Holiday cancellations that land on Tue/Thu: Thu Oct 22 (fall break), Tue Nov 24 + Thu Nov 26 (Thanksgiving). Labor Day is a Monday -> no Tue/Thu class affected. Weekdays verified by hand. days array: 0=Sun..6=Sat, so Tue=2, Thu=4.",
+    "Design choice on the all-day vs hourly redundancy: the all-day band is framed as the course 'in session' BANNER / container (holds syllabus links + TODOs); the hourly timed event is the actual class slot. The agent keeps both (user said 'add hourly events') but offers to drop the banner.",
+    "Color yellow = teaching is inferred from existing teaching events, then remembered. initialCalendar seeds a yellow teaching event for reproducibility.",
+    "Unknowns (Zoom link, final exam date) become DSL-tokened TODOs in the course banner note, not dropped."
+  ],
+  "initialView": { "year": 2026, "zoom": "year" },
+  "initialCalendar": [
+    {
+      "id": "seed-office-hours", "kind": "timed", "title": "Office hours",
+      "color": "yellow", "notes": "", "allDay": false, "start": "2026-02-04T14:00:00", "end": "2026-02-04T15:00:00",
+      "track": null, "originTz": null, "tags": ["teaching"],
+      "repeat": { "kind": "weekly", "days": [3] }, "createdAt": "2026-01-10T00:00:00Z", "updatedAt": "2026-01-10T00:00:00Z"
+    }
+  ],
+  "steps": [
+    {
+      "role": "assistant",
+      "thought": "The user is teaching Machine Programming, Tue/Thu, Fall 2026. I need the JHU Fall 2026 academic calendar: first day of classes, semester end, and the holidays/breaks to skip. Then I'll create a recurring Tue/Thu series bounded to the semester with holiday exceptions, colored the way the user colors teaching. Start with the registrar calendar.",
+      "tool_call": { "name": "web_search", "args": { "query": "JHU Johns Hopkins academic calendar Fall 2026 first day of classes" } }
+    },
+    {
+      "role": "tool", "name": "web_search",
+      "result": { "results": [
+        { "title": "Academic Calendar | University Registrar", "url": "https://registrar.jhu.edu/academic-calendar/" },
+        { "title": "Academic Calendar | JHU Academic Catalogue", "url": "https://e-catalogue.jhu.edu/.../calendar/" }
+      ] }
+    },
+    {
+      "role": "assistant",
+      "thought": "Open the registrar calendar and read the Fall 2026 (Homewood) dates.",
+      "tool_call": { "name": "web_open", "args": { "url": "https://registrar.jhu.edu/academic-calendar/" } }
+    },
+    {
+      "role": "tool", "name": "web_open",
+      "result": {
+        "url": "https://registrar.jhu.edu/academic-calendar/", "title": "Academic Calendar — Fall 2026",
+        "text": "Fall 2026 (Homewood — KSAS/WSE): First Day of Classes: Monday, August 31, 2026. Labor Day (University Closed): Monday, September 7, 2026. Fall Break: October 22-25, 2026 (classes resume Oct 26). Thanksgiving / Fall Recess: November 23-29, 2026 (Thanksgiving Nov 26). Last Day of Classes: Friday, December 11, 2026. Reading Days: December 14-15, 2026. Final Exams: December 16-22, 2026."
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": "Worked out the schedule. Tue/Thu lectures: first Tuesday = Sep 1, 2026; series runs through Dec 10 (last day of classes is Fri Dec 11). Holiday cancellations that fall on Tue/Thu: Thu Oct 22 (Fall Break), Tue Nov 24 + Thu Nov 26 (Thanksgiving). Labor Day (Sep 7) is a Monday, so no Tue/Thu class is hit. exdates = [2026-10-22, 2026-11-24, 2026-11-26]. Before creating, check how the user colors teaching events.",
+      "tool_call": { "name": "list_events", "args": { "from": "2026-01-01", "to": "2026-06-30" } }
+    },
+    {
+      "role": "tool", "name": "list_events",
+      "result": { "events": [
+        { "id": "seed-office-hours", "kind": "timed", "title": "Office hours", "color": "yellow", "tags": ["teaching"], "repeat": { "kind": "weekly", "days": [3] } }
+      ] }
+    },
+    {
+      "role": "assistant",
+      "thought": "Existing teaching events are yellow -> match that. Remember the convention.",
+      "tool_call": { "name": "remember", "args": { "key": "color-convention.teaching", "value": { "color": "yellow", "source": "inferred from existing teaching events (office hours)" } } }
+    },
+    { "role": "tool", "name": "remember", "result": { "ok": true } },
+    {
+      "role": "assistant",
+      "thought": "Create the all-day Tue/Thu lecture series as the course 'in session' banner, term-bounded with holiday exceptions, yellow, tagged teaching/lecture/machine-programming. It'll hold the syllabus links + TODOs. I'll ask for exact times next so I can add the precise hourly block.",
+      "tool_call": { "name": "create_event", "args": {
+        "kind": "band",
+        "title": "Machine Programming · Fall 2026",
+        "start": "2026-09-01", "end": "2026-09-01",
+        "color": "yellow",
+        "tags": ["teaching", "lecture", "machine-programming"],
+        "repeat": { "kind": "weekly", "days": [2, 4], "until": "2026-12-11", "exdates": ["2026-10-22", "2026-11-24", "2026-11-26"] },
+        "notes": "**Machine Programming** — Fall 2026 lectures (Tue/Thu). Semester Aug 31 – Dec 11, 2026.\nHolidays auto-skipped: Fall Break (Thu Oct 22), Thanksgiving recess (Tue Nov 24, Thu Nov 26).\n\n_All-day banner = course container (syllabus, links, TODOs)._"
+      } },
+      "audit": { "decision": "allow", "risk": "low", "reason": "User asked to set up their Fall 2026 Tue/Thu course; an additive term-bounded recurring event with holiday exceptions is faithful and in scope. Dates sourced from the registrar calendar." }
+    },
+    {
+      "role": "tool", "name": "create_event",
+      "result": { "id": "ev-mp-band", "kind": "band", "title": "Machine Programming · Fall 2026", "color": "yellow", "start": "2026-09-01", "end": "2026-09-01", "track": 0, "tags": ["teaching", "lecture", "machine-programming"], "repeat": { "kind": "weekly", "days": [2, 4], "until": "2026-12-11", "exdates": ["2026-10-22", "2026-11-24", "2026-11-26"] }, "allDay": true }
+    },
+    {
+      "role": "assistant",
+      "final": "I set up **Machine Programming · Fall 2026** as a recurring **Tue/Thu** all-day banner, **Sep 1 – Dec 10**, colored **yellow** and tagged `teaching` `lecture` `machine-programming`. It automatically **skips the holidays** that land on class days: **Thu Oct 22** (Fall Break) and **Tue Nov 24 / Thu Nov 26** (Thanksgiving). Labor Day is a Monday, so no class is affected.\n\n**What are the exact class times on Tue/Thu?** Once you tell me, I'll add the precise hourly block (same color/tags/holiday skips)."
+    },
+    {
+      "role": "user",
+      "text": "3:00 to 4:15pm."
+    },
+    {
+      "role": "assistant",
+      "thought": "Add the hourly timed lecture, Tue/Thu 15:00–16:15, with identical recurrence, exdates, color, and tags. Keep the all-day banner as the course container; I'll note both exist and offer to drop the banner if they prefer just the time block.",
+      "tool_call": { "name": "create_event", "args": {
+        "kind": "timed",
+        "title": "Machine Programming — lecture",
+        "start": "2026-09-01T15:00:00", "end": "2026-09-01T16:15:00",
+        "color": "yellow",
+        "tags": ["teaching", "lecture", "machine-programming"],
+        "repeat": { "kind": "weekly", "days": [2, 4], "until": "2026-12-11", "exdates": ["2026-10-22", "2026-11-24", "2026-11-26"] },
+        "notes": "Class meeting block. See the all-day **Machine Programming · Fall 2026** banner for syllabus, links, and TODOs."
+      } },
+      "audit": { "decision": "allow", "risk": "low", "reason": "User supplied the exact times and asked for the hourly block; additive, mirrors the already-approved series." }
+    },
+    {
+      "role": "tool", "name": "create_event",
+      "result": { "id": "ev-mp-timed", "kind": "timed", "title": "Machine Programming — lecture", "color": "yellow", "start": "2026-09-01T15:00:00", "end": "2026-09-01T16:15:00", "tags": ["teaching", "lecture", "machine-programming"], "repeat": { "kind": "weekly", "days": [2, 4], "until": "2026-12-11", "exdates": ["2026-10-22", "2026-11-24", "2026-11-26"] }, "allDay": false }
+    },
+    {
+      "role": "assistant",
+      "final": "Added the **3:00–4:15pm** Tue/Thu lecture block, same color/tags and the same holiday skips. You now have two layers on those days: the all-day **banner** (course container) and the **time block** — handy for keeping syllabus/links on the banner. Say the word if you'd rather I drop the all-day banner and keep only the time block.\n\nWhat's the **course website**, and do you have a **Zoom link** for the class? I'll attach them."
+    },
+    {
+      "role": "user",
+      "text": "The course site is https://machine-programming.cs.jhu.edu/fall2026 . I don't have a Zoom link yet — I'll set it up later."
+    },
+    {
+      "role": "assistant",
+      "thought": "Add the course website link to the banner notes, and since the Zoom link doesn't exist yet, don't drop it — turn it into a TODO under teaching, due before classes start (Aug 31). I'll update the banner's notes.",
+      "tool_call": { "name": "update_event", "args": {
+        "id": "ev-mp-band",
+        "patch": { "notes": "**Machine Programming** — Fall 2026 lectures (Tue/Thu). Semester Aug 31 – Dec 11, 2026.\nHolidays auto-skipped: Fall Break (Thu Oct 22), Thanksgiving recess (Tue Nov 24, Thu Nov 26).\n\nCourse site: [Machine Programming F26](https://machine-programming.cs.jhu.edu/fall2026)\n\n_All-day banner = course container (syllabus, links, TODOs)._\n\n- [ ] create recurrent Zoom meeting and share the Zoom link due:2026-08-28 !! #teaching" }
+      } },
+      "audit": { "decision": "allow", "risk": "low", "reason": "User gave the course URL and asked to attach it, and deferred the Zoom link; recording the link and a TODO on the course event is directly requested and in scope." }
+    },
+    {
+      "role": "tool", "name": "update_event",
+      "result": { "id": "ev-mp-band", "kind": "band", "title": "Machine Programming · Fall 2026", "color": "yellow", "tags": ["teaching", "lecture", "machine-programming"], "allDay": true }
+    },
+    {
+      "role": "assistant",
+      "final": "Linked the **course site** on the banner, and since the Zoom link isn't ready I added a TODO under `teaching`: *create recurrent Zoom meeting and share the Zoom link* (due Aug 28, before classes start). \n\nLast thing: **when's the final exam?** (The registrar lists the Fall 2026 finals window as **Dec 16–22**, but the specific slot is assigned later.)"
+    },
+    {
+      "role": "user",
+      "text": "I don't know the final exam date yet."
+    },
+    {
+      "role": "assistant",
+      "thought": "Turn the unknown into a TODO rather than guessing a slot. The finals window is Dec 16–22; add a 'confirm final exam date' TODO under teaching, due early enough to act on. Append to the banner notes.",
+      "tool_call": { "name": "update_event", "args": {
+        "id": "ev-mp-band",
+        "patch": { "notes": "**Machine Programming** — Fall 2026 lectures (Tue/Thu). Semester Aug 31 – Dec 11, 2026.\nHolidays auto-skipped: Fall Break (Thu Oct 22), Thanksgiving recess (Tue Nov 24, Thu Nov 26).\n\nCourse site: [Machine Programming F26](https://machine-programming.cs.jhu.edu/fall2026)\nFinals window: Dec 16–22, 2026 (specific slot TBA).\n\n_All-day banner = course container (syllabus, links, TODOs)._\n\n- [ ] create recurrent Zoom meeting and share the Zoom link due:2026-08-28 !! #teaching\n- [ ] confirm final exam date and add the exam to the calendar (finals window Dec 16–22) due:2026-10-15 #teaching" }
+      } },
+      "audit": { "decision": "allow", "risk": "low", "reason": "Additive TODO on the course event capturing an unknown the user flagged; in scope and non-destructive." }
+    },
+    {
+      "role": "tool", "name": "update_event",
+      "result": { "id": "ev-mp-band", "kind": "band", "title": "Machine Programming · Fall 2026", "color": "yellow", "tags": ["teaching", "lecture", "machine-programming"], "allDay": true }
+    },
+    {
+      "role": "assistant",
+      "final": "All set for **Machine Programming · Fall 2026**:\n\n- 🟡 **Tue/Thu lectures**, Sep 1 – Dec 10, all-day banner + **3:00–4:15pm** time block, tagged `teaching` `lecture` `machine-programming`.\n- **Holidays skipped:** Thu Oct 22, Tue Nov 24, Thu Nov 26.\n- **Course site** linked; **finals window** Dec 16–22 noted.\n- **TODOs** (under `teaching`): set up the recurrent Zoom (due Aug 28), and confirm the final-exam date (due Oct 15).\n\nWhen you have the Zoom link or the exam slot, just tell me and I'll fill them in."
+    }
+  ],
+  "expectedActions": [
+    "web_search + web_open(registrar) -> Fall 2026 dates",
+    "list_events -> infer teaching color (yellow); remember it",
+    "create_event(band, Tue/Thu, term-bounded, holiday exdates, yellow)",
+    "clarifying follow-up: exact times",
+    "[turn 2] create_event(timed, 3:00-4:15, same recurrence/exdates)",
+    "clarifying follow-up: website + zoom",
+    "[turn 3] update_event(banner notes += course site link + zoom TODO)",
+    "clarifying follow-up: final exam",
+    "[turn 4] update_event(banner notes += confirm-final-exam TODO)"
+  ],
+  "capabilitiesUsed": ["web_search", "web_open", "list_events", "remember", "create_event", "update_event", "auditor", "todo-dsl", "recurrence-exdate", "convention-inference", "unknowns-to-todos", "multi-turn"],
+  "rubric": [
+    "Researches the JHU Fall 2026 calendar (does not invent the semester bounds out of nowhere).",
+    "Creates a Tue/Thu recurring series (days [2,4]) bounded to the semester (until 2026-12-11), first occurrence Tue 2026-09-01.",
+    "Adds holiday EXCEPTIONS exactly for Tue/Thu cancellations: 2026-10-22 (fall break), 2026-11-24 + 2026-11-26 (Thanksgiving); does NOT add Labor Day (a Monday).",
+    "Color yellow + tags teaching/lecture/machine-programming, color inferred from existing teaching events and remembered.",
+    "When given times, adds an hourly Tue/Thu 15:00–16:15 event with IDENTICAL recurrence/exdates/color/tags (consistent formatting).",
+    "Attaches the course website as a markdown link.",
+    "Turns the unknown Zoom link and the unknown final-exam date into DSL-tokened TODOs under #teaching (with due:), rather than dropping or guessing them.",
+    "Asks the clarifying follow-ups in sequence (exact times; website/zoom; final exam).",
+    "Handles the all-day vs hourly redundancy thoughtfully (frames the banner as the container; offers to drop it)."
+  ],
+  "openFollowups": [
+    "Drop the all-day banner and keep only the time block?",
+    "Add a recurring office-hours block for this course too?",
+    "Once the Zoom link / exam slot exist, fill them in (resolves the two TODOs)."
+  ]
+}

@@ -12,4 +12,5 @@ export interface BandEvent {
   notes?: string;
   tags?: string[];
   repeat?: import("@/lib/calendar/api").Repeat;
+  createdByAI?: boolean; // provenance: created/edited by the AI assistant
 }

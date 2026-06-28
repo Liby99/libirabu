@@ -6,21 +6,26 @@ import type {
   ToolCall,
 } from "./types";
 
-// JHU gateway provider (OpenAI-compatible Chat Completions). Server-side only.
+// JHU WSE AI Gateway provider (OpenAI-compatible "compat" route). Server-side only.
 //
-// STUB STATUS: the request/response shapes below assume a standard OpenAI-compatible
-// endpoint. Before relying on this, confirm against the gateway: (a) exact base path
-// (/v1/chat/completions?), (b) auth header, (c) model ids, (d) tool/function-calling
-// support, (e) streaming format. See DESIGN.md §6/§8.2.
+// VERIFIED against the WSE AI Gateway docs (gateway.engineering.jhu.edu/docs):
+//  - Base URL:  https://gateway.engineering.jhu.edu/gateway   (set as JHU_GATEWAY_URL)
+//  - Route:     POST {base}/compat/chat/completions           (OpenAI chat-completions shape)
+//  - Auth:      Authorization: Bearer jhu_live_sk_...         (a *gateway project key*)
+//  - Models:    provider-prefixed, e.g. "anthropic/claude-sonnet-4.6", "openai/gpt-5.2",
+//               "workers-ai/@cf/<org>/<model>" for cheap/open tiers.
+//  - Setup:     the model must be allow-listed on BOTH the project and the key.
+//  - ⚠ Beta:    streaming is "not yet in the supported path" — the agent loop uses the
+//               non-streaming chat() below; streamChat() is best-effort only.
 
-const DEFAULT_MODEL = process.env.JHU_GATEWAY_MODEL ?? "gpt-4o";
+const DEFAULT_MODEL = process.env.JHU_GATEWAY_MODEL ?? "anthropic/claude-sonnet-4.6";
 
 function endpoint(): { url: string; key: string } {
   const base = process.env.JHU_GATEWAY_URL;
   const key = process.env.JHU_GATEWAY_KEY;
   if (!base) throw new Error("JHU_GATEWAY_URL is not set");
   if (!key) throw new Error("JHU_GATEWAY_KEY is not set");
-  return { url: `${base.replace(/\/$/, "")}/v1/chat/completions`, key };
+  return { url: `${base.replace(/\/$/, "")}/compat/chat/completions`, key };
 }
 
 function toApiMessages(messages: ChatMessage[]) {
@@ -30,8 +35,9 @@ function toApiMessages(messages: ChatMessage[]) {
     }
     if (m.role === "assistant" && m.toolCalls?.length) {
       return {
+        // Workers-AI compat requires content to be a string (rejects null) on tool-call turns.
         role: "assistant",
-        content: m.content || null,
+        content: m.content || "",
         tool_calls: m.toolCalls.map((t) => ({
           id: t.id,
           type: "function",
@@ -60,24 +66,16 @@ export class JhuGatewayProvider implements LLMProvider {
 
   async chat(messages: ChatMessage[], opts?: ChatOptions): Promise<ChatResult> {
     const { url, key } = endpoint();
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model: opts?.model ?? DEFAULT_MODEL,
-        messages: toApiMessages(messages),
-        tools: toApiTools(opts),
-        temperature: opts?.temperature,
-        max_tokens: opts?.maxTokens,
-      }),
-      signal: opts?.signal,
+    const body = JSON.stringify({
+      model: opts?.model ?? DEFAULT_MODEL,
+      messages: toApiMessages(messages),
+      tools: toApiTools(opts),
+      temperature: opts?.temperature,
+      max_tokens: opts?.maxTokens,
     });
-    if (!res.ok) {
-      throw new Error(`JHU gateway error ${res.status}: ${await res.text()}`);
-    }
+    // The gateway/upstream throws intermittent 5xx (AiError "Internal server error"); retry those
+    // with backoff. 4xx (bad request) and 402 (credits) are not retried.
+    const res = await fetchWithRetry(url, key, body, opts?.signal);
     const data = await res.json();
     const choice = data.choices?.[0];
     const msg = choice?.message ?? {};
@@ -85,7 +83,7 @@ export class JhuGatewayProvider implements LLMProvider {
       (t: { id: string; function: { name: string; arguments: string } }) => ({
         id: t.id,
         name: t.function.name,
-        arguments: safeParse(t.function.arguments),
+        arguments: (safeParse(t.function.arguments) as Record<string, unknown>) ?? {},
       }),
     );
     return {
@@ -135,14 +133,45 @@ export class JhuGatewayProvider implements LLMProvider {
         if (!trimmed.startsWith("data:")) continue;
         const payload = trimmed.slice(5).trim();
         if (payload === "[DONE]") return;
-        const delta = safeParse(payload)?.choices?.[0]?.delta?.content;
-        if (delta) yield delta as string;
+        const parsed = safeParse(payload) as { choices?: { delta?: { content?: string } }[] } | undefined;
+        const delta = parsed?.choices?.[0]?.delta?.content;
+        if (delta) yield delta;
       }
     }
   }
 }
 
-function safeParse(s: string): any {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// POST to the gateway, retrying transient failures (HTTP >= 500, 429, and network errors).
+// Returns a successful Response, or throws with the last error body on permanent failure.
+async function fetchWithRetry(url: string, key: string, body: string, signal?: AbortSignal): Promise<Response> {
+  const MAX_ATTEMPTS = 3;
+  let lastDetail = "";
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let res: Response | undefined;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body,
+        signal,
+      });
+    } catch (e) {
+      lastDetail = e instanceof Error ? e.message : String(e);
+      if (attempt < MAX_ATTEMPTS) { await sleep(400 * attempt); continue; }
+      throw new Error(`JHU gateway request failed: ${lastDetail}`);
+    }
+    if (res.ok) return res;
+    lastDetail = `${res.status}: ${await res.text()}`;
+    const transient = res.status >= 500 || res.status === 429;
+    if (transient && attempt < MAX_ATTEMPTS) { await sleep(400 * attempt); continue; }
+    throw new Error(`JHU gateway error ${lastDetail}`);
+  }
+  throw new Error(`JHU gateway error ${lastDetail}`);
+}
+
+function safeParse(s: string): unknown {
   try {
     return JSON.parse(s);
   } catch {

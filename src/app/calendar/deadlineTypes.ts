@@ -15,4 +15,5 @@ export interface Deadline {
   originTz?: string | null;
   tags?: string[];
   repeat?: import("@/lib/calendar/api").Repeat;
+  createdByAI?: boolean; // provenance: created/edited by the AI assistant
 }

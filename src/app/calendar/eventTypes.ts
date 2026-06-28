@@ -13,6 +13,7 @@ export interface TimedEvent {
   notes?: string;
   tags?: string[];
   repeat?: import("@/lib/calendar/api").Repeat;
+  createdByAI?: boolean; // provenance: created/edited by the AI assistant
 }
 
 export const EVENT_COLORS = ["default", "blue", "indigo", "cyan", "green", "darkgreen", "yellow", "orange", "red", "purple"] as const;

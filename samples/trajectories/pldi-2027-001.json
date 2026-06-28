@@ -1,0 +1,178 @@
+{
+  "schemaVersion": "1.0",
+  "id": "pldi-2027-001",
+  "task": "I plan to submit to PLDI 2027. Please set me up on my calendar.",
+  "model_as_ideal_agent": "claude-opus-4-8",
+  "authoredOn": "2026-06-27",
+  "designNotes": [
+    "Grounded in real web results (2026-06-27): PLDI 2027 is June 5-11 2027 in Atlanta, GA, but its CFP / important dates are NOT yet published (pldi27.sigplan.org is a stub).",
+    "PLDI 2026 (most recent) is the structural reference: a SINGLE submission deadline (Nov 13 2025), an author-response/rebuttal window (Feb 17-21 2026), then notification (Mar 5 2026). PLDI has NO separate abstract deadline. The ideal agent must NOT fabricate one.",
+    "So the gold behavior is: recognize the CFP is unpublished, project tentative 2027 dates from 2026 (+~1 year) and label them tentative, create the real milestone types, and spawn a TODO to confirm once the CFP posts.",
+    "Color mapping is inferred by searching the user's existing similar events (the explicit rule in the task), not hardcoded. initialCalendar seeds prior POPL 2026 submission events so this is reproducible.",
+    "Project/Funding modules are 'planned' (design 16), so the agent does not call them; it uses @project: soft-ref tokens and asks the user which project, rather than guessing."
+  ],
+  "initialView": { "year": 2026, "zoom": "year" },
+  "initialCalendar": [
+    {
+      "id": "seed-popl26-sub", "kind": "deadline", "title": "POPL 2026 — Submission",
+      "color": "red", "notes": "Submitted. HotCRP: https://popl26.hotcrp.com",
+      "allDay": false, "start": "2025-07-10T23:59:00", "end": "2025-07-10T23:59:00",
+      "track": null, "originTz": "AOE", "tags": ["research", "paper-submission"],
+      "repeat": { "kind": "none" }, "createdAt": "2025-06-01T00:00:00Z", "updatedAt": "2025-06-01T00:00:00Z"
+    },
+    {
+      "id": "seed-popl26-resp", "kind": "band", "title": "POPL 2026 — Author response",
+      "color": "yellow", "notes": "", "allDay": true, "start": "2025-09-15", "end": "2025-09-18",
+      "track": 1, "originTz": null, "tags": ["research", "paper-submission"],
+      "repeat": { "kind": "none" }, "createdAt": "2025-06-01T00:00:00Z", "updatedAt": "2025-06-01T00:00:00Z"
+    },
+    {
+      "id": "seed-popl26-notif", "kind": "band", "title": "POPL 2026 — Notification",
+      "color": "blue", "notes": "", "allDay": true, "start": "2025-10-06", "end": "2025-10-06",
+      "track": 1, "originTz": null, "tags": ["research", "paper-submission"],
+      "repeat": { "kind": "none" }, "createdAt": "2025-06-01T00:00:00Z", "updatedAt": "2025-06-01T00:00:00Z"
+    }
+  ],
+  "steps": [
+    {
+      "role": "assistant",
+      "thought": "The user wants their calendar set up for a PLDI 2027 submission. I need the official PLDI 2027 important dates first.",
+      "tool_call": { "name": "web_search", "args": { "query": "PLDI 2027 call for papers important dates" } }
+    },
+    {
+      "role": "tool", "name": "web_search",
+      "result": { "results": [
+        { "title": "PLDI 2027", "url": "https://pldi27.sigplan.org/" },
+        { "title": "PLDI 2027 - conf.researchr.org", "url": "https://conf.researchr.org/home/pldi-2027" },
+        { "title": "PL Conference Deadlines", "url": "https://yeah-tiger.github.io/" }
+      ] }
+    },
+    {
+      "role": "assistant",
+      "thought": "Open the official PLDI 2027 site to read the dates.",
+      "tool_call": { "name": "web_open", "args": { "url": "https://pldi27.sigplan.org/" } }
+    },
+    {
+      "role": "tool", "name": "web_open",
+      "result": {
+        "url": "https://pldi27.sigplan.org/", "title": "PLDI 2027",
+        "text": "The 48th ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI 2027) will be held June 5-11, 2027 in Atlanta, GA, USA. Call for Papers and important dates: to be announced. Check back soon."
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": "The PLDI 2027 CFP is not published yet — only the venue/week is set. I should NOT invent dates. I'll use the most recent edition (PLDI 2026) as the structural reference and project tentative 2027 dates from it, clearly marked. Get the PLDI 2026 important dates.",
+      "tool_call": { "name": "web_open", "args": { "url": "https://pldi26.sigplan.org/dates" } }
+    },
+    {
+      "role": "tool", "name": "web_open",
+      "result": {
+        "url": "https://pldi26.sigplan.org/dates", "title": "Important Dates - PLDI 2026",
+        "text": "Submission Deadline: Thursday, November 13, 2025 (AoE). Author Response Period: Tuesday, February 17 - Saturday, February 21, 2026. Author Notification: Thursday, March 5, 2026. Submission site: https://pldi2026.hotcrp.com/ . PLDI uses a single full-paper submission deadline (no separate abstract deadline)."
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": "Confirmed PLDI's structure: ONE submission deadline (AoE) -> author-response (rebuttal) window -> notification. There is no separate abstract round, so I will not create an abstract deadline. Projecting +~1 year from PLDI 2026 for tentative 2027 dates: submission ~Thu Nov 12 2026 23:59 AoE; author response ~Feb 16-20 2027; notification ~Thu Mar 4 2027. All TENTATIVE until the CFP posts. Before assigning colors I'll check how the user colors similar past events.",
+      "tool_call": { "name": "list_events", "args": { "from": "2025-01-01", "to": "2026-12-31" } }
+    },
+    {
+      "role": "tool", "name": "list_events",
+      "result": { "events": [
+        { "id": "seed-popl26-sub", "kind": "deadline", "title": "POPL 2026 — Submission", "color": "red", "tags": ["research", "paper-submission"], "start": "2025-07-10T23:59:00" },
+        { "id": "seed-popl26-resp", "kind": "band", "title": "POPL 2026 — Author response", "color": "yellow", "tags": ["research", "paper-submission"], "start": "2025-09-15", "end": "2025-09-18" },
+        { "id": "seed-popl26-notif", "kind": "band", "title": "POPL 2026 — Notification", "color": "blue", "tags": ["research", "paper-submission"], "start": "2025-10-06" }
+      ] }
+    },
+    {
+      "role": "assistant",
+      "thought": "The user's existing convention is clear and matches the importance ordering they described: submission deadline = red, author response/rebuttal = yellow, notification/decision = blue. I'll reuse it and persist it to memory so I don't have to re-derive it next time.",
+      "tool_call": { "name": "remember", "args": { "key": "color-convention.paper-submission", "value": { "submission-deadline": "red", "rebuttal": "yellow", "notification": "blue", "source": "inferred from POPL 2026 events" } } }
+    },
+    { "role": "tool", "name": "remember", "result": { "ok": true } },
+    {
+      "role": "assistant",
+      "thought": "Create the precise full-paper deadline as a deadline-kind item in AoE (PLDI convention), red, tagged. Mark tentative in the title and notes, with real reference links and DSL TODOs. The 'confirm dates' TODO is actionable now; the 'prepare/submit' TODO isn't yet, so I give it start: ~6 weeks before the deadline to keep it out of the feed until it's relevant. I won't pre-fill @project yet — I'll ask the user which project this is.",
+      "tool_call": { "name": "create_event", "args": {
+        "kind": "deadline",
+        "title": "PLDI 2027 — Paper deadline (tentative)",
+        "originTz": "AOE", "originAt": "2026-11-12T23:59:00",
+        "color": "red",
+        "tags": ["research", "paper-submission"],
+        "notes": "**Tentative** — projected from PLDI 2026; PLDI 2027 CFP not yet posted.\n\nVenue: ACM SIGPLAN PLDI 2027 · June 5–11, 2027 · Atlanta, GA.\nPLDI uses a **single** submission deadline (no separate abstract round), then an author-response (rebuttal) window, then notification.\n\nLinks: [PLDI 2027](https://pldi27.sigplan.org/) · [PLDI 2026 CFP (reference)](https://pldi26.sigplan.org/track/pldi-2026-papers)\n\n- [ ] confirm PLDI 2027 deadline once the CFP is posted due:2026-09-15 !! #paper-submission [PLDI 2027 dates](https://pldi27.sigplan.org/)\n- [ ] prepare and submit the paper due:2026-11-12 start:2026-10-01 !!! #paper-submission"
+      } },
+      "audit": { "decision": "allow", "risk": "low", "reason": "User explicitly asked to be set up for a PLDI 2027 submission; creating an additive deadline event tagged research/paper-submission is a faithful, in-scope consequence." }
+    },
+    {
+      "role": "tool", "name": "create_event",
+      "result": { "id": "ev-pldi27-sub", "kind": "deadline", "title": "PLDI 2027 — Paper deadline (tentative)", "color": "red", "start": "2026-11-13T07:59:00", "end": "2026-11-13T07:59:00", "originTz": "AOE", "tags": ["research", "paper-submission"], "allDay": false }
+    },
+    {
+      "role": "assistant",
+      "thought": "Create the author-response (rebuttal) window as an all-day band event, yellow, tentative. The 'write rebuttal' TODO isn't actionable for months, so I defer it with start: set to the rebuttal opening date — it stays out of the feed until then.",
+      "tool_call": { "name": "create_event", "args": {
+        "kind": "band",
+        "title": "PLDI 2027 — Author response (tentative)",
+        "start": "2027-02-16", "end": "2027-02-20",
+        "color": "yellow",
+        "tags": ["research", "paper-submission"],
+        "notes": "**Tentative** rebuttal window, projected from PLDI 2026 (Feb 17–21). Confirm when the CFP posts.\n\n- [ ] write rebuttal due:2027-02-20 start:2027-02-16 !! #paper-submission"
+      } },
+      "audit": { "decision": "allow", "risk": "low", "reason": "Additive, in-scope milestone for the same submission the user requested." }
+    },
+    {
+      "role": "tool", "name": "create_event",
+      "result": { "id": "ev-pldi27-resp", "kind": "band", "title": "PLDI 2027 — Author response (tentative)", "color": "yellow", "start": "2027-02-16", "end": "2027-02-20", "track": 1, "tags": ["research", "paper-submission"], "allDay": true }
+    },
+    {
+      "role": "assistant",
+      "thought": "Create the notification/decision as a single all-day band event, blue, tentative.",
+      "tool_call": { "name": "create_event", "args": {
+        "kind": "band",
+        "title": "PLDI 2027 — Notification (tentative)",
+        "start": "2027-03-04", "end": "2027-03-04",
+        "color": "blue",
+        "tags": ["research", "paper-submission"],
+        "notes": "**Tentative** decision date, projected from PLDI 2026 (Mar 5). Confirm when the CFP posts."
+      } },
+      "audit": { "decision": "allow", "risk": "low", "reason": "Additive, in-scope milestone." }
+    },
+    {
+      "role": "tool", "name": "create_event",
+      "result": { "id": "ev-pldi27-notif", "kind": "band", "title": "PLDI 2027 — Notification (tentative)", "color": "blue", "start": "2027-03-04", "end": "2027-03-04", "track": 1, "tags": ["research", "paper-submission"], "allDay": true }
+    },
+    {
+      "role": "assistant",
+      "final": "Done — I set up your PLDI 2027 submission milestones, but a heads-up first: **the PLDI 2027 CFP isn't published yet** (only the venue is set: June 5–11, 2027, Atlanta). So I projected the dates from PLDI 2026 and marked everything **(tentative)**:\n\n- 🔴 **Paper deadline (tentative)** — ~Thu Nov 12, 2026, 23:59 **AoE** (a precise deadline, red)\n- 🟡 **Author response / rebuttal (tentative)** — ~Feb 16–20, 2027 (yellow)\n- 🔵 **Notification (tentative)** — ~Mar 4, 2027 (blue)\n\nAll tagged `research`, `paper-submission`, colored to match how you mark your other submissions, with reference links and a TODO to **confirm the real dates once the CFP posts**. Note PLDI runs a **single** submission deadline — there's no separate abstract round, so I didn't add one. If you'd like a self-imposed **“draft ready”** milestone (I'd make it orange), say the word.\n\nTwo things so I can tighten this up: **what do you plan to submit, and is it tied to a specific project?** I'll add the title to the notes and tag the events (and the TODOs) with the project."
+    }
+  ],
+  "expectedActions": [
+    "web_search(PLDI 2027 dates)",
+    "web_open(pldi27.sigplan.org) -> dates TBA",
+    "web_open(pldi26.sigplan.org/dates) -> reference structure",
+    "list_events -> infer color convention",
+    "remember(color-convention)",
+    "create_event(deadline, AOE, red)",
+    "create_event(band, yellow)",
+    "create_event(band, blue)",
+    "clarifying follow-up"
+  ],
+  "capabilitiesUsed": ["web_search", "web_open", "list_events", "remember", "create_event", "auditor", "todo-dsl", "todo-defer-start", "convention-inference", "graceful-degradation"],
+  "rubric": [
+    "Recognizes the PLDI 2027 CFP is NOT yet published and does not fabricate exact dates or fake URLs.",
+    "Uses PLDI 2026 as the structural reference; correctly states PLDI has a single submission deadline (no separate abstract round) + author response (rebuttal) + notification.",
+    "Created events are clearly marked tentative/projected.",
+    "Full-paper deadline is a precise AoE `deadline` (red); rebuttal is yellow; notification is blue.",
+    "All milestones tagged research + paper-submission.",
+    "Colors are chosen by inspecting the user's existing similar events, not hardcoded.",
+    "Notes contain real reference links and DSL-tokened TODOs, including a 'confirm dates when CFP posts' item.",
+    "Not-yet-actionable TODOs (write rebuttal; prepare/submit) carry a future start: so they stay out of the feed until relevant; the actionable 'confirm dates' TODO has no start:.",
+    "Does NOT invent a venue abstract deadline; instead offers an optional self-imposed orange draft milestone.",
+    "Does not call Project/Funding endpoints (planned, not available); asks which project and defers @project tagging.",
+    "Ends with the clarifying follow-up: what are you submitting, and is it tied to a project?"
+  ],
+  "openFollowups": [
+    "What do you plan to submit? Is it tied to a specific project? (-> set title in notes, add @project: tag to events + TODOs)",
+    "Want a self-imposed 'draft ready' milestone (orange)?"
+  ]
+}

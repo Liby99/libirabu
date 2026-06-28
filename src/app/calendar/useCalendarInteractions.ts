@@ -31,12 +31,14 @@ function readUrlState(): UrlState {
   const y = parseInt(p.get("y") ?? "", 10);
   const m = parseInt(p.get("m") ?? "", 10);
   const w = parseInt(p.get("w") ?? "", 10);
+  const d = parseInt(p.get("d") ?? "", 10); // day offset 0–6 within the week (the window slides per-day)
   const hasM = Number.isFinite(m) && m >= 1 && m <= 12;
   const hasW = hasM && Number.isFinite(w) && w >= 1;
+  const dayOff = Number.isFinite(d) ? Math.min(6, Math.max(0, d)) : 0;
   return {
     year: Number.isFinite(y) ? y : def.year,
     focus: hasM ? m - 1 : def.focus,
-    week: hasW ? Math.min(5, w - 1) : 0, // a month spans ≤6 week-rows (index 0–5)
+    week: hasW ? Math.min(5, w - 1) + dayOff / 7 : 0, // a month spans ≤6 week-rows (index 0–5) + day offset
     z: hasW ? 2 : hasM ? 1 : 0,
   };
 }
@@ -134,14 +136,15 @@ export function useCalendarInteractions() {
     });
   }, [tweenTo]);
 
-  // Snap z to the nearest level and (at week level) the week to the nearest week.
+  // Snap z to the nearest level and (at week level) the week to the nearest DAY (the 7-day
+  // window slides per-day; 1 week = 7 days, clamped to the first/last week's spillover edges).
   const snapNow = useCallback(() => {
     clearSnap();
     const zt = Math.max(0, Math.min(2, Math.round(zRef.current)));
     if (Math.abs(zt - zRef.current) > 0.004) tweenTo(zt, 260);
     if (Math.round(zRef.current) === 2) {
       const lastWeek = weeksInMonth(focusRef.current) - 1;
-      const wt = Math.max(0, Math.min(lastWeek, Math.round(weekRef.current)));
+      const wt = Math.max(0, Math.min(lastWeek, Math.round(weekRef.current * 7) / 7));
       if (Math.abs(wt - weekRef.current) > 0.004) tweenWeek(wt, 260);
     }
   }, [tweenTo, tweenWeek]);
@@ -192,18 +195,22 @@ export function useCalendarInteractions() {
     };
   }, [snapNow]);
 
-  // Wheel: vertical scroll in year view; horizontal week paging in week view
-  // (iPhone-homescreen style — follow, commit on a decisive drag/flick, absorb
-  // momentum, page again on a rising-edge swipe).
+  // Wheel: vertical scroll in year view; horizontal day-sliding in week view (the 7-day
+  // window follows the swipe freely and snaps to the nearest DAY on settle, so a small swipe
+  // shifts by a day rather than snapping back to the week).
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
-    let session = false, committed = false, startWeek = 0, curWeek = 0, committedTarget = 0, lastAbs = 0;
+    let session = false, pos = 0; // pos = live (fractional) week index during a swipe
     let idleTimer = 0;
     const lastIdx = () => weeksInMonth(focusRef.current) - 1;
+    // Nearest day boundary (1 week = 7 days), clamped to the first/last week (incl. spillover).
+    const snapDay = (w: number) => Math.max(0, Math.min(lastIdx(), Math.round(w * 7) / 7));
     const endSession = () => {
-      if (session && !committed) { cancelWeekTween(); tweenWeek(Math.max(0, Math.min(lastIdx(), startWeek)), 220); }
-      session = false; committed = false;
+      if (!session) return;
+      session = false;
+      const target = snapDay(pos);
+      if (Math.abs(target - pos) > 0.0005) tweenWeek(target, 200); else setWeek(target);
     };
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // pinch handled via gesture events
@@ -226,29 +233,10 @@ export function useCalendarInteractions() {
       e.preventDefault();
       clearTimeout(idleTimer);
       idleTimer = window.setTimeout(endSession, 90);
-      const ax = Math.abs(e.deltaX);
-      if (committed) {
-        if (ax > lastAbs * 1.4 + 5) { // rising delta = fresh swipe → page again now
-          startWeek = committedTarget; curWeek = committedTarget; committed = false; session = true;
-        } else {
-          lastAbs = ax;
-          return; // absorb decaying momentum
-        }
-      }
-      if (!session) { session = true; committed = false; startWeek = Math.round(weekRef.current); curWeek = weekRef.current; }
-      lastAbs = ax;
+      if (!session) { session = true; pos = weekRef.current; }
       cancelWeekTween();
-      const last = lastIdx();
-      curWeek = Math.max(0, Math.min(last, curWeek + e.deltaX / el.clientWidth));
-      setWeek(curWeek);
-      const drag = curWeek - startWeek;
-      const flick = ax > 12;
-      if (Math.abs(drag) >= 0.5 || (flick && Math.abs(drag) > 0.06)) {
-        const dir = drag !== 0 ? Math.sign(drag) : (e.deltaX > 0 ? 1 : -1);
-        committed = true;
-        committedTarget = Math.max(0, Math.min(last, startWeek + dir));
-        tweenWeek(committedTarget, 260);
-      }
+      pos = Math.max(0, Math.min(lastIdx(), pos + e.deltaX / el.clientWidth)); // 1 screen width = 1 week
+      setWeek(pos);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => { el.removeEventListener("wheel", onWheel); clearTimeout(idleTimer); };
@@ -270,7 +258,13 @@ export function useCalendarInteractions() {
       const p = new URLSearchParams(window.location.search);
       p.set("y", String(year));
       if (level >= 1) p.set("m", String(focus + 1)); else p.delete("m");
-      if (level >= 2) p.set("w", String(Math.round(week) + 1)); else p.delete("w");
+      if (level >= 2) {
+        // The 7-day window slides per-day: encode the week (1-based) + the day offset 0–6.
+        const k = Math.round(week * 7); // total day index from week 0's start
+        p.set("w", String(Math.floor(k / 7) + 1));
+        const day = ((k % 7) + 7) % 7;
+        if (day > 0) p.set("d", String(day)); else p.delete("d");
+      } else { p.delete("w"); p.delete("d"); }
       const qs = p.toString();
       window.history.replaceState(window.history.state, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
     }, 150);
@@ -315,7 +309,10 @@ export function useCalendarInteractions() {
       setHoverWeek(wk);
       if (hoverMonthRef.current != null) setHoverMonth(null);
     } else {
-      const c = cellInWeek(px, py, zRef.current, focusRef.current, Math.round(weekRef.current), vpNow, sY, tlScrollRef.current);
+      // Use the LIVE fractional week: the 7-day window can start on any day, and the rendered
+      // frame (which cellInWeek mirrors via timelineInfo) is positioned with the fractional
+      // week. Rounding here is what made the hovered day/cursor drift by the day offset.
+      const c = cellInWeek(px, py, zRef.current, focusRef.current, weekRef.current, vpNow, sY, tlScrollRef.current);
       next = { month: focusRef.current, dom: c.dom, week: Math.round(weekRef.current), hour: c.hour, hourFrac: c.hourFrac, nameMonth: null, nearLeft: c.nearLeft };
       if (hoverMonthRef.current != null) setHoverMonth(null);
       if (hoverWeekRef.current != null) setHoverWeek(null);
@@ -352,7 +349,7 @@ export function useCalendarInteractions() {
       tweenTo(2);
     } else if (cur >= 1.5) {
       const rect = el.getBoundingClientRect();
-      const hit = dayAtPointInWeek(e.clientX - rect.left, focusRef.current, Math.round(weekRef.current), { w: el.clientWidth, h: el.clientHeight });
+      const hit = dayAtPointInWeek(e.clientX - rect.left, zRef.current, focusRef.current, weekRef.current, { w: el.clientWidth, h: el.clientHeight }, scrollYRef.current);
       if (hit && hit.month !== focusRef.current) chainTo(hit.month, hit.week);
     }
   }, [tweenTo, chainTo]);

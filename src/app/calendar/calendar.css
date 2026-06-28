@@ -21,6 +21,7 @@
   --cc-sep: color-mix(in srgb, var(--accent-dark) 55%, transparent); /* solid separators (dimmed) */
   --cc-now: #ff3b6b;                                      /* bright pink-red current-time line + dots */
   --cc-today: color-mix(in srgb, #ff3b6b 7%, transparent); /* faint tint marking today's day column */
+  --cc-weekend: color-mix(in srgb, var(--accent-dark) 4%, transparent); /* very tiny Sat/Sun wash */
   --cc-cursor: color-mix(in srgb, var(--accent-dark) 20%, white); /* white tinted toward the accent (mouse time cursor) */
 }
 .cc-wrap.cc-clickable { cursor: pointer; } /* over the clickable month name */
@@ -73,6 +74,9 @@
   pointer-events: none;
   transition: opacity 0.16s ease, background-color 0.16s ease;
 }
+
+/* Weekend (Sat/Sun) column: a very faint wash to set weekends apart. */
+.cc-weekend { background: var(--cc-weekend); pointer-events: none; }
 
 /* Today: a soft pink-red tint on today's day column (persistent). */
 .cc-today {
@@ -503,6 +507,56 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
    transparent; the .cc-cm-search card is the only visible chrome */
 .cc-dw-cm .cm-panels-bottom { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; }
 
+/* Markdown PREVIEW (read render of the notes; toggled against the editor in the foot). */
+.cc-dw-md {
+  flex: 1; min-height: 80px; width: 100%; overflow-y: auto;
+  border-top: 1px dashed var(--accent-grey);
+  padding: 14px 2px 44px; /* bottom space clears the absolute foot */
+  font-family: Helvetica, system-ui, -apple-system, sans-serif;
+  font-size: 0.82rem; line-height: 1.65; color: var(--accent-dark); word-break: break-word;
+  /* the drawer is portaled into <body>, which sets user-select:none — re-enable selection */
+  user-select: text; -webkit-user-select: text; cursor: auto;
+}
+.cc-dw-md > :first-child { margin-top: 0; }
+.cc-dw-md > :last-child { margin-bottom: 0; }
+/* headings */
+.cc-dw-md h1, .cc-dw-md h2, .cc-dw-md h3, .cc-dw-md h4, .cc-dw-md h5, .cc-dw-md h6 {
+  margin: 1.3em 0 0.5em; line-height: 1.3; font-weight: 700; letter-spacing: -0.01em;
+}
+.cc-dw-md h1 { font-size: 1.4rem; padding-bottom: 0.2em; border-bottom: 1px solid var(--accent-grey); }
+.cc-dw-md h2 { font-size: 1.18rem; padding-bottom: 0.18em; border-bottom: 1px solid color-mix(in srgb, var(--accent-grey) 60%, transparent); }
+.cc-dw-md h3 { font-size: 1.03rem; }
+.cc-dw-md h4 { font-size: 0.92rem; }
+.cc-dw-md h5, .cc-dw-md h6 { font-size: 0.85rem; color: var(--accent-grey); }
+.cc-dw-md p { margin: 0.6em 0; }
+/* lists — Tailwind's preflight strips markers; restore disc / decimal */
+.cc-dw-md ul, .cc-dw-md ol { margin: 0.6em 0; padding-left: 1.5em; }
+.cc-dw-md ul { list-style: disc outside; }
+.cc-dw-md ol { list-style: decimal outside; }
+.cc-dw-md ul ul { list-style-type: circle; }
+.cc-dw-md ul ul ul { list-style-type: square; }
+.cc-dw-md li { margin: 0.2em 0; }
+.cc-dw-md li::marker { color: var(--accent-grey); }
+/* GFM task lists: drop the bullet, align the checkbox */
+.cc-dw-md li:has(input[type="checkbox"]) { list-style: none; }
+.cc-dw-md input[type="checkbox"] { margin: 0 0.45em 0 0; vertical-align: -0.05em; }
+/* inline + block code */
+.cc-dw-md code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 0.88em; background: var(--accent-bg-dark); padding: 0.12em 0.4em; border-radius: 4px; }
+.cc-dw-md pre { background: var(--accent-bg-dark); padding: 11px 13px; border-radius: 8px; overflow-x: auto; margin: 0.8em 0; line-height: 1.5; }
+.cc-dw-md pre code { background: none; padding: 0; font-size: 0.85em; }
+/* emphasis, links, rules, quotes */
+.cc-dw-md a { color: var(--highlight); text-decoration: underline; text-underline-offset: 2px; }
+.cc-dw-md a:hover { text-decoration-thickness: 2px; }
+.cc-dw-md blockquote { margin: 0.8em 0; padding: 0.2em 0 0.2em 0.9em; border-left: 3px solid var(--accent-grey); color: var(--accent-grey); }
+.cc-dw-md hr { border: none; border-top: 1px solid var(--accent-grey); margin: 1.3em 0; }
+/* tables */
+.cc-dw-md table { border-collapse: collapse; margin: 0.8em 0; font-size: 0.95em; display: block; overflow-x: auto; }
+.cc-dw-md th, .cc-dw-md td { border: 1px solid var(--accent-grey); padding: 4px 9px; text-align: left; }
+.cc-dw-md th { background: var(--accent-bg-dark); font-weight: 700; }
+.cc-dw-md img { max-width: 100%; border-radius: 6px; }
+/* KaTeX block math: centered with breathing room, scroll if too wide */
+.cc-dw-md .katex-display { margin: 0.9em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+
 /* VSCode-style find/replace widget (custom CodeMirror panel) — compact card, bottom-right.
    A 3-column grid [chevron | field (1fr) | actions] so both input boxes are exactly equal
    width and the buttons sit in stable columns. The replace row (row 2) is hidden until the
@@ -581,11 +635,19 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
   position: absolute; left: 16px; right: 16px; bottom: 10px;
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
 }
-.cc-dw-occ { display: flex; align-items: center; gap: 8px; }
+.cc-dw-occ { display: flex; align-items: center; gap: 6px; }
 .cc-dw-occ-badge { font-size: 0.72rem; color: var(--accent-grey); }
 .cc-dw-link { border: none; background: none; color: var(--accent-dark); cursor: pointer; font-size: 0.78rem; text-decoration: underline; padding: 0; }
+/* right-aligned cluster: notes view toggle + delete */
+.cc-dw-foot-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.cc-dw-view .cc-seg-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px 8px; }
+/* neutral icon button (e.g. "go to first occurrence"); same shape as the trash, accent hover */
+.cc-dw-iconbtn {
+  border: none; background: none; cursor: pointer; color: var(--accent-grey);
+  display: flex; padding: 7px; border-radius: 7px; transition: color 0.12s, background-color 0.12s;
+}
+.cc-dw-iconbtn:hover { color: var(--accent-dark); background: var(--accent-bg); }
 .cc-dw-trash {
-  margin-left: auto;
   border: none; background: none; cursor: pointer; color: var(--accent-grey);
   display: flex; padding: 7px; border-radius: 7px; transition: color 0.12s, background-color 0.12s;
 }
@@ -598,6 +660,13 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
   color: var(--ev-color, var(--accent-grey));
   opacity: 0.9; pointer-events: none;
 }
+/* Corner badge cluster (AI provenance + recurrence), small so they sit side-by-side. */
+.cc-badges {
+  position: absolute; top: 2px; right: 3px;
+  display: flex; gap: 2px; align-items: center;
+  pointer-events: none;
+}
+.cc-badge { color: var(--ev-color, var(--accent-grey)); opacity: 0.9; }
 .cc-rep-until-here { margin-left: 4px; border: 1px dashed var(--accent-grey); background: none; color: var(--accent-grey); border-radius: 5px; font-size: 0.72rem; padding: 1px 6px; cursor: pointer; }
 .cc-rep-until-here:hover { color: var(--accent-dark); border-color: var(--accent-dark); }
 .cc-sticker-del { display: flex; flex-direction: column; gap: 3px; padding: 3px; }

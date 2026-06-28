@@ -27,6 +27,10 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
     return <div className="cc-item cc-dim" style={style} />;
   }
 
+  if (it.kind === "weekend") {
+    return <div className="cc-item cc-weekend" style={style} />;
+  }
+
   if (it.kind === "hl") {
     return <div className="cc-item cc-hl" style={style} />;
   }

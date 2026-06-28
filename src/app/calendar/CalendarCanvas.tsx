@@ -47,6 +47,24 @@ export default function CalendarCanvas() {
   const clearHistory = history.clear;
   useEffect(() => { clearHistory(); }, [year, clearHistory]);
 
+  // The AI assistant navigates the view via this event (set_view → view_change). Week requests
+  // currently land on the containing month (no external goToWeek yet).
+  useEffect(() => {
+    const onSetView = (e: Event) => {
+      const v = (e as CustomEvent<{ year?: number; zoom?: string; focusedMonth?: number; focusedWeekStart?: string }>).detail || {};
+      if (typeof v.year === "number" && v.year !== year) selectYear(v.year);
+      let month = typeof v.focusedMonth === "number" ? v.focusedMonth : focus;
+      if (typeof v.focusedWeekStart === "string") {
+        const mm = Number(v.focusedWeekStart.slice(5, 7));
+        if (mm >= 1 && mm <= 12) month = mm - 1;
+      }
+      if (v.zoom === "year") tweenTo(0);
+      else if (v.zoom === "month" || v.zoom === "week" || typeof v.focusedMonth === "number") goToMonth(month);
+    };
+    window.addEventListener("calendar:setview", onSetView);
+    return () => window.removeEventListener("calendar:setview", onSetView);
+  }, [year, focus, selectYear, goToMonth, tweenTo]);
+
   const [yearMenuOpen, setYearMenuOpen] = useState(false);
   // Tag filter: keys (lowercased tag, or UNTAGGED) toggled OFF. Empty = show everything.
   const [tagHidden, setTagHidden] = useState<Set<string>>(new Set());
@@ -495,9 +513,9 @@ export default function CalendarCanvas() {
 
       {(() => {
         if (!drawerId) return null;
-        if (drawerTimed) return <EventDrawer event={drawerTimed} onChange={updateEvent} onDelete={removeEvent} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
-        if (drawerBand) return <BandEventDrawer event={drawerBand} onChange={updateBandEvent} onDelete={removeBandEvent} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
-        if (drawerDeadline) return <DeadlineDrawer event={drawerDeadline} mainTz={mainTz} onChange={updateDeadline} onDelete={removeDeadline} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
+        if (drawerTimed) return <EventDrawer key={drawerId} event={drawerTimed} onChange={updateEvent} onDelete={removeEvent} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
+        if (drawerBand) return <BandEventDrawer key={drawerId} event={drawerBand} onChange={updateBandEvent} onDelete={removeBandEvent} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
+        if (drawerDeadline) return <DeadlineDrawer key={drawerId} event={drawerDeadline} mainTz={mainTz} onChange={updateDeadline} onDelete={removeDeadline} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
         return null;
       })()}
 

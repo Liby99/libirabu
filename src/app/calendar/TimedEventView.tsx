@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { TimedEvent, fmtRange } from "./eventTypes";
 import { EventRect } from "./eventGeom";
+import EventBadges from "./EventBadges";
 
 interface Props {
   ev: TimedEvent;
@@ -104,6 +105,8 @@ export default function TimedEventView({ ev, rect, wide, reveal, interactive, on
         )}
         {wide && !short && <div className="cc-tevent-time">{fmtRange(ev.startHour, ev.endHour)}</div>}
       </div>
+
+      <EventBadges ai={ev.createdByAI} />
 
       {interactive && (
         <div className="cc-tevent-handle cc-tevent-handle-top" onMouseDown={(e) => onResizeStart(ev.id, "top", e)} />

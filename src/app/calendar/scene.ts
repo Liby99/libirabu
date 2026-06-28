@@ -83,10 +83,12 @@ function buildToday(items: Item[], z: number, focus: number, week: number, vp: V
     pushNowLabel("nl-m", x, colW, lineY, lineOn);
   }
 
-  // ── Week: today's column (band + timeline) + now line, only if today is in the focused week ──
+  // ── Week: today's column (band + timeline) + now line, only when today is in the visible
+  // 7-day window. `week` is fractional (the window slides per-day), so test against the live
+  // window start rather than a rounded week index. ──
   {
-    const wk = Math.round(week);
-    const inWeek = relDom != null && relDom >= weekStartDOM(focus, wk) && relDom <= weekStartDOM(focus, wk) + 6;
+    const startDom = weekStartDOM(focus, week);
+    const inWeek = relDom != null && relDom >= startDom && relDom < startDom + 7;
     const active = present && z >= 1.5 && inWeek;
     const f = frameFor(focus, z, focus, week, vp, scrollY);
     const colW = f.dayW;
@@ -287,6 +289,11 @@ function buildDetail(items: Item[], z: number, focus: number, week: number, vp: 
     const x = f.x0 + (dom - 1) * colW;
     if (x + colW < -40 || x > vp.w + 40) return;
     const dow = new Date(YEAR, r.month, r.day).getDay();
+    // faint weekend (Sat/Sun) column wash, spanning the band + timeline
+    if (dow === 0 || dow === 6) {
+      const bottom = hasTL ? tlBottom : bandBottom;
+      items.push({ key: `wke-${dom}`, kind: "weekend", x, y: f.bandY, w: colW, h: bottom - f.bandY, opacity: op, z: 2 });
+    }
     const dateText = r.month === focus ? String(r.day) : `${MONTH_NAMES[r.month]} ${r.day}`;
     items.push({ key: `date-${dom}`, kind: "dayLabel", x, y: f.bandY - 20, w: colW, h: 16, opacity: op, text: dateText, fontSize: wide ? 13 : 10, align: "center", z: 4 });
     items.push({ key: `wd-${dom}`, kind: "dayLabel", x, y: bandBottom + 2, w: colW, h: 14, opacity: op * 0.9, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4 });

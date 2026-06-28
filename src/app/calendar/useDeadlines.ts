@@ -18,10 +18,12 @@ export function useDeadlines(year: number, history: History) {
 
   useEffect(() => {
     let alive = true;
-    fetchEvents(year, "deadline")
+    const load = () => fetchEvents(year, "deadline")
       .then((rows) => { if (alive) setDeadlines(rows.map(apiToDeadline)); })
       .catch((e) => console.error("[calendar] load deadlines", e));
-    return () => { alive = false; };
+    load();
+    window.addEventListener("calendar:changed", load);
+    return () => { alive = false; window.removeEventListener("calendar:changed", load); };
   }, [year]);
 
   useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);

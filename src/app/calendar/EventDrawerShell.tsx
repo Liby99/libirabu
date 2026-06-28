@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Trash2 } from "lucide-react";
+import { Trash2, Pencil, Eye, SkipBack } from "lucide-react";
 import { EVENT_COLORS } from "./eventTypes";
 import { Repeat } from "@/lib/calendar/api";
 import TagEditor from "./TagEditor";
 import RepeatEditor from "./RepeatEditor";
 import NotesEditor from "./NotesEditor";
+import NotesPreview from "./NotesPreview";
 
 interface Props {
   name: string;
@@ -35,6 +36,9 @@ interface Props {
 // filling the rest, and a single trash icon bottom-right. Closes via the dim mask / Esc.
 export default function EventDrawerShell({ name, onName, color, onColor, onColorPreview, repeat, onRepeat, anchorDow, anchorDate, focusOcc, onGoToFirst, tags, onTags, notes, onNotes, onDelete, onClose, children }: Props) {
   const [mounted, setMounted] = useState(false);
+  // Notes view: render the markdown by default when there's something to show, edit when
+  // empty. (The shell is keyed by event id, so this re-initializes each time a drawer opens.)
+  const [view, setView] = useState<"edit" | "preview">(() => (notes.trim() ? "preview" : "edit"));
   const nameRef = useRef<HTMLInputElement>(null);
   useEffect(() => setMounted(true), []);
   useEffect(() => {
@@ -106,18 +110,30 @@ export default function EventDrawerShell({ name, onName, color, onColor, onColor
           </div>
         </div>
 
-        <NotesEditor value={notes} onChange={onNotes} placeholder="Notes…  (markdown)" />
+        {view === "edit"
+          ? <NotesEditor value={notes} onChange={onNotes} placeholder="Notes…  (markdown)" />
+          : <NotesPreview value={notes} />}
 
         <div className="cc-dw-foot">
           {focusOcc && (
             <span className="cc-dw-occ">
               <span className="cc-dw-occ-badge">↻ occurrence</span>
-              {onGoToFirst && <button className="cc-dw-link" onClick={onGoToFirst}>Go to first ↩</button>}
+              {onGoToFirst && (
+                <button className="cc-dw-iconbtn" title="Go to first occurrence" aria-label="Go to first occurrence" onClick={onGoToFirst}>
+                  <SkipBack size={15} />
+                </button>
+              )}
             </span>
           )}
-          <button className="cc-dw-trash" title="Delete this event / series" onClick={() => { onDelete(); onClose(); }}>
-            <Trash2 size={16} />
-          </button>
+          <div className="cc-dw-foot-right">
+            <div className="cc-seg cc-dw-view" role="group" aria-label="Notes view">
+              <button type="button" className={`cc-seg-btn${view === "edit" ? " sel" : ""}`} title="Edit" aria-label="Edit notes" onClick={() => setView("edit")}><Pencil size={13} /></button>
+              <button type="button" className={`cc-seg-btn${view === "preview" ? " sel" : ""}`} title="Preview" aria-label="Preview notes" onClick={() => setView("preview")}><Eye size={13} /></button>
+            </div>
+            <button className="cc-dw-trash" title="Delete this event / series" onClick={() => { onDelete(); onClose(); }}>
+              <Trash2 size={16} />
+            </button>
+          </div>
         </div>
       </aside>
     ),

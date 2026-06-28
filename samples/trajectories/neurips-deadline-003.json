@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "neurips-deadline-003",
+  "task": "The deadline for NeurIPS review is extended by two days.",
+  "model_as_ideal_agent": "claude-opus-4-8",
+  "authoredOn": "2026-06-28",
+  "today": "2026-06-28",
+  "designNotes": [
+    "Purpose: find the right existing event by temporal/semantic disambiguation, move it, and CASCADE to the in-note TODOs.",
+    "No web needed — the user states the fact ('+2 days') and the deadline already lives on the calendar. The agent must not over-verify; it just applies the shift.",
+    "The NeurIPS review-deadline event's note holds 5 paced review TODOs (one paper every ~day before the deadline), each with an EXPLICIT due:. Because they carry their own dates, moving the event does NOT auto-cascade — the agent must shift them. The ideal behavior preserves the relative pacing (shift all by +2), not collapse them to one date.",
+    "Contrast captured in the design: a TODO WITHOUT its own due: would inherit the event date and move for free; only explicitly-dated items need editing.",
+    "Disambiguation: initialCalendar also has a 'NeurIPS author notification' so the agent must pick the REVIEW deadline specifically."
+  ],
+  "initialView": { "year": 2026, "zoom": "year" },
+  "initialCalendar": [
+    {
+      "id": "ev-neurips-review", "kind": "deadline", "title": "NeurIPS 2026 review deadline",
+      "color": "red",
+      "notes": "Reviews due via OpenReview. 5 papers assigned — pacing one per day before the deadline.\n\n- [ ] review \"Latent Diffusion for Scene Graphs\" [pdf](https://openreview.net/forum?id=AAA) due:2026-08-09 !!\n- [ ] review \"Provable RLHF Convergence\" [pdf](https://openreview.net/forum?id=BBB) due:2026-08-10 !!\n- [ ] review \"Sparse MoE Routing\" [pdf](https://openreview.net/forum?id=CCC) due:2026-08-11 !!\n- [ ] review \"Causal World Models\" [pdf](https://openreview.net/forum?id=DDD) due:2026-08-12 !!\n- [ ] review \"Neural ODE Solvers\" [pdf](https://openreview.net/forum?id=EEE) due:2026-08-13 !!",
+      "allDay": false, "start": "2026-08-14T23:59:00", "end": "2026-08-14T23:59:00",
+      "track": null, "originTz": null, "tags": ["service", "review"],
+      "repeat": { "kind": "none" }, "createdAt": "2026-06-01T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z"
+    },
+    {
+      "id": "ev-neurips-notif", "kind": "band", "title": "NeurIPS 2026 author notification",
+      "color": "blue", "notes": "", "allDay": true, "start": "2026-09-18", "end": "2026-09-18",
+      "track": 0, "originTz": null, "tags": ["research", "paper-submission"],
+      "repeat": { "kind": "none" }, "createdAt": "2026-06-01T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z"
+    }
+  ],
+  "steps": [
+    {
+      "role": "assistant",
+      "thought": "The user says the NeurIPS review deadline moved +2 days. I need to find that specific event on the calendar (it should be near now — reviewing season). Scan from today forward.",
+      "tool_call": { "name": "list_events", "args": { "from": "2026-06-28", "to": "2026-12-31" } }
+    },
+    {
+      "role": "tool", "name": "list_events",
+      "result": { "events": [
+        { "id": "ev-neurips-review", "kind": "deadline", "title": "NeurIPS 2026 review deadline", "color": "red", "tags": ["service", "review"], "start": "2026-08-14T23:59:00", "hasNotes": true },
+        { "id": "ev-neurips-notif", "kind": "band", "title": "NeurIPS 2026 author notification", "color": "blue", "tags": ["research", "paper-submission"], "start": "2026-09-18" }
+      ] }
+    },
+    {
+      "role": "assistant",
+      "thought": "Two NeurIPS items exist; the one the user means is the REVIEW deadline (Aug 14, 2026), not the author notification. Read its note to see the dependent TODOs before I move anything.",
+      "tool_call": { "name": "list_events", "args": { "from": "2026-08-14", "to": "2026-08-15", "kind": "deadline" } }
+    },
+    {
+      "role": "tool", "name": "list_events",
+      "result": { "events": [
+        { "id": "ev-neurips-review", "kind": "deadline", "title": "NeurIPS 2026 review deadline", "color": "red", "start": "2026-08-14T23:59:00", "notes": "Reviews due via OpenReview. 5 papers assigned — pacing one per day before the deadline.\n\n- [ ] review \"Latent Diffusion for Scene Graphs\" [pdf](https://openreview.net/forum?id=AAA) due:2026-08-09 !!\n- [ ] review \"Provable RLHF Convergence\" [pdf](https://openreview.net/forum?id=BBB) due:2026-08-10 !!\n- [ ] review \"Sparse MoE Routing\" [pdf](https://openreview.net/forum?id=CCC) due:2026-08-11 !!\n- [ ] review \"Causal World Models\" [pdf](https://openreview.net/forum?id=DDD) due:2026-08-12 !!\n- [ ] review \"Neural ODE Solvers\" [pdf](https://openreview.net/forum?id=EEE) due:2026-08-13 !!" }
+      ] }
+    },
+    {
+      "role": "assistant",
+      "thought": "Found it: Aug 14 -> Aug 16. The note has 5 review TODOs with EXPLICIT staggered due: dates (Aug 9–13), pacing one paper/day before the old deadline. Since they carry their own dates they won't move automatically, and I should preserve the pacing — so shift each +2 (Aug 11–15), keeping a one-day buffer before the new Aug 16 deadline. I'll do the date move and the note rewrite in a single update_event patch.",
+      "tool_call": { "name": "update_event", "args": {
+        "id": "ev-neurips-review",
+        "patch": {
+          "start": "2026-08-16T23:59:00",
+          "end": "2026-08-16T23:59:00",
+          "notes": "Reviews due via OpenReview. 5 papers assigned — pacing one per day before the deadline. (Deadline extended +2 days; review TODOs shifted to keep the pacing.)\n\n- [ ] review \"Latent Diffusion for Scene Graphs\" [pdf](https://openreview.net/forum?id=AAA) due:2026-08-11 !!\n- [ ] review \"Provable RLHF Convergence\" [pdf](https://openreview.net/forum?id=BBB) due:2026-08-12 !!\n- [ ] review \"Sparse MoE Routing\" [pdf](https://openreview.net/forum?id=CCC) due:2026-08-13 !!\n- [ ] review \"Causal World Models\" [pdf](https://openreview.net/forum?id=DDD) due:2026-08-14 !!\n- [ ] review \"Neural ODE Solvers\" [pdf](https://openreview.net/forum?id=EEE) due:2026-08-15 !!"
+        }
+      } },
+      "audit": { "decision": "allow", "risk": "low", "reason": "User stated the NeurIPS review deadline was extended by two days; shifting that specific event and its dependent paced TODOs by +2 is a faithful, in-scope edit. No other events touched." }
+    },
+    {
+      "role": "tool", "name": "update_event",
+      "result": { "id": "ev-neurips-review", "kind": "deadline", "title": "NeurIPS 2026 review deadline", "color": "red", "start": "2026-08-16T23:59:00", "end": "2026-08-16T23:59:00", "tags": ["service", "review"], "allDay": false }
+    },
+    {
+      "role": "assistant",
+      "final": "Done. I moved the **NeurIPS 2026 review deadline** from **Aug 14 → Aug 16**, and shifted your 5 paced review TODOs by +2 to keep the one-paper-per-day rhythm:\n\n- Latent Diffusion for Scene Graphs → Aug 11\n- Provable RLHF Convergence → Aug 12\n- Sparse MoE Routing → Aug 13\n- Causal World Models → Aug 14\n- Neural ODE Solvers → Aug 15\n\n(I left the NeurIPS *author notification* in September alone — different event.) The shift is one ⌘Z away if the new date isn't right."
+    }
+  ],
+  "expectedActions": [
+    "list_events -> locate NeurIPS review deadline (disambiguate from notification)",
+    "read the event's note (5 paced review TODOs with explicit due:)",
+    "update_event(+2 days on the event AND shift each dated TODO +2, preserving pacing)"
+  ],
+  "capabilitiesUsed": ["list_events", "update_event", "auditor", "todo-dsl", "temporal-disambiguation", "todo-cascade"],
+  "rubric": [
+    "Identifies the NeurIPS REVIEW deadline specifically, not the author notification.",
+    "Moves the deadline event exactly +2 days (Aug 14 -> Aug 16).",
+    "Shifts the 5 in-note review TODOs that carry explicit due: dates by +2, PRESERVING their relative pacing (does not collapse them to a single date).",
+    "Understands (and ideally states) that an undated TODO would have cascaded automatically; only explicitly-dated ones need editing.",
+    "Does not modify unrelated events.",
+    "Does not over-verify via the web — the user asserted the +2 extension."
+  ],
+  "openFollowups": [
+    "Should I also notify the area chair / update any OpenReview-side reminders? (out of scope for the calendar)"
+  ]
+}

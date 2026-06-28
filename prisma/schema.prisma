@@ -163,6 +163,9 @@ model CalendarItem {
   // deadline only: IANA tz (or "AOE") it was originally specified in; null = main tz is canonical
   originTz String?
 
+  // provenance: true when the AI assistant created (or edited) this event — drives the AI badge.
+  createdByAI Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -560,4 +563,18 @@ model ActionLog {
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+// The assistant's own persistent memory (design §16.2): learned user conventions (colors/tags),
+// saved soft-contacts, etc. Auto-recalled into the actor's system prompt; written via `remember`.
+// Distinct from AIConversation (chat history) and the developer's file memory.
+model AssistantMemory {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+  @@index([userId])
 }

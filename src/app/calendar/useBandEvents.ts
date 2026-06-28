@@ -18,10 +18,12 @@ export function useBandEvents(year: number, history: History) {
 
   useEffect(() => {
     let alive = true;
-    fetchEvents(year, "band")
+    const load = () => fetchEvents(year, "band")
       .then((rows) => { if (alive) setEvents(rows.map(apiToBand)); })
       .catch((e) => console.error("[calendar] load band events", e));
-    return () => { alive = false; };
+    load();
+    window.addEventListener("calendar:changed", load);
+    return () => { alive = false; window.removeEventListener("calendar:changed", load); };
   }, [year]);
 
   useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);

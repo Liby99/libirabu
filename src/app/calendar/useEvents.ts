@@ -20,10 +20,13 @@ export function useEvents(year: number, history: History) {
 
   useEffect(() => {
     let alive = true;
-    fetchEvents(year, "timed")
+    const load = () => fetchEvents(year, "timed")
       .then((rows) => { if (alive) setEvents(rows.map(apiToTimed)); })
       .catch((e) => console.error("[calendar] load timed events", e));
-    return () => { alive = false; };
+    load();
+    // The AI assistant dispatches this after a server-side write so the canvas refreshes.
+    window.addEventListener("calendar:changed", load);
+    return () => { alive = false; window.removeEventListener("calendar:changed", load); };
   }, [year]);
 
   useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);

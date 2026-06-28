@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BandEvent } from "./bandEventTypes";
 import { BandRect } from "./bandGeom";
+import EventBadges from "./EventBadges";
 
 interface Props {
   ev: BandEvent;
@@ -121,6 +122,8 @@ export default function BandEventView({ ev, rect, vw, gap, raised, onHover, sele
           </div>
         )}
       </div>
+
+      <EventBadges ai={ev.createdByAI} />
 
       {/* Resize edges — only on the selected bar, and only for an edge that's on-screen. */}
       {selected && !rect.clipStart && (

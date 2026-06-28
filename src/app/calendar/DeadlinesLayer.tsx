@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Plus, RotateCw } from "lucide-react";
+import { Plus } from "lucide-react";
+import EventBadges from "./EventBadges";
 import { Vp, Hover } from "./types";
 import { LABEL_W } from "./constants";
 import { frameFor } from "./frames";
@@ -125,7 +126,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
               >
                 <span className="cc-ddl-title">{d.title}</span>
                 <span className="cc-ddl-time">{deadlineTimeLabel(d, mainTz)}</span>
-                <RotateCw className="cc-rec-badge" size={9} strokeWidth={2.5} aria-hidden />
+                <EventBadges ai={d.createdByAI} recurring />
               </div>
             </div>
           );
@@ -160,6 +161,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
               >
                 <span className="cc-ddl-title">{d.title}</span>
                 <span className="cc-ddl-time">{deadlineTimeLabel(d, mainTz)}</span>
+                <EventBadges ai={d.createdByAI} />
               </div>
             </div>
           );
