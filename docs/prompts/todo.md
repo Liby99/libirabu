@@ -1,4 +1,4 @@
-- Drawer behavior:
+- [x] Refined Drawer behavior:
     - A drawer will appear when I double click on an event. Currently, a huge drawer will be drawn out from the right
     - There is a current problem that, if I do not move the main calendar canvas, if the event is towards the right hand side of the screen, then the drawer will occlude that event; If I do shift the main calendar canvas to the left, then if the event is on the left hand side of the canvas, the event will go out-of-screen
     - The proposed solution is that, we should understand which event that we are clicking on, and the goal is to shift the main canvas to a point where the event is horizontally centered in the remaining space.
@@ -13,6 +13,8 @@
             - Meaning that is an event is already placed towards the left hand side of the screen and even to the left of the middle point in the free area, we do not need to move the canvas.
     - A few note:
         - When we resize the drawer, the main canvas should be responsive and move accordingly.
+    - [x] Update: We also want to upper bound the drawer
+        - We do not want the shift delta to be larger than D: U - (X - D) / 2 < D
 
 - [x] Scroll-up/down behavior in monthly view
     - When we scroll up or down in the monthly view, we should be able to go to previous month and next month
@@ -60,6 +62,36 @@
     - I would like that to show "This Event: (the date of currently selected occurrence)"
     - And another line shows "Initial Event Date: (the date of the initial event of this series of recurrent events)"
 
-- TODO List in Calendar
+- [ ] TODO List in Calendar
     - Let's forget about a centralized todo viewer; but rather a contextualized todo viewer in a monthly view or a weekly view.
     - There turns out to be an empty space in monthly/weekly view, that sits right to the left of the daily
+
+- [x] Two overlapping deadline tags:
+    - when hover on one, that one should go on top of the other ones
+
+- [x] Double clicking on all-day recurrent events showing drawer and the mark and the highlighted events:
+    - The highlighted events could be many, because it is a recurrent event, and they should have the similar property as the all-day event blocks in the monthly tracks
+    - They should have their text not overlapping with the next event
+    - Bascially we should clamp the textbox width by the distance to the left hand side of the next event.
+
+- [ ] Consider the following interaction
+    - I am teaching a class for spring semester
+    - The lecture is recurring event and the first lecture is January and last is May. It recur two times a week on Tue/Thu
+    - I am double clicking on one lecture in may, currently in May monthly view, opening a drawer
+    - I click on "back to the first occurrence".
+    - What is currently happening:
+        - The drawer disappears suddenly and the screen directly jumps to January (monthly view) with all the information suddenly changed
+        - The first event is selected
+    - What should be happening: a series of animation:
+        - The drawer closes out and the screen goes back to normal
+        - We zoom out to yearly view
+        - Scroll to Jan
+        - We zoom in to monthly view
+        - We simulate a double click on the first lecture in Jan, and a drawer comes out.
+    - What should be happening more generally for clicking on the "back to first occurrence" button
+        - Depending on which level we are viewing the current event from (yearly/monthly/weekly), we should land at the same level where the original event is at, with the drawer opened.
+        - The exact trajectory of animations depend on the distance
+            - If I'm viewing from a weekly view and the two events (first and current) are in the same week, we simply close the drawer and open the drawer for that first event
+            - If I'm viewing from a weekly view and the two events are in two different weeks in the same month, we zoom one level out to the month, zoom in to the other first event's week, and we open the drawer
+            - If I'm viewing from a weekly view and the two events are in two different months, we zoom two levels back to yearly view, and zoom in two levels to that first event's week, and we open the drawer.
+            - ...

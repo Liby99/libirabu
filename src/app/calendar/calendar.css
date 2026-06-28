@@ -534,6 +534,7 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
 .cc-dw-dash { color: var(--accent-grey); }
 .cc-dw-swatches { gap: 7px; }
 .cc-dw-hint { font-size: 0.68rem; color: var(--accent-grey); }
+.cc-dw-time .cc-dw-row.cc-dw-hint { padding-bottom: 5px; } /* a little more gap before the color picker below */
 /* Markdown notes — a CodeMirror editor that fills the rest of the drawer. */
 /* recurring events: Series | This-event note tabs sitting just above the notepad */
 .cc-dw-notetabs { flex: none; }
@@ -854,7 +855,8 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
   white-space: nowrap;
   transition: box-shadow 0.12s ease, border-color 0.12s ease;
 }
-.cc-ddl-label:hover { background: var(--ev-fill-hover, var(--ev-fill)); }
+/* overlapping deadline tags stack in DOM order; hovering lifts one above the others */
+.cc-ddl-label:hover { background: var(--ev-fill-hover, var(--ev-fill)); z-index: 5; }
 .cc-ddl.moving .cc-ddl-label { cursor: grabbing; box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3); }
 .cc-ddl.selected .cc-ddl-label {
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
@@ -979,6 +981,8 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
 .cc-confirm-cancel:hover { background: var(--accent-bg); }
 .cc-confirm-delete { background: #c0392b; border-color: #c0392b; color: #fff; }
 .cc-confirm-delete:hover { background: #a93226; }
+.cc-confirm-go { background: var(--accent-dark); border-color: var(--accent-dark); color: var(--background); } /* non-destructive primary action (e.g. jump to year) */
+.cc-confirm-go:hover { background: color-mix(in srgb, var(--accent-dark) 85%, #000); }
 
 /* recurring-delete scope picker: compact card, X to cancel, three options in a row */
 .cc-confirm-recur { width: 380px; position: relative; padding: 11px 12px; border-radius: 8px; }

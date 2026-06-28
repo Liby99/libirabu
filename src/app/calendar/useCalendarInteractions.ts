@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Vp, Hover } from "./types";
 import { easeInOut, TOP_PAD, TRACK_H } from "./constants";
-import { yearMaxScroll, MonthAnim } from "./frames";
+import { yearMaxScroll, yearFrame, MonthAnim } from "./frames";
 import { hourMetrics, clampHourH, setWeekHourH as syncWeekHourH } from "./eventGeom";
 import { weeksInMonth } from "./dates";
 import {
@@ -295,12 +295,23 @@ export function useCalendarInteractions() {
       const p = Math.min(1, Math.abs(norm));
       if (p < 0.001) { setMonthAnim(null); setDetailMul(1); mVel = 0; return; } // never really moved
       const commit = p >= MONTH_COMMIT_P;
+      const dir: 1 | -1 = norm >= 0 ? 1 : -1;
+      const to = focusRef.current + dir;
+      // On a real page-turn, shift the YEAR scroll by the year-view distance between the months, so
+      // zooming back out lands on the month we paged TO — not the one we zoomed in from. (Invisible
+      // in month view, where band positions don't depend on scrollY.)
+      if (commit && to >= 0 && to <= 11) {
+        const vpNow = { w: el.clientWidth, h: el.clientHeight };
+        const delta = yearFrame(to, vpNow, 0).bandY - yearFrame(focusRef.current, vpNow, 0).bandY;
+        const max = yearMaxScroll(vpNow);
+        setScrollY((s) => Math.max(0, Math.min(max, s + delta)));
+      }
       // Match the snap speed to the release velocity (slow drag → slow snap), capped to a sane range.
       const remPx = Math.abs((commit ? 1 : 0) - p) * PAGE;
       const speed = Math.abs(mVel); // px/ms at release
       const dur = speed > 0.02 ? Math.max(180, Math.min(660, remPx / speed)) : 560;
       mVel = 0;
-      snapMonth(norm >= 0 ? 1 : -1, p, commit, dur);
+      snapMonth(dir, p, commit, dur);
     };
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // pinch handled via gesture events
@@ -545,6 +556,33 @@ export function useCalendarInteractions() {
     }
   }, [tweenTo, tweenWeek]);
 
+  // Animate to a specific date (year/month/week index) and LAND AT `level` (0 year · 1 month ·
+  // 2 week), then fire `onArrive`. Like goToCurrentWeek it takes the shortest path: it zooms OUT
+  // only as far as the current spot and the target diverge — same week → none, same month →
+  // month, else year — then zooms back IN to `level` at the target. Used by the drawer's "back
+  // to the first occurrence", so the trajectory length scales with how far apart the two are.
+  const goToOccurrence = useCallback((ty: number, tm: number, tw: number, level: number, onArrive?: () => void) => {
+    const lvl = Math.max(0, Math.min(2, Math.round(level)));
+    const sameYear = yearRef.current === ty;
+    const sameMonth = sameYear && focusRef.current === tm;
+    const sameWeek = sameMonth && Math.round(weekRef.current) === tw;
+    const fire = () => { if (onArrive) requestAnimationFrame(() => requestAnimationFrame(onArrive)); };
+    const place = () => {
+      if (!sameYear) { setYearState(ty); setScrollY(0); }
+      setFocus(tm);
+      if (lvl >= 2) setWeek(tw);
+    };
+    const out = (!sameYear || !sameMonth) ? 0 : (lvl === 2 && !sameWeek) ? 1 : lvl;
+    const dist = lvl - out;
+    if (dist <= 0) { place(); window.setTimeout(fire, 100); return; } // already at the right level/spot
+    const durOut = 300 + 240 * dist;
+    const durIn = 360 + 320 * dist;
+    tweenTo(out, durOut, () => {
+      place();
+      window.setTimeout(() => tweenTo(lvl, durIn, fire), 160);
+    });
+  }, [tweenTo]);
+
   // The month the breadcrumb should show: flips to the page-turn target as soon as the gesture
   // passes the commit threshold (during drag AND snap), so the label updates the moment the new
   // month is committed-to — not after the animation settles. Reverts if the drag is pulled back.
@@ -552,5 +590,5 @@ export function useCalendarInteractions() {
     ? Math.max(0, Math.min(11, focus + monthAnim.dir))
     : focus;
 
-  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, selectYear, goToCurrentYear, goToCurrentWeek, goToMonth, tweenTo, onMove, onClick, clearHover };
+  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, selectYear, goToCurrentYear, goToCurrentWeek, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover };
 }

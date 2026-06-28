@@ -36,7 +36,7 @@ import { deadlineTimeLabel } from "./deadlineFormat";
 import { NO_REPEAT, Repeat } from "@/lib/calendar/api";
 
 export default function CalendarCanvas() {
-  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToCurrentWeek, goToMonth, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul } =
+  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToCurrentWeek, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul } =
     useCalendarInteractions();
   const { trackNames, editTrack, mainTz, altTz, setAltTz } = useCalendarSettings(year);
   const history = useHistory();
@@ -88,6 +88,7 @@ export default function CalendarCanvas() {
   const [focusedOcc, setFocusedOcc] = useState<string | null>(null); // the clicked occurrence date "YYYY-MM-DD" (null = the base)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [recurDelete, setRecurDelete] = useState<{ id: string; occ: string } | null>(null); // recurring delete → pick scope
+  const [crossYear, setCrossYear] = useState<{ id: string; ty: number; tm: number; tw: number; lvl: number } | null>(null); // "go to first" lands in another year → confirm
   // Clipboard for copy/cut/paste of events (snapshot, kept across the source's deletion on cut).
   const [clip, setClip] = useState<
     | { kind: "timed"; ev: TimedEvent }
@@ -101,7 +102,31 @@ export default function CalendarCanvas() {
 
   // Interactions carry which occurrence (date) was clicked, so per-occurrence actions work.
   const selectEvent = (id: string | null, occ?: string | null) => { setSelectedId(id); setFocusedOcc(occ ?? null); };
-  const openDrawer = (id: string, occ?: string | null) => { setDrawerId(id); setFocusedOcc(occ ?? null); };
+  // Open the drawer, first centering the clicked event in the space left of the drawer: the shell
+  // shifts left so the event's center lands at the midpoint of the (X − drawerWidth) free area.
+  // delta = eventCenter − (X − D)/2, capped at ≥ 0 (never shift right). The subtraction + cap live
+  // in CSS (max(), 100vw, --cc-drawer-w) so a drawer resize re-solves it live; here we only publish
+  // the event's UNSHIFTED viewport center as --cc-evcenter.
+  const measureEventCenterX = (id: string, occ: string | null): number | null => {
+    const wrap = wrapRef.current;
+    if (!wrap) return null;
+    const el =
+      (occ ? wrap.querySelector(`[data-ev-id="${id}"][data-occ="${occ}"]`) : wrap.querySelector(`[data-ev-id="${id}"]:not([data-occ])`))
+      ?? wrap.querySelector(`[data-ev-id="${id}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    // If a drawer is already open the shell is mid-shift — subtract its transform for the unshifted center.
+    const shell = wrap.closest(".app-shell");
+    const tf = shell ? getComputedStyle(shell).transform : "none";
+    const m = tf && tf !== "none" ? new DOMMatrix(tf).m41 : 0;
+    return r.left + r.width / 2 - m;
+  };
+  const openDrawer = (id: string, occ?: string | null) => {
+    const c = measureEventCenterX(id, occ ?? null);
+    document.documentElement.style.setProperty("--cc-evcenter", c != null ? `${c}px` : "50vw");
+    setDrawerId(id);
+    setFocusedOcc(occ ?? null);
+  };
   const openMenu = (id: string, x: number, y: number, occ?: string | null) => { setMenu({ id, x, y }); setFocusedOcc(occ ?? null); };
   // While a drawer is open, slide the whole app shell left (CSS) so the (body-portaled)
   // drawer doesn't cover the event being edited.
@@ -158,16 +183,28 @@ export default function CalendarCanvas() {
     deleteAny(id);
     setSelectedId(null);
   };
-  // "Go to first occurrence": close the drawer (leaving it open over a now-navigated calendar
-  // strands the UI — the canvas handlers stay disabled and the spotlight goes stale), then
-  // jump to the base event's month with it selected.
+  // "Go to first occurrence": the base event IS the series' first occurrence. Close the drawer
+  // (leaving it open over a navigating calendar strands the UI), let it settle, then animate to
+  // the base's date AT THE LEVEL we're currently viewing from (year/month/week) and reopen the
+  // drawer there. goToOccurrence picks the shortest zoom trajectory by how far the two are apart.
+  // Close the drawer, let it settle, then animate to the base's date and reopen it there.
+  const runGoToFirst = (id: string, ty: number, tm: number, tw: number, lvl: number) => {
+    setDrawerId(null);
+    setSelectedId(id);
+    setFocusedOcc(null);
+    window.setTimeout(() => goToOccurrence(ty, tm, tw, lvl, () => openDrawer(id, null)), 200);
+  };
   const goToFirst = () => {
     if (!drawerEv) return;
-    const ev = drawerEv;
-    setDrawerId(null);
-    setSelectedId(ev.id);
-    setFocusedOcc(null);
-    goToMonth(ev.month);
+    const id = drawerEv.id;
+    const ty = drawerEv.year, tm = drawerEv.month;
+    const td = drawerTimed ? drawerTimed.day : drawerBand ? drawerBand.startDay : drawerDeadline ? drawerDeadline.day : 1;
+    const tw = Math.floor((new Date(ty, tm, 1).getDay() + td - 1) / 7); // week-row index of the base day
+    const lvl = Math.round(z);
+    // Cross-year: the base lives in another year — a silent year switch is disorienting, so ask
+    // first. Confirming runs the same trajectory (which switches the year as it animates).
+    if (ty !== year) { setCrossYear({ id, ty, tm, tw, lvl }); return; }
+    runGoToFirst(id, ty, tm, tw, lvl);
   };
   const menuRepeat = menu ? repeatOf(menu.id) : null;
   const menuRecurring = !!menuRepeat && menuRepeat.kind !== "none";
@@ -235,7 +272,7 @@ export default function CalendarCanvas() {
   // `shape` is read from each measured element's own class — so a promoted timed/deadline
   // event (which is a BAND element) is duplicated band-shaped even though its drawer is timed
   // /deadline, and is visible in year view where the original (timeline) element isn't drawn.
-  type Spot = { left: number; top: number; width: number; height: number; occ: string | null; shape: "ddl" | "band" | "timed" };
+  type Spot = { left: number; top: number; width: number; height: number; occ: string | null; shape: "ddl" | "band" | "timed"; bandGap: string | null };
   const [spotBoxes, setSpotBoxes] = useState<Spot[]>([]);
   const [spotLines, setSpotLines] = useState<Spot[]>([]); // deadline lines
   useLayoutEffect(() => {
@@ -246,7 +283,10 @@ export default function CalendarCanvas() {
       const r = el.getBoundingClientRect();
       const cl = (el as HTMLElement).classList;
       const shape = cl.contains("cc-ddl-label") ? "ddl" : cl.contains("cc-tevent-band") ? "band" : "timed";
-      return { left: r.left - wr.left, top: r.top - wr.top, width: r.width, height: r.height, occ: (el as HTMLElement).getAttribute("data-occ"), shape };
+      // Bands clip their title before the next bar on the lane (--band-gap). Carry that over so
+      // the duplicates clamp identically — recurrence copies don't overlap their neighbours' text.
+      const bandGap = cl.contains("cc-band-clip") ? getComputedStyle(el as HTMLElement).getPropertyValue("--band-gap").trim() || null : null;
+      return { left: r.left - wr.left, top: r.top - wr.top, width: r.width, height: r.height, occ: (el as HTMLElement).getAttribute("data-occ"), shape, bandGap };
     };
     setSpotBoxes([...wrap.querySelectorAll(`[data-ev-id="${drawerId}"]`)].map(rel));
     setSpotLines([...wrap.querySelectorAll(`[data-ev-line-id="${drawerId}"]`)].map(rel)); // deadline lines only (empty otherwise)
@@ -575,11 +615,13 @@ export default function CalendarCanvas() {
               // time when short, clamp the title to whole lines); bands stay single-line.
               const timed = b.shape === "timed";
               const { tiny, short, titleLines } = timed ? eventTextLayout(b.height) : { tiny: false, short: false, titleLines: 1 };
+              // bands: replay the original's title clip so a copy's text stops before the next bar
+              const clip = b.shape === "band" && b.bandGap != null;
               return (
                 <div
                   key={i}
-                  className={`cc-item cc-tevent ${b.shape === "band" ? "cc-tevent-band " : ""}cc-ev-${evColor}${b.occ === focusedOcc ? " selected" : ""}${timed && short ? " cc-tevent-short" : ""}${timed && tiny ? " cc-tevent-tiny" : ""} cc-spot-dup`}
-                  style={{ left: b.left, top: b.top, width: b.width, height: b.height, zIndex: 91, pointerEvents: b.occ === focusedOcc ? "auto" : "none" }}
+                  className={`cc-item cc-tevent ${b.shape === "band" ? "cc-tevent-band " : ""}cc-ev-${evColor}${b.occ === focusedOcc ? " selected" : ""}${clip ? " cc-band-clip" : ""}${timed && short ? " cc-tevent-short" : ""}${timed && tiny ? " cc-tevent-tiny" : ""} cc-spot-dup`}
+                  style={{ left: b.left, top: b.top, width: b.width, height: b.height, zIndex: 91, pointerEvents: b.occ === focusedOcc ? "auto" : "none", ...(clip ? ({ "--band-gap": b.bandGap } as React.CSSProperties) : {}) }}
                   onMouseDown={(e) => e.stopPropagation()}
                 >
                   <div className="cc-tevent-inner">
@@ -660,6 +702,19 @@ export default function CalendarCanvas() {
           </div>
         ) : null;
       })()}
+
+      {crossYear && (
+        <div className="cc-confirm-backdrop" onMouseDown={() => setCrossYear(null)}>
+          <div className="cc-confirm" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="cc-confirm-title">Jump to {crossYear.ty}?</div>
+            <div className="cc-confirm-msg">The first occurrence of this event is in {crossYear.ty}, a different year from the one you’re viewing. Jump there to see it?</div>
+            <div className="cc-confirm-actions">
+              <button className="cc-confirm-cancel" onClick={() => setCrossYear(null)}>Cancel</button>
+              <button className="cc-confirm-go" onClick={() => { const c = crossYear; setCrossYear(null); runGoToFirst(c.id, c.ty, c.tm, c.tw, c.lvl); }}>Jump to {crossYear.ty}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

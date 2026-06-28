@@ -3,10 +3,17 @@
 
 /* ── App shell (VSCode-style fixed activity bar + scrollable panel) ── */
 .app-shell { display: flex; height: 100vh; overflow: hidden; transition: transform 0.28s ease; }   /* fixed page */
-/* When an event drawer is open, slide the whole shell (activity bar + main view) left
-   by the drawer width so the drawer doesn't cover the event being edited. The drawer
-   itself is portaled to <body>, so it stays pinned to the viewport's right edge. */
-body.cc-drawer-open .app-shell { transform: translateX(calc(-1 * var(--cc-drawer-w))); }
+/* When an event drawer is open, slide the whole shell (activity bar + main view) left just
+   enough to centre the clicked event in the free area left of the drawer — rather than always
+   by the full drawer width. With X = viewport, D = drawer width, and --cc-evcenter the event's
+   unshifted centre (set in CalendarCanvas), the shift is max(0, evcenter − (X − D)/2): the event
+   lands at the midpoint of the (X − D) gap, and we never shift right (cap at 0). Solving it in
+   CSS means a drawer resize (D changes) re-centres live. The shift is also capped at the drawer
+   width D — an event far to the right needs no more than a full-width slide. The drawer is portaled
+   to <body>, so it stays pinned to the viewport's right edge. */
+body.cc-drawer-open .app-shell {
+  transform: translateX(calc(-1 * clamp(0px, var(--cc-evcenter, 50vw) - (100vw - var(--cc-drawer-w)) / 2, var(--cc-drawer-w))));
+}
 .activity-bar {
   width: 52px;
   flex-shrink: 0;
