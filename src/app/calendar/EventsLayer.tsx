@@ -4,11 +4,12 @@ import { useRef, useState } from "react";
 import EventBadges from "./EventBadges";
 import { Vp } from "./types";
 import { TimedEvent, snapHour, fmtRange } from "./eventTypes";
-import { timelineInfo, eventRect, layoutDay, pointToSlot, eventTextLayout, incomingDetailReveal, EventRect, EventLayout } from "./eventGeom";
+import { timelineInfo, eventRect, layoutDay, pointToSlot, eventTextLayout, incomingDetailReveal, relDomOf, EventRect, EventLayout } from "./eventGeom";
 import { occurrenceDates, occKey, occDate, baseHidden } from "./occurrences";
-import { resolveDate } from "./dates";
+import { resolveDate, momentIsPast } from "./dates";
+import { PAST_DIM } from "./constants";
 import { LABEL_W } from "./constants";
-import { type MonthAnim } from "./frames";
+import { dailyFade, type MonthAnim } from "./frames";
 import TimedEventView from "./TimedEventView";
 
 interface Props {
@@ -30,6 +31,8 @@ interface Props {
   editingId: string | null;
   onEditConsumed: () => void;
   detailMul?: number; // timeline opacity multiplier during month↕month paging (outgoing month)
+  dimPast?: boolean; // "dim past events" view toggle
+  now?: number;      // ms timestamp (ticks each minute) → decides what's past
   monthAnim?: MonthAnim | null; // active page-turn → render the incoming month's events too
 }
 
@@ -49,7 +52,7 @@ function buildLayout(events: TimedEvent[], year: number): Map<string, EventLayou
   return out;
 }
 
-export default function EventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, onEventHover, onOpenDetail, onContextMenu, selectedId, onSelect, tlScroll, editingId, onEditConsumed, detailMul = 1, monthAnim = null }: Props) {
+export default function EventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, onEventHover, onOpenDetail, onContextMenu, selectedId, onSelect, tlScroll, editingId, onEditConsumed, detailMul = 1, dimPast = false, now = 0, monthAnim = null }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   // While resizing, keep the layout frozen so growing an event doesn't reorder it;
   // recompute (and briefly enable CSS transitions to animate the reflow) on release.
@@ -72,6 +75,11 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
   };
   const tl = timelineInfo(z, focus, week, vp, scrollY, tlScroll, detailMul);
   const interactive = z >= 1.5; // week view → create / resize enabled
+  // Daily view (z→3): fade events on days other than the chosen one. `reveal` already carries the
+  // timeline opacity; this folds in the per-day fade so only the chosen day's events remain.
+  const dfade = (month: number, day: number) => dailyFade(relDomOf(focus, month, day) ?? -999, z);
+  // dim-past multiplier: 0.4 for an occurrence whose END time has elapsed, else 1 (folds into opacity)
+  const pdim = (oy: number, om: number, od: number, endHour: number) => (dimPast && momentIsPast(oy, om, od, endHour, now) ? PAST_DIM : 1);
   const [draft, setDraft] = useState<{ dom: number; start: number; end: number } | null>(null);
   const draftRef = useRef<{ dom: number; start: number; end: number } | null>(null);
   const setDraftBoth = (d: { dom: number; start: number; end: number } | null) => { draftRef.current = d; setDraft(d); };
@@ -254,7 +262,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                 data-ev-id={ev.id}
                 data-occ={occDate(o)}
                 className={`cc-item cc-tevent cc-ev-${ev.color} cc-ghost${ev.id === selectedId ? " selected" : ""}${short ? " cc-tevent-short" : ""}${tiny ? " cc-tevent-tiny" : ""}`}
-                style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, opacity: tl.reveal, pointerEvents: interactive ? "auto" : "none" }}
+                style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, opacity: tl.reveal * dfade(o.month, o.day) * pdim(o.year, o.month, o.day, ev.endHour), pointerEvents: interactive ? "auto" : "none" }}
                 onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
                 onMouseEnter={() => setHover(occKey(ev.id, o), true)}
@@ -275,7 +283,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                 ev={ev}
                 rect={rect}
                 wide={tl.wide}
-                reveal={tl.reveal}
+                reveal={tl.reveal * dfade(ev.month, ev.day) * pdim(ev.year, ev.month, ev.day, ev.endHour)}
                 interactive={interactive}
                 moving={ev.id === movingId}
                 movedRef={movedRef}

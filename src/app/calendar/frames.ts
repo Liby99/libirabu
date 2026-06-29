@@ -2,7 +2,8 @@
 //   z = 0  → Year   (months stacked, 3/quarter, 4 quarters)
 //   z = 1  → Month  (focused month's band on top, full width)
 //   z = 2  → Week   (focused week's 7 days widened; tracks = all-day band)
-// Year→Month is a vertical accordion (day width constant); Month→Week is horizontal.
+//   z = 3  → Day    (one day's column at the left + the daily-dashboard on the right)
+// Year→Month is a vertical accordion (day width constant); Month→Week→Day are horizontal.
 
 import { Vp, Frame } from "./types";
 import {
@@ -92,6 +93,53 @@ function monthSwipeFrame(m: number, anim: MonthAnim, focus: number, vp: Vp): Fra
   return { ...base, bandY: OFF_BOT, opacity: 0 };
 }
 
+// ── Daily view (z = 3) ──────────────────────────────────────────────────────
+// The chosen day (focus-relative day-of-month) and the fraction of the content area its timeline
+// occupies (the rest is the daily-dashboard). Held at module level — synced from React each render
+// (same pattern as YEAR in mock.ts / the week hour-height in eventGeom.ts) — so dayFrame/dailyFade
+// stay param-free across their many call sites. `_dailyFrac` is a single dial today; later it can
+// be driven by a resize handle and everything (timeline width + dashboard) re-solves from it.
+// Daily↔daily paging: the page-turn direction (+1 = next day) and progress 0→1. While active, the
+// whole day column pans by one column-width so the current day slides out and the next slides in.
+export interface DayAnim { dir: 1 | -1; p: number }
+
+let _dailyDom = 1;
+let _dailyFrac = 0.45;
+let _dayAnim: DayAnim | null = null;
+let _dayOver = 0; // overscroll rubber-band offset (px) at a month boundary — nudges the day column only
+export function setDaily(dom: number, frac: number, anim: DayAnim | null = null, over = 0) { _dailyDom = dom; _dailyFrac = clamp(frac, 1 / 7, 0.6); _dayAnim = anim; _dayOver = over; }
+export function getDailyDom() { return _dailyDom; }
+export function getDailyFrac() { return _dailyFrac; }
+// Day-detail opacity for a focus-relative day-of-month at zoom z. In a day page-turn it cross-fades
+// the outgoing day out and the incoming day in; otherwise 1 in week view, fading the non-chosen
+// days to 0 as z → 3 so only the chosen day's content remains in daily view.
+export function dailyFade(dom: number, z: number): number {
+  if (_dayAnim) {
+    if (dom === _dailyDom) return 1 - _dayAnim.p;            // outgoing day fades out as it slides
+    if (dom === _dailyDom + _dayAnim.dir) return _dayAnim.p; // incoming day fades in as it slides
+    return 0;
+  }
+  if (z <= 2) return 1;
+  return dom === _dailyDom ? 1 : 1 - clamp(z - 2, 0, 1);
+}
+
+// Week→Day: the chosen day's column widens to `_dailyFrac` of the content area and pans so it
+// lands at the left edge (LABEL_W) — the old left-most day slot. Other days widen/pan the same
+// way but fade out (dailyFade); the freed right area becomes the daily-dashboard. During a day
+// page-turn the column additionally pans by one width (−dir·p·colW) so the days slide across.
+function dayFrame(m: number, focus: number, vp: Vp): Frame {
+  const dayW = _dailyFrac * (vp.w - LABEL_W);
+  const pan = (_dayAnim ? -_dayAnim.dir * _dayAnim.p * dayW : 0) + _dayOver; // day-paging slide + boundary overscroll
+  if (m === focus) {
+    const x0 = LABEL_W - (_dailyDom - 1) * dayW + pan; // day=_dailyDom lands at LABEL_W (panned during paging)
+    return { x0, dayW, bandY: TOP_PAD, trackH: TRACK_H, opacity: 1 };
+  }
+  // Park off-screen on the SAME side weekFrame does, so the week→day blend keeps a hidden band
+  // hidden (rather than sweeping it vertically across the viewport during the transition).
+  const off = m < focus ? -MONTH_H - 80 : vp.h + 80;
+  return { x0: LABEL_W, dayW, bandY: off, trackH: TRACK_H, opacity: 0 };
+}
+
 function blend(a: Frame, b: Frame, t: number): Frame {
   return {
     x0: lerp(a.x0, b.x0, t),
@@ -105,9 +153,14 @@ function blend(a: Frame, b: Frame, t: number): Frame {
 export function frameFor(m: number, z: number, focus: number, week: number, vp: Vp, scrollY: number, anim?: MonthAnim | null): Frame {
   if (anim) return monthSwipeFrame(m, anim, focus, vp); // month↕month paging overrides (z held at 1)
   if (z <= 1) return yearToMonthFrame(m, easeInOut(clamp(z, 0, 1)), focus, vp, scrollY);
+  const wf = weekFrame(m, focus, week, vp);
   // month→week: blend the settled Month layout with the Week layout
-  const mf = yearToMonthFrame(m, 1, focus, vp, scrollY);
-  return blend(mf, weekFrame(m, focus, week, vp), easeInOut(clamp(z - 1, 0, 1)));
+  if (z <= 2) {
+    const mf = yearToMonthFrame(m, 1, focus, vp, scrollY);
+    return blend(mf, wf, easeInOut(clamp(z - 1, 0, 1)));
+  }
+  // week→day: blend the Week layout with the single-day layout
+  return blend(wf, dayFrame(m, focus, vp), easeInOut(clamp(z - 2, 0, 1)));
 }
 
 // Live top of a month's band at the current zoom (so the track-name editor's inputs

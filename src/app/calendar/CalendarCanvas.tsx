@@ -3,8 +3,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { buildScene } from "./scene";
+import { setDaily } from "./frames";
+import DailyDashboard from "./DailyDashboard";
+import DailyResizeHandle from "./DailyResizeHandle";
 import { fmtRange, snapHour, TimedEvent } from "./eventTypes";
-import { LABEL_W } from "./constants";
+import { LABEL_W, TRACK_H } from "./constants";
 import { MONTH_LONG, weekStartDOM, resolveDate } from "./dates";
 import { tzDeltaHours, tzAbbrev } from "./timezones";
 import { timelineInfo, pointToSlot, eventTextLayout } from "./eventGeom";
@@ -28,17 +31,26 @@ import BandEventDrawer from "./BandEventDrawer";
 import DeadlineDrawer from "./DeadlineDrawer";
 import EventContextMenu from "./EventContextMenu";
 import EditMenu from "./EditMenu";
+import NavMenu from "./NavMenu";
 import TagFilterMenu, { TagRow, UNTAGGED } from "./TagFilterMenu";
 import BandEventsLayer from "./BandEventsLayer";
 import PromotedBandLayer from "./PromotedBandLayer";
 import DeadlinesLayer from "./DeadlinesLayer";
 import { deadlineTimeLabel } from "./deadlineFormat";
 import { NO_REPEAT, Repeat } from "@/lib/calendar/api";
+import type { ParsedTodo } from "@/lib/assistant/tools/todos";
+
+// Ordinal suffix for a day-of-month (1→st, 2→nd, 3→rd, 4→th, 11–13→th …).
+function ordinal(n: number): string {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return "th";
+  return ["th", "st", "nd", "rd"][n % 10] ?? "th";
+}
 
 export default function CalendarCanvas() {
-  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToCurrentWeek, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul } =
+  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac } =
     useCalendarInteractions();
-  const { trackNames, editTrack, mainTz, altTz, setAltTz } = useCalendarSettings(year);
+  const { trackNames, editTrack, mainTz, mainTzSetting, altTz, setAltTz, setMainTz } = useCalendarSettings(year);
   const history = useHistory();
   const { events, addEvent, updateEvent, removeEvent } = useEvents(year, history);
   const { events: bandEvents, addEvent: addBandEvent, updateEvent: updateBandEvent, removeEvent: removeBandEvent } = useBandEvents(year, history);
@@ -89,6 +101,11 @@ export default function CalendarCanvas() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [recurDelete, setRecurDelete] = useState<{ id: string; occ: string } | null>(null); // recurring delete → pick scope
   const [crossYear, setCrossYear] = useState<{ id: string; ty: number; tm: number; tw: number; lvl: number } | null>(null); // "go to first" lands in another year → confirm
+  // View preference: dim events that have already happened (opacity). Persisted in localStorage
+  // (a client-only view setting); read after mount to avoid an SSR/first-paint mismatch.
+  const [dimPast, setDimPast] = useState(false);
+  useEffect(() => { setDimPast(localStorage.getItem("cc-dim-past") === "1"); }, []);
+  const toggleDimPast = () => setDimPast((v) => { const nv = !v; try { localStorage.setItem("cc-dim-past", nv ? "1" : "0"); } catch {} return nv; });
   // Clipboard for copy/cut/paste of events (snapshot, kept across the source's deletion on cut).
   const [clip, setClip] = useState<
     | { kind: "timed"; ev: TimedEvent }
@@ -122,12 +139,32 @@ export default function CalendarCanvas() {
     return r.left + r.width / 2 - m;
   };
   const openDrawer = (id: string, occ?: string | null) => {
-    const c = measureEventCenterX(id, occ ?? null);
+    // Daily view: never shift the app shell (the daily-dashboard owns the right side) — pin
+    // --cc-evcenter to 0 so the CSS max() resolves the shift to 0. Otherwise center the event.
+    const c = z >= 2.5 ? 0 : measureEventCenterX(id, occ ?? null);
     document.documentElement.style.setProperty("--cc-evcenter", c != null ? `${c}px` : "50vw");
     setDrawerId(id);
     setFocusedOcc(occ ?? null);
   };
   const openMenu = (id: string, x: number, y: number, occ?: string | null) => { setMenu({ id, x, y }); setFocusedOcc(occ ?? null); };
+  // Drag the daily timeline's right edge → resize it. New width fraction = (cursorX − gutter) /
+  // content width; the hook clamps it to [1/7, 0.6] and persists it.
+  const startDailyResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    document.body.classList.add("cc-col-resizing");
+    const onMove = (me: MouseEvent) => setDailyFrac((me.clientX - rect.left - LABEL_W) / Math.max(1, rect.width - LABEL_W));
+    const onUp = () => {
+      document.body.classList.remove("cc-col-resizing");
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
   // While a drawer is open, slide the whole app shell left (CSS) so the (body-portaled)
   // drawer doesn't cover the event being edited.
   useEffect(() => {
@@ -206,6 +243,30 @@ export default function CalendarCanvas() {
     if (ty !== year) { setCrossYear({ id, ty, tm, tw, lvl }); return; }
     runGoToFirst(id, ty, tm, tw, lvl);
   };
+  // Click a TODO in the daily dashboard → jump the calendar to its source event and open its
+  // drawer. The TODO carries (eventId, occurrenceKey); resolve the event's date from the loaded
+  // stores (authoritative) or fall back to the occurrence/due date, then reuse the same
+  // navigate-then-open trajectory as "go to first occurrence" (cross-year aware via goToOccurrence).
+  const openTodo = (t: ParsedTodo) => {
+    const occ = t.occurrenceKey ?? null;
+    const te = events.find((e) => e.id === t.eventId);
+    const be = bandEvents.find((e) => e.id === t.eventId);
+    const de = deadlines.find((e) => e.id === t.eventId);
+    let ty: number, tm: number, td: number;
+    if (occ) { const [y, m, d] = occ.split("-").map(Number); ty = y; tm = m - 1; td = d; }
+    else if (te) { ty = te.year; tm = te.month; td = te.day; }
+    else if (be) { ty = be.year; tm = be.month; td = be.startDay; }
+    else if (de) { ty = de.year; tm = de.month; td = de.day; }
+    else { const [y, m, d] = (t.due ?? "").slice(0, 10).split("-").map(Number); ty = y; tm = m - 1; td = d; }
+    if (!Number.isInteger(ty) || !Number.isInteger(tm) || !Number.isInteger(td)) return; // unparseable anchor
+    const tw = Math.floor((new Date(ty, tm, 1).getDay() + td - 1) / 7);
+    const lvl = Math.round(z);
+    setDrawerId(null);
+    setSelectedId(t.eventId);
+    setFocusedOcc(occ);
+    window.setTimeout(() => goToOccurrence(ty, tm, tw, lvl, () => openDrawer(t.eventId, occ)), 200);
+  };
+
   const menuRepeat = menu ? repeatOf(menu.id) : null;
   const menuRecurring = !!menuRepeat && menuRepeat.kind !== "none";
 
@@ -474,14 +535,37 @@ export default function CalendarCanvas() {
     altLabel = tzAbbrev(altTz, refDate);
   }
 
+  // overscroll rubber-band: nudge only the day content (the gutter month-name/track-editors/hour-labels
+  // stay put), so a boundary push gives feedback without the gutter sliding off.
+  const dayOverPan = monthEdge ? -monthEdge.dir * 30 * monthEdge.t : 0;
+  setDaily(dailyDom, dailyFrac, dayAnim, dayOverPan); // sync the daily-view module state before buildScene / the layers read frameFor
   const scene = buildScene(z, focus, week, vp, scrollY, hover, now, year, altDelta, altLabel, tlScroll, monthAnim, detailMul);
   const tl = timelineInfo(z, focus, week, vp, scrollY, tlScroll);
-  const showScrollbar = z >= 1.5 && tl.maxScroll > 0; // week view, day taller than the viewport
-  const level = z < 0.5 ? 0 : z < 1.5 ? 1 : 2;
+  const showScrollbar = z >= 1.5 && tl.maxScroll > 0; // week + day view, day taller than the viewport
+  const level = z < 0.5 ? 0 : z < 1.5 ? 1 : z < 2.5 ? 2 : 3;
+  // Daily view: progress 0→1 over z 2→3, and the chosen day's calendar date (for the breadcrumb + dashboard).
+  const dailyP = Math.min(1, Math.max(0, z - 2));
+  const dailyDate = resolveDate(focus, dailyDom);
+  // The daily-dashboard's left edge = the day column's RESTING right edge. `tl.x0` carries the
+  // day-paging pan, so add it back out — the dashboard stays put while the day content slides under it.
+  const dashLeft = tl.x0 + dailyDom * tl.colW + (dayAnim ? dayAnim.dir * dayAnim.p * tl.colW : 0);
+  // The carousel days: prev / current / next around the chosen day (clamped within the year), keyed
+  // by date so the dashboard's inner panels are reused across a page-turn commit.
+  const dashDays = dailyDate
+    ? [-1, 0, 1]
+        .map((offset) => {
+          const d = new Date(year, dailyDate.month, dailyDate.day + offset);
+          if (d.getFullYear() !== year) return null; // clamp at Jan 1 / Dec 31
+          const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          return { offset, key: `${d.getMonth()}-${d.getDate()}`, iso, label: d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) };
+        })
+        .filter((x): x is { offset: number; key: string; iso: string; label: string } => x != null)
+    : [];
   const hint =
     level === 0 ? "click a month to open it · or pinch to zoom"
     : level === 1 ? (hoverWeek != null ? "click to open week · or pinch to zoom" : "hover a week · pinch to zoom")
-    : "scroll sideways to change week · pinch to zoom out";
+    : level === 2 ? "scroll sideways to change week · pinch in for a day · or out"
+    : "pinch out to leave the day";
 
   const years: number[] = [];
   for (let y = 2024; y <= currentYear + 3; y++) years.push(y);
@@ -520,13 +604,19 @@ export default function CalendarCanvas() {
           {level >= 2 && (
             <>
               <span className="cc-sep">›</span>
-              <button className="cc-crumb current" onClick={() => tweenTo(2)}>Week {Math.round(week) + 1}</button>
+              <button className={`cc-crumb${level === 2 ? " current" : ""}`} onClick={() => tweenTo(2)}>Week {Math.round(week) + 1}</button>
+            </>
+          )}
+          {level >= 3 && dailyDate && (
+            <>
+              <span className="cc-sep">›</span>
+              <button className="cc-crumb current" onClick={() => tweenTo(3)}>{new Date(year, dailyDate.month, dailyDate.day).toLocaleDateString(undefined, { weekday: "long" })}, {dailyDate.day}{ordinal(dailyDate.day)}</button>
             </>
           )}
         </div>
         <span className="cc-hint">{hint}</span>
         <div className="cc-bar-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="cc-action cc-action-sm cc-action-plain" onClick={goToCurrentWeek} title="Jump to the current week">Now</button>
+          <NavMenu onGo={goToNow} />
           {year !== currentYear && (
             <button className="cc-action cc-action-accent cc-action-sm" onClick={goToCurrentYear}>Back to Current Year</button>
           )}
@@ -545,6 +635,8 @@ export default function CalendarCanvas() {
             canCopy={selectedId != null} onCopy={doCopy}
             canPaste={clip != null} onPaste={doPaste}
             altTz={altTz} onAltTz={setAltTz}
+            mainTz={mainTzSetting} onMainTz={setMainTz}
+            dimPast={dimPast} onToggleDimPast={toggleDimPast}
           />
         </div>
       </div>
@@ -554,11 +646,61 @@ export default function CalendarCanvas() {
 
       <div className="cc-layer">
         {scene.items.map((it) => <ItemView key={it.key} it={it} />)}
-        <BandEventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visBand} addEvent={addBandEvent} updateEvent={updateBandEvent} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} editingId={editingId} onEditConsumed={() => setEditingId(null)} monthAnim={monthAnim} />
-        <PromotedBandLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} timed={visEvents} deadlines={visDeadlines} bandEvents={visBand} updateTimed={updateEvent} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} monthAnim={monthAnim} />
-        <EventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visEvents} addEvent={addEvent} updateEvent={updateEvent} onEventHover={setOverEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} selectedId={selectedId} onSelect={selectEvent} tlScroll={tlScroll} editingId={editingId} onEditConsumed={() => setEditingId(null)} detailMul={detailMul} monthAnim={monthAnim} />
-        <DeadlinesLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} tlScroll={tlScroll} year={year} mainTz={mainTz} hover={hover} deadlines={visDeadlines} addDeadline={addDeadline} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} detailMul={detailMul} monthAnim={monthAnim} />
+        <BandEventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visBand} addEvent={addBandEvent} updateEvent={updateBandEvent} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} editingId={editingId} onEditConsumed={() => setEditingId(null)} monthAnim={monthAnim} dimPast={dimPast} now={now} />
+        <PromotedBandLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} timed={visEvents} deadlines={visDeadlines} bandEvents={visBand} updateTimed={updateEvent} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} monthAnim={monthAnim} dimPast={dimPast} now={now} />
+        <EventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visEvents} addEvent={addEvent} updateEvent={updateEvent} onEventHover={setOverEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} selectedId={selectedId} onSelect={selectEvent} tlScroll={tlScroll} editingId={editingId} onEditConsumed={() => setEditingId(null)} detailMul={detailMul} monthAnim={monthAnim} dimPast={dimPast} now={now} />
+        <DeadlinesLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} tlScroll={tlScroll} year={year} mainTz={mainTz} hover={hover} deadlines={visDeadlines} addDeadline={addDeadline} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} detailMul={detailMul} monthAnim={monthAnim} dimPast={dimPast} now={now} />
         <TrackEditor trackNames={trackNames} editTrack={editTrack} vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} monthAnim={monthAnim} />
+        {dailyP > 0.001 && (
+          <DailyDashboard
+            left={dashLeft}
+            top={tl.tlTop - 18 - 4 * TRACK_H - 1} /* align the dashboard's top bar with the track band's top border */
+            bandH={4 * TRACK_H}
+            bottom={vp.h - 8}
+            right={vp.w}
+            opacity={dailyP}
+            dir={dayAnim?.dir ?? 1}
+            p={dayAnim?.p ?? 0}
+            days={dashDays}
+            today={(() => { const n = new Date(now); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`; })()}
+            deadlines={visDeadlines}
+            onOpenTodo={openTodo}
+          />
+        )}
+        {z > 2.5 && (
+          <DailyResizeHandle
+            x={dashLeft}
+            top={tl.tlTop - 18 - 4 * TRACK_H - 3}
+            bottom={vp.h - 8}
+            onResizeStart={startDailyResize}
+          />
+        )}
+        {/* month-boundary overscroll prompt: a circular progress ring that fills as you push past the
+            first/last day; "ready" at full → release commits the month-jump. */}
+        {monthEdge && z > 2.5 && (() => {
+          const RC = 2 * Math.PI * 18; // ring circumference (r=18)
+          const t = Math.min(1, monthEdge.t);
+          return (
+            <div
+              className={`cc-month-edge${monthEdge.t >= 1 ? " ready" : ""}`}
+              style={{
+                top: (tl.tlTop + vp.h - 8) / 2,
+                ...(monthEdge.dir > 0 ? { right: vp.w - dashLeft + 16 } : { left: LABEL_W + 16 }),
+                opacity: Math.min(1, 0.55 + t * 0.45),
+                transform: "translateY(-50%)",
+              }}
+            >
+              <div className="cc-month-edge-circle">
+                <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden>
+                  <circle className="cc-month-edge-track" cx="22" cy="22" r="18" />
+                  <circle className="cc-month-edge-prog" cx="22" cy="22" r="18" style={{ strokeDasharray: RC, strokeDashoffset: RC * (1 - t) }} />
+                </svg>
+                <span className="cc-month-edge-arrow">{monthEdge.dir > 0 ? "→" : "←"}</span>
+              </div>
+              <span className="cc-month-edge-text">{monthEdge.dir > 0 ? "Next month" : "Prev month"}</span>
+            </div>
+          );
+        })()}
       </div>
 
       {showScrollbar && (

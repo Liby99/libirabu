@@ -742,7 +742,7 @@ Lineage: todo.txt / Obsidian-Dataview / org-mode.
 
 | Token | Meaning | Multiplicity |
 |-------|---------|--------------|
-| `!!!` / `!!` / `!` | priority — highest / high / normal (standalone token) | one |
+| `p:!` … `p:!!!!!` | priority — bang-count is the level 1–5 (clamped at 5), **more bangs = more urgent**. The `p:` prefix keeps it an allowlisted `key:value` so prose (`done!`) never false-matches | one |
 | `due:YYYY-MM-DD` | alternative/explicit deadline (ISO 8601; optional `THH:MM`) | one |
 | `start:YYYY-MM-DD` | **show-from / defer date** — the item is hidden from the feed until this date (todo.txt "threshold") so far-future TODOs don't flood it | one |
 | `tz:AOE` | timezone for `due:` (IANA id or `AOE`); else main tz | one |
@@ -761,8 +761,10 @@ Lineage: todo.txt / Obsidian-Dataview / org-mode.
   prevents `tommy@cs.jhu.edu` from matching `@cs` and a URL `#frag` from matching a tag. Content inside
   a markdown link destination `(...)` is skipped.
 - Slugs are `[\w][\w-]*`; matched case-insensitively (display keeps first-seen casing).
-- `!!!/!!/!`, `due:`, `start:`, `tz:`, `color:`, `done:` are single-valued (first occurrence wins; a
+- `p:`, `due:`, `start:`, `tz:`, `color:`, `done:` are single-valued (first occurrence wins; a
   linter can warn on dups). `#`, `@…`, links are multi-valued.
+- **Unifying rule:** every token is either a sigil-ref (`#`/`@`/link) or an allowlisted `key:value`.
+  No bare-punctuation tokens — this is what makes the grammar prose-safe and one-line describable.
 
 **Entity tokens are soft references.** `@funding:toyota` is just a slug today; when the Funding module
 comes online (§16) the TODO view *resolves* it to the real entity. The DSL and the evolving-capability
@@ -770,7 +772,7 @@ model reinforce each other — notes accrue structured intent before the modules
 
 **Worked example** (PLDI abstract item):
 ```
-- [ ] submit the abstract due:2026-07-01 !! #paper-submission @tommy @project:driving-scene-synthesis @funding:toyota [HotCRP](https://pldi27.hotcrp.com) color:orange
+- [ ] submit the abstract due:2026-07-01 p:!! #paper-submission @tommy @project:driving-scene-synthesis @funding:toyota [HotCRP](https://pldi27.hotcrp.com) color:orange
 ```
 
 **Parsed shape** (what the TODO index / `tools/todos.ts` yields):
@@ -778,25 +780,33 @@ model reinforce each other — notes accrue structured intent before the modules
 interface ParsedTodo {
   raw: string; text: string;              // text with tokens stripped
   done: boolean; doneDate?: string;
-  eventId: string; line: number;          // location, for editing the source line back
-  priority?: 1 | 2 | 3;                   // 1 = highest (!!!)
+  // soft-link anchor — points at exactly one source line; editing the TODO rewrites that line.
+  eventId: string; occurrenceKey: string | null; line: number;  // occurrenceKey: per-occurrence note, else null
+  priority?: number;                      // 1–5 bang count (p:!…p:!!!!!); higher = more urgent
   due?: string; dueTz?: string; dueSource: "line" | "event";
   start?: string;                         // show-from date; item is "active" only once today >= start
   active: boolean;                        // !done && (start == null || today >= start) — feed visibility
   tags: string[];                         // event.tags ∪ line #tags  (inherited + added)
-  people: string[]; projects: string[]; funding: string[];
+  people: string[]; projects: string[]; funding: string[];  // convenience views over `entities`
+  entities: Record<string, string[]>;     // all @type:slug refs keyed by type — new modules add types, no new sigil
   links: { label?: string; url: string }[];
   color?: string; colorSource: "line" | "event";
 }
 ```
 
-### 17.2 Inheritance & the future TODO view
+### 17.2 Inheritance & the TODO view
 
-A future **TODO view** (a centralized place to manage TODOs from everywhere — primarily the calendar
-at first) is a separate, non-blocking build. Its model:
+A **TODO view** (a centralized place to manage TODOs from everywhere — primarily the calendar at
+first) is a separate, non-blocking build. **Status:** the soft-link *index* is built (the panel UI
+is the remaining piece). Its model:
 
 - It **indexes checkboxes as pointer-references**, not copies — the markdown in the note stays the
   single source of truth. Checking a box in the view edits the underlying note line.
+  - **Built:** `indexTodos()` / `toggleTodoLine()` in `src/lib/assistant/tools/todos.ts` (pure), and
+    `GET /api/calendar/todos` (the index, with the user's main-tz `today`) + `PATCH /api/calendar/todos`
+    (the soft-link write: check/uncheck one item by its `{eventId, occurrenceKey, line}` anchor,
+    persisted through the shared event-update path). Client: `fetchTodos` / `setTodoChecked` in
+    `apiClient.ts`. Each `ParsedTodo` carries its anchor + `eventTitle`/`eventKind` for display.
 - Each indexed TODO **inherits from its parent event, with line tokens overriding**:
   - **Date** — `due:` if present, else the event's deadline/start (`dueSource`).
   - **Tag(s)** — event's tags **∪** line `#tags`.
@@ -815,7 +825,7 @@ at first) is a separate, non-blocking build. Its model:
 Implications for the assistant *now*:
 - "Add a TODO for X" → append `- [ ] X <tokens>` to the relevant event's note (creating a lightweight
   holder event only if there's no natural home). The agent **emits the §17.1 DSL** — e.g. a paper
-  review item gets `due:`, `!!`, `@project:…`, and a link — so the TODO is structured from birth.
+  review item gets `due:`, `p:!!`, `@project:…`, and a link — so the TODO is structured from birth.
 - **Date cascades come for free:** because a TODO's date is *derived from its event* unless it has a
   `due:` token, moving an event (Task 3: NeurIPS +2 days) moves its TODOs' effective dates
   automatically. The agent only edits an item's text if the item carries its *own* `due:`.

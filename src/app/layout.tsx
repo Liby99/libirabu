@@ -1,12 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Caveat } from "next/font/google";
+import { Bricolage_Grotesque, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./dashboard.css";
 import { Providers } from "./providers";
 import ActivityBar from "./components/app/ActivityBar";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// UI sans-serif: an editorial, characterful grotesque — drives the whole app via --font-sans.
+const sans = Bricolage_Grotesque({
+  variable: "--font-sans",
   subsets: ["latin"],
 });
 
@@ -15,12 +16,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// Hand-writing-like font for calendar event titles.
-const caveat = Caveat({
-  variable: "--font-handwriting",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-});
+// The hand-writing font (event titles + inputs) is a system stack defined in globals.css
+// (--font-handwriting) — Comic Sans & friends, no webfont to load.
 
 export const metadata: Metadata = {
   title: "libirabu",
@@ -87,7 +84,7 @@ export default function RootLayout({
         <link rel="manifest" href="/manifest.json" />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${caveat.variable} antialiased`}
+        className={`${sans.variable} ${geistMono.variable} antialiased`}
       >
         <Providers>
           <div className="app-shell">

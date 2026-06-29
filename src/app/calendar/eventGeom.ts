@@ -59,7 +59,7 @@ export interface TimelineInfo {
 export function eventTextLayout(h: number): { tiny: boolean; short: boolean; titleLines: number } {
   const tiny = h < 26;   // ~15 min
   const short = h < 40;  // ~≤30 min: hide the time
-  const lineH = tiny ? 12 : 16; // px per title line (must match .cc-tevent-title line-height)
+  const lineH = tiny ? 11 : 14; // px per title line (must match .cc-tevent-title line-height)
   const avail = h - (tiny ? 2 : 10) - (short ? 0 : 13);
   return { tiny, short, titleLines: Math.max(1, Math.floor(avail / lineH)) };
 }

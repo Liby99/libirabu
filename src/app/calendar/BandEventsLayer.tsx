@@ -3,7 +3,8 @@
 import { useRef, useState } from "react";
 import EventBadges from "./EventBadges";
 import { Vp } from "./types";
-import { LABEL_W } from "./constants";
+import { LABEL_W, PAST_DIM } from "./constants";
+import { dayIsPast } from "./dates";
 import { frameFor, type MonthAnim } from "./frames";
 import { daysInMonth } from "./mock";
 import { BandEvent } from "./bandEventTypes";
@@ -28,11 +29,15 @@ interface Props {
   editingId: string | null;
   onEditConsumed: () => void;
   monthAnim: MonthAnim | null;
+  dimPast?: boolean; // "dim past events" view toggle
+  now?: number;      // ms timestamp → decides what's past
 }
 
 type Draft = { month: number; track: number; a: number; b: number };
 
-export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, selectedId, onSelect, onOpenDetail, onContextMenu, editingId, onEditConsumed, monthAnim }: Props) {
+export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, selectedId, onSelect, onOpenDetail, onContextMenu, editingId, onEditConsumed, monthAnim, dimPast = false, now = 0 }: Props) {
+  // dim-past multiplier: 0.4 once an all-day band's last day is fully behind us, else 1
+  const bdim = (oy: number, om: number, endDay: number) => (dimPast && dayIsPast(oy, om, endDay, now) ? PAST_DIM : 1);
   const layerRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false);
   const createdRef = useRef(false); // suppress the trailing click only after a real create-drag
@@ -195,13 +200,15 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
       />
       {ghosts.map(({ ev, o, rect }) => {
         const gap = gapByKey.get(occKey(ev.id, o)); // clip the title before the next bar on the lane
+        const endDay = Math.min(o.day + (ev.endDay - ev.startDay), daysInMonth(o.month));
+        const dim = bdim(o.year, o.month, endDay);
         return (
           <div
             key={occKey(ev.id, o)}
             data-ev-id={ev.id}
             data-occ={occDate(o)}
             className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color} cc-ghost${gap != null ? " cc-band-clip" : ""}${ev.id === selectedId ? " selected" : ""}`}
-            style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}) }}
+            style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(dim < 1 ? { opacity: dim } : {}), ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}) }}
             onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
             onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(ev.id, r.left + r.width / 2, r.top, occDate(o)); }}
@@ -218,6 +225,7 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
           rect={rect}
           vw={vp.w}
           gap={gapByKey.get(ev.id)}
+          dim={bdim(ev.year, ev.month, ev.endDay)}
           raised={ev.id === hoveredId}
           onHover={setHoveredId}
           selected={ev.id === selectedId}

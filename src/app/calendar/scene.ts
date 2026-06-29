@@ -4,7 +4,7 @@
 
 import { Item, Scene, Frame, Vp, Hover } from "./types";
 import { LABEL_W, MNAME_W, RIGHT_PAD, Q_HEADER_H, clamp } from "./constants";
-import { frameFor, type MonthAnim } from "./frames";
+import { frameFor, dailyFade, type MonthAnim } from "./frames";
 import { firstDOW, weekStartDOM, weeksInMonth, resolveDate, MONTH_NAMES, WD, WD3 } from "./dates";
 import { TRACKS, daysInMonth, YEAR, setCalendarYear } from "./mock";
 import { hourMetrics, incomingDetailReveal } from "./eventGeom";
@@ -63,11 +63,13 @@ function buildToday(items: Item[], z: number, focus: number, week: number, vp: V
   // → to its left (right-aligned).
   const pushNowLabel = (key: string, x: number, colW: number, lineY: number, active: boolean) => {
     const W = 84, GAP = 10, H = 30;
-    const firstHalf = x + colW / 2 < (LABEL_W + vp.w) / 2;
+    // Daily: always to the LEFT of the line (right edge just left of the left circle). Else pick the
+    // side with more room.
+    const onLeft = z > 2 || x + colW / 2 >= (LABEL_W + vp.w) / 2;
     items.push({
-      key, kind: "nowlabel", text: timeStr, align: firstHalf ? "left" : "right",
-      x: firstHalf ? x + colW + GAP : x - GAP - W, y: lineY - H / 2, w: W, h: H,
-      opacity: active ? mul : 0, z: 9,
+      key, kind: "nowlabel", text: timeStr, align: onLeft ? "right" : "left",
+      x: onLeft ? x - GAP - W : x + colW + GAP, y: lineY - H / 2, w: W, h: H,
+      opacity: active ? mul : 0, z: z > 2 ? 16 : 9, // daily: above the dashboard mask so the label isn't clipped
     });
   };
 
@@ -111,11 +113,14 @@ function buildToday(items: Item[], z: number, focus: number, week: number, vp: V
     const tlTop = f.bandY + 4 * f.trackH + 18;
     const tlBottom = vp.h - 8;
     const x = f.x0 + ((relDom ?? 1) - 1) * colW;
-    items.push({ key: "td-w", kind: "today", x, y: f.bandY, w: colW, h: tlBottom - f.bandY, opacity: active ? mul : 0, z: 3 });
+    // The red today-column tint marks today AMONG other days — pointless in daily view (one day
+    // fills the view), so fade it out as we zoom in past week (z 2 → 2.6). The now-line stays.
+    const tintMul = 1 - clamp((z - 2) / 0.6, 0, 1);
+    items.push({ key: "td-w", kind: "today", x, y: f.bandY, w: colW, h: tlBottom - f.bandY, opacity: active ? mul * tintMul : 0, z: 3 });
     const { hourH, scroll } = hourMetrics(tlTop, tlBottom, z, tlScroll);
     const lineY = tlTop + nowFrac * hourH - scroll;
     const lineOn = active && hourH > 0 && lineY >= tlTop && lineY <= tlBottom;
-    items.push({ key: "now-w", kind: "now", x, y: lineY, w: colW, h: 2, opacity: lineOn ? mul : 0, z: 6 });
+    items.push({ key: "now-w", kind: "now", x, y: lineY, w: colW, h: 2, opacity: lineOn ? mul : 0, z: z > 2 ? 16 : 6 });
     pushNowLabel("nl-w", x, colW, lineY, lineOn);
   }
 
@@ -184,7 +189,8 @@ function buildHover(items: Item[], z: number, focus: number, week: number, vp: V
     const { hourH, scroll } = hourMetrics(tlTop, tlBottom, z, tlScroll);
     const dcol = h.dom ?? 1;
     const x = f.x0 + (dcol - 1) * colW;
-    items.push({ key: "hl-wd", kind: "hl", x, y: f.bandY, w: colW, h: tlBottom - f.bandY, opacity: active && h.dom != null ? HL_SOFT : 0, z: 3 });
+    // The full-column soft wash fades out as you enter daily view (z→3) — no whole-timeline hover there.
+    items.push({ key: "hl-wd", kind: "hl", x, y: f.bandY, w: colW, h: tlBottom - f.bandY, opacity: active && h.dom != null ? HL_SOFT * (1 - clamp(z - 2, 0, 1)) : 0, z: 3 });
     // hovered hour cell — scrolled + clamped to the visible timeline window
     const rawHy = h.hour != null ? tlTop + h.hour * hourH - scroll : tlTop;
     const cellTop = Math.max(tlTop, rawHy), cellBot = Math.min(tlBottom, rawHy + hourH);
@@ -195,15 +201,16 @@ function buildHover(items: Item[], z: number, focus: number, week: number, vp: V
     const hf = h.hourFrac ?? 0;
     const cy = tlTop + hf * hourH - scroll;
     const curOn = active && h.dom != null && h.hourFrac != null && hourH > 0 && cy >= tlTop && cy <= tlBottom;
-    items.push({ key: "cur-line", kind: "cursor", x, y: cy, w: colW, h: 2, opacity: curOn ? 1 : 0, z: 7 });
+    items.push({ key: "cur-line", kind: "cursor", x, y: cy, w: colW, h: 2, opacity: curOn ? 1 : 0, z: z > 2 ? 16 : 7 });
     const total = Math.round(hf * 60);
     const tStr = `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-    const firstHalf = x + colW / 2 < (LABEL_W + vp.w) / 2;
+    // Daily: always to the LEFT of the cursor line (right edge just left of the left circle).
+    const tagLeft = z > 2 || x + colW / 2 >= (LABEL_W + vp.w) / 2;
     const TW = 44, GAP = 10, TH = 20;
     items.push({
-      key: "cur-tag", kind: "timetag", text: tStr, align: firstHalf ? "left" : "right",
-      x: firstHalf ? x + colW + GAP : x - GAP - TW, y: cy - TH / 2, w: TW, h: TH,
-      opacity: curOn ? 1 : 0, z: 9,
+      key: "cur-tag", kind: "timetag", text: tStr, align: tagLeft ? "right" : "left",
+      x: tagLeft ? x - GAP - TW : x + colW + GAP, y: cy - TH / 2, w: TW, h: TH,
+      opacity: curOn ? 1 : 0, z: z > 2 ? 16 : 9, // daily: above the dashboard mask
     });
   }
 }
@@ -252,7 +259,9 @@ function buildMonthBands(items: Item[], z: number, focus: number, week: number, 
     }
 
     for (let t = 0; t < 4; t++) {
-      items.push({ key: `row-${m}-${t}`, kind: "row", x: f.x0, y: f.bandY + t * f.trackH, w: fullW, h: f.trackH, opacity: f.opacity, color: TRACKS[t].color, cols: 31, z: 1, inner: t > 0 });
+      // cols=1 in daily view → the lane's dotted day-cell verticals collapse off-screen (no vertical
+      // borders on the single day column); 31 cells otherwise.
+      items.push({ key: `row-${m}-${t}`, kind: "row", x: f.x0, y: f.bandY + t * f.trackH, w: fullW, h: f.trackH, opacity: f.opacity, color: TRACKS[t].color, cols: z > 2.5 ? 1 : 31, z: 1, inner: t > 0 });
     }
     // dim cells past the month's actual length (e.g. Feb 29–31)
     if (dim < 31 && dimFade > 0.02) {
@@ -275,6 +284,7 @@ function buildDetail(items: Item[], z: number, focus: number, week: number, vp: 
   const colW = f.dayW;
   const bandBottom = f.bandY + 4 * f.trackH;
   const wide = colW > 60; // week view → full weekday names + event titles
+  const dailyOut = 1 - clamp(z - 2, 0, 1); // 1 in week, 0 in daily — fades day/week dividers + weekend wash out of the single-day view
   const weekZoom = clamp(z - 1, 0, 1); // 0 at month, 1 at week — gates spillover
 
   const tlTop = bandBottom + 18;
@@ -286,7 +296,7 @@ function buildDetail(items: Item[], z: number, focus: number, week: number, vp: 
   // Lines/labels scroll by `scroll` and are culled outside the visible window.
   // Secondary timezone axis (week view only): alt-tz hour labels left of the main
   // labels, plus a vertical bar between them.
-  const altOn = altDeltaHours != null && wide;
+  const altOn = altDeltaHours != null; // shown whenever the timeline is present (month + week); reveal fades it out toward year
   if (hasTL) {
     for (let hr = 0; hr <= 24; hr += wide ? 1 : 6) {
       const y = tlTop + hr * hourH - scroll;
@@ -309,16 +319,29 @@ function buildDetail(items: Item[], z: number, focus: number, week: number, vp: 
   }
 
   // one day column: date above band, weekday below, dotted divider + timed events
-  const pushDay = (dom: number, op: number) => {
+  const pushDay = (dom: number, opIn: number) => {
+    const op = opIn * dailyFade(dom, z); // daily view: non-chosen days fade out
+    if (op <= 0.002) return;
     const r = resolveDate(focus, dom);
     if (!r) return;
     const x = f.x0 + (dom - 1) * colW;
     if (x + colW < -40 || x > vp.w + 40) return;
     const dow = new Date(YEAR, r.month, r.day).getDay();
-    // faint weekend (Sat/Sun) column wash, spanning the band + timeline
-    if (dow === 0 || dow === 6) {
+    // faint weekend (Sat/Sun) column wash, spanning the band + timeline — fades out in daily view
+    // (the non-work-hour wash takes over there).
+    if ((dow === 0 || dow === 6) && op * dailyOut > 0.002) {
       const bottom = hasTL ? tlBottom : bandBottom;
-      items.push({ key: `wke-${dom}`, kind: "weekend", x, y: f.bandY, w: colW, h: bottom - f.bandY, opacity: op, z: 2 });
+      items.push({ key: `wke-${dom}`, kind: "weekend", x, y: f.bandY, w: colW, h: bottom - f.bandY, opacity: op * dailyOut, z: 2 });
+    }
+    // non-work-hour wash (00:00–06:00 and 18:00–24:00) — same faint style as the weekend wash, but
+    // ONLY in daily view (z→3); fades in over the week→day transition so it never shows in week view.
+    const nwOp = op * clamp(z - 2, 0, 1);
+    if (hasTL && nwOp > 0.002) {
+      for (const [h0, h1] of [[0, 6], [18, 24]] as const) {
+        const y0 = Math.max(tlTop, tlTop + h0 * hourH - scroll);
+        const y1 = Math.min(tlBottom, tlTop + h1 * hourH - scroll);
+        if (y1 > y0 + 0.5) items.push({ key: `nwh-${dom}-${h0}`, kind: "weekend", x, y: y0, w: colW, h: y1 - y0, opacity: nwOp, z: 2 });
+      }
     }
     const dateText = r.month === focus ? String(r.day) : `${MONTH_NAMES[r.month]} ${r.day}`;
     items.push({ key: `date-${dom}`, kind: "dayLabel", x, y: f.bandY - 20, w: colW, h: 16, opacity: op, text: dateText, fontSize: wide ? 13 : 10, align: "center", z: 4 });
@@ -326,7 +349,7 @@ function buildDetail(items: Item[], z: number, focus: number, week: number, vp: 
     if (!hasTL) return;
     const isWeekStart = (((firstDOW(focus) + dom - 1) % 7) + 7) % 7 === 0;
     if (!isWeekStart) {
-      items.push({ key: `tdv-${dom}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: op * 0.4, color: LINE, z: 0, lineStyle: "dotted" });
+      items.push({ key: `tdv-${dom}`, kind: "gridline", x, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: op * 0.4 * dailyOut, color: LINE, z: 0, lineStyle: "dotted" });
     }
   };
 
@@ -337,7 +360,7 @@ function buildDetail(items: Item[], z: number, focus: number, week: number, vp: 
   for (let w = 0; w <= weeksInMonth(focus); w++) {
     const x = f.x0 + (weekStartDOM(focus, w) - 1) * colW;
     if (x < LABEL_W - 2 || x > vp.w + 2) continue;
-    items.push({ key: `wkb-${w}`, kind: "gridline", x: x - 1, y: f.bandY, w: 1, h: bottom - f.bandY, opacity: reveal * 0.4, color: LINE, z: 1, lineStyle: "dashed" });
+    items.push({ key: `wkb-${w}`, kind: "gridline", x: x - 1, y: f.bandY, w: 1, h: bottom - f.bandY, opacity: reveal * 0.4 * dailyOut, color: LINE, z: 1, lineStyle: "dashed" });
   }
 
   // spillover days (prev/next month) + month-boundary lines — fade in toward week view
@@ -351,8 +374,8 @@ function buildDetail(items: Item[], z: number, focus: number, week: number, vp: 
       if (x < LABEL_W || x > vp.w + 2) continue; // only within the day grid — never over the left gutter
       // Two thin segments straddling the weekday-name row: one strictly on the 4-track band,
       // one strictly on the daily timeline (so neither overshoots the tracks' top).
-      items.push({ key: `mb-${bx}-b`, kind: "gridline", x: x - 0.5, y: f.bandY, w: 1, h: bandBottom - f.bandY, opacity: weekZoom * 0.7, color: LINE, z: 5 });
-      if (hasTL) items.push({ key: `mb-${bx}-t`, kind: "gridline", x: x - 0.5, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: weekZoom * 0.7, color: LINE, z: 5 });
+      items.push({ key: `mb-${bx}-b`, kind: "gridline", x: x - 0.5, y: f.bandY, w: 1, h: bandBottom - f.bandY, opacity: weekZoom * 0.7 * dailyOut, color: LINE, z: 5 });
+      if (hasTL) items.push({ key: `mb-${bx}-t`, kind: "gridline", x: x - 0.5, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: weekZoom * 0.7 * dailyOut, color: LINE, z: 5 });
     }
   }
 

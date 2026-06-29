@@ -4,6 +4,9 @@
   --background: #fefcfb;
   --foreground: #171717;
   --cc-drawer-w: 372px; /* event drawer width; the app shell slides left by this when open */
+  /* Hand-writing font (event titles + input fields): a traditional system-font stack led by
+     Comic Sans. System fonts, so it's set here rather than loaded via next/font. */
+  --font-handwriting: 'Comic Sans MS', 'Comic Sans', 'Chalkboard SE', 'Bradley Hand', 'Segoe Script', cursive;
   --accent-dark: rgba(76, 45, 20, 0.9);
   --accent-grey: rgba(76, 45, 20, 0.3);
   --accent-bg: rgba(76, 45, 20, 0.05);
@@ -167,7 +170,7 @@
 body {
   background: var(--background);
   color: var(--accent-dark);
-  font-family: Helvetica, sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 
   user-select: none;
   -webkit-user-select: none; /* Safari */
@@ -416,7 +419,7 @@ footer {
 }
 
 input, textarea {
-  font-family: 'Comic Sans MS', 'Comic Sans', 'Bradley Hand', 'Segoe Script', 'Caveat', 'Indie Flower', cursive;
+  font-family: var(--font-handwriting), cursive;
 }
 
 input:focus, textarea:focus {
@@ -652,7 +655,7 @@ input:focus, textarea:focus {
   padding: 0;
   margin: 0;
   font-size: 14px;
-  font-family: 'Comic Sans MS', 'Comic Sans', 'Bradley Hand', 'Segoe Script', 'Caveat', 'Indie Flower', cursive;
+  font-family: var(--font-handwriting), cursive;
 }
 
 .sticker input:placeholder-shown {

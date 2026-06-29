@@ -29,3 +29,16 @@ export function resolveDate(focus: number, dom: number): { month: number; day: n
   if (m > 11) return null;
   return { month: m, day: dom - daysInMonth(focus) };
 }
+
+// ── "Already happened" tests for the dim-past toggle (`now` is a ms timestamp) ──
+// A timed/deadline moment is past once its clock time has elapsed; an all-day item is past
+// only once its whole day is behind us (so today's all-day events stay un-dimmed).
+export function momentIsPast(year: number, month: number, day: number, hourFrac: number, now: number): boolean {
+  const h = Math.floor(hourFrac);
+  const mi = Math.round((hourFrac - h) * 60);
+  return new Date(year, month, day, h, mi).getTime() < now;
+}
+export function dayIsPast(year: number, month: number, day: number, now: number): boolean {
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+  return new Date(year, month, day).getTime() < today.getTime();
+}

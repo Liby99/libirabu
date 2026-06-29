@@ -3,6 +3,7 @@
 // small. See src/app/api/calendar/README.md for the wire contract.
 
 import { ApiEvent, ApiSettings, EventKind } from "@/lib/calendar/api";
+import type { ParsedTodo } from "@/lib/assistant/tools/todos";
 import { TimedEvent } from "./eventTypes";
 import { BandEvent } from "./bandEventTypes";
 import { Deadline } from "./deadlineTypes";
@@ -114,4 +115,15 @@ export async function fetchSettings(): Promise<ApiSettings> {
 export async function putSettings(patch: Partial<ApiSettings>): Promise<ApiSettings> {
   const res = await send("PUT", "/api/calendar/settings", patch);
   return (await res.json()) as ApiSettings;
+}
+
+// ── TODO index (soft-link view over checkboxes in event notes; design §17.2) ──
+/** The cross-event TODO index + the user's "today" (main-tz) used for defer/active filtering. */
+export async function fetchTodos(): Promise<{ todos: ParsedTodo[]; today: string }> {
+  const res = await send("GET", "/api/calendar/todos");
+  return (await res.json()) as { todos: ParsedTodo[]; today: string };
+}
+/** Check/uncheck one TODO by its soft-link anchor; omit `checked` to toggle. Rewrites the line. */
+export function setTodoChecked(ref: { eventId: string; occurrenceKey: string | null; line: number }, checked?: boolean) {
+  return send("PATCH", "/api/calendar/todos", { ...ref, ...(checked === undefined ? {} : { checked }) });
 }

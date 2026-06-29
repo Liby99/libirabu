@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Vp, Hover } from "./types";
-import { easeInOut, TOP_PAD, TRACK_H } from "./constants";
-import { yearMaxScroll, yearFrame, MonthAnim } from "./frames";
+import { easeInOut, TOP_PAD, TRACK_H, LABEL_W } from "./constants";
+import { yearMaxScroll, yearFrame, frameFor, getDailyFrac, MonthAnim, DayAnim } from "./frames";
 import { hourMetrics, clampHourH, setWeekHourH as syncWeekHourH } from "./eventGeom";
-import { weeksInMonth } from "./dates";
+import { weeksInMonth, weekStartDOM, weekOfDate } from "./dates";
 import {
   monthAtPoint, monthNameAtPoint, monthRowAtPoint, weekAtPointInMonth, dayAtPointInWeek,
   domInMonthBand, domInFocus, cellInWeek,
@@ -15,6 +15,18 @@ import {
 const MONTH_PAGE_FRAC = 0.62;
 const MONTH_PAGE_MIN = 280;
 const MONTH_COMMIT_P = 0.4;
+
+// Daily view: the day timeline's width as a fraction of the content area (rest = dashboard).
+// Min = the weekly day width (content / 7); max ≈ 60% of the content. Persisted across sessions.
+const DAILY_FRAC_MIN = 1 / 7;
+const DAILY_FRAC_MAX = 0.6;
+const DAILY_FRAC_KEY = "cc-daily-frac";
+const clampDailyFrac = (f: number) => Math.max(DAILY_FRAC_MIN, Math.min(DAILY_FRAC_MAX, f));
+function readDailyFrac(): number {
+  if (typeof window === "undefined") return 0.45;
+  const v = parseFloat(window.localStorage.getItem(DAILY_FRAC_KEY) ?? "");
+  return Number.isFinite(v) ? clampDailyFrac(v) : 0.45;
+}
 
 const NO_HOVER: Hover = { month: null, dom: null, week: null, hour: null, hourFrac: null, nameMonth: null, nearLeft: null };
 const sameHover = (a: Hover, b: Hover) =>
@@ -33,24 +45,27 @@ const drawerOpen = () => typeof document !== "undefined" && document.body.classL
 //   year view → ?y=2026 · month view → ?y=2026&m=7 · week view → ?y=2026&m=7&w=2
 // `m` is 1–12 and `w` is 1-based (matching the breadcrumb labels); the level is inferred
 // from which params are present (w → week, m → month, else year).
-interface UrlState { year: number; focus: number; week: number; z: number }
+interface UrlState { year: number; focus: number; week: number; z: number; dailyDom: number }
 function readUrlState(): UrlState {
   const now = new Date();
-  const def: UrlState = { year: now.getFullYear(), focus: now.getMonth(), week: 0, z: 0 };
+  const def: UrlState = { year: now.getFullYear(), focus: now.getMonth(), week: 0, z: 0, dailyDom: 1 };
   if (typeof window === "undefined") return def;
   const p = new URLSearchParams(window.location.search);
   const y = parseInt(p.get("y") ?? "", 10);
   const m = parseInt(p.get("m") ?? "", 10);
   const w = parseInt(p.get("w") ?? "", 10);
   const d = parseInt(p.get("d") ?? "", 10); // day offset 0–6 within the week (the window slides per-day)
+  const da = parseInt(p.get("da") ?? "", 10); // daily view: the chosen day-of-month
   const hasM = Number.isFinite(m) && m >= 1 && m <= 12;
   const hasW = hasM && Number.isFinite(w) && w >= 1;
+  const hasDa = hasW && Number.isFinite(da);
   const dayOff = Number.isFinite(d) ? Math.min(6, Math.max(0, d)) : 0;
   return {
     year: Number.isFinite(y) ? y : def.year,
     focus: hasM ? m - 1 : def.focus,
     week: hasW ? Math.min(5, w - 1) + dayOff / 7 : 0, // a month spans ≤6 week-rows (index 0–5) + day offset
-    z: hasW ? 2 : hasM ? 1 : 0,
+    z: hasDa ? 3 : hasW ? 2 : hasM ? 1 : 0,
+    dailyDom: hasDa ? da : 1,
   };
 }
 
@@ -82,6 +97,21 @@ export function useCalendarInteractions() {
   // multiplier (1 idle; fades to 0 mid-slide; fades back to 1 as the new month's timeline appears).
   const [monthAnim, setMonthAnim] = useState<MonthAnim | null>(null);
   const [detailMul, setDetailMul] = useState(1);
+  // Daily view (z=3): the chosen day (focus-relative day-of-month) + the fraction of the content
+  // area its timeline occupies (rest is the daily-dashboard; later user-resizable).
+  const [dailyDom, setDailyDom] = useState(init.dailyDom);
+  const [dayAnim, setDayAnim] = useState<DayAnim | null>(null); // daily↔daily slide in flight
+  // Overscroll at a month boundary (daily/week view): {dir, t} where t 0→1 is how hard you're
+  // pushing past the edge; at t≥1 a release jumps to the next/prev month. Drives the edge prompt.
+  const [monthEdge, setMonthEdge] = useState<{ dir: 1 | -1; t: number } | null>(null);
+  const [dailyFrac, setDailyFracState] = useState(readDailyFrac);
+  const setDailyFrac = useCallback((f: number) => {
+    const c = clampDailyFrac(f);
+    setDailyFracState(c);
+    try { window.localStorage.setItem(DAILY_FRAC_KEY, String(c)); } catch { /* storage unavailable */ }
+  }, []);
+  const dailyDomRef = useRef(dailyDom); dailyDomRef.current = dailyDom;
+  const pinchDayRef = useRef<number | null>(null); // day under the cursor when a week→day pinch starts (locked so the morph can't drift it)
 
   const zRef = useRef(z); zRef.current = z;
   const yearRef = useRef(year); yearRef.current = year;
@@ -99,6 +129,9 @@ export function useCalendarInteractions() {
   const monthTweenRef = useRef<number | null>(null);
   const monthAnimRef = useRef(monthAnim); monthAnimRef.current = monthAnim;
   const monthSnapRef = useRef(false); // true while a release-snap tween (and its timeline fade) is running
+  const dayTweenRef = useRef<number | null>(null); // daily↔daily release-snap tween in flight
+  const dayAnimRef = useRef(dayAnim); dayAnimRef.current = dayAnim;
+  const daySnapRef = useRef(false); // true while a daily release-snap is running
 
   // measure the viewport
   useLayoutEffect(() => {
@@ -109,6 +142,20 @@ export function useCalendarInteractions() {
     setVp({ w: el.clientWidth, h: el.clientHeight });
     return () => ro.disconnect();
   }, []);
+
+  // On launch in a month/week/day view, set the year scroll so a zoom-out shows the focused month
+  // (not the top). Runs once, after the viewport is measured. (Invisible until you zoom out — the
+  // month-view band positions don't depend on scrollY.)
+  const didInitScrollRef = useRef(false);
+  useEffect(() => {
+    if (didInitScrollRef.current || vp.h === 0) return;
+    didInitScrollRef.current = true;
+    if (init.z > 0) {
+      const off = yearFrame(init.focus, vp, 0).bandY - TOP_PAD; // the focus month's year-view offset
+      const max = yearMaxScroll(vp);
+      setScrollY(Math.max(0, Math.min(max, off - (vp.h - TOP_PAD) * 0.3))); // place it ~30% down with context above
+    }
+  }, [vp.h, init.z, init.focus]);
 
   const clearSnap = () => { if (snapRef.current != null) { clearTimeout(snapRef.current); snapRef.current = null; } };
   const cancelTween = () => { if (tweenRef.current != null) cancelAnimationFrame(tweenRef.current); tweenRef.current = null; };
@@ -128,7 +175,7 @@ export function useCalendarInteractions() {
   // ease-OUT (start at the release speed, decelerate to rest) so there's no acceleration on release.
   // The incoming month's detail has already cross-faded in during the drag/snap (see the layers),
   // so commit just lands focus at full detail — no post-settle fade-in delay.
-  const snapMonth = useCallback((dir: 1 | -1, fromP: number, commit: boolean, dur: number) => {
+  const snapMonth = useCallback((dir: 1 | -1, fromP: number, commit: boolean, dur: number, onComplete?: () => void) => {
     if (monthTweenRef.current != null) cancelAnimationFrame(monthTweenRef.current);
     const to = focusRef.current + dir;
     const canCommit = commit && to >= 0 && to <= 11;
@@ -140,6 +187,7 @@ export function useCalendarInteractions() {
       monthSnapRef.current = false;
       if (canCommit) { focusRef.current = to; setFocus(to); setDetailMul(1); } // land at full detail (already faded in)
       else setDetailMul(1); // cancelled → restore the original month's detail
+      onComplete?.();
     };
     // Already at the target (e.g. a strong swipe that dragged the band fully to the edge) → commit
     // synchronously so focus/hover come alive at once instead of waiting out an empty tween.
@@ -158,6 +206,45 @@ export function useCalendarInteractions() {
       finalize();
     };
     monthTweenRef.current = requestAnimationFrame(step);
+  }, []);
+
+  // Daily↔daily paging is GESTURE-TRACKED: the wheel handler drives dayAnim.p directly (the day
+  // column slides 1:1 with the swipe). On release, snapDay eases p to its resting state — → 1 commits
+  // to the next/prev day, → 0 cancels back. The current day slides + fades out while the next slides
+  // + fades in (timed events/deadlines cross-fade, all-day band events just slide); the dashboard
+  // dip-fades. Committing across a month re-bases focus/week + the year scroll (correct on zoom-out).
+  // Clamped at Jan 1 / Dec 31. `fromP` is the live progress at release; `dur` is velocity-matched.
+  const snapDayPage = useCallback((dir: 1 | -1, fromP: number, commit: boolean, dur: number) => {
+    if (dayTweenRef.current != null) cancelAnimationFrame(dayTweenRef.current);
+    const dom = dailyDomRef.current + dir;
+    const dimOf = (m: number) => new Date(yearRef.current, m + 1, 0).getDate();
+    // Clamp at the MONTH boundary — crossing into the next/prev month is the month-jump choreography
+    // (overscroll → zoom out → page month → zoom into first/last day), not a plain day slide.
+    const canCommit = commit && dom >= 1 && dom <= dimOf(focusRef.current);
+    const target = canCommit ? 1 : 0;
+    const finalize = () => {
+      daySnapRef.current = false;
+      dayTweenRef.current = null;
+      if (canCommit) {
+        dailyDomRef.current = dom; setDailyDom(dom);
+        const wk = weekOfDate(focusRef.current, dom); // keep the week-level focus on the day's week (so a zoom-out lands right)
+        weekRef.current = wk; setWeek(wk);
+      }
+      setDayAnim(null); // settle: incoming day is now the focused day (or cancelled back)
+    };
+    if (Math.abs(target - fromP) < 0.005) { finalize(); return; }
+    daySnapRef.current = true;
+    const DUR = Math.max(80, dur);
+    const easeOut = (k: number) => 1 - Math.pow(1 - k, 3);
+    let t0 = 0;
+    const step = (ts: number) => {
+      if (!t0) t0 = ts;
+      const k = DUR > 0 ? Math.min(1, (ts - t0) / DUR) : 1;
+      setDayAnim({ dir, p: fromP + (target - fromP) * easeOut(k) });
+      if (k < 1) { dayTweenRef.current = requestAnimationFrame(step); return; }
+      finalize();
+    };
+    dayTweenRef.current = requestAnimationFrame(step);
   }, []);
 
   const tweenWeek = useCallback((target: number, dur = 240) => {
@@ -191,6 +278,34 @@ export function useCalendarInteractions() {
   // Navigate to a month (month view) — used by the drawer's "Go to first event".
   const goToMonth = useCallback((m: number) => { setFocus(m); tweenTo(1); }, [tweenTo]);
 
+  // Cross-month jump (from daily or week view, on an overscroll commit at the month boundary): a
+  // 3-stage choreography — zoom out to month → vertical month-page slide → zoom back in, landing on
+  // the first day/week of the next month (or the last of the prev). Clamped at the year boundary.
+  const jumpMonth = useCallback((dir: 1 | -1) => {
+    const tMonth = focusRef.current + dir;
+    if (tMonth < 0 || tMonth > 11) return; // year boundary — no jump
+    const lvl = zRef.current >= 2.5 ? 3 : 2; // return to daily (3) or week (2)
+    const tDay = dir > 0 ? 1 : new Date(yearRef.current, tMonth + 1, 0).getDate(); // first / last day
+    const tWeek = dir > 0 ? 0 : weeksInMonth(tMonth) - 1;                            // first / last week
+    setMonthEdge(null);
+    setDayAnim(null);
+    // Deliberately gradual + layered: zoom out, (pause) page the month, (pause) zoom back in.
+    tweenTo(1, 760, () => {                 // Stage 1: zoom out to month view (daily → week → month)
+      window.setTimeout(() => {
+        snapMonth(dir, 0, true, 880, () => { // Stage 2: page (slide) to the target month
+          window.setTimeout(() => {
+            // Stage 3: set BOTH the target week and day BEFORE zooming in — the zoom passes through the
+            // week layer (z 1→2) then the day layer (z 2→3), so the week must point at the target day's
+            // week or the zoom-in starts at the stale (last) week and snaps over to the target day.
+            weekRef.current = tWeek; setWeek(tWeek);
+            if (lvl === 3) { dailyDomRef.current = tDay; setDailyDom(tDay); }
+            tweenTo(lvl, 820);
+          }, 170);
+        });
+      }, 140);
+    });
+  }, [tweenTo, snapMonth]);
+
   // Click a spillover day → zoom out to year, briefly hold, then back into that week.
   const chainTo = useCallback((newMonth: number, newWeek: number) => {
     tweenTo(0, 800, () => {
@@ -204,7 +319,7 @@ export function useCalendarInteractions() {
   // window slides per-day; 1 week = 7 days, clamped to the first/last week's spillover edges).
   const snapNow = useCallback(() => {
     clearSnap();
-    const zt = Math.max(0, Math.min(2, Math.round(zRef.current)));
+    const zt = Math.max(0, Math.min(3, Math.round(zRef.current)));
     if (Math.abs(zt - zRef.current) > 0.004) tweenTo(zt, 260);
     if (Math.round(zRef.current) === 2) {
       const lastWeek = weeksInMonth(focusRef.current) - 1;
@@ -227,20 +342,28 @@ export function useCalendarInteractions() {
       startZ = zRef.current;
       const rect = el.getBoundingClientRect();
       cx = e.clientX - rect.left; cy = e.clientY - rect.top;
+      pinchDayRef.current = hoverRef.current.dom; // lock the day under the cursor now (week→day pinch)
       arm();
     };
     const onChange = (e: GestureLikeEvent) => {
       e.preventDefault();
       if (drawerOpen()) return;
       const vpNow = { w: el.clientWidth, h: el.clientHeight };
-      const nz = Math.max(0, Math.min(2, startZ + Math.log2(e.scale) * 0.6)); // lower = slower
-      // Lock focus/week once, based on the level we STARTED at + the gesture origin.
+      const nz = Math.max(0, Math.min(3, startZ + Math.log2(e.scale) * 0.6)); // lower = slower
+      // Lock focus/week/day once, based on the level we STARTED at + the gesture origin.
       if (nz > startZ && startZ < 0.15) {
         const m = monthAtPoint(cx, cy, vpNow, scrollYRef.current);
         if (m != null) setFocus(m);
       } else if (nz > startZ && startZ >= 0.85 && startZ < 1.15) {
         const w = weekAtPointInMonth(cx, focusRef.current, vpNow);
         if (w != null) setWeek(w);
+      } else if (nz > startZ && startZ >= 1.85 && startZ < 2.15) {
+        // zooming week → day: lock onto the day captured at gesturestart (fixed — the morph must not
+        // drift the target, or the zoom stutters). Fall back to the middle of the week. Spillover days
+        // (in the prev/next month) are NOT zoomable — clamp the target into the focused month's range.
+        const dim = new Date(yearRef.current, focusRef.current + 1, 0).getDate();
+        const raw = pinchDayRef.current ?? weekStartDOM(focusRef.current, Math.round(weekRef.current)) + 3;
+        setDailyDom(Math.max(1, Math.min(dim, raw)));
       }
       setZ(nz);
       arm();
@@ -274,6 +397,54 @@ export function useCalendarInteractions() {
     // swallows the trackpad's momentum tail after a gesture ends (so it neither re-pages nor holds
     // the turn open — hover comes back at once); `mLastWheelT` detects the pause that ends lockout.
     let mDragging = false, mDrag = 0, mIdle = 0, mVel = 0, mLastT = 0, mLockout = false, mLastWheelT = 0, mDecay = 0;
+    // daily↔daily horizontal paging: GESTURE-TRACKED like month paging but horizontal. `dDrag` is
+    // signed px this gesture; one full page = one day-column width, so the slide tracks the swipe 1:1.
+    let dDragging = false, dDrag = 0, dIdle = 0, dVel = 0, dLastT = 0, dLockout = false, dDecay = 0, dLastWheelT = 0;
+    let dOver = false, dOverDir: 1 | -1 = 1, dOverT = 0, dHold = 0; // overscroll at a month boundary → month-jump
+    const dayPageDist = () => Math.max(80, getDailyFrac() * (el.clientWidth - LABEL_W)); // = the day column width
+    const dimOfYear = (m: number) => new Date(yearRef.current, m + 1, 0).getDate();
+    const DAY_OVER_THRESH = 320; // px of sustained push past the month edge to commit a month-jump
+    const MONTH_HOLD = 320;      // ms the ring stays full after reaching the threshold before it commits
+    const commitMonthJump = () => { const dir = dOverDir; dHold = 0; dOver = false; dOverT = 0; dDrag = 0; dVel = 0; clearTimeout(dIdle); jumpMonth(dir); };
+    // Reaching the threshold arms a brief hold (a beat at full ring) before committing; pulling back
+    // below the threshold cancels it.
+    const armHold = () => {
+      if (dOverT >= 1) { if (!dHold) dHold = window.setTimeout(commitMonthJump, MONTH_HOLD); }
+      else if (dHold) { clearTimeout(dHold); dHold = 0; }
+    };
+    // Gesture released (wheel idle): snap the live drag to commit (past 40%) or cancel.
+    const endDayDrag = () => {
+      if (!dDragging) return;
+      dDragging = false;
+      dLockout = true; dDecay = Infinity; // swallow the momentum tail until the wheel goes quiet
+      if (dOver) { // released while overscrolling the month boundary
+        if (dHold) return; // threshold reached → the hold timer will commit shortly; leave the ring up
+        const dir = dOverDir, from = dOverT;
+        dOver = false; dOverT = 0; dDrag = 0; dVel = 0;
+        // spring the overscroll (ring + page bounce) back to rest
+        if (dayTweenRef.current != null) cancelAnimationFrame(dayTweenRef.current);
+        let t0 = 0;
+        const spring = (ts: number) => {
+          if (!t0) t0 = ts;
+          const k = Math.min(1, (ts - t0) / 180);
+          if (k < 1) { setMonthEdge({ dir, t: from * Math.pow(1 - k, 3) }); dayTweenRef.current = requestAnimationFrame(spring); }
+          else { setMonthEdge(null); dayTweenRef.current = null; }
+        };
+        dayTweenRef.current = requestAnimationFrame(spring);
+        return;
+      }
+      const PAGE = dayPageDist();
+      const norm = dDrag / PAGE;
+      dDrag = 0;
+      const p = Math.min(1, Math.abs(norm));
+      if (p < 0.001) { setDayAnim(null); dVel = 0; return; }
+      const commit = p >= 0.4;
+      const remPx = Math.abs((commit ? 1 : 0) - p) * PAGE;
+      const speed = Math.abs(dVel);
+      const dur = speed > 0.02 ? Math.max(150, Math.min(520, remPx / speed)) : 360;
+      dVel = 0;
+      snapDayPage(norm >= 0 ? 1 : -1, p, commit, dur);
+    };
     const lastIdx = () => weeksInMonth(focusRef.current) - 1;
     // Nearest day boundary (1 week = 7 days), clamped to the first/last week (incl. spillover).
     const snapDay = (w: number) => Math.max(0, Math.min(lastIdx(), Math.round(w * 7) / 7));
@@ -371,8 +542,62 @@ export function useCalendarInteractions() {
         if (Math.abs(norm) >= 1) { clearTimeout(mIdle); endMonthDrag(); }
         return;
       }
-      // week view: vertical wheel scrolls the hourly timeline
+      // daily view: horizontal wheel pages the day, GESTURE-TRACKED — the day column slides 1:1 with
+      // the swipe (current day out, next/prev in), snapping on release. Clamped at Jan 1 / Dec 31.
+      if (zRef.current >= 2.5 && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+        const gap = dLastWheelT ? e.timeStamp - dLastWheelT : 999;
+        dLastWheelT = e.timeStamp;
+        if (dLockout && !dDragging) { // swallow the momentum tail; release for a real new swipe
+          if (gap >= 120 || Math.abs(e.deltaX) > dDecay * 1.4) dLockout = false;
+          else { dDecay = Math.abs(e.deltaX); return; }
+        }
+        clearTimeout(dIdle);
+        dIdle = window.setTimeout(endDayDrag, 80);
+        // A release-snap is finishing → interrupt it and resume tracking from where it sits.
+        if (daySnapRef.current) {
+          if (dayTweenRef.current != null) cancelAnimationFrame(dayTweenRef.current);
+          dayTweenRef.current = null; daySnapRef.current = false;
+          const cur = dayAnimRef.current;
+          dDrag = cur ? cur.dir * cur.p * dayPageDist() : 0;
+          dDragging = true; dVel = 0; dLastT = 0;
+        }
+        if (!dDragging) {
+          if (dayTweenRef.current != null) { cancelAnimationFrame(dayTweenRef.current); dayTweenRef.current = null; } // cancel a running overscroll spring
+          dDragging = true; dDrag = 0; dVel = 0; dLastT = 0;
+        }
+        const dt = dLastT ? e.timeStamp - dLastT : 0;
+        if (dt > 0 && dt < 200) dVel = dVel * 0.5 + (e.deltaX / dt) * 0.5; // smoothed release velocity
+        dLastT = e.timeStamp;
+        dDrag += e.deltaX;
+        const PAGE = dayPageDist();
+        const dimF = dimOfYear(focusRef.current);
+        // Pushing PAST the month boundary → overscroll toward a month-jump (if a month exists that way;
+        // at the year edge it's a hard stop). Otherwise a normal within-month day slide.
+        if (dailyDomRef.current >= dimF && dDrag > 0) {        // past the last day → toward next month
+          if (focusRef.current < 11) { dOver = true; dOverDir = 1; dOverT = Math.min(1, dDrag / DAY_OVER_THRESH); setMonthEdge({ dir: 1, t: dOverT }); armHold(); }
+          else dDrag = 0; // Dec 31 → hard stop
+          setDayAnim(null);
+          return;
+        }
+        if (dailyDomRef.current <= 1 && dDrag < 0) {           // before the first day → toward prev month
+          if (focusRef.current > 0) { dOver = true; dOverDir = -1; dOverT = Math.min(1, -dDrag / DAY_OVER_THRESH); setMonthEdge({ dir: -1, t: dOverT }); armHold(); }
+          else dDrag = 0; // Jan 1 → hard stop
+          setDayAnim(null);
+          return;
+        }
+        if (dOver) { dOver = false; if (dHold) { clearTimeout(dHold); dHold = 0; } setMonthEdge(null); } // pulled back inside the month
+        let norm = Math.max(-1, Math.min(1, dDrag / PAGE));
+        dDrag = norm * PAGE; // re-clamp so momentum can't run past one page
+        if (norm === 0) setDayAnim(null);
+        else setDayAnim({ dir: norm > 0 ? 1 : -1, p: Math.abs(norm) });
+        if (Math.abs(norm) >= 1) { clearTimeout(dIdle); endDayDrag(); } // reached a full page → commit now
+        return;
+      }
+      // week view: vertical wheel scrolls the hourly timeline (but not when the cursor is over the
+      // daily-dashboard — that area scrolls its own content instead).
       if (zRef.current >= 1.5 && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+        if ((e.target as HTMLElement)?.closest?.(".cc-daily-dash")) return;
         const tlTop = TOP_PAD + 4 * TRACK_H + 18;
         const { maxScroll } = hourMetrics(tlTop, el.clientHeight - 8, zRef.current, tlScrollRef.current);
         if (maxScroll <= 0) return; // nothing to scroll (tall window)
@@ -380,7 +605,8 @@ export function useCalendarInteractions() {
         setTlScroll(Math.max(0, Math.min(maxScroll, tlScrollRef.current + e.deltaY)));
         return;
       }
-      if (zRef.current < 1.5 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      // horizontal swipe pages the 7-day window — week view only (daily↔daily paging is separate).
+      if (zRef.current < 1.5 || zRef.current >= 2.5 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       e.preventDefault();
       clearTimeout(idleTimer);
       idleTimer = window.setTimeout(endSession, 90);
@@ -390,8 +616,8 @@ export function useCalendarInteractions() {
       setWeek(pos);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => { el.removeEventListener("wheel", onWheel); clearTimeout(idleTimer); clearTimeout(mIdle); };
-  }, [tweenWeek, snapMonth]);
+    return () => { el.removeEventListener("wheel", onWheel); clearTimeout(idleTimer); clearTimeout(mIdle); clearTimeout(dIdle); clearTimeout(dHold); };
+  }, [tweenWeek, snapMonth, snapDayPage, jumpMonth]);
 
   // Tick once a minute so the current-time line advances while idle.
   useEffect(() => {
@@ -405,7 +631,7 @@ export function useCalendarInteractions() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const id = window.setTimeout(() => {
-      const level = z < 0.5 ? 0 : z < 1.5 ? 1 : 2;
+      const level = z < 0.5 ? 0 : z < 1.5 ? 1 : z < 2.5 ? 2 : 3;
       const p = new URLSearchParams(window.location.search);
       p.set("y", String(year));
       if (level >= 1) p.set("m", String(focus + 1)); else p.delete("m");
@@ -416,11 +642,12 @@ export function useCalendarInteractions() {
         const day = ((k % 7) + 7) % 7;
         if (day > 0) p.set("d", String(day)); else p.delete("d");
       } else { p.delete("w"); p.delete("d"); }
+      if (level >= 3) p.set("da", String(dailyDom)); else p.delete("da"); // daily view: the chosen day-of-month
       const qs = p.toString();
       window.history.replaceState(window.history.state, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
     }, 150);
     return () => window.clearTimeout(id);
-  }, [z, focus, week, year]);
+  }, [z, focus, week, year, dailyDom]);
 
   // Esc → zoom out ONE level (week→month→year). Stands down when an overlay or field owns
   // the Esc: a drawer (its own Esc closes it), or a focused input/textarea/editor.
@@ -430,7 +657,7 @@ export function useCalendarInteractions() {
       if (document.body.classList.contains("cc-drawer-open")) return; // drawer handles it
       const a = document.activeElement as HTMLElement | null;
       if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
-      const lvl = zRef.current < 0.5 ? 0 : zRef.current < 1.5 ? 1 : 2;
+      const lvl = zRef.current < 0.5 ? 0 : zRef.current < 1.5 ? 1 : zRef.current < 2.5 ? 2 : 3;
       if (lvl > 0) tweenTo(lvl - 1);
     };
     window.addEventListener("keydown", onKey);
@@ -459,6 +686,20 @@ export function useCalendarInteractions() {
       next = { month: focusRef.current, dom: domInFocus(px, focusRef.current, vpNow), week: wk, hour: null, hourFrac: null, nameMonth: null, nearLeft: null };
       setHoverWeek(wk);
       if (hoverMonthRef.current != null) setHoverMonth(null);
+    } else if (cur > 2) {
+      // Daily view (+ the week→day transition): hover is locked to the chosen day's column. The
+      // dashboard area to its right yields NO hover (so other days don't light up — they're gone).
+      const f = frameFor(focusRef.current, cur, focusRef.current, weekRef.current, vpNow, sY);
+      const dom = dailyDomRef.current;
+      const colLeft = f.x0 + (dom - 1) * f.dayW;
+      if (px >= colLeft && px < colLeft + f.dayW) {
+        const c = cellInWeek(px, py, cur, focusRef.current, weekRef.current, vpNow, sY, tlScrollRef.current);
+        next = { month: focusRef.current, dom, week: Math.round(weekRef.current), hour: c.hour, hourFrac: c.hourFrac, nameMonth: null, nearLeft: c.nearLeft };
+      } else {
+        next = NO_HOVER;
+      }
+      if (hoverMonthRef.current != null) setHoverMonth(null);
+      if (hoverWeekRef.current != null) setHoverWeek(null);
     } else {
       // Use the LIVE fractional week: the 7-day window can start on any day, and the rendered
       // frame (which cellInWeek mirrors via timelineInfo) is positioned with the fractional
@@ -498,7 +739,7 @@ export function useCalendarInteractions() {
     } else if (cur < 1.5 && hoverWeekRef.current != null) {
       setWeek(hoverWeekRef.current);
       tweenTo(2);
-    } else if (cur >= 1.5) {
+    } else if (cur >= 1.5 && cur < 2.5) {
       const rect = el.getBoundingClientRect();
       const hit = dayAtPointInWeek(e.clientX - rect.left, zRef.current, focusRef.current, weekRef.current, { w: el.clientWidth, h: el.clientHeight }, scrollYRef.current);
       if (hit && hit.month !== focusRef.current) chainTo(hit.month, hit.week);
@@ -556,6 +797,47 @@ export function useCalendarInteractions() {
     }
   }, [tweenTo, tweenWeek]);
 
+  // "Nav" menu: jump to TODAY at a chosen level (0 year · 1 month · 2 week · 3 day), taking the
+  // shortest path — slide within the same week, zoom straight in from year/same-month, or zoom out
+  // to year then back in when the month/year differs. Generalises goToCurrentWeek across levels.
+  const goToNow = useCallback((target: number) => {
+    const T = Math.max(0, Math.min(3, Math.round(target)));
+    const d = new Date();
+    const cy = d.getFullYear(), cm = d.getMonth(), cd = d.getDate();
+    const cw = Math.floor((new Date(cy, cm, 1).getDay() + cd - 1) / 7); // week-row of today
+    const sameYear = yearRef.current === cy;
+    const sameMonth = sameYear && focusRef.current === cm;
+    const lvl = Math.round(zRef.current);
+    if (!sameYear) { setYearState(cy); setScrollY(0); }
+
+    const setSub = () => { // place focus/week/day for the target level
+      setFocus(cm);
+      if (T >= 2) { weekRef.current = cw; setWeek(cw); }
+      if (T === 3) { dailyDomRef.current = cd; setDailyDom(cd); }
+    };
+
+    if (T === 0) {
+      tweenTo(0);
+    } else if (T === 2 && lvl === 2 && sameMonth) {
+      tweenWeek(cw);                                   // already in this month's week view → slide across
+    } else if (sameMonth || (lvl === 0 && sameYear)) {
+      setSub(); tweenTo(T, 360 + 180 * Math.abs(T - lvl)); // same month, or at year view → set + zoom direct
+    } else {
+      tweenTo(0, 600, () => { setSub(); window.setTimeout(() => tweenTo(T, 500 + 230 * T), 180); }); // out to year → in
+    }
+
+    // Week view keeps the old "Now" behaviour: centre the timeline on the current time.
+    if (T === 2) {
+      const el = wrapRef.current;
+      if (el) {
+        const tlTop = TOP_PAD + 4 * TRACK_H + 18;
+        const { hourH, viewH, maxScroll } = hourMetrics(tlTop, el.clientHeight - 8, 2, 0);
+        const nowFrac = d.getHours() + d.getMinutes() / 60;
+        setTlScroll(maxScroll <= 0 ? 0 : Math.max(0, Math.min(maxScroll, nowFrac * hourH - viewH / 2)));
+      }
+    }
+  }, [tweenTo, tweenWeek]);
+
   // Animate to a specific date (year/month/week index) and LAND AT `level` (0 year · 1 month ·
   // 2 week), then fire `onArrive`. Like goToCurrentWeek it takes the shortest path: it zooms OUT
   // only as far as the current spot and the target diverge — same week → none, same month →
@@ -590,5 +872,5 @@ export function useCalendarInteractions() {
     ? Math.max(0, Math.min(11, focus + monthAnim.dir))
     : focus;
 
-  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, selectYear, goToCurrentYear, goToCurrentWeek, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover };
+  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover };
 }

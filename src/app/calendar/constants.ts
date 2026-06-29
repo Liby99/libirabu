@@ -14,3 +14,7 @@ export const Q_GAP = 32; // separation between quarters
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 export const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 export const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
+// Opacity multiplier for events that have already happened, when the "dim past events"
+// view toggle (Edit menu) is on.
+export const PAST_DIM = 0.4;

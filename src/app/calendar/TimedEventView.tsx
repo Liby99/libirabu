@@ -43,6 +43,12 @@ export default function TimedEventView({ ev, rect, wide, reveal, interactive, on
     if (t !== ev.title) onTitleCommit(ev.id, t);
   };
 
+  // Deselecting (clicking elsewhere) mid-edit should drop the input's focus too — the canvas's
+  // mousedown preventDefault otherwise keeps the caret in it, so onBlur never fires.
+  useEffect(() => {
+    if (!selected && editing) commit();
+  }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const style: React.CSSProperties = {
     transform: `translate(${rect.x}px, ${rect.y}px)`,
     width: rect.w,

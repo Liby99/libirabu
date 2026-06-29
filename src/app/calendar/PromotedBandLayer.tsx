@@ -3,6 +3,8 @@
 import { useRef, useState } from "react";
 import { Vp } from "./types";
 import { frameFor, type MonthAnim } from "./frames";
+import { PAST_DIM } from "./constants";
+import { dayIsPast } from "./dates";
 import { bandEventRect, BandRect } from "./bandGeom";
 import { TimedEvent } from "./eventTypes";
 import { Deadline } from "./deadlineTypes";
@@ -45,11 +47,16 @@ interface Props {
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
   monthAnim: MonthAnim | null;
+  dimPast?: boolean; // "dim past events" view toggle
+  now?: number;      // ms timestamp → decides what's past
 }
 
 const isRecurring = (r: TimedEvent["repeat"]) => !!r && r.kind !== "none";
 
-export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, timed, deadlines, bandEvents, updateTimed, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu, monthAnim }: Props) {
+export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, timed, deadlines, bandEvents, updateTimed, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu, monthAnim, dimPast = false, now = 0 }: Props) {
+  // dim-past multiplier: 0.4 for a promoted bar whose day is fully behind us, else 1 (day-level
+  // — the 1-day ghost band carries no time, so today's bars stay un-dimmed)
+  const pdim = (m: number, day: number) => (dimPast && dayIsPast(year, m, day, now) ? PAST_DIM : 1);
   const layerRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false);
   const [movingId, setMovingId] = useState<string | null>(null);
@@ -130,13 +137,14 @@ export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, t
     <div className="cc-promoted-layer" ref={layerRef}>
       {rects.map(({ it, rect }) => {
         const gap = gapByKey.get(it.key);
+        const dim = pdim(it.month, it.day);
         return (
           <div
             key={it.key}
             data-ev-id={it.id}
             data-occ={it.occ ?? undefined}
             className={`cc-item cc-tevent cc-tevent-band cc-ghost cc-promoted cc-ev-${it.color}${gap != null ? " cc-band-clip" : ""}${it.id === selectedId ? " selected" : ""}${it.id === movingId ? " moving" : ""}`}
-            style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}) }}
+            style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(dim < 1 ? { opacity: dim } : {}), ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}) }}
             onMouseDown={(e) => onMoveStart(it, e)}
             onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; onSelect(it.id, it.occ); }}
             onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(it.id, it.occ); }}

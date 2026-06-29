@@ -62,10 +62,6 @@
     - I would like that to show "This Event: (the date of currently selected occurrence)"
     - And another line shows "Initial Event Date: (the date of the initial event of this series of recurrent events)"
 
-- [ ] TODO List in Calendar
-    - Let's forget about a centralized todo viewer; but rather a contextualized todo viewer in a monthly view or a weekly view.
-    - There turns out to be an empty space in monthly/weekly view, that sits right to the left of the daily
-
 - [x] Two overlapping deadline tags:
     - when hover on one, that one should go on top of the other ones
 
@@ -74,7 +70,14 @@
     - They should have their text not overlapping with the next event
     - Bascially we should clamp the textbox width by the distance to the left hand side of the next event.
 
-- [ ] Consider the following interaction
+- [x] Font size needs to change
+    - The sans-sarif fonts need to be much more design-feeling; any recommendations?
+    - The hand-writing style font needs to be slightly more structured though. I was using 'Comic Sans MS', 'Comic Sans', 'Bradley Hand', 'Segoe Script', 'Caveat', 'Indie Flower', cursive;
+
+- [x] In Edit, we should also be able to set current time zone also, and we choose among "Auto: EST" where EST is inferred from system, and other ones.
+- [x] Currently the alternative timezone line is only displayed on weekly view. It should be displayed on monthly view as well.
+
+- [x] Consider the following interaction
     - I am teaching a class for spring semester
     - The lecture is recurring event and the first lecture is January and last is May. It recur two times a week on Tue/Thu
     - I am double clicking on one lecture in may, currently in May monthly view, opening a drawer
@@ -95,3 +98,10 @@
             - If I'm viewing from a weekly view and the two events are in two different weeks in the same month, we zoom one level out to the month, zoom in to the other first event's week, and we open the drawer
             - If I'm viewing from a weekly view and the two events are in two different months, we zoom two levels back to yearly view, and zoom in two levels to that first event's week, and we open the drawer.
             - ...
+
+- [ ] over-scroll event in yearly view:
+    - When we are already in yearly view, and we scroll up further when we are already at the top, we will see a prompt that, if we keep scrolling, we will jump to the previous year
+    - And the same goes for when we are already at the bottom, we keep scrolling, we will see the next year.
+
+- [x] no red color of "today" in daily view
+    - Clearly mark today in the daily-dashboard title (Sunday, June 28 – Today)

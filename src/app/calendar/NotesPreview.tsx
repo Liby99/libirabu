@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import remarkTodoTokens from "./remarkTodoTokens";
 import "katex/dist/katex.min.css";
 
 // A GFM task-list line: capture the marker, the [ ]/[x] state, and the rest of the line.
@@ -64,7 +65,7 @@ export default function NotesPreview({ value, onChange, onEditAt }: Props) {
   return (
     <div className="cc-dw-md" onClick={onContainerClick}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkTodoTokens]}
         rehypePlugins={[rehypeKatex]}
         components={{
           a: ({ href, children }) => (

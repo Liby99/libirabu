@@ -4,11 +4,11 @@ import { useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import EventBadges from "./EventBadges";
 import { Vp, Hover } from "./types";
-import { LABEL_W } from "./constants";
-import { frameFor, type MonthAnim } from "./frames";
+import { LABEL_W, PAST_DIM } from "./constants";
+import { frameFor, dailyFade, type MonthAnim } from "./frames";
 import { hourMetrics, relDomOf, incomingDetailReveal } from "./eventGeom";
 import { daysInMonth } from "./mock";
-import { weekStartDOM, resolveDate } from "./dates";
+import { weekStartDOM, resolveDate, momentIsPast } from "./dates";
 import { Deadline } from "./deadlineTypes";
 import { deadlineTimeLabel } from "./deadlineFormat";
 import { occurrenceDates, occKey, occDate, baseHidden } from "./occurrences";
@@ -31,10 +31,14 @@ interface Props {
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
   detailMul?: number; // timeline opacity multiplier during month↕month paging (outgoing month)
+  dimPast?: boolean; // "dim past events" view toggle
+  now?: number;      // ms timestamp → decides what's past
   monthAnim?: MonthAnim | null; // active page-turn → render the incoming month's deadlines too
 }
 
-export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, year, mainTz, hover, deadlines, addDeadline, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu, detailMul = 1, monthAnim = null }: Props) {
+export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, year, mainTz, hover, deadlines, addDeadline, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu, detailMul = 1, dimPast = false, now = 0, monthAnim = null }: Props) {
+  // dim-past multiplier: 0.4 once a deadline's moment has elapsed, else 1
+  const pdim = (oy: number, om: number, od: number, hour: number) => (dimPast && momentIsPast(oy, om, od, hour, now) ? PAST_DIM : 1);
   const layerRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false); // a real drag happened → suppress the trailing click
   const [movingId, setMovingId] = useState<string | null>(null);
@@ -49,6 +53,18 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
 
   const yOf = (hour: number) => tlTop + hour * hourH - scroll;
   const xOf = (day: number) => f.x0 + (day - 1) * colW;
+
+  // Daily view: the label always sits to the LEFT of the line — its right edge just left of the
+  // line's left circle (the standard daily placement). The line keeps its full length; the layer is
+  // raised ABOVE the dashboard mask (container z-index below) so the right-end circle shows on top.
+  const daily = z > 2.5;
+  const lineW = colW;
+  const labelMaxW = undefined;
+  const labelCls = (left: boolean) => (daily || left ? "cc-ddl-label-l" : "cc-ddl-label-r");
+  const labelTf = (x: number, y: number, left: boolean) => {
+    const onLeft = daily || left; // daily forces left-of-line
+    return `translate(${onLeft ? x - 8 : x + colW + 8}px, ${y}px) translateY(calc(-50% + 1px))${onLeft ? " translateX(-100%)" : ""}`;
+  };
 
   // ── Drag the label → move the deadline (day + integer hour, minutes preserved) ──
   const onMoveStart = (id: string, e: React.MouseEvent) => {
@@ -128,17 +144,17 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
 
   return (
     <>
-      <div className="cc-deadlines" ref={layerRef} style={detailMul < 1 ? { opacity: detailMul } : undefined}>
+      <div className="cc-deadlines" ref={layerRef} style={{ ...(detailMul < 1 ? { opacity: detailMul } : {}), ...(daily ? { zIndex: 16 } : {}) }}>
         {ghosts.map(({ d, o, x, y }) => {
           const labelLeft = x - 8 - 120 > LABEL_W;
           return (
-            <div key={occKey(d.id, o)} className={`cc-ddl cc-ev-${d.color} cc-ghost${d.id === selectedId ? " selected" : ""}`}>
-              <div data-ev-line-id={d.id} data-occ={occDate(o)} className="cc-ddl-line" style={{ transform: `translate(${x}px, ${y - 1}px)`, width: colW }} />
+            <div key={occKey(d.id, o)} className={`cc-ddl cc-ev-${d.color} cc-ghost${d.id === selectedId ? " selected" : ""}`} style={{ opacity: dailyFade(relDomOf(focus, o.month, o.day) ?? -999, z) * pdim(o.year, o.month, o.day, d.hour) }}>
+              <div data-ev-line-id={d.id} data-occ={occDate(o)} className="cc-ddl-line" style={{ transform: `translate(${x}px, ${y - 1}px)`, width: lineW }} />
               <div
                 data-ev-id={d.id}
                 data-occ={occDate(o)}
-                className={`cc-ddl-label ${labelLeft ? "cc-ddl-label-l" : "cc-ddl-label-r"}`}
-                style={{ transform: `translate(${labelLeft ? x - 8 : x + colW + 8}px, ${y}px) translateY(calc(-50% + 1px))${labelLeft ? " translateX(-100%)" : ""}` }}
+                className={`cc-ddl-label ${labelCls(labelLeft)}`}
+                style={{ transform: labelTf(x, y, labelLeft), maxWidth: labelMaxW }}
                 onClick={(e) => { e.stopPropagation(); onSelect(d.id, occDate(o)); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(d.id, occDate(o)); }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(d.id, r.left + r.width / 2, r.top, occDate(o)); }}
@@ -163,12 +179,12 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
           // label sits to the LEFT of the line; flip right only when there's no room before the gutter
           const labelLeft = x - 8 - 120 > LABEL_W;
           return (
-            <div key={d.id} className={`cc-ddl cc-ev-${d.color}${selected ? " selected" : ""}${d.id === movingId ? " moving" : ""}`}>
-              <div data-ev-line-id={d.id} className="cc-ddl-line" style={{ transform: `translate(${x}px, ${y - 1}px)`, width: colW }} />
+            <div key={d.id} className={`cc-ddl cc-ev-${d.color}${selected ? " selected" : ""}${d.id === movingId ? " moving" : ""}`} style={{ opacity: dailyFade(rel, z) * pdim(d.year, d.month, d.day, d.hour) }}>
+              <div data-ev-line-id={d.id} className="cc-ddl-line" style={{ transform: `translate(${x}px, ${y - 1}px)`, width: lineW }} />
               <div
                 data-ev-id={d.id}
-                className={`cc-ddl-label ${labelLeft ? "cc-ddl-label-l" : "cc-ddl-label-r"}`}
-                style={{ transform: `translate(${labelLeft ? x - 8 : x + colW + 8}px, ${y}px) translateY(calc(-50% + 1px))${labelLeft ? " translateX(-100%)" : ""}` }}
+                className={`cc-ddl-label ${labelCls(labelLeft)}`}
+                style={{ transform: labelTf(x, y, labelLeft), maxWidth: labelMaxW }}
                 onMouseDown={(e) => onMoveStart(d.id, e)}
                 onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; onSelect(d.id); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(d.id); }}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_MAIN_TZ, defaultTrackNames } from "@/lib/calendar/api";
+import { AUTO_TZ, systemTz } from "./timezones";
 import { fetchSettings, putSettings } from "./apiClient";
 
 const PUT_DEBOUNCE = 500; // coalesce keystrokes while renaming a track lane
@@ -10,7 +11,8 @@ const PUT_DEBOUNCE = 500; // coalesce keystrokes while renaming a track lane
 // year with no saved names shows blank (cleared). Optimistic local state; debounced saves.
 export function useCalendarSettings(year: number) {
   const [trackMap, setTrackMap] = useState<Record<string, string[][]>>({});
-  const [mainTz, setMainTzState] = useState<string>(DEFAULT_MAIN_TZ);
+  // The stored MAIN-tz *setting* (a concrete zone id, or AUTO_TZ to follow the system zone).
+  const [mainTzSetting, setMainTzState] = useState<string>(DEFAULT_MAIN_TZ);
   const [altTz, setAltTzState] = useState<string | null>(null);
   const mapRef = useRef<Record<string, string[][]>>(trackMap);
   mapRef.current = trackMap;
@@ -54,5 +56,8 @@ export function useCalendarSettings(year: number) {
     putSettings({ mainTz: tz }).catch((e) => console.error("[calendar] save mainTz", e));
   }, []);
 
-  return { trackNames, editTrack, mainTz, altTz, setAltTz, setMainTz };
+  // The effective main zone consumers use — AUTO resolves to the live system zone.
+  const mainTz = mainTzSetting === AUTO_TZ ? systemTz() : mainTzSetting;
+
+  return { trackNames, editTrack, mainTz, mainTzSetting, altTz, setAltTz, setMainTz };
 }

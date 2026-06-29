@@ -26,6 +26,135 @@
 }
 .cc-wrap.cc-clickable { cursor: pointer; } /* over the clickable month name */
 .cc-layer { position: absolute; inset: 0; }
+
+/* Daily view (z=3) right-hand panel. cc-daily-dash is a FIXED clipping mask (opaque bg occludes the
+   grid sliding under it; below the drawer). cc-daily-inner-dash are the carousel panels that move. */
+.cc-daily-dash {
+  position: absolute;
+  z-index: 14;
+  background: var(--background);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.cc-daily-inner-dash {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  will-change: transform, opacity;
+}
+/* Shared left inset so the bars and all text align on the left. */
+.cc-daily-inner-dash { --dd-pad: 25px; }
+/* the two horizontal bars — same color/height as the track band's top border & bottom divider */
+.cc-dd-bar { flex: none; height: 1px; margin-left: var(--dd-pad); background: color-mix(in srgb, var(--cc-line) 58%, transparent); }
+/* title zone fills the band region; title is bottom-aligned toward the lower bar */
+.cc-dd-titlezone { flex: none; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 18px 7px var(--dd-pad); box-sizing: border-box; overflow: hidden; }
+.cc-dd-name { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; margin-bottom: 3px; }
+.cc-dd-date { font-size: 19px; font-weight: 500; line-height: 1.2; }
+.cc-dd-special { color: var(--accent-dark); opacity: 0.7; font-weight: 400; }
+/* scrollable content below the lower bar: upcoming deadlines, then the TODO list */
+.cc-dd-content { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 18px 16px var(--dd-pad); font-size: 13px; }
+.cc-dd-sec { margin-bottom: 16px; }
+.cc-dd-sec-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 6px; }
+.cc-dd-sec-title { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; }
+.cc-dd-sec-count { font-size: 11px; opacity: 0.5; }
+.cc-dd-free { opacity: 0.6; font-style: italic; }
+.cc-dd-ddl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.cc-dd-ddl { display: flex; align-items: center; gap: 7px; }
+.cc-dd-ddl-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ev-color, var(--accent-dark)); }
+.cc-dd-ddl-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-dd-ddl-when { flex: none; font-size: 11px; opacity: 0.6; }
+
+/* ── Daily TODO list (grouped topics over the cross-event index) ───────────── */
+.cc-dtodo-empty { opacity: 0.5; font-size: 13px; padding: 6px 0; }
+
+.cc-dtodo-sec { margin: 0 0 16px; }
+.cc-dtodo-sec-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.cc-dtodo-sec-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--accent-dark); opacity: 0.7;
+}
+.cc-dtodo-sec-count {
+  font-size: 10px; font-weight: 600; line-height: 1; padding: 2px 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-grey) 18%, transparent); color: var(--accent-dark); opacity: 0.7;
+}
+
+.cc-dtodo-list { list-style: none; margin: 0; padding: 0; }
+.cc-dtodo { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; }
+.cc-dtodo-check {
+  appearance: none; -webkit-appearance: none; flex: none; box-sizing: border-box;
+  width: 15px; height: 15px; margin-top: 2px;
+  border: 1.5px solid var(--accent-grey); border-radius: 5px; background: transparent; cursor: pointer;
+  position: relative; transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+.cc-dtodo-check:hover { border-color: var(--accent-dark); }
+.cc-dtodo-check:active { transform: scale(0.9); }
+.cc-dtodo-check:checked { background: var(--highlight); border-color: var(--highlight); }
+.cc-dtodo-check:checked::after {
+  content: ""; position: absolute; left: 4px; top: 0.5px;
+  width: 4px; height: 8px; border: solid var(--background); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+
+.cc-dtodo-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; cursor: pointer; border-radius: 5px; padding: 1px 4px; margin: -1px -4px; transition: background-color 0.1s ease; }
+.cc-dtodo-main:hover { background: color-mix(in srgb, var(--accent-grey) 14%, transparent); }
+.cc-dtodo-main:focus-visible { outline: 2px solid var(--highlight); outline-offset: 0; }
+.cc-dtodo-main:hover .cc-dtodo-text { color: var(--highlight); }
+.cc-dtodo-text { font-size: 13px; line-height: 1.4; }
+.cc-dtodo-event { color: var(--accent-grey); }
+.cc-dtodo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; line-height: 1.5; }
+.cc-dtodo-prio { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-weight: 800; letter-spacing: -0.05em; color: var(--event-red-border, #e5484d); }
+.cc-dtodo-prio[data-level="4"], .cc-dtodo-prio[data-level="5"] {
+  background: var(--event-red-border, #e5484d); color: #fff; padding: 0 4px; border-radius: 4px;
+}
+.cc-dtodo-due { color: var(--accent-grey); }
+.cc-dtodo-due-over { color: var(--event-red-border, #e5484d); font-weight: 600; }
+.cc-dtodo-tag { color: var(--highlight); opacity: 0.85; }
+
+/* Daily timeline resize handle: a wide invisible grab strip whose thin bar fades in on approach. */
+.cc-daily-resize { position: absolute; z-index: 15; cursor: ew-resize; display: flex; justify-content: center; }
+.cc-daily-resize-bar { width: 2px; height: 100%; background: var(--accent-dark); opacity: 0; transition: opacity 0.15s ease; }
+.cc-daily-resize:hover .cc-daily-resize-bar,
+body.cc-col-resizing .cc-daily-resize-bar { opacity: 0.55; }
+body.cc-col-resizing { cursor: ew-resize; user-select: none; }
+
+/* Month-boundary overscroll prompt (daily view): a circular progress ring that fills as you push
+   past the month edge; "ready" at full → a release commits the month-jump. */
+.cc-month-edge {
+  position: absolute;
+  z-index: 13;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+}
+.cc-month-edge-circle {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--background) 80%, transparent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.cc-month-edge-circle svg { position: absolute; inset: 0; }
+.cc-month-edge-track { fill: none; stroke: var(--cc-sep); stroke-width: 3; }
+.cc-month-edge-prog {
+  fill: none; stroke: var(--accent-dark); stroke-width: 3; stroke-linecap: round;
+  transform: rotate(-90deg); transform-origin: center; /* start at 12 o'clock */
+}
+.cc-month-edge-arrow {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; opacity: 0.8;
+}
+.cc-month-edge-text {
+  font-size: 11px; opacity: 0.75;
+  background: var(--background); padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+}
+.cc-month-edge.ready .cc-month-edge-prog { stroke: var(--cc-now); }
+.cc-month-edge.ready .cc-month-edge-arrow { opacity: 1; }
+.cc-month-edge.ready .cc-month-edge-circle { box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-now) 50%, transparent), 0 2px 8px rgba(0, 0, 0, 0.18); }
 .cc-gutter { /* solid strip that occludes lane content sliding under it (week view) */
   position: absolute;
   left: 0; top: 0; bottom: 0;
@@ -347,8 +476,8 @@
 
 .cc-tevent-title {
   font-family: var(--font-handwriting), cursive;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 400; /* Comic Sans only has 400/700 — 600 rounded up to Bold (too thick) */
   line-height: 1.05;
   white-space: nowrap;
   overflow: hidden;
@@ -363,16 +492,16 @@
   display: -webkit-box;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 16px;
+  line-height: 14px;
 }
-.cc-tevent-tiny .cc-tevent-title { font-size: 11px; line-height: 12px; }
+.cc-tevent-tiny .cc-tevent-title { font-size: 10px; line-height: 11px; }
 .cc-tevent-tiny .cc-tevent-inner { margin-top: 0; margin-bottom: 0; }
 .cc-tevent-tiny .cc-tevent-time, .cc-tevent-short .cc-tevent-time { display: none; }
 .cc-tevent-title-input {
   width: 100%; border: none; outline: none; padding: 0;
   background: transparent; color: inherit;
   font-family: var(--font-handwriting), cursive;
-  font-size: 15px; font-weight: 600; line-height: 1.05;
+  font-size: 13px; font-weight: 400; line-height: 1.05;
 }
 .cc-tevent-time { font-size: 8.5px; opacity: 0.72; white-space: nowrap; }
 .cc-tevent-handle { position: absolute; left: 0; right: 0; height: 6px; cursor: ns-resize; z-index: 1; }
@@ -553,7 +682,7 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
 .cc-dw-md {
   flex: 1; min-height: 80px; width: 100%; overflow-y: auto;
   padding: 3px 2px 44px; /* bottom space clears the absolute foot */
-  font-family: Helvetica, system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
   font-size: 0.82rem; line-height: 1.65; color: var(--accent-dark); word-break: break-word;
   /* the drawer is portaled into <body>, which sets user-select:none — re-enable selection */
   user-select: text; -webkit-user-select: text; cursor: auto;
@@ -618,6 +747,80 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
 .cc-dw-md img { max-width: 100%; border-radius: 6px; }
 /* KaTeX block math: centered with breathing room, scroll if too wide */
 .cc-dw-md .katex-display { margin: 0.9em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+
+/* ── Inline TODO token badges (§17.1 DSL, rendered by remarkTodoTokens.ts) ────────
+   Tokens like `due:2026-07-01`, `p:!!`, `#tag`, `@person` render as small pills inside
+   the notes preview. Priority/due/etc. only appear on checkbox lines; #/@ anywhere. */
+.cc-dw-md .cc-todo-tok {
+  display: inline-flex; align-items: center; gap: 0.32em;
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: 0.76em; line-height: 1.35; vertical-align: 1px;
+  padding: 0.05em 0.55em; margin: 0 0.06em;
+  border-radius: 999px; white-space: nowrap; user-select: none;
+  text-decoration: none; /* stay crisp even on a struck-through completed item */
+  border: 1px solid color-mix(in srgb, var(--accent-grey) 55%, transparent);
+  background: color-mix(in srgb, var(--accent-grey) 9%, transparent);
+  color: var(--accent-dark);
+}
+/* keep badges upright/coloured on a completed task (the <li> gets line-through + grey) */
+.cc-dw-md li:has(> .cc-md-check:checked) .cc-todo-tok,
+.cc-dw-md li:has(> p > .cc-md-check:checked) .cc-todo-tok { opacity: 0.55; }
+
+/* faint uppercase key prefix on the value tokens, so a bare date reads as "DUE 2026-07-01" */
+.cc-dw-md .cc-todo-tok-due::before,
+.cc-dw-md .cc-todo-tok-start::before,
+.cc-dw-md .cc-todo-tok-tz::before,
+.cc-dw-md .cc-todo-tok-done::before {
+  font-size: 0.82em; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; opacity: 0.55;
+}
+.cc-dw-md .cc-todo-tok-due::before { content: "due"; }
+.cc-dw-md .cc-todo-tok-start::before { content: "from"; }
+.cc-dw-md .cc-todo-tok-tz::before { content: "tz"; }
+.cc-dw-md .cc-todo-tok-done::before { content: "done"; }
+.cc-dw-md .cc-todo-tok-done { opacity: 0.7; }
+
+/* priority — red, ramping with the bang count */
+.cc-dw-md .cc-todo-tok-priority {
+  font-weight: 800; letter-spacing: -0.05em; gap: 0;
+  color: var(--event-red-border, #e5484d);
+  border-color: color-mix(in srgb, var(--event-red-border, #e5484d) 45%, transparent);
+  background: color-mix(in srgb, var(--event-red-border, #e5484d) 12%, transparent);
+}
+.cc-dw-md .cc-todo-tok-priority[data-level="4"],
+.cc-dw-md .cc-todo-tok-priority[data-level="5"] {
+  color: #fff;
+  background: var(--event-red-border, #e5484d);
+  border-color: var(--event-red-border, #e5484d);
+}
+
+/* tags — use the link/highlight hue */
+.cc-dw-md .cc-todo-tok-tag {
+  color: var(--highlight);
+  border-color: color-mix(in srgb, var(--highlight) 38%, transparent);
+  background: color-mix(in srgb, var(--highlight) 9%, transparent);
+}
+
+/* entity refs — distinct hue per type (person/project/funding; others fall back to neutral) */
+.cc-dw-md .cc-todo-tok-entity[data-entity="person"] {
+  color: #5a73c9; border-color: color-mix(in srgb, #7c96e2 50%, transparent);
+  background: color-mix(in srgb, #7c96e2 12%, transparent);
+}
+.cc-dw-md .cc-todo-tok-entity[data-entity="project"] {
+  color: #4f7a3e; border-color: color-mix(in srgb, #689256 50%, transparent);
+  background: color-mix(in srgb, #689256 12%, transparent);
+}
+.cc-dw-md .cc-todo-tok-entity[data-entity="funding"] {
+  color: #b9772f; border-color: color-mix(in srgb, rgb(236, 152, 70) 50%, transparent);
+  background: color-mix(in srgb, rgb(236, 152, 70) 14%, transparent);
+}
+
+/* color token — a swatch dot drawn from the calendar palette (`--ev-color` via cc-ev-<key>) */
+.cc-dw-md .cc-todo-tok-color::before {
+  content: ""; width: 0.72em; height: 0.72em; border-radius: 50%;
+  background: var(--ev-color, var(--accent-grey));
+  border: 1px solid color-mix(in srgb, var(--accent-dark) 22%, transparent);
+}
 
 /* VSCode-style find/replace widget (custom CodeMirror panel) — compact card, bottom-right.
    A 3-column grid [chevron | field (1fr) | actions] so both input boxes are exactly equal
@@ -871,9 +1074,13 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
 }
 .cc-ddl-label-r::after { left: -10.5px; border-right-color: var(--ev-color); }   /* line is to the left */
 .cc-ddl-label-l::after { right: -10.5px; border-left-color: var(--ev-color); }   /* line is to the right */
+/* Daily view: label sits over the left of the day column (no caret); title clips to the column. */
+.cc-ddl-label-daily { overflow: hidden; }
+.cc-ddl-label-daily::after { display: none; }
+.cc-ddl-label-daily .cc-ddl-title { overflow: hidden; text-overflow: ellipsis; }
 .cc-ddl-title {
   font-family: var(--font-handwriting), cursive;
-  font-size: 14px; font-weight: 600; line-height: 1.05;
+  font-size: 12px; font-weight: 400; line-height: 1.05;
   color: var(--accent-dark);
   overflow: hidden; text-overflow: ellipsis;
 }
@@ -1063,7 +1270,7 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
   background: transparent;
   color: var(--accent-dark);
   font-family: var(--font-handwriting), cursive; /* user input → handwriting */
-  font-size: 0.98rem;
+  font-size: 0.85rem;
   padding: 0 6px;
   outline: none;
 }
@@ -1164,6 +1371,7 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
   z-index: 30;
 }
+.cc-menu-left { right: auto; left: 0; min-width: 150px; } /* Nav menu sits at the bar's left → align under it */
 .cc-menu-item {
   display: flex;
   align-items: center;

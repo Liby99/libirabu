@@ -23,10 +23,11 @@ interface Props {
   onContextMenu: (id: string, x: number, y: number) => void;
   requestEdit?: boolean;       // parent asks to start inline rename (Enter on the selection)
   onEditConsumed?: () => void; // clear the parent's one-shot edit request
+  dim?: number;                // opacity multiplier (< 1 when "dim past events" applies)
 }
 
 // All-day event bar — identical look to a timed event (two-layer + left bar), title only.
-export default function BandEventView({ ev, rect, vw, gap, raised, onHover, selected, moving, movedRef, onMoveStart, onResizeStart, onSelect, onTitleCommit, onOpenDetail, onContextMenu, requestEdit, onEditConsumed }: Props) {
+export default function BandEventView({ ev, rect, vw, gap, raised, onHover, selected, moving, movedRef, onMoveStart, onResizeStart, onSelect, onTitleCommit, onOpenDetail, onContextMenu, requestEdit, onEditConsumed, dim = 1 }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ev.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -55,6 +56,13 @@ export default function BandEventView({ ev, rect, vw, gap, raised, onHover, sele
     if (t !== ev.title) onTitleCommit(ev.id, t);
   };
 
+  // Deselecting (clicking elsewhere) while the inline name editor is focused should drop that
+  // focus too — the canvas's mousedown preventDefault otherwise keeps the caret in the input,
+  // so onBlur never fires. Commit (which unmounts the input) when we lose selection mid-edit.
+  useEffect(() => {
+    if (!selected && editing) commit();
+  }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // The editor overflows the bar to the right (overflow:visible + min-width:100px), so on a
   // bar near the screen edge it would run off-screen. Cap its width to the space left up to
   // the viewport's right edge; minWidth shrinks too so the cap actually binds there.
@@ -67,6 +75,7 @@ export default function BandEventView({ ev, rect, vw, gap, raised, onHover, sele
     width: rect.w,
     height: rect.h,
     pointerEvents: "auto",
+    ...(dim < 1 ? { opacity: dim } : {}),
     // A later start date stacks on top of an earlier one (timeline order). Inline so it
     // beats .cc-tevent:hover. Selected/moving/hovered pop to the front (hovered so the
     // full title can show over the next event).
