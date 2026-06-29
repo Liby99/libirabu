@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { toApiEvent } from "@/lib/calendar/api";
 import { indexTodos, parseDailyNoteTodos, compareTodos, toggleTodoLine, type ParsedTodo } from "@/lib/assistant/tools/todos";
-import { AUTO_TZ, systemTz } from "@/app/calendar/timezones";
+import { AUTO_TZ, systemTz } from "@/app/calendar/util/timezones";
 import {
   requireUser, badRequest, notFound, serverError, getMainTz,
   updateEventForUser, EventNotFoundError, EventValidationError,

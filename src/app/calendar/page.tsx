@@ -1,4 +1,4 @@
-import CalendarCanvas from "./CalendarCanvas";
+import CalendarCanvas from "./view/CalendarCanvas";
 import AssistantFab from "./assistant/AssistantFab";
 import "./calendar.css";
 

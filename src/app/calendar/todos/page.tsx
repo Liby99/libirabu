@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ParsedTodo } from "@/lib/assistant/tools/todos";
-import { fetchTodos, setTodoChecked, todoCheckRef } from "../apiClient";
+import { fetchTodos, setTodoChecked, todoCheckRef } from "../model/api/apiClient";
 import "../calendar.css"; // for the .cc-ev-<color> palette vars used in the color swatch
 
 const stateOf = (t: ParsedTodo) => (t.done ? "done" : t.active ? "active" : "deferred");

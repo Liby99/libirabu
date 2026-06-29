@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ApiEvent, EVENT_KINDS, EventKind, toApiEvent, wallClock, Repeat } from "@/lib/calendar/api";
-import { occurrenceDates } from "@/app/calendar/occurrences";
+import { occurrenceDates } from "@/app/calendar/model/occurrences";
 import {
   requireUser, badRequest, serverError,
   createEventForUser, EventValidationError, isUniqueViolation,
