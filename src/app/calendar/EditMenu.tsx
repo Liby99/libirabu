@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AUTO_TZ, COMMON_TZS, MAIN_TZS, systemTz, tzAbbrev, tzShortInfo } from "./timezones";
+import MenuBackdrop from "./MenuBackdrop";
 
 interface Props {
   canUndo: boolean;
@@ -55,6 +56,8 @@ export default function EditMenu({ canUndo, onUndo, canRedo, onRedo, canCut, onC
     <div className="cc-year-wrap" ref={wrapRef}>
       <button className="cc-action cc-action-sm cc-action-plain" onClick={() => setOpen((o) => !o)}>Edit<span className="cc-caret">▾</span></button>
       {open && (
+        <>
+        <MenuBackdrop onClose={() => setOpen(false)} />
         <div className="cc-menu" role="menu">
           <button className="cc-menu-item" disabled={!canUndo} onClick={run(onUndo, canUndo)}>Undo<span className="cc-menu-sc">⌘Z</span></button>
           <button className="cc-menu-item" disabled={!canRedo} onClick={run(onRedo, canRedo)}>Redo<span className="cc-menu-sc">⇧⌘Z</span></button>
@@ -89,6 +92,7 @@ export default function EditMenu({ canUndo, onUndo, canRedo, onRedo, canCut, onC
             )}
           </div>
         </div>
+        </>
       )}
     </div>
   );

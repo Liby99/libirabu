@@ -99,7 +99,7 @@
             - If I'm viewing from a weekly view and the two events are in two different months, we zoom two levels back to yearly view, and zoom in two levels to that first event's week, and we open the drawer.
             - ...
 
-- [ ] over-scroll event in yearly view:
+- [x] over-scroll event in yearly view:
     - When we are already in yearly view, and we scroll up further when we are already at the top, we will see a prompt that, if we keep scrolling, we will jump to the previous year
     - And the same goes for when we are already at the bottom, we keep scrolling, we will see the next year.
 

@@ -1,6 +1,7 @@
 "use client";
 
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
+import { keymap } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
@@ -12,6 +13,7 @@ interface Props {
   onChange: (v: string) => void;
   placeholder?: string;
   cursorLine?: number | null; // ⌘-clicked source line → place the caret there + focus on mount
+  onPreview?: () => void; // ⌘⇧V while editing → switch to the rendered preview
 }
 
 const MONO = "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace)";
@@ -84,7 +86,7 @@ const openLinks = EditorView.domEventHandlers({
   },
 });
 
-export default function NotesEditor({ value, onChange, placeholder, cursorLine }: Props) {
+export default function NotesEditor({ value, onChange, placeholder, cursorLine, onPreview }: Props) {
   // On mount (the editor remounts when you switch into it), drop the caret on the ⌘-clicked
   // line and focus, so editing continues from where the preview was clicked.
   const onCreate = (view: EditorView) => {
@@ -94,6 +96,11 @@ export default function NotesEditor({ value, onChange, placeholder, cursorLine }
     view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
     view.focus();
   };
+  // ⌘⇧V → switch to preview. Bound inside CodeMirror (Prec.highest) so it fires while typing and
+  // consumes the event — otherwise the browser would treat ⌘⇧V as "paste without formatting".
+  const previewKey = Prec.highest(keymap.of([
+    { key: "Shift-Mod-v", preventDefault: true, stopPropagation: true, run: () => { onPreview?.(); return true; } },
+  ]));
   return (
     <CodeMirror
       className="cc-dw-cm"
@@ -103,7 +110,7 @@ export default function NotesEditor({ value, onChange, placeholder, cursorLine }
       placeholder={placeholder}
       height="100%"
       theme={theme}
-      extensions={[markdown(), EditorView.lineWrapping, mdHighlight, openLinks, cmSearch]}
+      extensions={[markdown(), EditorView.lineWrapping, mdHighlight, openLinks, cmSearch, previewKey]}
       basicSetup={{
         // Clean notepad chrome: drop line numbers / fold / active-line / bracket noise, but
         // keep history, the default keymap (line-move etc.) and the search keymap.

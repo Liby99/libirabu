@@ -1,6 +1,7 @@
 // Layout constants and small math helpers shared across the calendar.
 
 export const TOP_PAD = 56; // breadcrumb + dates row above the band
+export const BAR_H = 32; // top nav bar height (must match .cc-bar height in calendar.css) — used to keep its hover/clicks off the canvas
 export const BOTTOM_PAD = 28; // breathing room below the year-view content when fully scrolled
 export const LABEL_W = 250; // left gutter: vertical month name + track-name editor
 export const MNAME_W = 28; // width of the rotated month-name zone within the gutter

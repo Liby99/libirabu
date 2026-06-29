@@ -32,6 +32,7 @@ export interface Item {
   cols?: number; // row gridlines: number of day cells (for the dotted verticals)
   lineStyle?: "dashed" | "dotted"; // gridline style; absent = solid separator
   inner?: boolean; // row: an inner lane (t>0) → gets the dotted top separator
+  instant?: boolean; // now/nowlabel: drop the opacity transition so the daily-view fade tracks the swipe per-frame
 }
 
 export interface Scene { items: Item[] }

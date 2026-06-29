@@ -19,6 +19,22 @@ function todayInTz(tz: string): string {
   catch { return fmt(systemTz()); }
 }
 
+// The current wall-clock to the minute in the user's main timezone: "YYYY-MM-DDTHH:MM".
+// Used as the `done:` completion stamp when a TODO is ticked.
+function nowInTz(tz: string): string {
+  const fmt = (zone: string) => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone, hourCycle: "h23",
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    }).formatToParts(new Date());
+    const v = (t: string) => parts.find((x) => x.type === t)?.value ?? "00";
+    return `${v("year")}-${v("month")}-${v("day")}T${v("hour")}:${v("minute")}`;
+  };
+  const zone = tz === AUTO_TZ ? systemTz() : tz;
+  try { return fmt(zone); }
+  catch { return fmt(systemTz()); }
+}
+
 // GET /api/calendar/todos
 // The cross-event TODO index: every `- [ ]` checkbox in every event's notes, parsed into a flat,
 // sorted, pointer-referenced list. Each item soft-links to its source line via
@@ -69,7 +85,9 @@ export async function PATCH(req: NextRequest) {
     const source = occurrenceKey === null ? event.notes : occNotes[occurrenceKey];
     if (source == null) return badRequest("The referenced note no longer exists (stale anchor).");
 
-    const next = toggleTodoLine(source, line, checked);
+    // Stamp the completion time (main-tz, to the minute) when ticking; untick strips it.
+    const stamp = nowInTz(await getMainTz(userId));
+    const next = toggleTodoLine(source, line, checked, stamp);
     if (next === null) return badRequest("That line is no longer a checkbox (stale anchor).");
     if (next === source) return NextResponse.json({ ok: true, changed: false }); // already in the requested state
 

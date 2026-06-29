@@ -57,11 +57,13 @@ function useTodoIndex() {
     return () => window.removeEventListener("calendar:changed", onChanged);
   }, [reload]);
 
-  // Optimistic check/uncheck → persist via the soft-link PATCH → tell the rest of the app to refresh.
+  // Optimistic check/uncheck (with a local finish-stamp so it strikes through immediately) → persist
+  // via the soft-link PATCH (the server re-stamps in the main tz) → tell the rest of the app to refresh.
   const toggle = useCallback(async (t: ParsedTodo) => {
-    setTodos((prev) => prev.map((x) => (x === t ? { ...x, done: !x.done } : x)));
+    const next = !t.done;
+    setTodos((prev) => prev.map((x) => (x === t ? { ...x, done: next, doneDate: next ? nowLocalMinute() : undefined } : x)));
     try {
-      await setTodoChecked({ eventId: t.eventId, occurrenceKey: t.occurrenceKey, line: t.line }, !t.done);
+      await setTodoChecked({ eventId: t.eventId, occurrenceKey: t.occurrenceKey, line: t.line }, next);
       window.dispatchEvent(new Event("calendar:changed")); // notes changed → other layers refetch (also reloads us)
     } catch {
       void reload();
@@ -72,11 +74,18 @@ function useTodoIndex() {
 }
 
 // ── Day-relative grouping ──────────────────────────────────────────────────────────────────────
-const HIGH_PRIORITY = 3;   // p:!!! and up
-const SOON_DAYS = 7;       // "due soon" window
+const HIGH_PRIORITY = 3;     // p:!!! and up
+const SOON_DAYS = 7;         // "due soon" window
+const FOLLOWUP_WINDOW = 7;   // how soon a followup must be to surface in "Remember to Followup"
+const RECENT_DONE_DAYS = 7;  // how far back "Recently Completed" looks (relative to the viewed day)
 
 const dueDate = (t: ParsedTodo) => (t.due ?? "").slice(0, 10); // strip any time part
 const pad = (n: number) => String(n).padStart(2, "0");
+// Local wall-clock to the minute, for the optimistic finish-stamp (the server re-stamps in main tz).
+function nowLocalMinute(): string {
+  const n = new Date();
+  return `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}T${pad(n.getHours())}:${pad(n.getMinutes())}`;
+}
 function addDays(iso: string, n: number): string {
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d + n));
@@ -95,35 +104,62 @@ function relDue(viewIso: string, due: string): string {
   if (n === 1) return "tomorrow";
   return n < 0 ? `${-n}d ago` : `in ${n}d`;
 }
+// "✓ finished {relative day} · {time}" from a done:YYYY-MM-DD[THH:MM] stamp.
+function finishedLabel(viewIso: string, doneStamp: string): string {
+  const day = doneStamp.slice(0, 10);
+  const rel = relDue(viewIso, day);
+  const time = doneStamp.length > 10 ? ` · ${hhmm(Number(doneStamp.slice(11, 13)) + Number(doneStamp.slice(14, 16)) / 60)}` : "";
+  return `${rel}${time}`;
+}
 
-interface Section { title: string; items: ParsedTodo[] }
+interface Section { title: string; items: ParsedTodo[]; done?: boolean }
+
+// Operative date: a follow-up date supersedes the plain due date (it's "still a due date, presented
+// the other way around"), so it drives overdue and the followup reminder.
+const opDate = (t: ParsedTodo) => t.followup ?? dueDate(t);
 
 function sectionsForDay(todos: ParsedTodo[], viewIso: string, isToday: boolean): Section[] {
   // Visible as of the viewed day: open, and not deferred past it (start: in the future).
   const shown = todos.filter((t) => !t.done && (!t.start || t.start <= viewIso));
   const soonEnd = addDays(viewIso, SOON_DAYS);
-  const byDueThenPrio = (a: ParsedTodo, b: ParsedTodo) =>
-    dueDate(a) < dueDate(b) ? -1 : dueDate(a) > dueDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
+  const followEnd = addDays(viewIso, FOLLOWUP_WINDOW);
+  const byOp = (a: ParsedTodo, b: ParsedTodo) =>
+    opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
 
-  const dueThisDay = shown.filter((t) => dueDate(t) === viewIso).sort(byDueThenPrio);
-  const overdue = shown.filter((t) => dueDate(t) < viewIso).sort(byDueThenPrio);
-  const highSoon = shown
+  // Overdue: the operative date has passed — covers both plain due dates and followups.
+  const overdue = shown.filter((t) => opDate(t) < viewIso).sort(byOp);
+  // Remember to Followup: a followup whose date is upcoming and within the reminder window.
+  const followups = shown.filter((t) => t.followup && t.followup >= viewIso && t.followup <= followEnd).sort(byOp);
+  // The plain due-date buckets only consider NON-followup items (followups are handled above).
+  const plain = shown.filter((t) => !t.followup);
+  const dueThisDay = plain.filter((t) => dueDate(t) === viewIso).sort(byOp);
+  const highSoon = plain
     .filter((t) => (t.priority ?? 0) >= HIGH_PRIORITY && dueDate(t) > viewIso && dueDate(t) <= soonEnd)
-    .sort(byDueThenPrio);
+    .sort(byOp);
+
+  // Recently completed: done items whose finish date falls in [viewIso − RECENT_DONE_DAYS, viewIso].
+  // Most-recent first; only those carrying a done: stamp (so we know when).
+  const recentStart = addDays(viewIso, -RECENT_DONE_DAYS);
+  const completed = todos
+    .filter((t) => t.done && t.doneDate && t.doneDate.slice(0, 10) >= recentStart && t.doneDate.slice(0, 10) <= viewIso)
+    .sort((a, b) => (a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0))
+    .slice(0, 12);
 
   return [
     { title: isToday ? "Today’s Items" : "Due This Day", items: dueThisDay },
     { title: "Overdue", items: overdue },
+    { title: "Remember to Followup", items: followups },
     { title: "High Priority · Due Soon", items: highSoon },
+    { title: "Recently Completed", items: completed, done: true },
   ];
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────────────────────────────
 function TodoRow({ t, viewIso, onToggle, onOpen }: { t: ParsedTodo; viewIso: string; onToggle: (t: ParsedTodo) => void; onOpen: (t: ParsedTodo) => void }) {
-  const due = dueDate(t);
-  const overdue = due < viewIso;
+  const date = opDate(t);
+  const overdue = date < viewIso;
   return (
-    <li className="cc-dtodo">
+    <li className={`cc-dtodo${t.done ? " cc-dtodo-is-done" : ""}`}>
       <input type="checkbox" className="cc-dtodo-check" checked={t.done} onChange={() => onToggle(t)} />
       {/* clicking the text (not the checkbox) jumps the calendar to the source event + opens its drawer */}
       <span
@@ -139,9 +175,19 @@ function TodoRow({ t, viewIso, onToggle, onOpen }: { t: ParsedTodo; viewIso: str
           {t.text || <em>(untitled)</em>}
         </span>
         <span className="cc-dtodo-meta">
-          {t.priority ? <span className="cc-dtodo-prio" data-level={t.priority}>{"!".repeat(t.priority)}</span> : null}
-          <span className={`cc-dtodo-due${overdue ? " cc-dtodo-due-over" : ""}`}>{relDue(viewIso, due)}</span>
-          {t.tags.slice(0, 3).map((tag) => <span key={tag} className="cc-dtodo-tag">#{tag}</span>)}
+          {t.done ? (
+            <span className="cc-dtodo-fin">✓ {t.doneDate ? finishedLabel(viewIso, t.doneDate) : "done"}</span>
+          ) : (
+            <>
+              {t.priority ? <span className="cc-dtodo-prio" data-level={t.priority}>{"!".repeat(t.priority)}</span> : null}
+              {t.followup ? (
+                <span className={`cc-dtodo-followup${overdue ? " cc-dtodo-due-over" : ""}`}>↪ follow up {relDue(viewIso, t.followup)}</span>
+              ) : (
+                <span className={`cc-dtodo-due${overdue ? " cc-dtodo-due-over" : ""}`}>{relDue(viewIso, date)}</span>
+              )}
+              {t.tags.slice(0, 3).map((tag) => <span key={tag} className="cc-dtodo-tag">#{tag}</span>)}
+            </>
+          )}
         </span>
       </span>
     </li>

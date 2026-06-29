@@ -75,6 +75,7 @@ eq("first due wins", tokenizeLine("a due:2026-01-01 b due:2026-02-02").due, "202
     color: "blue",
     tags: ["pldi"],
     start: "2026-07-01T23:59:00",
+    end: "2026-07-01T23:59:00",
     originTz: "AOE",
     notes: [
       "# PLDI 2026",
@@ -123,6 +124,7 @@ eq("first due wins", tokenizeLine("a due:2026-01-01 b due:2026-02-02").due, "202
     color: "default",
     tags: [],
     start: "2026-03-10T09:00:00",
+    end: "2026-03-10T10:00:00",
     notes: null,
     occurrenceNotes: { "2026-03-17": "- [ ] prep slides" },
   };
@@ -140,12 +142,12 @@ eq("first due wins", tokenizeLine("a due:2026-01-01 b due:2026-02-02").due, "202
   const events: TodoEventContext[] = [
     {
       id: "a", kind: "timed", title: "Paper A", color: "blue", tags: [],
-      start: "2026-09-01T09:00:00",
+      start: "2026-09-01T09:00:00", end: "2026-09-01T10:00:00",
       notes: "- [ ] later task start:2026-12-01\n- [x] finished thing",
     },
     {
       id: "b", kind: "deadline", title: "Grant B", color: "red", tags: [],
-      start: "2026-07-15T17:00:00",
+      start: "2026-07-15T17:00:00", end: "2026-07-15T17:00:00",
       notes: "- [ ] urgent p:!!!\n- [ ] soon due:2026-07-01",
     },
   ];
@@ -170,6 +172,63 @@ eq("first due wins", tokenizeLine("a due:2026-01-01 b due:2026-02-02").due, "202
   eq("toggle: out-of-range line → null", toggleTodoLine(note, 99), null);
   // preserves indent + ordered-list markers
   eq("toggle: keeps marker/indent", toggleTodoLine("  1. [ ] x", 1), "  1. [x] x");
+}
+
+// ── 11. toggleTodoLine: done: completion stamping (minute precision) ───────────────────────────
+{
+  const stamp = "2026-01-02T14:35";
+  // checking with a stamp appends done:<stamp>
+  eq("stamp: check appends done:", toggleTodoLine("- [ ] ship it", 1, true, stamp), "- [x] ship it done:2026-01-02T14:35");
+  // unchecking strips any existing done: token (clean undo)
+  eq("stamp: uncheck strips done:", toggleTodoLine("- [x] ship it done:2026-01-02T14:35", 1, false, stamp), "- [ ] ship it");
+  // re-checking replaces an old stamp with the new one (no duplicate tokens)
+  eq("stamp: re-stamp replaces", toggleTodoLine("- [x] ship it done:2025-12-01T09:00", 1, true, stamp), "- [x] ship it done:2026-01-02T14:35");
+  // a done: token mid-line is also stripped on uncheck, spacing preserved
+  eq("stamp: strips mid-line done:", toggleTodoLine("- [x] ship it done:2026-01-02T14:35 #tag", 1, false, stamp), "- [ ] ship it #tag");
+  // without a stamp, it just flips (no token added) — the in-editor toggle path
+  eq("stamp: no stamp → plain flip", toggleTodoLine("- [ ] ship it", 1, true), "- [x] ship it");
+  // the tokenizer reads the minute-precision done: into doneDate
+  eq("stamp: tokenized doneDate", tokenizeLine("ship it done:2026-01-02T14:35").done, "2026-01-02T14:35");
+}
+
+// ── 12. followup: duration off the event END date, or a loose literal date ─────────────────────
+{
+  const ev: TodoEventContext = {
+    id: "f", kind: "timed", title: "Vendor call", color: "default", tags: [],
+    start: "2026-07-10T09:00:00", end: "2026-07-10T10:00:00",
+    notes: [
+      "- [ ] circle back followup:30d",        // +30 days off the END date (2026-07-10)
+      "- [ ] hard date followup:2026-7-31",    // loose literal date → normalized
+      "- [ ] two weeks followup:2w",
+    ].join("\n"),
+  };
+  const todos = parseTodos(ev, "2026-07-15");
+  eq("followup: 30d off end date", todos[0].followup, "2026-08-09");
+  eq("followup: loose date normalized", todos[1].followup, "2026-07-31");
+  eq("followup: 2w off end date", todos[2].followup, "2026-07-24");
+  // followup is captured as a raw token by the line tokenizer
+  eq("followup: raw token", tokenizeLine("x followup:30d").followup, "30d");
+  // month/year units
+  eq("followup: 3m", tokenizeLine("x followup:3m").followup, "3m");
+  // a non-followup todo has no followup
+  check("followup: absent when no token", parseTodos({ ...ev, notes: "- [ ] plain" }, "2026-07-15")[0].followup === undefined);
+}
+
+// ── 13. empty checkbox lines are not indexed ───────────────────────────────────────────────────
+{
+  const ev: TodoEventContext = {
+    id: "e", kind: "timed", title: "Notes", color: "default", tags: [],
+    start: "2026-05-01T09:00:00", end: "2026-05-01T10:00:00",
+    notes: [
+      "- [ ] ",            // empty → skipped
+      "- [ ]",             // empty (no trailing space) → skipped
+      "- [x]    ",         // whitespace-only, checked → skipped
+      "- [ ] real task",   // counts
+    ].join("\n"),
+  };
+  const todos = parseTodos(ev, "2026-05-01");
+  eq("empty: only the real task is indexed", todos.length, 1);
+  eq("empty: it's the real one", todos[0].text, "real task");
 }
 
 // ── report ─────────────────────────────────────────────────────────────────────────────────────

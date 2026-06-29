@@ -37,6 +37,12 @@ export const TZ_RE = /(^|\s)tz:(AOE|[A-Za-z][\w/+-]*)(?=\s|$)/;
 export const COLOR_RE = /(^|\s)color:([\w-]+)(?=\s|$)/;
 /** `done:YYYY-MM-DD` — completion timestamp, with an optional `THH:MM` (auto-stamped on tick). */
 export const DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2})?)(?=\s|$)/;
+/**
+ * `followup:30d` (a duration off the event's END date) or `followup:2026-7-31` (a literal date,
+ * loosely formatted). Resolves to a follow-up date that acts as a due date but is surfaced as
+ * "Remember to Followup" — and counts as overdue once it passes. Duration units: d/w/m/y.
+ */
+export const FOLLOWUP_RE = /(^|\s)followup:(\d+[dwmy]|\d{4}-\d{1,2}-\d{1,2})(?=\s|$)/;
 /** `#slug` — additional tag. Slug is `[\w][\w-]*`. */
 export const TAG_RE = /(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)/;
 /** `@slug` (bare = person) or `@type:slug` (project/funding/… — extensible without new sigils). */
@@ -63,6 +69,7 @@ export interface LineTokens {
   start?: string;
   color?: string;
   done?: string; // completion date token (distinct from the checkbox state)
+  followup?: string; // raw followup token value: a duration ("30d") or a loose date ("2026-7-31")
   tags: string[];
   entities: Record<string, string[]>; // @type:slug refs keyed by type ("person" for bare @)
   links: TodoLink[];
@@ -76,6 +83,7 @@ export interface TodoEventContext {
   color: string;
   tags: string[];
   start: string; // wall-clock "YYYY-MM-DD[THH:MM:SS]"; its date part is inherited as the default due
+  end: string; // wall-clock end; its date is the base a `followup:<duration>` counts from
   originTz?: string | null; // deadline origin tz, inherited as the default due tz
   notes: string | null;
   occurrenceNotes?: Record<string, string>; // per-occurrence note overrides, keyed by occurrence date
@@ -100,6 +108,7 @@ export interface ParsedTodo {
   due?: string; // line `due:` else the event's date
   dueTz?: string;
   dueSource: "line" | "event";
+  followup?: string; // resolved follow-up date (YYYY-MM-DD) from a `followup:` token; the operative date when set
   start?: string; // show-from date (line token only)
   active: boolean; // !done && (start == null || today >= start)
 
@@ -148,6 +157,7 @@ export function tokenizeLine(input: string): LineTokens {
   let start: string | undefined;
   let color: string | undefined;
   let done: string | undefined;
+  let followup: string | undefined;
 
   let text = input;
 
@@ -172,6 +182,7 @@ export function tokenizeLine(input: string): LineTokens {
   text = text.replace(TZ_RE, (_m, _l: string, v: string) => { if (tz === undefined) tz = v; return " "; });
   text = text.replace(COLOR_RE, (_m, _l: string, v: string) => { if (color === undefined) color = v; return " "; });
   text = text.replace(DONE_RE, (_m, _l: string, v: string) => { if (done === undefined) done = v; return " "; });
+  text = text.replace(FOLLOWUP_RE, (_m, _l: string, v: string) => { if (followup === undefined) followup = v; return " "; });
 
   // 4) Multi-valued sigil refs.
   text = text.replace(new RegExp(TAG_RE, "g"), (_m, _l: string, slug: string) => { tags.push(slug); return " "; });
@@ -181,7 +192,29 @@ export function tokenizeLine(input: string): LineTokens {
   });
 
   text = text.replace(/\s+/g, " ").trim();
-  return { text, priority, due, tz, start, color, done, tags, entities, links };
+  return { text, priority, due, tz, start, color, done, followup, tags, entities, links };
+}
+
+// ── followup: resolution (duration off the event end, or a literal loose date) ──────────────────
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+const fmtUTC = (d: Date): string => `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+
+/** `30d` / `2w` / `3m` / `1y` added to a base `YYYY-MM-DD` date (UTC-safe wall-clock arithmetic). */
+function addDuration(baseIso: string, n: number, unit: "d" | "w" | "m" | "y"): string {
+  const [y, m, d] = baseIso.split("-").map(Number);
+  if (unit === "d") return fmtUTC(new Date(Date.UTC(y, m - 1, d + n)));
+  if (unit === "w") return fmtUTC(new Date(Date.UTC(y, m - 1, d + 7 * n)));
+  if (unit === "m") return fmtUTC(new Date(Date.UTC(y, m - 1 + n, d)));
+  return fmtUTC(new Date(Date.UTC(y + n, m - 1, d))); // "y"
+}
+
+/** Resolve a raw `followup:` value to a `YYYY-MM-DD` date: a duration off `endDate`, or a literal date. */
+function resolveFollowup(raw: string, endDate: string): string | undefined {
+  const dur = raw.match(/^(\d+)([dwmy])$/);
+  if (dur) return addDuration(endDate, Number(dur[1]), dur[2] as "d" | "w" | "m" | "y");
+  const dt = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (dt) return `${dt[1]}-${pad2(Number(dt[2]))}-${pad2(Number(dt[3]))}`;
+  return undefined;
 }
 
 // ── Event-aware parsing (inheritance + active filtering) ───────────────────────────────────────
@@ -190,6 +223,7 @@ function buildTodo(
   event: TodoEventContext,
   occurrenceKey: string | null,
   eventDate: string, // the date this note inherits as the default due (base start, or occurrence date)
+  eventEndDate: string, // the date a `followup:<duration>` counts from (base end, or occurrence date)
   line: number,
   raw: string,
   done: boolean,
@@ -201,6 +235,7 @@ function buildTodo(
   const due = tok.due ?? eventDate;
   const dueTz =
     tok.tz ?? (dueSource === "event" && event.kind === "deadline" ? event.originTz ?? undefined : undefined);
+  const followup = tok.followup ? resolveFollowup(tok.followup, eventEndDate) : undefined;
 
   const colorSource: "line" | "event" = tok.color ? "line" : "event";
   const color = tok.color ?? event.color;
@@ -223,6 +258,7 @@ function buildTodo(
     due,
     dueTz,
     dueSource,
+    followup,
     start: tok.start,
     active,
     tags: unionCI(event.tags, tok.tags),
@@ -244,22 +280,24 @@ function buildTodo(
 export function parseTodos(event: TodoEventContext, today?: string): ParsedTodo[] {
   const out: ParsedTodo[] = [];
 
-  const scan = (notes: string | null | undefined, occurrenceKey: string | null, eventDate: string) => {
+  const scan = (notes: string | null | undefined, occurrenceKey: string | null, eventDate: string, eventEndDate: string) => {
     if (!notes) return;
     const lines = notes.split("\n");
     for (let i = 0; i < lines.length; i++) {
       const m = lines[i].match(TASK_LINE_RE);
       if (!m) continue;
+      const tok = tokenizeLine(m[3]);
+      if (tok.text === "") continue; // skip empty checkbox lines (`- [ ]` with no task text)
       const done = m[2].toLowerCase() === "x";
-      out.push(buildTodo(event, occurrenceKey, eventDate, i + 1, lines[i], done, tokenizeLine(m[3]), today));
+      out.push(buildTodo(event, occurrenceKey, eventDate, eventEndDate, i + 1, lines[i], done, tok, today));
     }
   };
 
-  // Base note inherits the event's start date; a per-occurrence note inherits its occurrence date
-  // (so moving/expanding a recurrence cascades the right default due — design §17.2).
-  scan(event.notes, null, dateOf(event.start));
+  // Base note inherits the event's start date (default due) and end date (followup base); a
+  // per-occurrence note inherits its occurrence date for both (single-day occurrence — §17.2).
+  scan(event.notes, null, dateOf(event.start), dateOf(event.end));
   if (event.occurrenceNotes) {
-    for (const [key, notes] of Object.entries(event.occurrenceNotes)) scan(notes, key, key);
+    for (const [key, notes] of Object.entries(event.occurrenceNotes)) scan(notes, key, key, key);
   }
   return out;
 }
@@ -293,11 +331,14 @@ export function compareTodos(a: ParsedTodo, b: ParsedTodo): number {
 
 /**
  * The soft-link write: flip the checkbox on `line` (1-based) of a note's markdown. `checked`
- * undefined toggles; true/false sets explicitly. Returns the new note text, the SAME text on a
- * no-op, or `null` if the line no longer exists or isn't a task line (a stale anchor — the caller
- * should reject rather than corrupt the note). Mirrors NotesPreview's in-note toggle exactly.
+ * undefined toggles; true/false sets explicitly. When `stamp` (a `YYYY-MM-DD[THH:MM]` completion
+ * time) is given, checking the box also appends a `done:<stamp>` token and unchecking strips any
+ * existing `done:` token — so a ticked item records WHEN it was finished (and untick is a clean
+ * undo). Omit `stamp` to flip the checkbox only. Returns the new note text, the SAME text on a
+ * no-op, or `null` on a stale anchor (line gone / no longer a task line) so the caller can reject
+ * rather than corrupt the note.
  */
-export function toggleTodoLine(noteText: string, line: number, checked?: boolean): string | null {
+export function toggleTodoLine(noteText: string, line: number, checked?: boolean, stamp?: string): string | null {
   const lines = noteText.split("\n");
   const cur = lines[line - 1];
   if (cur === undefined) return null;
@@ -305,7 +346,11 @@ export function toggleTodoLine(noteText: string, line: number, checked?: boolean
   if (!m) return null;
   const isChecked = m[2].toLowerCase() === "x";
   const next = checked === undefined ? !isChecked : checked;
-  if (next === isChecked) return noteText; // no-op (already in the requested state)
-  lines[line - 1] = `${m[1]}[${next ? "x" : " "}]${m[3]}`;
+  // Always strip any prior done: token, then re-stamp it when the box ends up checked.
+  let rest = m[3].replace(new RegExp(DONE_RE.source, "g"), "").replace(/\s+$/, "");
+  if (next && stamp) rest = `${rest} done:${stamp}`;
+  const nextLine = `${m[1]}[${next ? "x" : " "}]${rest}`;
+  if (nextLine === cur) return noteText; // no-op (state + stamp unchanged)
+  lines[line - 1] = nextLine;
   return lines.join("\n");
 }

@@ -40,7 +40,7 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
   }
 
   if (it.kind === "now") {
-    return <div className="cc-item cc-now" style={style} />;
+    return <div className={`cc-item cc-now${it.instant ? " cc-instant" : ""}`} style={style} />;
   }
 
   if (it.kind === "cursor") {
@@ -57,7 +57,7 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
 
   if (it.kind === "nowlabel") {
     return (
-      <div className={`cc-item cc-nowlabel ${it.align === "right" ? "cc-nowlabel-r" : "cc-nowlabel-l"}`} style={style}>
+      <div className={`cc-item cc-nowlabel ${it.align === "right" ? "cc-nowlabel-r" : "cc-nowlabel-l"}${it.instant ? " cc-instant" : ""}`} style={style}>
         <span className="cc-nowlabel-cap">Current Time</span>
         <span className="cc-nowlabel-time">{it.text}</span>
       </div>

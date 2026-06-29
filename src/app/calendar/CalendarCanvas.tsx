@@ -7,7 +7,7 @@ import { setDaily } from "./frames";
 import DailyDashboard from "./DailyDashboard";
 import DailyResizeHandle from "./DailyResizeHandle";
 import { fmtRange, snapHour, TimedEvent } from "./eventTypes";
-import { LABEL_W, TRACK_H } from "./constants";
+import { LABEL_W, TRACK_H, BAR_H, TOP_PAD } from "./constants";
 import { MONTH_LONG, weekStartDOM, resolveDate } from "./dates";
 import { tzDeltaHours, tzAbbrev } from "./timezones";
 import { timelineInfo, pointToSlot, eventTextLayout } from "./eventGeom";
@@ -31,8 +31,9 @@ import BandEventDrawer from "./BandEventDrawer";
 import DeadlineDrawer from "./DeadlineDrawer";
 import EventContextMenu from "./EventContextMenu";
 import EditMenu from "./EditMenu";
-import NavMenu from "./NavMenu";
-import TagFilterMenu, { TagRow, UNTAGGED } from "./TagFilterMenu";
+import ViewMenu from "./ViewMenu";
+import HelpMenu from "./HelpMenu";
+import { TagRow, UNTAGGED } from "./TagFilterMenu";
 import BandEventsLayer from "./BandEventsLayer";
 import PromotedBandLayer from "./PromotedBandLayer";
 import DeadlinesLayer from "./DeadlinesLayer";
@@ -48,7 +49,7 @@ function ordinal(n: number): string {
 }
 
 export default function CalendarCanvas() {
-  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac } =
+  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade } =
     useCalendarInteractions();
   const { trackNames, editTrack, mainTz, mainTzSetting, altTz, setAltTz, setMainTz } = useCalendarSettings(year);
   const history = useHistory();
@@ -366,7 +367,10 @@ export default function CalendarCanvas() {
     const onDown = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
       // The top bar is chrome (Edit menu / breadcrumb / dropdowns) — clicking it must keep
-      // the selection so Edit▸Cut/Copy still act on the selected event.
+      // the selection so Edit▸Cut/Copy still act on the selected event. Its empty gaps are
+      // pointer-events:none, so the target is the canvas — also spare clicks within the bar's band.
+      const wrapTop = wrapRef.current?.getBoundingClientRect().top ?? 0;
+      if (e.clientY - wrapTop < BAR_H) return;
       if (!t.closest(".cc-tevent, .cc-drawer, .cc-sticker, .cc-ddl-label, .cc-ddl-add, .cc-bar")) setSelectedId(null);
     };
     document.addEventListener("mousedown", onDown, true); // capture → robust to stopPropagation
@@ -616,18 +620,9 @@ export default function CalendarCanvas() {
         </div>
         <span className="cc-hint">{hint}</span>
         <div className="cc-bar-actions" onClick={(e) => e.stopPropagation()}>
-          <NavMenu onGo={goToNow} />
           {year !== currentYear && (
             <button className="cc-action cc-action-accent cc-action-sm" onClick={goToCurrentYear}>Back to Current Year</button>
           )}
-          <TagFilterMenu
-            tags={tagRows}
-            untaggedCount={untaggedCount}
-            hidden={tagHidden}
-            onToggle={toggleTag}
-            onShowAll={showAllTags}
-            onHideAll={hideAllTags}
-          />
           <EditMenu
             canUndo={history.canUndo} onUndo={() => history.undo()}
             canRedo={history.canRedo} onRedo={() => history.redo()}
@@ -638,18 +633,28 @@ export default function CalendarCanvas() {
             mainTz={mainTzSetting} onMainTz={setMainTz}
             dimPast={dimPast} onToggleDimPast={toggleDimPast}
           />
+          <ViewMenu
+            onGo={goToNow}
+            tags={tagRows}
+            untaggedCount={untaggedCount}
+            hidden={tagHidden}
+            onToggle={toggleTag}
+            onShowAll={showAllTags}
+            onHideAll={hideAllTags}
+          />
+          <HelpMenu />
         </div>
       </div>
 
       {/* solid left gutter — occludes lane content that slides under it (week view) */}
       <div className="cc-gutter" style={{ width: LABEL_W }} />
 
-      <div className="cc-layer">
+      <div className="cc-layer" style={yearFade < 1 ? { opacity: yearFade } : undefined}>
         {scene.items.map((it) => <ItemView key={it.key} it={it} />)}
         <BandEventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visBand} addEvent={addBandEvent} updateEvent={updateBandEvent} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} editingId={editingId} onEditConsumed={() => setEditingId(null)} monthAnim={monthAnim} dimPast={dimPast} now={now} />
         <PromotedBandLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} timed={visEvents} deadlines={visDeadlines} bandEvents={visBand} updateTimed={updateEvent} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} monthAnim={monthAnim} dimPast={dimPast} now={now} />
         <EventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visEvents} addEvent={addEvent} updateEvent={updateEvent} onEventHover={setOverEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} selectedId={selectedId} onSelect={selectEvent} tlScroll={tlScroll} editingId={editingId} onEditConsumed={() => setEditingId(null)} detailMul={detailMul} monthAnim={monthAnim} dimPast={dimPast} now={now} />
-        <DeadlinesLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} tlScroll={tlScroll} year={year} mainTz={mainTz} hover={hover} deadlines={visDeadlines} addDeadline={addDeadline} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} detailMul={detailMul} monthAnim={monthAnim} dimPast={dimPast} now={now} />
+        <DeadlinesLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} tlScroll={tlScroll} year={year} mainTz={mainTz} hover={hover} deadlines={visDeadlines} addDeadline={addDeadline} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} detailMul={detailMul} monthAnim={monthAnim} dimPast={dimPast} now={now} onLabelHover={setOverEvent} />
         <TrackEditor trackNames={trackNames} editTrack={editTrack} vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} monthAnim={monthAnim} />
         {dailyP > 0.001 && (
           <DailyDashboard
@@ -676,16 +681,18 @@ export default function CalendarCanvas() {
           />
         )}
         {/* month-boundary overscroll prompt: a circular progress ring that fills as you push past the
-            first/last day; "ready" at full → release commits the month-jump. */}
-        {monthEdge && z > 2.5 && (() => {
+            first/last day (daily) or week (week view); "ready" at full → release commits the month-jump.
+            The right edge is the dashboard's left in daily, or the viewport edge in week view. */}
+        {monthEdge && z > 1.5 && (() => {
           const RC = 2 * Math.PI * 18; // ring circumference (r=18)
           const t = Math.min(1, monthEdge.t);
+          const rightEdge = z > 2.5 ? dashLeft : vp.w; // daily: dashboard left · week: viewport edge
           return (
             <div
               className={`cc-month-edge${monthEdge.t >= 1 ? " ready" : ""}`}
               style={{
                 top: (tl.tlTop + vp.h - 8) / 2,
-                ...(monthEdge.dir > 0 ? { right: vp.w - dashLeft + 16 } : { left: LABEL_W + 16 }),
+                ...(monthEdge.dir > 0 ? { right: vp.w - rightEdge + 16 } : { left: LABEL_W + 16 }),
                 opacity: Math.min(1, 0.55 + t * 0.45),
                 transform: "translateY(-50%)",
               }}
@@ -698,6 +705,33 @@ export default function CalendarCanvas() {
                 <span className="cc-month-edge-arrow">{monthEdge.dir > 0 ? "→" : "←"}</span>
               </div>
               <span className="cc-month-edge-text">{monthEdge.dir > 0 ? "Next month" : "Prev month"}</span>
+            </div>
+          );
+        })()}
+
+        {/* Year-boundary overscroll prompt (yearly + month view, Dec↓ / Jan↑). Vertical arrows,
+            centered horizontally in the content area, anchored to the bottom (next) / top (prev) edge. */}
+        {monthEdge && z <= 1.5 && (() => {
+          const RC = 2 * Math.PI * 18;
+          const t = Math.min(1, monthEdge.t);
+          return (
+            <div
+              className={`cc-month-edge cc-month-edge-v${monthEdge.t >= 1 ? " ready" : ""}`}
+              style={{
+                left: LABEL_W + (vp.w - LABEL_W) / 2,
+                ...(monthEdge.dir > 0 ? { bottom: 20 } : { top: TOP_PAD + 16 }),
+                opacity: Math.min(1, 0.55 + t * 0.45),
+                transform: "translateX(-50%)",
+              }}
+            >
+              <div className="cc-month-edge-circle">
+                <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden>
+                  <circle className="cc-month-edge-track" cx="22" cy="22" r="18" />
+                  <circle className="cc-month-edge-prog" cx="22" cy="22" r="18" style={{ strokeDasharray: RC, strokeDashoffset: RC * (1 - t) }} />
+                </svg>
+                <span className="cc-month-edge-arrow">{monthEdge.dir > 0 ? "↓" : "↑"}</span>
+              </div>
+              <span className="cc-month-edge-text">{monthEdge.dir > 0 ? "Next year" : "Previous year"}</span>
             </div>
           );
         })()}

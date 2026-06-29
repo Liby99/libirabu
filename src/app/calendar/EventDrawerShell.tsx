@@ -65,7 +65,17 @@ export default function EventDrawerShell({ name, onName, color, onColor, onColor
   useEffect(() => setMounted(true), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !(e.target as HTMLElement | null)?.closest(".cm-editor")) onClose();
+      const el = e.target as HTMLElement | null;
+      if (e.key === "Escape" && !el?.closest(".cm-editor")) { onClose(); return; }
+      // ⌘⇧V toggles the notes view. The in-editor direction is handled inside CodeMirror (so it
+      // fires while typing); here we cover the preview→edit direction (and from anywhere else in
+      // the drawer that isn't an editable field, so we don't hijack paste in the title input).
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "v" || e.key === "V") &&
+          !el?.closest(".cm-editor, input, textarea, [contenteditable='true']")) {
+        e.preventDefault();
+        setCursorLine(null);
+        setView((v) => (v === "edit" ? "preview" : "edit"));
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -153,13 +163,13 @@ export default function EventDrawerShell({ name, onName, color, onColor, onColor
         </div>
 
         {view === "edit"
-          ? <NotesEditor key={onOcc ? "occ" : "series"} value={activeNotes} onChange={setActiveNotes} cursorLine={cursorLine} placeholder={onOcc ? "Anything to note about this occurrence?" : "Something to note about this event?"} />
+          ? <NotesEditor key={onOcc ? "occ" : "series"} value={activeNotes} onChange={setActiveNotes} cursorLine={cursorLine} onPreview={showPreview} placeholder={onOcc ? "Anything to note about this occurrence?" : "Something to note about this event?"} />
           : <NotesPreview value={activeNotes} onChange={setActiveNotes} onEditAt={editAt} />}
 
         <div className="cc-dw-foot">
           <div className="cc-seg cc-dw-view" role="group" aria-label="Notes view">
-            <button type="button" className={`cc-seg-btn${view === "edit" ? " sel" : ""}`} title="Edit (⌘-click the preview to edit at a spot)" aria-label="Edit notes" onClick={showEdit}><Pencil size={13} /></button>
-            <button type="button" className={`cc-seg-btn${view === "preview" ? " sel" : ""}`} title="Preview" aria-label="Preview notes" onClick={showPreview}><Eye size={13} /></button>
+            <button type="button" className={`cc-seg-btn${view === "edit" ? " sel" : ""}`} title="Edit (⌘⇧V to toggle · ⌘-click the preview to edit at a spot)" aria-label="Edit notes" onClick={showEdit}><Pencil size={13} /></button>
+            <button type="button" className={`cc-seg-btn${view === "preview" ? " sel" : ""}`} title="Preview (⌘⇧V)" aria-label="Preview notes" onClick={showPreview}><Eye size={13} /></button>
           </div>
           {recurring && onGoToFirst && (
             <button className="cc-dw-iconbtn" title="Go to the first occurrence" aria-label="Go to first occurrence" onClick={onGoToFirst}>

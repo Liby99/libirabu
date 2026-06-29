@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Vp, Hover } from "./types";
-import { easeInOut, TOP_PAD, TRACK_H, LABEL_W } from "./constants";
+import { easeInOut, TOP_PAD, TRACK_H, LABEL_W, BAR_H } from "./constants";
 import { yearMaxScroll, yearFrame, frameFor, getDailyFrac, MonthAnim, DayAnim } from "./frames";
 import { hourMetrics, clampHourH, setWeekHourH as syncWeekHourH } from "./eventGeom";
-import { weeksInMonth, weekStartDOM, weekOfDate } from "./dates";
+import { weeksInMonth, weekStartDOM, weekOfDate, resolveDate } from "./dates";
 import {
-  monthAtPoint, monthNameAtPoint, monthRowAtPoint, weekAtPointInMonth, dayAtPointInWeek,
+  monthAtPoint, monthNameAtPoint, monthRowAtPoint, weekAtPointInMonth,
   domInMonthBand, domInFocus, cellInWeek,
 } from "./hittest";
 
@@ -104,6 +104,10 @@ export function useCalendarInteractions() {
   // Overscroll at a month boundary (daily/week view): {dir, t} where t 0→1 is how hard you're
   // pushing past the edge; at t≥1 a release jumps to the next/prev month. Drives the edge prompt.
   const [monthEdge, setMonthEdge] = useState<{ dir: 1 | -1; t: number } | null>(null);
+  // Yearly view (z≈0) year-jump crossfade: the whole grid's opacity (1 idle; fades to 0, swaps the
+  // year + scroll, fades back to 1). Distinct from the month-view jump's zoom-out/in choreography.
+  const [yearFade, setYearFade] = useState(1);
+  const yearFadeRef = useRef<number | null>(null);
   const [dailyFrac, setDailyFracState] = useState(readDailyFrac);
   const setDailyFrac = useCallback((f: number) => {
     const c = clampDailyFrac(f);
@@ -306,14 +310,58 @@ export function useCalendarInteractions() {
     });
   }, [tweenTo, snapMonth]);
 
-  // Click a spillover day → zoom out to year, briefly hold, then back into that week.
-  const chainTo = useCallback((newMonth: number, newWeek: number) => {
-    tweenTo(0, 800, () => {
-      setFocus(newMonth);
-      setWeek(newWeek);
-      window.setTimeout(() => tweenTo(2, 1050), 200);
+  // Cross-year jump (month view, on an overscroll commit at Dec/Jan): zoom out to the yearly view,
+  // hold ~0.5s, swap the year + land on the target month (Jan for next, Dec for prev) with the year
+  // scrolled to show it, hold ~0.5s, then zoom back into that month.
+  const jumpYear = useCallback((dir: 1 | -1) => {
+    setMonthEdge(null);
+    setMonthAnim(null); setDetailMul(1);
+    const tMonth = dir > 0 ? 0 : 11; // next year → January · prev year → December
+    tweenTo(0, 620, () => {                       // 1. zoom out to yearly view
+      window.setTimeout(() => {                   // 2. hold ~0.5s
+        setYearState(yearRef.current + dir); yearRef.current += dir; // 3. swap year
+        focusRef.current = tMonth; setFocus(tMonth);
+        const el = wrapRef.current;
+        if (el) { // scroll the new year so the target month is in view (for the zoom-in)
+          const vpNow = { w: el.clientWidth, h: el.clientHeight };
+          const off = yearFrame(tMonth, vpNow, 0).bandY - TOP_PAD;
+          const max = yearMaxScroll(vpNow);
+          const sy = Math.max(0, Math.min(max, off - (vpNow.h - TOP_PAD) * 0.3));
+          scrollYRef.current = sy; setScrollY(sy);
+        }
+        window.setTimeout(() => tweenTo(1, 640), 500); // 4. hold ~0.5s → 5. zoom into the month
+      }, 500);
     });
   }, [tweenTo]);
+
+  // Cross-year jump while already in the yearly view (z≈0): no zoom to spend, so cross-fade instead —
+  // fade the grid out, swap the year + scroll to the far edge (top for next, bottom for prev), hold,
+  // fade back in. Same overscroll trigger as the month-view jump, different (flat) animation.
+  const jumpYearFlat = useCallback((dir: 1 | -1) => {
+    setMonthEdge(null);
+    if (yearFadeRef.current != null) cancelAnimationFrame(yearFadeRef.current);
+    const fade = (from: number, to: number, dur: number, done?: () => void) => {
+      let t0 = 0;
+      const step = (ts: number) => {
+        if (!t0) t0 = ts;
+        const p = Math.min(1, (ts - t0) / dur);
+        setYearFade(from + (to - from) * easeInOut(p));
+        if (p < 1) yearFadeRef.current = requestAnimationFrame(step);
+        else { yearFadeRef.current = null; done?.(); }
+      };
+      yearFadeRef.current = requestAnimationFrame(step);
+    };
+    fade(1, 0, 360, () => {                       // 1. fade the grid out
+      setYearState(yearRef.current + dir); yearRef.current += dir; // 2. swap year
+      const el = wrapRef.current;
+      if (el) {                                   //    land at the edge the jump arrives from
+        const max = yearMaxScroll({ w: el.clientWidth, h: el.clientHeight });
+        const sy = dir > 0 ? 0 : max;             // next → top (January) · prev → bottom (December)
+        scrollYRef.current = sy; setScrollY(sy);
+      }
+      window.setTimeout(() => fade(0, 1, 420), 220); // 3. brief hold → 4. fade back in
+    });
+  }, []);
 
   // Snap z to the nearest level and (at week level) the week to the nearest DAY (the 7-day
   // window slides per-day; 1 week = 7 days, clamped to the first/last week's spillover edges).
@@ -392,11 +440,18 @@ export function useCalendarInteractions() {
     if (!el) return;
     let session = false, pos = 0; // pos = live (fractional) week index during a swipe
     let idleTimer = 0;
+    // week-view month-boundary overscroll (mirrors the daily one): push past the first/last week →
+    // ring fills (wOverPx vs threshold), hold, then jump to the prev/next month's first/last week.
+    let wOver = false, wOverDir: 1 | -1 = 1, wOverPx = 0, wHold = 0, wLock = false, wLastWheelT = 0;
+    let wStartEdge: 0 | 1 | -1 = 0; // edge the CURRENT swipe began at (1 last week · -1 first week · 0 mid-month) — only an at-edge start may overscroll
     // month-view vertical drag: signed pixels accumulated this gesture (>0 → next month, <0 → prev),
     // plus a smoothed velocity (px/ms) so the release snap can match the drag speed. `mLockout`
     // swallows the trackpad's momentum tail after a gesture ends (so it neither re-pages nor holds
     // the turn open — hover comes back at once); `mLastWheelT` detects the pause that ends lockout.
     let mDragging = false, mDrag = 0, mIdle = 0, mVel = 0, mLastT = 0, mLockout = false, mLastWheelT = 0, mDecay = 0;
+    let yOver = false, yOverDir: 1 | -1 = 1, yOverPx = 0, yHold = 0; // year-boundary overscroll (Dec↓ / Jan↑) → year-jump
+    let yIdle = 0, yLock = false, yLastWheelT = 0; // yearly-view overscroll: release timer + post-commit momentum lockout
+    let yStartEdge: 0 | 1 | -1 = 0; // edge the CURRENT gesture began at (1 bottom · -1 top · 0 middle) — only an at-edge start may overscroll
     // daily↔daily horizontal paging: GESTURE-TRACKED like month paging but horizontal. `dDrag` is
     // signed px this gesture; one full page = one day-column width, so the slide tracks the swipe 1:1.
     let dDragging = false, dDrag = 0, dIdle = 0, dVel = 0, dLastT = 0, dLockout = false, dDecay = 0, dLastWheelT = 0;
@@ -448,18 +503,57 @@ export function useCalendarInteractions() {
     const lastIdx = () => weeksInMonth(focusRef.current) - 1;
     // Nearest day boundary (1 week = 7 days), clamped to the first/last week (incl. spillover).
     const snapDay = (w: number) => Math.max(0, Math.min(lastIdx(), Math.round(w * 7) / 7));
+    // Week overscroll: commit the month-jump after the hold; arm/cancel the hold by the threshold.
+    const WEEK_OVER_THRESH = 560; // px of sustained push past the week edge to commit (less sensitive than daily)
+    const commitWeekJump = () => { const dir = wOverDir; wHold = 0; wOver = false; wOverPx = 0; session = false; wLock = true; clearTimeout(idleTimer); jumpMonth(dir); };
+    const armWeekHold = () => {
+      const t = Math.min(1, Math.abs(wOverPx) / WEEK_OVER_THRESH);
+      if (t >= 1) { if (!wHold) wHold = window.setTimeout(commitWeekJump, MONTH_HOLD); }
+      else if (wHold) { clearTimeout(wHold); wHold = 0; }
+    };
     const endSession = () => {
+      if (wOver) { // released while overscrolling a month boundary
+        if (wHold) { session = false; return; } // threshold reached → the hold timer will commit; leave the ring
+        const target = wOverDir > 0 ? lastIdx() : 0;
+        wOver = false; wOverPx = 0; session = false; setMonthEdge(null);
+        tweenWeek(target, 200); // spring the week window back to the boundary
+        return;
+      }
       if (!session) return;
       session = false;
       const target = snapDay(pos);
       if (Math.abs(target - pos) > 0.0005) tweenWeek(target, 200); else setWeek(target);
     };
     const pageDist = () => Math.max(MONTH_PAGE_MIN, el.clientHeight * MONTH_PAGE_FRAC);
+    // Year-boundary overscroll (month view): commit the year-jump after the hold; arm/cancel by threshold.
+    const YEAR_OVER_THRESH = 320;
+    const commitYearJump = () => {
+      const dir = yOverDir; yHold = 0; yOver = false; yOverPx = 0;
+      mDragging = false; mLockout = true; clearTimeout(mIdle);
+      yLock = true; clearTimeout(yIdle); // swallow the wheel's momentum tail after the jump
+      if (zRef.current < 0.5) jumpYearFlat(dir); else jumpYear(dir); // yearly: crossfade · month: zoom
+    };
+    const armYearHold = () => {
+      const t = Math.min(1, Math.abs(yOverPx) / YEAR_OVER_THRESH);
+      if (t >= 1) { if (!yHold) yHold = window.setTimeout(commitYearJump, MONTH_HOLD); }
+      else if (yHold) { clearTimeout(yHold); yHold = 0; }
+    };
+    // Yearly-view overscroll released (wheel idle): commit if the hold armed, else spring back.
+    const endYearDrag = () => {
+      if (!yOver) return;
+      if (yHold) return; // threshold held → the hold timer commits
+      yOver = false; yOverPx = 0; setMonthEdge(null);
+    };
     // Gesture released (wheel idle): snap the live drag to commit or cancel.
     const endMonthDrag = () => {
       if (!mDragging) return;
       mDragging = false;
       mLockout = true; mDecay = Infinity; // arm: ignore the trailing momentum until the wheel goes quiet
+      if (yOver) { // released while overscrolling a year boundary
+        if (yHold) return; // threshold reached → the hold timer will commit; leave the ring up
+        yOver = false; yOverPx = 0; setMonthEdge(null); // spring back (no band moved → just clear)
+        return;
+      }
       const PAGE = pageDist();
       const norm = mDrag / PAGE;
       mDrag = 0;
@@ -489,8 +583,26 @@ export function useCalendarInteractions() {
       if (drawerOpen()) return; // a drawer is open → freeze the canvas (scroll/zoom disabled)
       if (zRef.current < 0.5 && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
         e.preventDefault();
+        const gap = yLastWheelT ? e.timeStamp - yLastWheelT : 999;
+        yLastWheelT = e.timeStamp;
+        if (yLock) { if (gap >= 120) yLock = false; else return; } // swallow momentum tail post-jump
         const max = yearMaxScroll({ w: el.clientWidth, h: el.clientHeight });
-        setScrollY(Math.max(0, Math.min(max, scrollYRef.current + e.deltaY)));
+        const cur = scrollYRef.current;
+        const atBottom = cur >= max - 0.5, atTop = cur <= 0.5;
+        // A pause (gap) marks the start of a fresh gesture: remember whether we BEGIN at an edge.
+        // Only a gesture that starts already at the edge may overscroll into a year-jump — a scroll
+        // that merely runs into the edge mid-gesture just stops there (no jump).
+        if (gap >= 180) yStartEdge = atBottom ? 1 : atTop ? -1 : 0;
+        const canOver = (yStartEdge === 1 && atBottom && e.deltaY > 0) || (yStartEdge === -1 && atTop && e.deltaY < 0);
+        if (canOver) {
+          yOver = true; yOverDir = e.deltaY > 0 ? 1 : -1; yOverPx += e.deltaY;
+          setMonthEdge({ dir: yOverDir, t: Math.min(1, Math.abs(yOverPx) / 320) });
+          armYearHold();
+          clearTimeout(yIdle); yIdle = window.setTimeout(endYearDrag, 80);
+          return;
+        }
+        if (yOver) { yOver = false; yOverPx = 0; if (yHold) { clearTimeout(yHold); yHold = 0; } setMonthEdge(null); } // pulled back inside the year
+        setScrollY(Math.max(0, Math.min(max, cur + e.deltaY)));
         return;
       }
       // month view: vertical wheel pages months as vertical pages, GESTURE-TRACKED — the bands
@@ -527,6 +639,17 @@ export function useCalendarInteractions() {
         mDrag += e.deltaY;
         const PAGE = pageDist();
         let norm = mDrag / PAGE;
+        // Year boundary: pushing past Dec (down) / Jan (up) → overscroll toward the prev/next YEAR
+        // (ring + hold → jumpYear), instead of a hard clamp. No band slide here.
+        const atDec = focusRef.current >= 11, atJan = focusRef.current <= 0;
+        if ((atDec && norm > 0) || (atJan && norm < 0)) {
+          yOver = true; yOverDir = atDec ? 1 : -1; yOverPx += e.deltaY;
+          setMonthEdge({ dir: yOverDir, t: Math.min(1, Math.abs(yOverPx) / 320) });
+          setMonthAnim(null); setDetailMul(1); mDrag = 0;
+          armYearHold();
+          return;
+        }
+        if (yOver) { yOver = false; yOverPx = 0; if (yHold) { clearTimeout(yHold); yHold = 0; } setMonthEdge(null); } // pulled back inside the year
         if (focusRef.current >= 11) norm = Math.min(0, norm); // Dec → no next month
         if (focusRef.current <= 0) norm = Math.max(0, norm);  // Jan → no prev month
         norm = Math.max(-1, Math.min(1, norm));
@@ -608,16 +731,41 @@ export function useCalendarInteractions() {
       // horizontal swipe pages the 7-day window — week view only (daily↔daily paging is separate).
       if (zRef.current < 1.5 || zRef.current >= 2.5 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       e.preventDefault();
+      const wgap = wLastWheelT ? e.timeStamp - wLastWheelT : 999;
+      wLastWheelT = e.timeStamp;
+      if (wLock) { if (wgap >= 120) wLock = false; else return; } // swallow the momentum tail after a jump
       clearTimeout(idleTimer);
       idleTimer = window.setTimeout(endSession, 90);
-      if (!session) { session = true; pos = weekRef.current; }
+      const fresh = !session;
+      if (fresh) { session = true; pos = weekRef.current; }
       cancelWeekTween();
-      pos = Math.max(0, Math.min(lastIdx(), pos + e.deltaX / el.clientWidth)); // 1 screen width = 1 week
+      const li = lastIdx();
+      // A fresh swipe (after the previous one settled): remember whether it BEGINS at a week edge.
+      // Only a swipe that starts already at the first/last week may overscroll into a month-jump — a
+      // swipe that merely runs into the edge mid-gesture just stops there (no jump).
+      if (fresh) wStartEdge = pos >= li - 0.001 ? 1 : pos <= 0.001 ? -1 : 0;
+      const raw = pos + e.deltaX / el.clientWidth; // proposed window position (1 screen width = 1 week)
+      // Pushing PAST the first/last week → overscroll toward a month-jump (if a month exists that way);
+      // at the year edge it's a hard clamp. Otherwise a normal within-month window slide.
+      if (raw > li && focusRef.current < 11 && wStartEdge === 1) {
+        wOver = true; wOverDir = 1; wOverPx += e.deltaX;
+        setMonthEdge({ dir: 1, t: Math.min(1, wOverPx / WEEK_OVER_THRESH) });
+        pos = li + Math.min(30, wOverPx * 0.4) / el.clientWidth; // capped rubber-band nudge
+        setWeek(pos); armWeekHold(); return;
+      }
+      if (raw < 0 && focusRef.current > 0 && wStartEdge === -1) {
+        wOver = true; wOverDir = -1; wOverPx += e.deltaX;
+        setMonthEdge({ dir: -1, t: Math.min(1, -wOverPx / WEEK_OVER_THRESH) });
+        pos = -Math.min(30, -wOverPx * 0.4) / el.clientWidth;
+        setWeek(pos); armWeekHold(); return;
+      }
+      if (wOver) { wOver = false; wOverPx = 0; if (wHold) { clearTimeout(wHold); wHold = 0; } setMonthEdge(null); } // pulled back inside the month
+      pos = Math.max(0, Math.min(li, raw));
       setWeek(pos);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => { el.removeEventListener("wheel", onWheel); clearTimeout(idleTimer); clearTimeout(mIdle); clearTimeout(dIdle); clearTimeout(dHold); };
-  }, [tweenWeek, snapMonth, snapDayPage, jumpMonth]);
+    return () => { el.removeEventListener("wheel", onWheel); clearTimeout(idleTimer); clearTimeout(mIdle); clearTimeout(dIdle); clearTimeout(dHold); clearTimeout(wHold); clearTimeout(yHold); clearTimeout(yIdle); };
+  }, [tweenWeek, snapMonth, snapDayPage, jumpMonth, jumpYear, jumpYearFlat]);
 
   // Tick once a minute so the current-time line advances while idle.
   useEffect(() => {
@@ -716,6 +864,17 @@ export function useCalendarInteractions() {
     const el = wrapRef.current!;
     const rect = el.getBoundingClientRect();
     const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    // Over the top bar → it owns the pointer; drop any lingering canvas hover so the calendar
+    // below doesn't highlight or read as clickable. The bar's empty gaps are pointer-events:none
+    // (to pass wheel-scroll through), so the event arrives as a plain canvas mousemove with a
+    // canvas target — hence the Y check, plus closest(.cc-bar) for the menu dropdowns/mask below.
+    if (py < BAR_H || (e.target as HTMLElement).closest(".cc-bar")) {
+      lastPtRef.current = null;
+      if (hoverMonthRef.current != null) setHoverMonth(null);
+      if (hoverWeekRef.current != null) setHoverWeek(null);
+      if (hoverRef.current !== NO_HOVER) setHover(NO_HOVER);
+      return;
+    }
     lastPtRef.current = { x: px, y: py };
     recomputeHover(px, py);
   }, [recomputeHover]);
@@ -729,6 +888,9 @@ export function useCalendarInteractions() {
 
   const onClick = useCallback((e: React.MouseEvent) => {
     const el = wrapRef.current!;
+    // Top bar / its menus / a menu's mask never navigate the canvas. The bar's empty gaps pass
+    // events through (pointer-events:none), so also reject by Y within the bar's band.
+    if (e.clientY - el.getBoundingClientRect().top < BAR_H || (e.target as HTMLElement).closest(".cc-bar")) return;
     const cur = zRef.current;
     if (cur < 0.5) {
       // Open the month when clicking its name (gutter) OR anywhere in its day grid.
@@ -740,11 +902,25 @@ export function useCalendarInteractions() {
       setWeek(hoverWeekRef.current);
       tweenTo(2);
     } else if (cur >= 1.5 && cur < 2.5) {
+      // Week view: click a day's empty space → zoom into that DAY (daily view). Works for spillover
+      // days too — they re-base focus/week + the year scroll onto the adjacent month first.
       const rect = el.getBoundingClientRect();
-      const hit = dayAtPointInWeek(e.clientX - rect.left, zRef.current, focusRef.current, weekRef.current, { w: el.clientWidth, h: el.clientHeight }, scrollYRef.current);
-      if (hit && hit.month !== focusRef.current) chainTo(hit.month, hit.week);
+      const dom = hoverRef.current.dom ?? cellInWeek(e.clientX - rect.left, e.clientY - rect.top, zRef.current, focusRef.current, weekRef.current, { w: el.clientWidth, h: el.clientHeight }, scrollYRef.current, tlScrollRef.current).dom;
+      if (dom == null) return;
+      const r = resolveDate(focusRef.current, dom);
+      if (!r) return;
+      if (r.month !== focusRef.current) { // spillover → move focus + year scroll to the adjacent month
+        const vpNow = { w: el.clientWidth, h: el.clientHeight };
+        const delta = yearFrame(r.month, vpNow, 0).bandY - yearFrame(focusRef.current, vpNow, 0).bandY;
+        const max = yearMaxScroll(vpNow);
+        setScrollY((s) => Math.max(0, Math.min(max, s + delta)));
+        focusRef.current = r.month; setFocus(r.month);
+      }
+      weekRef.current = weekOfDate(r.month, r.day); setWeek(weekRef.current);
+      dailyDomRef.current = r.day; setDailyDom(r.day);
+      tweenTo(3);
     }
-  }, [tweenTo, chainTo]);
+  }, [tweenTo]);
 
   const clearHover = useCallback(() => {
     lastPtRef.current = null;
@@ -872,5 +1048,5 @@ export function useCalendarInteractions() {
     ? Math.max(0, Math.min(11, focus + monthAnim.dir))
     : focus;
 
-  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover };
+  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover };
 }

@@ -33,10 +33,11 @@ interface Props {
   detailMul?: number; // timeline opacity multiplier during month↕month paging (outgoing month)
   dimPast?: boolean; // "dim past events" view toggle
   now?: number;      // ms timestamp → decides what's past
+  onLabelHover?: (over: boolean) => void; // hovering a deadline label → suppress the week-view mouse cursor line
   monthAnim?: MonthAnim | null; // active page-turn → render the incoming month's deadlines too
 }
 
-export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, year, mainTz, hover, deadlines, addDeadline, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu, detailMul = 1, dimPast = false, now = 0, monthAnim = null }: Props) {
+export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, year, mainTz, hover, deadlines, addDeadline, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu, detailMul = 1, dimPast = false, now = 0, onLabelHover, monthAnim = null }: Props) {
   // dim-past multiplier: 0.4 once a deadline's moment has elapsed, else 1
   const pdim = (oy: number, om: number, od: number, hour: number) => (dimPast && momentIsPast(oy, om, od, hour, now) ? PAST_DIM : 1);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -92,6 +93,14 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       setMovingId(null);
+      if (movedRef.current) {
+        // A real drag ends with the cursor over the timeline (the label moved away from it), so the
+        // trailing click would hit the canvas and navigate (e.g. into daily view in week view).
+        // Swallow that one click in the capture phase so it never reaches the canvas handler.
+        const swallow = (ce: MouseEvent) => ce.stopPropagation();
+        window.addEventListener("click", swallow, true);
+        setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+      }
       setTimeout(() => { movedRef.current = false; }, 0);
     };
     window.addEventListener("mousemove", onMove);
@@ -155,6 +164,8 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
                 data-occ={occDate(o)}
                 className={`cc-ddl-label ${labelCls(labelLeft)}`}
                 style={{ transform: labelTf(x, y, labelLeft), maxWidth: labelMaxW }}
+                onMouseEnter={() => onLabelHover?.(true)}
+                onMouseLeave={() => onLabelHover?.(false)}
                 onClick={(e) => { e.stopPropagation(); onSelect(d.id, occDate(o)); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(d.id, occDate(o)); }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(d.id, r.left + r.width / 2, r.top, occDate(o)); }}
@@ -185,6 +196,8 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
                 data-ev-id={d.id}
                 className={`cc-ddl-label ${labelCls(labelLeft)}`}
                 style={{ transform: labelTf(x, y, labelLeft), maxWidth: labelMaxW }}
+                onMouseEnter={() => onLabelHover?.(true)}
+                onMouseLeave={() => onLabelHover?.(false)}
                 onMouseDown={(e) => onMoveStart(d.id, e)}
                 onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; onSelect(d.id); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(d.id); }}

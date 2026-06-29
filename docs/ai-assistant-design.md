@@ -752,7 +752,8 @@ Lineage: todo.txt / Obsidian-Dataview / org-mode.
 | `@funding:slug` | relevant funding source | many |
 | `[label](url)` or bare URL | relevant link (native markdown) | many |
 | `color:KEY` | color override (a palette key from `EVENT_COLORS`) | one |
-| `done:YYYY-MM-DD` | completion date (set when checked, optional) | one |
+| `done:YYYY-MM-DD[THH:MM]` | completion timestamp — **auto-stamped to the minute when the box is ticked** (main tz); stripped on untick. Drives the daily view's "Recently Completed" struck-through list | one |
+| `followup:30d` or `followup:2026-7-31` | a **follow-up date**: a duration (d/w/m/y) off the event's END date, or a literal (loose) date. Acts as the operative due date but surfaces in the daily view's "Remember to Followup" section; counts as overdue once it passes | one |
 
 **Grammar & parsing rules**
 - Entities use one extensible sigil: `@<type>:<slug>`, with `@<slug>` defaulting to `type=person`.

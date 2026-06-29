@@ -59,6 +59,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
   const [resizing, setResizing] = useState(false);
   const [movingId, setMovingId] = useState<string | null>(null);
   const movedRef = useRef(false); // a real move happened → suppress the trailing click
+  const createdRef = useRef(false); // a create-drag happened → suppress only that trailing click (plain clicks pass through to navigate)
   const [animating, setAnimating] = useState(false);
   const frozenRef = useRef<Map<string, EventLayout> | null>(null);
   const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -116,6 +117,8 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
       if (d && moved) {
         const date = resolveDate(focus, d.dom);
         if (date) { addEvent({ year, month: date.month, day: date.day, startHour: d.start, endHour: d.end, title: "Event", color: "default" }); triggerAnimate(); }
+        createdRef.current = true; // suppress the trailing click (so it doesn't also navigate)
+        setTimeout(() => { createdRef.current = false; }, 0);
       }
       setDraftBoth(null);
     };
@@ -247,7 +250,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
           className="cc-create-surface"
           style={{ left: LABEL_W, top: tl.tlTop, width: vp.w - LABEL_W, height: tl.tlBottom - tl.tlTop }}
           onMouseDown={onCreateDown}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { if (createdRef.current) e.stopPropagation(); }} // let a plain click through (→ navigate to the day)
         />
       )}
       {/* clip+scroll the hourly content to the visible timeline window */}

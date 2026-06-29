@@ -61,7 +61,7 @@ function buildToday(items: Item[], z: number, focus: number, week: number, vp: V
   // "Current Time / HH:MM" label beside the now line. Placed on the side with more
   // room: column in the first half → label to its right (left-aligned); latter half
   // → to its left (right-aligned).
-  const pushNowLabel = (key: string, x: number, colW: number, lineY: number, active: boolean) => {
+  const pushNowLabel = (key: string, x: number, colW: number, lineY: number, active: boolean, gate = 1) => {
     const W = 84, GAP = 10, H = 30;
     // Daily: always to the LEFT of the line (right edge just left of the left circle). Else pick the
     // side with more room.
@@ -69,7 +69,8 @@ function buildToday(items: Item[], z: number, focus: number, week: number, vp: V
     items.push({
       key, kind: "nowlabel", text: timeStr, align: onLeft ? "right" : "left",
       x: onLeft ? x - GAP - W : x + colW + GAP, y: lineY - H / 2, w: W, h: H,
-      opacity: active ? mul : 0, z: z > 2 ? 16 : 9, // daily: above the dashboard mask so the label isn't clipped
+      opacity: active ? mul * gate : 0, z: z > 2 ? 16 : 9, // daily: above the dashboard mask so the label isn't clipped
+      instant: z > 2, // daily: track the per-frame fade (no transition lag) like the deadlines
     });
   };
 
@@ -120,8 +121,12 @@ function buildToday(items: Item[], z: number, focus: number, week: number, vp: V
     const { hourH, scroll } = hourMetrics(tlTop, tlBottom, z, tlScroll);
     const lineY = tlTop + nowFrac * hourH - scroll;
     const lineOn = active && hourH > 0 && lineY >= tlTop && lineY <= tlBottom;
-    items.push({ key: "now-w", kind: "now", x, y: lineY, w: colW, h: 2, opacity: lineOn ? mul : 0, z: z > 2 ? 16 : 6 });
-    pushNowLabel("nl-w", x, colW, lineY, lineOn);
+    // In daily view the now-line belongs to today's column only: gate it (and its label) by today's
+    // per-day opacity. =1 in week view; →0 when daily shows another day; fades smoothly while paging
+    // away from today (1−p) instead of sliding off and popping. (td-w red tint already fades via tintMul.)
+    const dgate = dailyFade(relDom ?? -999, z);
+    items.push({ key: "now-w", kind: "now", x, y: lineY, w: colW, h: 2, opacity: (lineOn ? mul : 0) * dgate, z: z > 2 ? 16 : 6, instant: z > 2 });
+    pushNowLabel("nl-w", x, colW, lineY, lineOn, dgate);
   }
 
   if (keyTag) for (let i = start; i < items.length; i++) items[i] = { ...items[i], key: items[i].key + keyTag };
