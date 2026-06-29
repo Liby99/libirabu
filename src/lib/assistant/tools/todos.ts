@@ -27,10 +27,15 @@ export const MD_LINK_RE = /\[([^\]]*)\]\((https?:\/\/[^)\s]+|[^)\s]+)\)/;
 export const BARE_URL_RE = /(^|\s)(https?:\/\/[^\s]+)(?=\s|$)/;
 /** Priority: `p:` followed by 1+ bangs; the count is the level (clamped 1–5), higher = more urgent. */
 export const PRIORITY_RE = /(^|\s)p:(!{1,})(?=\s|$)/;
-/** `due:YYYY-MM-DD` with optional `THH:MM` (or space-separated time). */
-export const DUE_RE = /(^|\s)due:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2})?)(?=\s|$)/;
-/** `start:YYYY-MM-DD` — show-from / defer date. */
-export const START_RE = /(^|\s)start:(\d{4}-\d{2}-\d{2})(?=\s|$)/;
+// A date value: an explicit `YYYY-MM-DD[THH:MM]`, a keyword, or an offset from today (`3d`, `-2w`).
+// Resolved against the parse-time "today" by `resolveDateToken`.
+const DATE_VALUE = String.raw`today|tomorrow|yesterday|-?\d+[dwmy]|\d{4}-\d{2}-\d{2}`;
+// A time-only value → today at that time: `5pm`, `5:30pm`, `9am`, or 24h `17:00`.
+const TIME_VALUE = String.raw`\d{1,2}(?::\d{2})?(?:am|pm)|\d{1,2}:\d{2}`;
+/** `due:` + a date value (optional `THH:MM`) or a bare time (resolves to today at that time). */
+export const DUE_RE = new RegExp(`(^|\\s)due:(${DATE_VALUE}(?:[T ]\\d{2}:\\d{2})?|${TIME_VALUE})(?=\\s|$)`);
+/** `start:` + a date value — the show-from / defer date. */
+export const START_RE = new RegExp(`(^|\\s)start:(${DATE_VALUE})(?=\\s|$)`);
 /** `tz:AOE` or an IANA id (`tz:America/New_York`). Applies to `due:`. */
 export const TZ_RE = /(^|\s)tz:(AOE|[A-Za-z][\w/+-]*)(?=\s|$)/;
 /** `color:KEY` — a palette key from EVENT_COLORS. */
@@ -97,11 +102,13 @@ export interface ParsedTodo {
   done: boolean; // from the checkbox `[x]`
   doneDate?: string; // from a `done:` token, if present
 
-  // soft-link anchor: which note, which line. Editing this TODO rewrites exactly this line.
-  eventId: string;
-  eventTitle: string; // parent event's title (for the "Event · text" display prefix)
-  eventKind: string; // "timed" | "band" | "deadline"
-  occurrenceKey: string | null; // key into occurrenceNotes, or null for the base note
+  // provenance + soft-link anchor: which note, which line. Editing this TODO rewrites exactly this line.
+  source: "event" | "daily"; // an event's note, or a day's "daily note" (the dashboard NOTE tab)
+  eventId: string; // event source: the CalendarItem id; "" for daily
+  eventTitle: string; // display prefix: event title, or "Daily note · YYYY-MM-DD" for daily
+  eventKind: string; // "timed" | "band" | "deadline" | "daily"
+  occurrenceKey: string | null; // event source: key into occurrenceNotes, else null
+  dailyDate?: string; // daily source: the note's date "YYYY-MM-DD" (the soft-link anchor)
   line: number; // 1-based line number within that note
 
   priority?: number; // 1–5
@@ -217,51 +224,87 @@ function resolveFollowup(raw: string, endDate: string): string | undefined {
   return undefined;
 }
 
-// ── Event-aware parsing (inheritance + active filtering) ───────────────────────────────────────
+/**
+ * Resolve a `due:`/`start:` value to a concrete date. An explicit `YYYY-MM-DD[THH:MM]` passes
+ * through; a keyword (`today`/`tomorrow`/`yesterday`) or an offset (`3d`, `-2w`) resolves against
+ * `today`. Returns undefined for an unresolvable token (e.g. a keyword with no `today` reference),
+ * so the caller can fall back to the inherited default.
+ */
+function resolveDateToken(v: string, today: string | undefined): string | undefined {
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v; // explicit date (keeps any THH:MM)
+  if (today == null) return undefined;
+  if (v === "today") return today;
+  if (v === "tomorrow") return addDuration(today, 1, "d");
+  if (v === "yesterday") return addDuration(today, -1, "d");
+  const dur = v.match(/^(-?\d+)([dwmy])$/);
+  if (dur) return addDuration(today, Number(dur[1]), dur[2] as "d" | "w" | "m" | "y");
+  // a bare time → today at that time
+  const t12 = v.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)$/i);
+  if (t12) {
+    const h = (Number(t12[1]) % 12) + (t12[3].toLowerCase() === "pm" ? 12 : 0);
+    return `${today}T${pad2(h)}:${t12[2] ?? "00"}`;
+  }
+  const t24 = v.match(/^(\d{1,2}):(\d{2})$/);
+  if (t24) return `${today}T${pad2(Number(t24[1]))}:${t24[2]}`;
+  return undefined;
+}
 
-function buildTodo(
-  event: TodoEventContext,
-  occurrenceKey: string | null,
-  eventDate: string, // the date this note inherits as the default due (base start, or occurrence date)
-  eventEndDate: string, // the date a `followup:<duration>` counts from (base end, or occurrence date)
-  line: number,
-  raw: string,
-  done: boolean,
-  tok: LineTokens,
-  today: string | undefined,
-): ParsedTodo {
+// ── Source-aware parsing (inheritance + active filtering) ──────────────────────────────────────
+
+// Provenance + inheritance context for one checkbox line — the part that differs between an event
+// note and a daily note. The token resolution itself (below) is identical for both.
+interface TodoContext {
+  source: "event" | "daily";
+  eventId: string;
+  eventTitle: string;
+  eventKind: string;
+  occurrenceKey: string | null;
+  dailyDate?: string;
+  inheritDate: string; // default due (event start / occurrence date / the daily note's date)
+  inheritEndDate: string; // followup base (event end / occurrence date / the daily note's date)
+  inheritColor: string; // default color
+  inheritTags: string[]; // tags unioned with the line's #tags
+  originTz?: string | null; // deadline origin tz (for the inherited due tz)
+}
+
+function buildTodoFrom(ctx: TodoContext, line: number, raw: string, done: boolean, tok: LineTokens, today: string | undefined): ParsedTodo {
   const entities = tok.entities;
-  const dueSource: "line" | "event" = tok.due ? "line" : "event";
-  const due = tok.due ?? eventDate;
-  const dueTz =
-    tok.tz ?? (dueSource === "event" && event.kind === "deadline" ? event.originTz ?? undefined : undefined);
-  const followup = tok.followup ? resolveFollowup(tok.followup, eventEndDate) : undefined;
+  // Resolve a line `due:`/`start:` (which may be a keyword/offset) to a concrete date.
+  const dueTok = tok.due ? resolveDateToken(tok.due, today) : undefined;
+  const startTok = tok.start ? resolveDateToken(tok.start, today) : undefined;
+
+  const dueSource: "line" | "event" = dueTok ? "line" : "event";
+  const due = dueTok ?? ctx.inheritDate;
+  const dueTz = tok.tz ?? (dueSource === "event" && ctx.eventKind === "deadline" ? ctx.originTz ?? undefined : undefined);
+  const followup = tok.followup ? resolveFollowup(tok.followup, ctx.inheritEndDate) : undefined;
 
   const colorSource: "line" | "event" = tok.color ? "line" : "event";
-  const color = tok.color ?? event.color;
+  const color = tok.color ?? ctx.inheritColor;
 
   // Deferred items are inactive until their show-from date. Without a `today` reference we can't
   // evaluate the defer, so we treat a non-done item as active (the index passes today in practice).
-  const active = !done && (tok.start == null || today == null || today >= tok.start);
+  const active = !done && (startTok == null || today == null || today >= startTok);
 
   return {
     raw,
     text: tok.text,
     done,
     doneDate: tok.done,
-    eventId: event.id,
-    eventTitle: event.title,
-    eventKind: event.kind,
-    occurrenceKey,
+    source: ctx.source,
+    eventId: ctx.eventId,
+    eventTitle: ctx.eventTitle,
+    eventKind: ctx.eventKind,
+    occurrenceKey: ctx.occurrenceKey,
+    dailyDate: ctx.dailyDate,
     line,
     priority: tok.priority,
     due,
     dueTz,
     dueSource,
     followup,
-    start: tok.start,
+    start: startTok,
     active,
-    tags: unionCI(event.tags, tok.tags),
+    tags: unionCI(ctx.inheritTags, tok.tags),
     people: entities.person ?? [],
     projects: entities.project ?? [],
     funding: entities.funding ?? [],
@@ -289,7 +332,12 @@ export function parseTodos(event: TodoEventContext, today?: string): ParsedTodo[
       const tok = tokenizeLine(m[3]);
       if (tok.text === "") continue; // skip empty checkbox lines (`- [ ]` with no task text)
       const done = m[2].toLowerCase() === "x";
-      out.push(buildTodo(event, occurrenceKey, eventDate, eventEndDate, i + 1, lines[i], done, tok, today));
+      const ctx: TodoContext = {
+        source: "event", eventId: event.id, eventTitle: event.title, eventKind: event.kind,
+        occurrenceKey, inheritDate: eventDate, inheritEndDate: eventEndDate,
+        inheritColor: event.color, inheritTags: event.tags, originTz: event.originTz,
+      };
+      out.push(buildTodoFrom(ctx, i + 1, lines[i], done, tok, today));
     }
   };
 
@@ -298,6 +346,31 @@ export function parseTodos(event: TodoEventContext, today?: string): ParsedTodo[
   scan(event.notes, null, dateOf(event.start), dateOf(event.end));
   if (event.occurrenceNotes) {
     for (const [key, notes] of Object.entries(event.occurrenceNotes)) scan(notes, key, key, key);
+  }
+  return out;
+}
+
+/**
+ * Parse the checkbox lines of a day's "daily note" (the dashboard NOTE tab) into `ParsedTodo`s.
+ * Provenance is the daily note itself (`source: "daily"`, `dailyDate: date`); the default due and
+ * the followup base are the note's own date. The soft-link anchor is `(dailyDate, line)`.
+ */
+export function parseDailyNoteTodos(date: string, notes: string | null | undefined, today?: string): ParsedTodo[] {
+  if (!notes) return [];
+  const out: ParsedTodo[] = [];
+  const lines = notes.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(TASK_LINE_RE);
+    if (!m) continue;
+    const tok = tokenizeLine(m[3]);
+    if (tok.text === "") continue;
+    const done = m[2].toLowerCase() === "x";
+    const ctx: TodoContext = {
+      source: "daily", eventId: "", eventTitle: `Daily note · ${date}`, eventKind: "daily",
+      occurrenceKey: null, dailyDate: date, inheritDate: date, inheritEndDate: date,
+      inheritColor: "default", inheritTags: [],
+    };
+    out.push(buildTodoFrom(ctx, i + 1, lines[i], done, tok, today));
   }
   return out;
 }

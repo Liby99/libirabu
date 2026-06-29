@@ -244,11 +244,35 @@ export default function CalendarCanvas() {
     if (ty !== year) { setCrossYear({ id, ty, tm, tw, lvl }); return; }
     runGoToFirst(id, ty, tm, tw, lvl);
   };
-  // Click a TODO in the daily dashboard → jump the calendar to its source event and open its
-  // drawer. The TODO carries (eventId, occurrenceKey); resolve the event's date from the loaded
-  // stores (authoritative) or fall back to the occurrence/due date, then reuse the same
+  // Jump the calendar to a (year, month, day) and open the event's drawer there — the same
   // navigate-then-open trajectory as "go to first occurrence" (cross-year aware via goToOccurrence).
+  const navigateAndOpenDrawer = (id: string, ty: number, tm: number, td: number, occ: string | null) => {
+    if (!Number.isInteger(ty) || !Number.isInteger(tm) || !Number.isInteger(td)) return; // unparseable anchor
+    const tw = Math.floor((new Date(ty, tm, 1).getDay() + td - 1) / 7);
+    const lvl = Math.round(z);
+    setDrawerId(null);
+    setSelectedId(id);
+    setFocusedOcc(occ);
+    window.setTimeout(() => goToOccurrence(ty, tm, tw, lvl, () => openDrawer(id, occ)), 200);
+  };
+
+  // A daily-note TODO click → navigate to that day, then ask the dashboard to open its NOTE tab and
+  // place the caret on that source line (consumed + cleared by DailyDashboard).
+  const [noteEdit, setNoteEdit] = useState<{ date: string; line: number } | null>(null);
+
+  // Click a TODO in the daily dashboard → jump to its source event + open its drawer. The TODO
+  // carries (eventId, occurrenceKey); resolve the event's date from the loaded stores
+  // (authoritative) or fall back to the occurrence/due date. A daily-note TODO instead opens the
+  // NOTE tab at that line.
   const openTodo = (t: ParsedTodo) => {
+    if (t.source === "daily" && t.dailyDate) {
+      const date = t.dailyDate;
+      const [y, m, d] = date.split("-").map(Number);
+      const tw = Math.floor((new Date(y, m - 1, 1).getDay() + d - 1) / 7);
+      setDrawerId(null);
+      window.setTimeout(() => goToOccurrence(y, m - 1, tw, Math.round(z), () => setNoteEdit({ date, line: t.line })), 200);
+      return;
+    }
     const occ = t.occurrenceKey ?? null;
     const te = events.find((e) => e.id === t.eventId);
     const be = bandEvents.find((e) => e.id === t.eventId);
@@ -259,14 +283,11 @@ export default function CalendarCanvas() {
     else if (be) { ty = be.year; tm = be.month; td = be.startDay; }
     else if (de) { ty = de.year; tm = de.month; td = de.day; }
     else { const [y, m, d] = (t.due ?? "").slice(0, 10).split("-").map(Number); ty = y; tm = m - 1; td = d; }
-    if (!Number.isInteger(ty) || !Number.isInteger(tm) || !Number.isInteger(td)) return; // unparseable anchor
-    const tw = Math.floor((new Date(ty, tm, 1).getDay() + td - 1) / 7);
-    const lvl = Math.round(z);
-    setDrawerId(null);
-    setSelectedId(t.eventId);
-    setFocusedOcc(occ);
-    window.setTimeout(() => goToOccurrence(ty, tm, tw, lvl, () => openDrawer(t.eventId, occ)), 200);
+    navigateAndOpenDrawer(t.eventId, ty, tm, td, occ);
   };
+
+  // Click an "Upcoming Deadlines" row → jump to that deadline + open its drawer.
+  const openDeadlineItem = (d: Deadline) => navigateAndOpenDrawer(d.id, d.year, d.month, d.day, null);
 
   const menuRepeat = menu ? repeatOf(menu.id) : null;
   const menuRecurring = !!menuRepeat && menuRepeat.kind !== "none";
@@ -670,6 +691,9 @@ export default function CalendarCanvas() {
             today={(() => { const n = new Date(now); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`; })()}
             deadlines={visDeadlines}
             onOpenTodo={openTodo}
+            onOpenDeadline={openDeadlineItem}
+            noteEdit={noteEdit}
+            onNoteEditConsumed={() => setNoteEdit(null)}
           />
         )}
         {z > 2.5 && (

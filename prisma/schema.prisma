@@ -187,6 +187,19 @@ model CalendarPrefs {
   updatedAt  DateTime @updatedAt
 }
 
+// Per-day free-form markdown note (the daily-dashboard NOTE tab). Keyed by a floating wall-clock
+// date string "YYYY-MM-DD" (same calendar convention as CalendarItem). Markdown checkboxes here
+// feed the TODO index too (provenance = "daily note of <date>"; see src/lib/assistant/tools/todos.ts).
+model DailyNote {
+  userId    String
+  date      String // "YYYY-MM-DD"
+  notes     String
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, date])
+  @@index([userId])
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Work: projects & tasks
 // ─────────────────────────────────────────────────────────────────────

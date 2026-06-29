@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { toApiEvent } from "@/lib/calendar/api";
-import { indexTodos, toggleTodoLine, type ParsedTodo } from "@/lib/assistant/tools/todos";
+import { indexTodos, parseDailyNoteTodos, compareTodos, toggleTodoLine, type ParsedTodo } from "@/lib/assistant/tools/todos";
 import { AUTO_TZ, systemTz } from "@/app/calendar/timezones";
 import {
   requireUser, badRequest, notFound, serverError, getMainTz,
@@ -47,9 +47,14 @@ export async function GET() {
     const userId = auth;
 
     const today = todayInTz(await getMainTz(userId));
-    // Single-user app: scan every event. Rows without checkboxes simply yield nothing.
-    const rows = await prisma.calendarItem.findMany({ where: { userId }, orderBy: { start: "asc" } });
-    const todos: ParsedTodo[] = indexTodos(rows.map(toApiEvent), today);
+    // Single-user app: scan every event AND every daily note. Rows without checkboxes yield nothing.
+    const [rows, noteRows] = await Promise.all([
+      prisma.calendarItem.findMany({ where: { userId }, orderBy: { start: "asc" } }),
+      prisma.dailyNote.findMany({ where: { userId } }),
+    ]);
+    const eventTodos = indexTodos(rows.map(toApiEvent), today);
+    const dailyTodos = noteRows.flatMap((n) => parseDailyNoteTodos(n.date, n.notes, today));
+    const todos: ParsedTodo[] = [...eventTodos, ...dailyTodos].sort(compareTodos);
     return NextResponse.json({ todos, today });
   } catch (e) {
     return serverError(e);
@@ -57,9 +62,9 @@ export async function GET() {
 }
 
 // PATCH /api/calendar/todos — the soft-link write: check/uncheck one TODO by its anchor.
-// Body: { eventId, occurrenceKey?: string|null, line: number, checked?: boolean }
-//   checked omitted → toggle. Rewrites exactly that source line and persists via the shared
-//   event-update path (so it goes through the same validation as every other note edit).
+// Event source:  { eventId, occurrenceKey?: string|null, line, checked? }  → rewrites a CalendarItem note
+// Daily source:  { dailyDate: "YYYY-MM-DD", line, checked? }               → rewrites a DailyNote
+//   checked omitted → toggle. Ticking stamps a main-tz `done:` to the minute; untick strips it.
 export async function PATCH(req: NextRequest) {
   try {
     const auth = await requireUser();
@@ -68,25 +73,41 @@ export async function PATCH(req: NextRequest) {
 
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") return badRequest("expected a JSON body");
-    const { eventId, line } = body as Record<string, unknown>;
-    const occurrenceKey = (body as Record<string, unknown>).occurrenceKey ?? null;
-    const checked = (body as Record<string, unknown>).checked;
+    const b = body as Record<string, unknown>;
+    const { line, dailyDate } = b;
+    const checked = b.checked;
 
-    if (typeof eventId !== "string" || !eventId) return badRequest("eventId (string) is required");
     if (typeof line !== "number" || !Number.isInteger(line) || line < 1) return badRequest("line (1-based integer) is required");
-    if (occurrenceKey !== null && typeof occurrenceKey !== "string") return badRequest("occurrenceKey must be a string or null");
     if (checked !== undefined && typeof checked !== "boolean") return badRequest("checked must be a boolean");
+
+    const stamp = nowInTz(await getMainTz(userId)); // `done:` completion stamp
+
+    // ── Daily-note source ──
+    if (dailyDate !== undefined) {
+      if (typeof dailyDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dailyDate)) return badRequest("dailyDate must be YYYY-MM-DD");
+      const row = await prisma.dailyNote.findUnique({ where: { userId_date: { userId, date: dailyDate } } });
+      if (!row) return badRequest("The referenced daily note no longer exists (stale anchor).");
+      const next = toggleTodoLine(row.notes, line, checked, stamp);
+      if (next === null) return badRequest("That line is no longer a checkbox (stale anchor).");
+      if (next === row.notes) return NextResponse.json({ ok: true, changed: false });
+      await prisma.dailyNote.update({ where: { userId_date: { userId, date: dailyDate } }, data: { notes: next } });
+      return NextResponse.json({ ok: true, changed: true });
+    }
+
+    // ── Event source ──
+    const { eventId } = b;
+    const occurrenceKey = b.occurrenceKey ?? null;
+    if (typeof eventId !== "string" || !eventId) return badRequest("eventId (string) or dailyDate is required");
+    if (occurrenceKey !== null && typeof occurrenceKey !== "string") return badRequest("occurrenceKey must be a string or null");
 
     const event = await prisma.calendarItem.findFirst({ where: { id: eventId, userId } });
     if (!event) return notFound("No such event.");
 
     // Pick the note this anchor points into: base notes, or one per-occurrence note.
     const occNotes = (event.occurrenceNotes as Record<string, string> | null) ?? {};
-    const source = occurrenceKey === null ? event.notes : occNotes[occurrenceKey];
+    const source = occurrenceKey === null ? event.notes : occNotes[occurrenceKey as string];
     if (source == null) return badRequest("The referenced note no longer exists (stale anchor).");
 
-    // Stamp the completion time (main-tz, to the minute) when ticking; untick strips it.
-    const stamp = nowInTz(await getMainTz(userId));
     const next = toggleTodoLine(source, line, checked, stamp);
     if (next === null) return badRequest("That line is no longer a checkbox (stale anchor).");
     if (next === source) return NextResponse.json({ ok: true, changed: false }); // already in the requested state
@@ -94,7 +115,7 @@ export async function PATCH(req: NextRequest) {
     // occurrenceNotes is replace-on-patch, so merge the single changed key back into the full map.
     const patch = occurrenceKey === null
       ? { notes: next }
-      : { occurrenceNotes: { ...occNotes, [occurrenceKey]: next } };
+      : { occurrenceNotes: { ...occNotes, [occurrenceKey as string]: next } };
 
     try {
       await updateEventForUser(userId, eventId, patch);

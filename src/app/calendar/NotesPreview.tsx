@@ -45,6 +45,41 @@ export default function NotesPreview({ value, onChange, onEditAt }: Props) {
       return child;
     });
 
+  const interactiveCheckbox = (el: ReactElement<{ checked?: boolean }>, line: number) => (
+    <input key="cb" type="checkbox" className="cc-md-check" checked={!!el.props.checked} disabled={!onChange} onChange={() => toggleLine(line)} />
+  );
+
+  // Render a task item as [interactive checkbox] + [.cc-md-tasktext wrapping the text], so the
+  // completion strikethrough (a CSS background-size sweep) spans the text only — and animates both
+  // ways (check → left-to-right, uncheck → right-to-left) since the same DOM node is reused on
+  // re-render. Falls back to plain patching if the checkbox isn't at the expected depth.
+  const renderTask = (children: ReactNode, line: number): ReactNode => {
+    const splitAt = (nodes: ReactNode): ReactNode | null => {
+      const arr = Children.toArray(nodes); // assigns stable keys
+      const before: ReactNode[] = [];
+      const text: ReactNode[] = [];
+      let cb: ReactNode = null;
+      for (const child of arr) {
+        if (!cb && isValidElement(child) && child.type === "input" && (child.props as { type?: string }).type === "checkbox") {
+          cb = interactiveCheckbox(child as ReactElement<{ checked?: boolean }>, line);
+        } else (cb ? text : before).push(child);
+      }
+      if (!cb) return null;
+      return <>{before}{cb}<span key="txt" className="cc-md-tasktext">{text}</span></>;
+    };
+    // tight list: checkbox is a direct child of <li>
+    const direct = splitAt(children);
+    if (direct) return direct;
+    // loose list: checkbox sits inside a single wrapping <p>
+    const kids = Children.toArray(children);
+    if (kids.length === 1 && isValidElement(kids[0]) && (kids[0] as ReactElement).type === "p") {
+      const p = kids[0] as ReactElement<{ children?: ReactNode }>;
+      const inner = splitAt(p.props.children);
+      if (inner) return cloneElement(p, {}, inner);
+    }
+    return patchCheckbox(children, line); // fallback: interactive checkbox, no strike wrapper
+  };
+
   // Tag a block element with its 1-based source line (so ⌘-click can resolve where to edit).
   const block = (Tag: string) => {
     const C = ({ node, children, className }: { node?: unknown; children?: ReactNode; className?: string }) =>
@@ -74,7 +109,7 @@ export default function NotesPreview({ value, onChange, onEditAt }: Props) {
           li: ({ node, children, className }) => {
             const line = srcLine(node);
             const isTask = typeof className === "string" && className.includes("task-list-item");
-            return <li className={className} data-srcline={line}>{isTask && line != null ? patchCheckbox(children, line) : children}</li>;
+            return <li className={className} data-srcline={line}>{isTask && line != null ? renderTask(children, line) : children}</li>;
           },
           p: block("p"),
           h1: block("h1"), h2: block("h2"), h3: block("h3"), h4: block("h4"), h5: block("h5"), h6: block("h6"),

@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ParsedTodo } from "@/lib/assistant/tools/todos";
-import { fetchTodos, setTodoChecked } from "../apiClient";
+import { fetchTodos, setTodoChecked, todoCheckRef } from "../apiClient";
 import "../calendar.css"; // for the .cc-ev-<color> palette vars used in the color swatch
 
 const stateOf = (t: ParsedTodo) => (t.done ? "done" : t.active ? "active" : "deferred");
@@ -50,7 +50,7 @@ export default function TodoDebugPage() {
     // optimistic flip, then persist + reload from source of truth
     setTodos((prev) => prev.map((x) => (x === t ? { ...x, done: !x.done } : x)));
     try {
-      await setTodoChecked({ eventId: t.eventId, occurrenceKey: t.occurrenceKey, line: t.line }, !t.done);
+      await setTodoChecked(todoCheckRef(t), !t.done);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

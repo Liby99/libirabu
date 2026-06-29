@@ -48,20 +48,38 @@
 .cc-daily-inner-dash { --dd-pad: 25px; }
 /* the two horizontal bars — same color/height as the track band's top border & bottom divider */
 .cc-dd-bar { flex: none; height: 1px; margin-left: var(--dd-pad); background: color-mix(in srgb, var(--cc-line) 58%, transparent); }
-/* title zone fills the band region; title is bottom-aligned toward the lower bar */
-.cc-dd-titlezone { flex: none; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 18px 7px var(--dd-pad); box-sizing: border-box; overflow: hidden; }
+/* title zone fills the band region; title bottom-LEFT, the TODO/NOTE tabs bottom-RIGHT */
+.cc-dd-titlezone { flex: none; display: flex; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 10px; padding: 0 18px 7px var(--dd-pad); box-sizing: border-box; overflow: hidden; }
+.cc-dd-titlemain { min-width: 0; overflow: hidden; }
 .cc-dd-name { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; margin-bottom: 3px; }
 .cc-dd-date { font-size: 19px; font-weight: 500; line-height: 1.2; }
 .cc-dd-special { color: var(--accent-dark); opacity: 0.7; font-weight: 400; }
+/* TODO/NOTE tabs: text-only, no border/background — not even when selected (selection = full
+   opacity + bold). Overrides the shared .cc-seg / .cc-seg-btn chrome. */
+.cc-dd-tabs.cc-seg { flex: none; border: none; border-radius: 0; overflow: visible; gap: 4px; margin-bottom: 2px; }
+.cc-dd-tabs .cc-seg-btn { border: none; background: none; padding: 2px 5px; font-size: 11px; letter-spacing: 0.08em; opacity: 0.4; }
+.cc-dd-tabs .cc-seg-btn:hover { opacity: 0.75; background: none; }
+.cc-dd-tabs .cc-seg-btn.sel { background: none; opacity: 1; font-weight: 700; color: var(--accent-dark); }
 /* scrollable content below the lower bar: upcoming deadlines, then the TODO list */
 .cc-dd-content { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 18px 16px var(--dd-pad); font-size: 13px; }
+/* NOTE tab: the content area becomes a flex column that lets the editor fill + the foot pin */
+.cc-dd-content-note { overflow: hidden; padding: 0; display: flex; flex-direction: column; }
+.cc-dd-note { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* a flex column so the editor (.cc-dw-cm { flex:1 }) fills the height; preview content scrolls */
+.cc-dd-note-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 8px 18px 2px var(--dd-pad); }
+.cc-dd-note-body .cc-dw-md { font-size: 13px; }
+/* margin-left (not padding) so the top divider lines up with the bars above, not the panel edge */
+.cc-dd-note-foot { flex: none; display: flex; margin-left: var(--dd-pad); padding: 6px 18px 10px 0; border-top: 1px solid color-mix(in srgb, var(--cc-line) 35%, transparent); }
 .cc-dd-sec { margin-bottom: 16px; }
 .cc-dd-sec-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 6px; }
 .cc-dd-sec-title { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; }
 .cc-dd-sec-count { font-size: 11px; opacity: 0.5; }
 .cc-dd-free { opacity: 0.6; font-style: italic; }
 .cc-dd-ddl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
-.cc-dd-ddl { display: flex; align-items: center; gap: 7px; }
+.cc-dd-ddl { display: flex; align-items: center; gap: 7px; cursor: pointer; border-radius: 5px; padding: 1px 4px; margin: 0 -4px; transition: background-color 0.1s ease; }
+.cc-dd-ddl:hover { background: color-mix(in srgb, var(--accent-grey) 14%, transparent); }
+.cc-dd-ddl:hover .cc-dd-ddl-title { color: var(--highlight); }
+.cc-dd-ddl:focus-visible { outline: 2px solid var(--highlight); outline-offset: 0; }
 .cc-dd-ddl-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ev-color, var(--accent-dark)); }
 .cc-dd-ddl-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-dd-ddl-when { flex: none; font-size: 11px; opacity: 0.6; }
@@ -100,7 +118,18 @@
 .cc-dtodo-main:hover { background: color-mix(in srgb, var(--accent-grey) 14%, transparent); }
 .cc-dtodo-main:focus-visible { outline: 2px solid var(--highlight); outline-offset: 0; }
 .cc-dtodo-main:hover .cc-dtodo-text { color: var(--highlight); }
-.cc-dtodo-text { font-size: 13px; line-height: 1.4; }
+.cc-dtodo-text { font-size: 13px; line-height: 1.4; position: relative; }
+/* completion animation: a strikethrough line sweeps left→right, then (after a hold, in JS) the
+   item moves to "Recently Completed". The text dims to grey as the line sweeps. */
+.cc-dtodo-completing .cc-dtodo-text { color: var(--accent-grey); transition: color var(--cc-strike, 420ms) ease-out; }
+.cc-dtodo-completing .cc-dtodo-main:hover .cc-dtodo-text { color: var(--accent-grey); }
+.cc-dtodo-completing .cc-dtodo-text::after {
+  content: ""; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px;
+  background: color-mix(in srgb, var(--accent-grey) 75%, transparent);
+  transform: translateY(-50%);
+  animation: cc-dtodo-strike var(--cc-strike, 420ms) ease-out forwards;
+}
+@keyframes cc-dtodo-strike { from { width: 0; } to { width: 100%; } }
 .cc-dtodo-event { color: var(--accent-grey); }
 .cc-dtodo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; line-height: 1.5; }
 .cc-dtodo-prio { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-weight: 800; letter-spacing: -0.05em; color: var(--event-red-border, #e5484d); }
@@ -739,9 +768,21 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
   transform: rotate(45deg);
 }
 .cc-md-check:disabled { cursor: default; opacity: 0.7; }
-/* dim + strike a completed task's text (not the checkbox itself) */
-.cc-dw-md li:has(> .cc-md-check:checked),
-.cc-dw-md li:has(> p > .cc-md-check:checked) { color: var(--accent-grey); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--accent-grey) 55%, transparent); }
+/* Completed task: an animated strikethrough that sweeps over the TEXT only (the .cc-md-tasktext
+   wrapper) via a background line whose width transitions — and dims to grey. Driven by `:checked`,
+   so it animates BOTH ways: check → left-to-right, uncheck → right-to-left. */
+.cc-md-tasktext {
+  background-image: linear-gradient(color-mix(in srgb, var(--accent-grey) 70%, transparent), color-mix(in srgb, var(--accent-grey) 70%, transparent));
+  background-repeat: no-repeat;
+  background-position: 0 58%;
+  background-size: 0% 1.5px;
+  transition: background-size 420ms ease, color 300ms ease;
+}
+.cc-dw-md li:has(> .cc-md-check:checked) .cc-md-tasktext,
+.cc-dw-md li:has(> p > .cc-md-check:checked) .cc-md-tasktext {
+  background-size: 100% 1.5px;
+  color: var(--accent-grey);
+}
 /* inline + block code */
 .cc-dw-md code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 0.88em; background: var(--accent-bg-dark); padding: 0.12em 0.4em; border-radius: 4px; }
 .cc-dw-md pre { background: var(--accent-bg-dark); padding: 11px 13px; border-radius: 8px; overflow-x: auto; margin: 0.8em 0; line-height: 1.5; }

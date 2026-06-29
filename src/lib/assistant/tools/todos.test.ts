@@ -3,7 +3,7 @@
 //   node <tmp>/todos.test.js
 // Exits non-zero on the first failure.
 
-import { tokenizeLine, parseTodos, indexTodos, toggleTodoLine, type TodoEventContext } from "./todos";
+import { tokenizeLine, parseTodos, parseDailyNoteTodos, indexTodos, toggleTodoLine, type TodoEventContext } from "./todos";
 
 let passed = 0;
 const failures: string[] = [];
@@ -229,6 +229,58 @@ eq("first due wins", tokenizeLine("a due:2026-01-01 b due:2026-02-02").due, "202
   const todos = parseTodos(ev, "2026-05-01");
   eq("empty: only the real task is indexed", todos.length, 1);
   eq("empty: it's the real one", todos[0].text, "real task");
+}
+
+// ── 14. parseDailyNoteTodos: daily-note provenance + own-day due inheritance ───────────────────
+{
+  const todos = parseDailyNoteTodos("2026-06-30", "# Plan\n- [ ] call the vendor p:!!\n- [ ] file report due:2026-07-05", "2026-06-30");
+  eq("daily: count", todos.length, 2);
+  eq("daily: source", todos[0].source, "daily");
+  eq("daily: dailyDate anchor", todos[0].dailyDate, "2026-06-30");
+  eq("daily: provenance title", todos[0].eventTitle, "Daily note · 2026-06-30");
+  eq("daily: eventKind", todos[0].eventKind, "daily");
+  eq("daily: empty eventId", todos[0].eventId, "");
+  eq("daily: line anchor", todos[0].line, 2);
+  eq("daily: due inherits the note's date", todos[0].due, "2026-06-30");
+  eq("daily: line due overrides", todos[1].due, "2026-07-05");
+  eq("daily: priority parsed", todos[0].priority, 2);
+  // empty checkbox lines are skipped here too
+  eq("daily: empty skipped", parseDailyNoteTodos("2026-06-30", "- [ ] \n- [ ] real").length, 1);
+  // no notes → no todos
+  eq("daily: null notes", parseDailyNoteTodos("2026-06-30", null).length, 0);
+}
+
+// ── 15. relative due:/start: keywords + offsets resolve against "today" ─────────────────────────
+{
+  const ev = (notes: string): TodoEventContext => ({
+    id: "r", kind: "timed", title: "T", color: "default", tags: [],
+    start: "2026-06-01T09:00:00", end: "2026-06-01T10:00:00", notes,
+  });
+  const at = (notes: string) => parseTodos(ev(notes), "2026-06-29")[0];
+  eq("due:today → today", at("- [ ] x due:today").due, "2026-06-29");
+  eq("due:tomorrow → +1", at("- [ ] x due:tomorrow").due, "2026-06-30");
+  eq("due:yesterday → −1", at("- [ ] x due:yesterday").due, "2026-06-28");
+  eq("due:3d → +3 days", at("- [ ] x due:3d").due, "2026-07-02");
+  eq("due:-3d → −3 days", at("- [ ] x due:-3d").due, "2026-06-26");
+  eq("due:2w → +2 weeks", at("- [ ] x due:2w").due, "2026-07-13");
+  eq("due:1m → +1 month", at("- [ ] x due:1m").due, "2026-07-29");
+  eq("due: explicit date still works", at("- [ ] x due:2026-12-25").due, "2026-12-25");
+  eq("due:today marks line source", at("- [ ] x due:today").dueSource, "line");
+  // start: keyword drives the defer/active flag
+  check("start:tomorrow → deferred (inactive)", at("- [ ] x start:tomorrow").active === false);
+  check("start:yesterday → active", at("- [ ] x start:yesterday").active === true);
+  eq("start:3d resolves", at("- [ ] x start:3d").start, "2026-07-02");
+  // works in a daily note too (the user's case)
+  eq("daily due:today", parseDailyNoteTodos("2026-06-30", "- [ ] ship due:today", "2026-06-29")[0].due, "2026-06-29");
+  eq("daily due:tomorrow", parseDailyNoteTodos("2026-06-30", "- [ ] ship due:tomorrow", "2026-06-29")[0].due, "2026-06-30");
+  // bare time → today at that time
+  eq("due:5pm → today 17:00", at("- [ ] x due:5pm").due, "2026-06-29T17:00");
+  eq("due:9am → today 09:00", at("- [ ] x due:9am").due, "2026-06-29T09:00");
+  eq("due:5:30pm → today 17:30", at("- [ ] x due:5:30pm").due, "2026-06-29T17:30");
+  eq("due:12pm → noon", at("- [ ] x due:12pm").due, "2026-06-29T12:00");
+  eq("due:12am → midnight", at("- [ ] x due:12am").due, "2026-06-29T00:00");
+  eq("due:17:00 (24h) → today 17:00", at("- [ ] x due:17:00").due, "2026-06-29T17:00");
+  eq("due:5pm still due today (date part)", (at("- [ ] x due:5pm").due ?? "").slice(0, 10), "2026-06-29");
 }
 
 // ── report ─────────────────────────────────────────────────────────────────────────────────────

@@ -123,7 +123,22 @@ export async function fetchTodos(): Promise<{ todos: ParsedTodo[]; today: string
   const res = await send("GET", "/api/calendar/todos");
   return (await res.json()) as { todos: ParsedTodo[]; today: string };
 }
+/** The soft-link anchor for the PATCH write — event notes or a daily note, depending on source. */
+export function todoCheckRef(t: ParsedTodo): { eventId: string; occurrenceKey: string | null; line: number } | { dailyDate: string; line: number } {
+  return t.source === "daily"
+    ? { dailyDate: t.dailyDate ?? "", line: t.line }
+    : { eventId: t.eventId, occurrenceKey: t.occurrenceKey, line: t.line };
+}
 /** Check/uncheck one TODO by its soft-link anchor; omit `checked` to toggle. Rewrites the line. */
-export function setTodoChecked(ref: { eventId: string; occurrenceKey: string | null; line: number }, checked?: boolean) {
+export function setTodoChecked(ref: ReturnType<typeof todoCheckRef>, checked?: boolean) {
   return send("PATCH", "/api/calendar/todos", { ...ref, ...(checked === undefined ? {} : { checked }) });
+}
+
+// ── Daily note (the daily-dashboard NOTE tab; one markdown note per day) ──
+export async function fetchDailyNote(date: string): Promise<string> {
+  const res = await send("GET", `/api/calendar/daily-note?date=${date}`);
+  return ((await res.json()) as { notes: string }).notes;
+}
+export function putDailyNote(date: string, notes: string) {
+  return send("PUT", "/api/calendar/daily-note", { date, notes });
 }

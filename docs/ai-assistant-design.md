@@ -803,6 +803,9 @@ is the remaining piece). Its model:
 
 - It **indexes checkboxes as pointer-references**, not copies — the markdown in the note stays the
   single source of truth. Checking a box in the view edits the underlying note line.
+  - **Sources:** checkboxes live in **event notes** (`source:"event"`) *and* in per-day **daily notes**
+    (`source:"daily"` — the daily-dashboard NOTE tab, stored in the `DailyNote` model; provenance shows
+    as "Daily note · YYYY-MM-DD"). Both are parsed into one index by `indexTodos()` + `parseDailyNoteTodos()`.
   - **Built:** `indexTodos()` / `toggleTodoLine()` in `src/lib/assistant/tools/todos.ts` (pure), and
     `GET /api/calendar/todos` (the index, with the user's main-tz `today`) + `PATCH /api/calendar/todos`
     (the soft-link write: check/uncheck one item by its `{eventId, occurrenceKey, line}` anchor,
