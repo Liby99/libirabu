@@ -5,30 +5,12 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   CalendarDays,
-  FolderKanban,
-  ListChecks,
-  Users,
-  FileText,
-  AlarmClock,
-  ScrollText,
-  KeyRound,
-  Banknote,
-  Plane,
   LogOut,
   type LucideIcon,
 } from "lucide-react";
 
 const ITEMS: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/calendar", label: "Calendar", Icon: CalendarDays },
-  { href: "/projects", label: "Projects", Icon: FolderKanban },
-  { href: "/tasks", label: "Tasks", Icon: ListChecks },
-  { href: "/people", label: "People", Icon: Users },
-  { href: "/papers", label: "Papers", Icon: FileText },
-  { href: "/deadlines", label: "Deadlines", Icon: AlarmClock },
-  { href: "/proposals", label: "Proposals", Icon: ScrollText },
-  { href: "/keys", label: "Keys", Icon: KeyRound },
-  { href: "/funding", label: "Funding", Icon: Banknote },
-  { href: "/travel", label: "Travel", Icon: Plane },
 ];
 
 export default function ActivityBar() {
