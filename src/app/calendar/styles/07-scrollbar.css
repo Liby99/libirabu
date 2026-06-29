@@ -1,0 +1,49 @@
+/* ── Timeline scrollbar (week view, on the leftmost day's left border) ── */
+.cc-tl-scrollbar { position: absolute; width: 0; z-index: 12; pointer-events: none; }
+/* the full-height dotted line = the leftmost day's left border */
+.cc-tl-scrollbar::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  border-left: 1px dotted var(--accent-grey);
+  transform: translateX(-50%);
+}
+.cc-tl-thumb {
+  position: absolute;
+  left: 0;
+  transform: translateX(-50%);
+  width: 8px; /* transparent grab area; the visible bar is the thin ::before */
+  pointer-events: auto;
+  cursor: grab;
+}
+.cc-tl-thumb::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--accent-grey);
+  transition: background-color 0.12s ease;
+}
+.cc-tl-thumb:active, .cc-tl-thumb.dragging { cursor: grabbing; }
+.cc-tl-thumb:hover::before,
+.cc-tl-thumb.dragging::before { background: var(--accent-dark); }
+.cc-tl-end {
+  position: absolute;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--background);
+  border: 1.5px solid var(--accent-grey);
+  transform: translateX(-50%);
+  cursor: ns-resize;
+  pointer-events: auto;
+  transition: border-color 0.12s ease;
+}
+.cc-tl-thumb:hover .cc-tl-end,
+.cc-tl-thumb.dragging .cc-tl-end { border-color: var(--accent-dark); }
+.cc-tl-end-top { top: -4.5px; }
+.cc-tl-end-bottom { bottom: -4.5px; }
+

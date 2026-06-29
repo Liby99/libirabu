@@ -1,0 +1,84 @@
+/* ── Deadlines (line + end circles, like the now/cursor lines) ─────── */
+.cc-deadlines { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+/* recurrence copies look like normal events; a small badge marks them (see .cc-rec-badge) */
+.cc-ddl-line {
+  position: absolute; top: 0; left: 0; height: 2px;
+  background: var(--ev-color, var(--accent-dark));
+  overflow: visible;
+}
+.cc-ddl-line::before, .cc-ddl-line::after {
+  content: ""; position: absolute; top: 50%;
+  width: 8px; height: 8px; box-sizing: border-box; border-radius: 50%;
+  background: var(--background); border: 1.5px solid var(--ev-color, var(--accent-dark));
+  transform: translateY(-50%);
+}
+.cc-ddl-line::before { left: -4px; }
+.cc-ddl-line::after { right: -4px; }
+.cc-ddl.selected .cc-ddl-line { height: 3px; }
+
+/* Two-line label (title + "HH:MM (AOE HH:MM)") attached beside the line — same colored
+   fill + border as an event, with a small caret pointing back to the line. */
+.cc-ddl-label {
+  position: absolute; top: 0; left: 0;
+  display: flex; flex-direction: column; gap: 1px;
+  max-width: 180px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--ev-fill);
+  border: 1px solid var(--ev-color);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+  pointer-events: auto;
+  cursor: grab;
+  white-space: nowrap;
+  transition: box-shadow 0.12s ease, border-color 0.12s ease;
+}
+/* overlapping deadline tags stack in DOM order; hovering lifts one above the others */
+.cc-ddl-label:hover { background: var(--ev-fill-hover, var(--ev-fill)); z-index: 5; }
+.cc-ddl.moving .cc-ddl-label { cursor: grabbing; box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3); }
+.cc-ddl.selected .cc-ddl-label {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
+}
+/* caret: a small triangle on the side facing the line cursor */
+.cc-ddl-label::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+}
+.cc-ddl-label-r::after { left: -10.5px; border-right-color: var(--ev-color); }   /* line is to the left */
+.cc-ddl-label-l::after { right: -10.5px; border-left-color: var(--ev-color); }   /* line is to the right */
+/* Daily view: label sits over the left of the day column (no caret); title clips to the column. */
+.cc-ddl-label-daily { overflow: hidden; }
+.cc-ddl-label-daily::after { display: none; }
+.cc-ddl-label-daily .cc-ddl-title { overflow: hidden; text-overflow: ellipsis; }
+.cc-ddl-title {
+  font-family: var(--font-handwriting), cursive;
+  font-size: 12px; font-weight: 400; line-height: 1.05;
+  color: var(--accent-dark);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.cc-ddl-time { font-size: 8.5px; line-height: 1.1; color: var(--accent-dark); opacity: 0.72; }
+/* A deadline label with badges (AI spark / recurrence mark) gets extra right padding so the
+   icons sit in their own space instead of overlapping the title/time. Sized by badge count. */
+.cc-ddl-label:has(.cc-badge) { padding-right: 18px; }
+.cc-ddl-label:has(.cc-badge + .cc-badge) { padding-right: 28px; }
+
+/* The quick-add (+) circle on a day column's left edge at the nearest hour line. */
+.cc-ddl-add {
+  position: absolute; top: 0; left: 0;
+  width: 15px; height: 15px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--cc-cursor);
+  border-radius: 50%;
+  background: var(--background);
+  color: var(--accent-dark);
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.3);
+  z-index: 8;
+}
+.cc-ddl-add:hover { background: var(--cc-cursor); }
+

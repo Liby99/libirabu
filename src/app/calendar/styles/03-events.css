@@ -1,0 +1,178 @@
+/* ── Events (the only colored element) ───────────────────────────── */
+/* Transparent fill + solid colored border, rounded. --ev-fill/--ev-color come from
+   the cc-ev-* classes below (theme-aware). No will-change — too many events would
+   each force a compositor layer. */
+.cc-event {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: 4px;
+  background: var(--ev-fill);
+  border: 1px solid var(--ev-color);
+  color: var(--accent-dark);
+}
+.cc-event span { overflow: hidden; text-overflow: ellipsis; }
+.cc-ev-red { --ev-fill: var(--event-red); --ev-fill-hover: var(--event-red-hover); --ev-color: var(--event-red-border); }
+.cc-ev-blue { --ev-fill: var(--event-blue); --ev-fill-hover: var(--event-blue-hover); --ev-color: var(--event-blue-border); }
+.cc-ev-yellow { --ev-fill: var(--event-yellow); --ev-fill-hover: var(--event-yellow-hover); --ev-color: var(--event-yellow-border); }
+.cc-ev-green { --ev-fill: var(--event-green); --ev-fill-hover: var(--event-green-hover); --ev-color: var(--event-green-border); }
+.cc-ev-purple { --ev-fill: var(--event-purple); --ev-fill-hover: var(--event-purple-hover); --ev-color: var(--event-purple-border); }
+.cc-ev-default { --ev-fill: var(--event-default); --ev-fill-hover: var(--event-default-hover); --ev-color: var(--event-default-border); }
+/* extra palette (literal so they're consistent across themes) */
+.cc-ev-orange { --ev-fill: rgba(236, 152, 70, 0.2); --ev-fill-hover: rgba(236, 152, 70, 0.3); --ev-color: rgba(236, 152, 70, 1); }
+.cc-ev-cyan { --ev-fill: rgba(104, 196, 206, 0.2); --ev-fill-hover: rgba(104, 196, 206, 0.3); --ev-color: rgba(104, 196, 206, 1); }
+.cc-ev-darkgreen { --ev-fill: rgba(104, 146, 86, 0.22); --ev-fill-hover: rgba(104, 146, 86, 0.32); --ev-color: rgba(104, 146, 86, 1); }
+.cc-ev-indigo { --ev-fill: rgba(124, 150, 226, 0.2); --ev-fill-hover: rgba(124, 150, 226, 0.3); --ev-color: rgba(124, 150, 226, 1); }
+
+/* ── Interactive timed events (week-view timeline) ───────────────── */
+/* z:4 → above the hover/today tints (z:3) so highlights sit BELOW events, but below
+   the now-line (z:6), cursor (z:7) and hour labels (z:9). */
+.cc-events { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.cc-create-surface { position: absolute; pointer-events: auto; cursor: crosshair; }
+/* clips the hourly area to the visible window; inner layer scrolls via translateY */
+.cc-events-clip { position: absolute; left: 0; overflow: hidden; pointer-events: none; }
+.cc-events-scroll { position: absolute; inset: 0; }
+
+/* all-day (band) events live on the track lanes */
+.cc-band-events { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.cc-band-create-surface { position: absolute; pointer-events: auto; cursor: crosshair; }
+/* promoted timed/deadline events: read-only 1-day ghost bands on the lanes; drag = change lane */
+.cc-promoted-layer { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.cc-promoted { cursor: grab; }
+.cc-promoted.moving { cursor: grabbing; }
+.cc-tevent-band .cc-tevent-inner { justify-content: center; } /* title only → vertically centered */
+/* A band title may be longer than its (possibly single-day) bar — let it overflow
+   rightward into adjacent empty cells instead of truncating. The compound selector
+   (.cc-tevent.cc-tevent-band) outweighs the base `.cc-tevent { overflow: hidden }`. */
+.cc-tevent.cc-tevent-band, .cc-tevent-band .cc-tevent-inner { overflow: visible; }
+.cc-tevent-band .cc-tevent-title { overflow: visible; text-overflow: clip; display: inline-block; width: fit-content; align-self: flex-start; }
+/* clip the title to the distance to the next event on the same lane */
+.cc-band-clip .cc-tevent-title { max-width: var(--band-gap); overflow: hidden; text-overflow: ellipsis; }
+/* hovered: show the full title; the frosted mask (.cc-band-mask) sits behind the spill */
+.cc-band-raised .cc-tevent-title { max-width: none; overflow: visible; }
+.cc-band-mask {
+  position: absolute; /* left/top/width/height/z-index set inline (positioned in .cc-band-events) */
+  background: color-mix(in srgb, var(--background) 80%, transparent);
+  -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  border-radius: 0 5px 5px 0;
+  pointer-events: none;
+}
+/* Give the inline title editor room to type even on a one-day bar (it overflows right). */
+.cc-tevent-band .cc-tevent-title-input { min-width: 100px; }
+
+/* Two-layer event. OUTER: rounded clip (no border), translucent fill + blur. */
+.cc-tevent {
+  display: flex;
+  overflow: hidden;
+  border: 1px dotted transparent; /* reserved so the selected ring fades in without a shift */
+  border-radius: 7px;
+  background: var(--ev-fill);
+  color: var(--accent-dark);
+  cursor: grab;
+  /* Blur what shows through the translucent fill (events behind, gridlines) so the
+     overlapping borders/text don't fight this event's own text. (Safari: -webkit-) */
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  transition: background-color 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+/* Animate the reflow only in the brief window after a resize/create (when nothing
+   else is moving) — never during zoom/pan, which drive transform every frame. */
+.cc-events-animating .cc-tevent { transition: transform 0.2s ease, width 0.2s ease, background-color 0.12s ease, box-shadow 0.12s ease; }
+.cc-tevent:hover {
+  background: var(--ev-fill-hover, var(--ev-fill));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  z-index: 1; /* lift above neighbouring events while hovered */
+}
+/* Selected: thin dotted ring on the outer + brought to the front. */
+.cc-tevent.selected {
+  border: 1px dotted var(--ev-color);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.24);
+  z-index: 20;
+}
+/* Moving: lifted above everything while dragging across the grid. */
+.cc-tevent.moving {
+  cursor: grabbing;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3);
+  z-index: 25;
+}
+
+/* INNER: inset 2px, rounded; default = 3px left accent bar, selected = full 1px outline. */
+.cc-tevent-inner {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin: 4px;
+  padding: 1px 6px 1px 4px; /* tighter left padding → title sits close to the accent bar */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 2px;
+  border-left: 1px solid var(--ev-color); /* normal: 1px left bar */
+  transition: border-left-width 0.12s ease, border-color 0.12s ease;
+}
+.cc-tevent.selected .cc-tevent-inner {
+  border-left: 3px solid var(--ev-color); /* selected: thicker 3px left bar */
+}
+
+.cc-tevent-title {
+  font-family: var(--font-handwriting), cursive;
+  font-size: 13px;
+  font-weight: 400; /* Comic Sans only has 400/700 — 600 rounded up to Bold (too thick) */
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+/* Hourly events: wrap the title and clamp to a whole number of lines (set per-event via
+   --title-lines / WebkitLineClamp) at a fixed line-height, so a line is never half-cut. */
+.cc-tevent:not(.cc-tevent-band) .cc-tevent-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 14px;
+}
+.cc-tevent-tiny .cc-tevent-title { font-size: 10px; line-height: 11px; }
+.cc-tevent-tiny .cc-tevent-inner { margin-top: 0; margin-bottom: 0; }
+.cc-tevent-tiny .cc-tevent-time, .cc-tevent-short .cc-tevent-time { display: none; }
+.cc-tevent-title-input {
+  width: 100%; border: none; outline: none; padding: 0;
+  background: transparent; color: inherit;
+  font-family: var(--font-handwriting), cursive;
+  font-size: 13px; font-weight: 400; line-height: 1.05;
+}
+.cc-tevent-time { font-size: 8.5px; opacity: 0.72; white-space: nowrap; }
+.cc-tevent-handle { position: absolute; left: 0; right: 0; height: 6px; cursor: ns-resize; z-index: 1; }
+.cc-tevent-handle-top { top: 0; }
+.cc-tevent-handle-bottom { bottom: 0; }
+/* Band events resize horizontally (change start/end day) — vertical edge handles. */
+.cc-tevent-handle-x { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 2; }
+.cc-tevent-handle-left { left: -2px; }
+.cc-tevent-handle-right { right: -2px; }
+
+.cc-tevent-preview {
+  position: absolute;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent-dark) 12%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent-dark) 70%, transparent);
+  pointer-events: none;
+}
+
+/* The drawer opens on double-click (no per-event button). */
+
+/* Shared color swatch (drawer + right-click callout). */
+.cc-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--ev-color);
+  cursor: pointer;
+}
+.cc-swatch.sel { border-color: var(--accent-dark); }
+

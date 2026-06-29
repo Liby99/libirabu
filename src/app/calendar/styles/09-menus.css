@@ -1,0 +1,200 @@
+/* ── Breadcrumb bar ──────────────────────────────────────────────── */
+.cc-bar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: var(--cc-bar-h, 32px); /* bridged from TS BAR_H (see CalendarCanvas); 32px is the fallback */
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  z-index: 20;                 /* above every scene item (max item z = 11) so it occludes scrolling content */
+  font-size: 0.8rem;
+  pointer-events: none;
+  background: var(--background);
+  border-bottom: 1px solid var(--accent-grey);
+}
+.cc-crumbs { display: flex; align-items: center; gap: 4px; pointer-events: auto; }
+.cc-crumb {
+  background: none; border: none; cursor: pointer;
+  font-size: 0.85rem; color: var(--accent-dark);
+  padding: 2px 6px; border-radius: 5px;
+}
+.cc-crumb:hover { background: var(--accent-bg); color: var(--highlight); }
+.cc-crumb.current { font-weight: 700; color: var(--highlight); }
+.cc-sep { color: var(--accent-grey); font-size: 0.8rem; }
+.cc-hint { color: var(--accent-grey); font-size: 0.72rem; }
+.cc-caret { margin-left: 5px; font-size: 0.62rem; vertical-align: middle; }
+
+/* Year dropdown (custom; anchored under the year crumb) */
+.cc-year-wrap { position: relative; }
+.cc-year-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 92px;
+  padding: 4px;
+  background: var(--background);
+  border: 1px solid var(--accent-grey);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  z-index: 30;
+}
+.cc-year-opt {
+  text-align: left;
+  padding: 5px 10px;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  color: var(--accent-dark);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.cc-year-opt:hover { background: var(--accent-bg); }
+.cc-year-opt.sel { background: var(--accent-bg-dark); color: var(--highlight); font-weight: 700; }
+/* Alt-timezone dropdown lives on the right → align its menu to the button's right edge. */
+.cc-tz-menu { left: auto; right: 0; min-width: 130px; }
+
+/* Right-side action buttons (Current Week / Back to Current Year) */
+.cc-bar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; pointer-events: auto; }
+.cc-action {
+  border: 1px solid var(--accent-grey);
+  background: var(--background);
+  color: var(--accent-dark);
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cc-action:hover { background: var(--accent-bg); }
+.cc-action:disabled { opacity: 0.4; cursor: default; }
+.cc-action:disabled:hover { background: var(--background); }
+.cc-action-accent { border-color: var(--highlight); color: var(--highlight); }
+.cc-action-icon { padding: 3px 8px; font-size: 0.9rem; line-height: 1; }
+.cc-action-sm { padding: 2px 7px; font-size: 0.68rem; border-radius: 5px; }
+/* borderless (menubar-style) — transparent border keeps the box height aligned with peers */
+.cc-action-plain { border-color: transparent; }
+
+/* Edit menu (macOS / Google-Docs-style command dropdown) */
+.cc-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 4px;
+  background: var(--background);
+  border: 1px solid var(--accent-grey);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  z-index: 30;
+}
+.cc-menu-left { right: auto; left: 0; min-width: 150px; } /* Nav menu sits at the bar's left → align under it */
+/* Transparent mask under an open top-bar menu: covers the canvas (below the menu z:30, above the
+   bar's content) so a click off the menu only closes it. Lives in .cc-bar (z:20 context). */
+.cc-bar-mask { position: fixed; inset: 0; z-index: 28; background: transparent; }
+.cc-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  color: var(--accent-dark);
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cc-menu-item:hover { background: var(--accent-bg); }
+.cc-menu-item:disabled { opacity: 0.38; cursor: default; }
+.cc-menu-item:disabled:hover { background: none; }
+.cc-menu-item.sel { color: var(--highlight); font-weight: 700; }
+.cc-menu-sc { color: var(--accent-grey); font-size: 0.72rem; }
+.cc-menu-sep { height: 1px; margin: 4px 6px; background: var(--accent-grey); opacity: 0.5; }
+.cc-menu-sub { position: relative; }
+/* flyout opens to the LEFT (the menu hugs the right edge of the bar); flush so the
+   pointer can cross into it without passing over a gap that would close it. */
+.cc-submenu {
+  position: absolute;
+  top: -5px;
+  right: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--background);
+  border: 1px solid var(--accent-grey);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  z-index: 31;
+}
+
+/* Tag filter dropdown */
+.cc-tag-menu { min-width: 232px; gap: 6px; }
+/* Tag filter as a View-menu flyout: don't scroll the flyout itself (the list scrolls); column gap matches the standalone menu */
+.cc-tag-submenu { min-width: 232px; gap: 6px; overflow: visible; max-height: none; }
+.cc-tag-allrow { display: flex; gap: 6px; padding: 2px 2px 0; }
+.cc-tag-all {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--accent-grey);
+  background: none;
+  border-radius: 6px;
+  color: var(--accent-dark);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.cc-tag-all:hover { background: var(--accent-bg); }
+.cc-tag-search {
+  margin: 0 2px;
+  padding: 5px 8px;
+  border: 1px solid var(--accent-grey);
+  background: var(--background);
+  border-radius: 6px;
+  color: var(--accent-dark);
+  font-size: 0.78rem;
+  outline: none;
+}
+.cc-tag-search:focus { border-color: var(--highlight); }
+.cc-tag-list { display: flex; flex-direction: column; max-height: 46vh; overflow-y: auto; }
+.cc-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  color: var(--accent-dark);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.cc-tag-row:hover { background: var(--accent-bg); }
+.cc-tag-check {
+  flex: none;
+  width: 15px; height: 15px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--accent-grey);
+  border-radius: 4px;
+  font-size: 0.66rem; line-height: 1;
+  color: var(--highlight);
+}
+.cc-tag-row.on .cc-tag-check { border-color: var(--highlight); background: var(--accent-bg-dark); }
+.cc-tag-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* an off tag reads dimmed (its events are hidden) */
+.cc-tag-row:not(.on) .cc-tag-name { opacity: 0.5; }
+.cc-tag-untagged { font-style: italic; color: var(--accent-grey); }
+.cc-tag-count { flex: none; color: var(--accent-grey); font-size: 0.72rem; }
+.cc-tag-empty { padding: 8px; color: var(--accent-grey); font-size: 0.78rem; text-align: center; }
+

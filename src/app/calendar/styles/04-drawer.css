@@ -1,0 +1,185 @@
+/* ── Event detail drawer (right side, screen height) ─────────────── */
+/* The shell slides left to reveal the event, so the drawer needs no dimming backdrop. */
+@keyframes ccDrawerIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.cc-drawer {
+  position: fixed;
+  top: 0; right: 0;
+  height: 100vh;
+  width: var(--cc-drawer-w);
+  z-index: 50;
+  animation: ccDrawerIn 0.28s ease;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  border-left: 1px solid var(--accent-grey);
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.16);
+}
+/* .cc-drawer is now a base-only class: positioning + slide-in animation. Its former
+   inner sub-classes (.cc-drawer-head / -x / -body / -foot / -note / -delete, .cc-field*,
+   .cc-swatches) were superseded by the .cc-dw redesign below and have been removed. */
+
+/* ── Redesigned drawer (cc-dw): name as the top row, label-less dashed rows, a markdown
+   notepad filling the rest, a single trash icon bottom-right. ───────────── */
+/* NOTE: do NOT set position here — the parent .cc-drawer is position:fixed and must stay
+   so (it's also the containing block for the absolute trash button). */
+.cc-dw { padding: 16px 16px 0; }
+/* Left-edge resize handle: drag to widen the drawer; the whole page shifts with it via
+   --cc-drawer-w (min = the default width, grow-only). */
+.cc-dw-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 10; }
+.cc-dw-resize:hover { background: color-mix(in srgb, var(--accent-dark) 14%, transparent); }
+body.cc-drawer-resizing { cursor: ew-resize; user-select: none; }
+body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag without lag */
+.cc-dw-name {
+  border: none; background: none; outline: none; width: 100%;
+  font-family: var(--font-handwriting), cursive;
+  font-size: 1.12rem; font-weight: 700; line-height: 1.1; color: var(--accent-dark);
+  padding: 0 26px 2px 0; /* right room for the close (X) button */
+}
+.cc-dw-name::placeholder { color: var(--accent-grey); }
+/* last-resort close button, top-right of the drawer */
+.cc-dw-close {
+  position: absolute; top: 13px; right: 13px; z-index: 11;
+  display: flex; padding: 4px; border: none; background: none; cursor: pointer;
+  color: var(--accent-grey); border-radius: 6px; transition: color 0.12s, background-color 0.12s;
+}
+.cc-dw-close:hover { color: var(--accent-dark); background: var(--accent-bg); }
+.cc-dw-rows { display: flex; flex-direction: column; }
+/* New drawer layout: title · time · divider · config collapse · divider · note · editor · foot */
+.cc-dw-time { display: flex; flex-direction: column; flex: none; }
+.cc-dw-time .cc-dw-row { border-top: none; padding-top: 2px; padding-bottom: 2px; } /* sits right under the title — no separator */
+.cc-dw-time .cc-dw-row + .cc-dw-row { padding-top: 0; } /* tighten the gap between the recurring This-Event / Initial-Date rows */
+.cc-dw-initrow { padding-bottom: 9px; } /* breathing room below the Initial Event Date line */
+.cc-dw-initgoto { margin-left: auto; padding: 5px; } /* go-to-first button pinned to the row's right edge */
+.cc-dw-divider { border: none; border-top: 1px solid var(--accent-grey); opacity: 0.65; margin: 5px 0; flex: none; }
+.cc-dw-config { flex: none; }
+.cc-dw-config-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 5px; width: 100%;
+  padding: 5px 1px; border: none; background: none; cursor: pointer;
+  font-size: 0.74rem; font-weight: 600; letter-spacing: 0.01em; color: var(--accent-grey);
+}
+.cc-dw-config-head:hover { color: var(--accent-dark); }
+.cc-dw-config-chevron { flex: none; transition: transform 0.22s ease; }
+.cc-dw-config.open .cc-dw-config-chevron { transform: rotate(180deg); }
+/* animated collapse: grid 0fr→1fr smoothly expands/collapses the clipped body */
+.cc-dw-config-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.24s ease; }
+.cc-dw-config.open .cc-dw-config-wrap { grid-template-rows: 1fr; }
+.cc-dw-config-body { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.cc-dw-config-body > :first-child { border-top: none; } /* first config row needs no separator under the header */
+/* color picker now sits right under the time — no separator, minimal margin */
+.cc-dw-row.cc-dw-colors { border-top: none; padding-top: 0; }
+.cc-dw-noterow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 1px 1px 2px; flex: none; }
+.cc-dw-notelabel { font-size: 0.74rem; font-weight: 600; color: var(--accent-grey); }
+.cc-dw-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 8px 1px;
+  border-top: 1px dashed var(--accent-grey);
+}
+.cc-dw-row input, .cc-dw-row select {
+  border: none; background: none; outline: none;
+  font: inherit; font-size: 0.74rem; color: var(--accent-dark);
+  padding: 1px 0;
+}
+.cc-dw-row select { cursor: pointer; }
+.cc-dw-label { font-size: 0.72rem; color: var(--accent-grey); }
+.cc-dw-occ { font-size: 0.82rem; color: var(--accent-dark); font-weight: 500; } /* the recurring occurrence date, beside "This Event:" */
+.cc-dw-promote { flex-wrap: wrap; row-gap: 6px; } /* track picker wraps below if the row is tight */
+.cc-dw-dash { color: var(--accent-grey); }
+.cc-dw-swatches { gap: 7px; }
+.cc-dw-hint { font-size: 0.68rem; color: var(--accent-grey); }
+.cc-dw-time .cc-dw-row.cc-dw-hint { padding-bottom: 5px; } /* a little more gap before the color picker below */
+/* Markdown notes — a CodeMirror editor that fills the rest of the drawer. */
+/* recurring events: Series | This-event note tabs sitting just above the notepad */
+.cc-dw-notetabs { flex: none; }
+.cc-dw-notetabs .cc-seg-btn { white-space: nowrap; padding: 3px 9px; }
+.cc-dw-tab-date { opacity: 0.7; } /* the occurrence date appended to the "This event" tab */
+.cc-dw-cm {
+  flex: 1; min-height: 80px; width: 100%; overflow: hidden;
+}
+.cc-dw-cm .cm-editor { height: 100%; position: relative; }
+.cc-dw-cm .cm-placeholder { color: var(--accent-grey); }
+/* overlay the search widget at the bottom (don't push the text up) — the host is
+   transparent; the .cc-cm-search card is the only visible chrome */
+.cc-dw-cm .cm-panels-bottom { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; }
+
+/* Markdown PREVIEW (read render of the notes; toggled against the editor in the foot). */
+.cc-dw-md {
+  flex: 1; min-height: 80px; width: 100%; overflow-y: auto;
+  padding: 3px 2px 44px; /* bottom space clears the absolute foot */
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  font-size: 0.82rem; line-height: 1.65; color: var(--accent-dark); word-break: break-word;
+  /* the drawer is portaled into <body>, which sets user-select:none — re-enable selection */
+  user-select: text; -webkit-user-select: text; cursor: auto;
+}
+.cc-dw-md > :first-child { margin-top: 0; }
+.cc-dw-md > :last-child { margin-bottom: 0; }
+/* headings */
+.cc-dw-md h1, .cc-dw-md h2, .cc-dw-md h3, .cc-dw-md h4, .cc-dw-md h5, .cc-dw-md h6 {
+  margin: 1.3em 0 0.5em; line-height: 1.3; font-weight: 700; letter-spacing: -0.01em;
+}
+.cc-dw-md h1 { font-size: 1.4rem; padding-bottom: 0.2em; border-bottom: 1px solid var(--accent-grey); }
+.cc-dw-md h2 { font-size: 1.18rem; padding-bottom: 0.18em; border-bottom: 1px solid color-mix(in srgb, var(--accent-grey) 60%, transparent); }
+.cc-dw-md h3 { font-size: 1.03rem; }
+.cc-dw-md h4 { font-size: 0.92rem; }
+.cc-dw-md h5, .cc-dw-md h6 { font-size: 0.85rem; color: var(--accent-grey); }
+.cc-dw-md p { margin: 0.6em 0; }
+/* lists — Tailwind's preflight strips markers; restore disc / decimal */
+.cc-dw-md ul, .cc-dw-md ol { margin: 0.6em 0; padding-left: 2.2em; }
+.cc-dw-md ul { list-style: disc outside; }
+.cc-dw-md ol { list-style: decimal outside; }
+.cc-dw-md ul ul { list-style-type: circle; }
+.cc-dw-md ul ul ul { list-style-type: square; }
+.cc-dw-md li { margin: 0.2em 0; }
+.cc-dw-md li::marker { color: var(--accent-grey); }
+/* GFM task lists keep the list bullet (inheriting disc/circle/square per nesting); the
+   interactive checkbox sits just before the label, with a small gap from the bullet. */
+.cc-dw-md li:has(.cc-md-check) .cc-md-check:first-child,
+.cc-dw-md li:has(.cc-md-check) > .cc-md-check { margin-left: 0.2em; }
+.cc-md-check {
+  appearance: none; -webkit-appearance: none;
+  flex: none; box-sizing: border-box;
+  width: 16px; height: 16px; margin: 0 0.5em 0 0; vertical-align: -3px;
+  border: 1.5px solid var(--accent-grey); border-radius: 5px;
+  background: transparent; cursor: pointer; position: relative;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+.cc-md-check:hover { border-color: var(--accent-dark); }
+.cc-md-check:active { transform: scale(0.9); }
+.cc-md-check:checked { background: var(--highlight); border-color: var(--highlight); }
+.cc-md-check:checked::after {
+  content: ""; position: absolute; left: 4.5px; top: 1px;
+  width: 4px; height: 8px; border: solid var(--background); border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.cc-md-check:disabled { cursor: default; opacity: 0.7; }
+/* Completed task: an animated strikethrough that sweeps over the TEXT only (the .cc-md-tasktext
+   wrapper) via a background line whose width transitions — and dims to grey. Driven by `:checked`,
+   so it animates BOTH ways: check → left-to-right, uncheck → right-to-left. */
+.cc-md-tasktext {
+  background-image: linear-gradient(color-mix(in srgb, var(--accent-grey) 70%, transparent), color-mix(in srgb, var(--accent-grey) 70%, transparent));
+  background-repeat: no-repeat;
+  background-position: 0 58%;
+  background-size: 0% 1.5px;
+  transition: background-size 420ms ease, color 300ms ease;
+}
+.cc-dw-md li:has(> .cc-md-check:checked) .cc-md-tasktext,
+.cc-dw-md li:has(> p > .cc-md-check:checked) .cc-md-tasktext {
+  background-size: 100% 1.5px;
+  color: var(--accent-grey);
+}
+/* inline + block code */
+.cc-dw-md code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 0.88em; background: var(--accent-bg-dark); padding: 0.12em 0.4em; border-radius: 4px; }
+.cc-dw-md pre { background: var(--accent-bg-dark); padding: 11px 13px; border-radius: 8px; overflow-x: auto; margin: 0.8em 0; line-height: 1.5; }
+.cc-dw-md pre code { background: none; padding: 0; font-size: 0.85em; }
+/* emphasis, links, rules, quotes */
+.cc-dw-md a { color: var(--highlight); text-decoration: underline; text-underline-offset: 2px; }
+.cc-dw-md a:hover { text-decoration-thickness: 2px; }
+.cc-dw-md blockquote { margin: 0.8em 0; padding: 0.2em 0 0.2em 0.9em; border-left: 3px solid var(--accent-grey); color: var(--accent-grey); }
+.cc-dw-md hr { border: none; border-top: 1px solid var(--accent-grey); margin: 1.3em 0; }
+/* tables */
+.cc-dw-md table { border-collapse: collapse; margin: 0.8em 0; font-size: 0.95em; display: block; overflow-x: auto; }
+.cc-dw-md th, .cc-dw-md td { border: 1px solid var(--accent-grey); padding: 4px 9px; text-align: left; }
+.cc-dw-md th { background: var(--accent-bg-dark); font-weight: 700; }
+.cc-dw-md img { max-width: 100%; border-radius: 6px; }
+/* KaTeX block math: centered with breathing room, scroll if too wide */
+.cc-dw-md .katex-display { margin: 0.9em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+

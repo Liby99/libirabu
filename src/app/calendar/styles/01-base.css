@@ -1,0 +1,201 @@
+/* Animated semantic-zoom calendar.
+   Color comes only from event stickers; everything else is structure drawn with
+   dotted/dashed/solid lines (thicker/solid = higher precedence). All colors are
+   theme-driven (light/dark) via the GridCal CSS variables. */
+
+/* ── Shell & layers ──────────────────────────────────────────────── */
+.cc-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--background);
+  cursor: default;
+  user-select: none;
+  isolation: isolate; /* contained stacking context for item z-indexes */
+
+  /* line colors shared across items */
+  --cc-grid: var(--accent-grey);     /* faint dotted cell borders */
+  --cc-grid-top: var(--accent-grey); /* dotted lane separators */
+  --cc-line: var(--accent-dark);     /* dotted/dashed grid lines */
+  --cc-sep: color-mix(in srgb, var(--accent-dark) 55%, transparent); /* solid separators (dimmed) */
+  --cc-now: #ff3b6b;                                      /* bright pink-red current-time line + dots */
+  --cc-today: color-mix(in srgb, #ff3b6b 7%, transparent); /* faint tint marking today's day column */
+  --cc-weekend: color-mix(in srgb, var(--accent-dark) 4%, transparent); /* very tiny Sat/Sun wash */
+  --cc-cursor: color-mix(in srgb, var(--accent-dark) 20%, white); /* white tinted toward the accent (mouse time cursor) */
+}
+.cc-wrap.cc-clickable { cursor: pointer; } /* over the clickable month name */
+.cc-layer { position: absolute; inset: 0; }
+
+/* Daily view (z=3) right-hand panel. cc-daily-dash is a FIXED clipping mask (opaque bg occludes the
+   grid sliding under it; below the drawer). cc-daily-inner-dash are the carousel panels that move. */
+.cc-daily-dash {
+  position: absolute;
+  z-index: 14;
+  background: var(--background);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.cc-daily-inner-dash {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  will-change: transform, opacity;
+}
+/* Shared left inset so the bars and all text align on the left. */
+.cc-daily-inner-dash { --dd-pad: 25px; }
+/* the two horizontal bars — same color/height as the track band's top border & bottom divider */
+.cc-dd-bar { flex: none; height: 1px; margin-left: var(--dd-pad); background: color-mix(in srgb, var(--cc-line) 58%, transparent); }
+/* title zone fills the band region; title bottom-LEFT, the TODO/NOTE tabs bottom-RIGHT */
+.cc-dd-titlezone { flex: none; display: flex; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 10px; padding: 0 18px 7px var(--dd-pad); box-sizing: border-box; overflow: hidden; }
+.cc-dd-titlemain { min-width: 0; overflow: hidden; }
+.cc-dd-name { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; margin-bottom: 3px; }
+.cc-dd-date { font-size: 19px; font-weight: 500; line-height: 1.2; }
+.cc-dd-special { color: var(--accent-dark); opacity: 0.7; font-weight: 400; }
+/* TODO/NOTE tabs: text-only, no border/background — not even when selected (selection = full
+   opacity + bold). Overrides the shared .cc-seg / .cc-seg-btn chrome. */
+.cc-dd-tabs.cc-seg { flex: none; border: none; border-radius: 0; overflow: visible; gap: 4px; margin-bottom: 2px; }
+.cc-dd-tabs .cc-seg-btn { border: none; background: none; padding: 2px 5px; font-size: 11px; letter-spacing: 0.08em; opacity: 0.4; }
+.cc-dd-tabs .cc-seg-btn:hover { opacity: 0.75; background: none; }
+.cc-dd-tabs .cc-seg-btn.sel { background: none; opacity: 1; font-weight: 700; color: var(--accent-dark); }
+/* scrollable content below the lower bar: upcoming deadlines, then the TODO list */
+.cc-dd-content { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 18px 16px var(--dd-pad); font-size: 13px; }
+/* NOTE tab: the content area becomes a flex column that lets the editor fill + the foot pin */
+.cc-dd-content-note { overflow: hidden; padding: 0; display: flex; flex-direction: column; }
+.cc-dd-note { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* a flex column so the editor (.cc-dw-cm { flex:1 }) fills the height; preview content scrolls */
+.cc-dd-note-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 8px 18px 2px var(--dd-pad); }
+.cc-dd-note-body .cc-dw-md { font-size: 13px; }
+/* margin-left (not padding) so the top divider lines up with the bars above, not the panel edge */
+.cc-dd-note-foot { flex: none; display: flex; margin-left: var(--dd-pad); padding: 6px 18px 10px 0; border-top: 1px solid color-mix(in srgb, var(--cc-line) 35%, transparent); }
+.cc-dd-sec { margin-bottom: 16px; }
+.cc-dd-sec-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 6px; }
+.cc-dd-sec-title { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; }
+.cc-dd-sec-count { font-size: 11px; opacity: 0.5; }
+.cc-dd-free { opacity: 0.6; font-style: italic; }
+.cc-dd-ddl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.cc-dd-ddl { display: flex; align-items: center; gap: 7px; cursor: pointer; border-radius: 5px; padding: 1px 4px; margin: 0 -4px; transition: background-color 0.1s ease; }
+.cc-dd-ddl:hover { background: color-mix(in srgb, var(--accent-grey) 14%, transparent); }
+.cc-dd-ddl:hover .cc-dd-ddl-title { color: var(--highlight); }
+.cc-dd-ddl:focus-visible { outline: 2px solid var(--highlight); outline-offset: 0; }
+.cc-dd-ddl-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ev-color, var(--accent-dark)); }
+.cc-dd-ddl-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-dd-ddl-when { flex: none; font-size: 11px; opacity: 0.6; }
+
+/* ── Daily TODO list (grouped topics over the cross-event index) ───────────── */
+.cc-dtodo-empty { opacity: 0.5; font-size: 13px; padding: 6px 0; }
+
+.cc-dtodo-sec { margin: 0 0 16px; }
+.cc-dtodo-sec-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.cc-dtodo-sec-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--accent-dark); opacity: 0.7;
+}
+.cc-dtodo-sec-count {
+  font-size: 10px; font-weight: 600; line-height: 1; padding: 2px 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-grey) 18%, transparent); color: var(--accent-dark); opacity: 0.7;
+}
+
+.cc-dtodo-list { list-style: none; margin: 0; padding: 0; }
+.cc-dtodo { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; }
+.cc-dtodo-check {
+  appearance: none; -webkit-appearance: none; flex: none; box-sizing: border-box;
+  width: 15px; height: 15px; margin-top: 2px;
+  border: 1.5px solid var(--accent-grey); border-radius: 5px; background: transparent; cursor: pointer;
+  position: relative; transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+.cc-dtodo-check:hover { border-color: var(--accent-dark); }
+.cc-dtodo-check:active { transform: scale(0.9); }
+.cc-dtodo-check:checked { background: var(--highlight); border-color: var(--highlight); }
+.cc-dtodo-check:checked::after {
+  content: ""; position: absolute; left: 4px; top: 0.5px;
+  width: 4px; height: 8px; border: solid var(--background); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+
+.cc-dtodo-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; cursor: pointer; border-radius: 5px; padding: 1px 4px; margin: -1px -4px; transition: background-color 0.1s ease; }
+.cc-dtodo-main:hover { background: color-mix(in srgb, var(--accent-grey) 14%, transparent); }
+.cc-dtodo-main:focus-visible { outline: 2px solid var(--highlight); outline-offset: 0; }
+.cc-dtodo-main:hover .cc-dtodo-text { color: var(--highlight); }
+.cc-dtodo-text { font-size: 13px; line-height: 1.4; position: relative; }
+/* completion animation: a strikethrough line sweeps left→right, then (after a hold, in JS) the
+   item moves to "Recently Completed". The text dims to grey as the line sweeps. */
+.cc-dtodo-completing .cc-dtodo-text { color: var(--accent-grey); transition: color var(--cc-strike, 420ms) ease-out; }
+.cc-dtodo-completing .cc-dtodo-main:hover .cc-dtodo-text { color: var(--accent-grey); }
+.cc-dtodo-completing .cc-dtodo-text::after {
+  content: ""; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px;
+  background: color-mix(in srgb, var(--accent-grey) 75%, transparent);
+  transform: translateY(-50%);
+  animation: cc-dtodo-strike var(--cc-strike, 420ms) ease-out forwards;
+}
+@keyframes cc-dtodo-strike { from { width: 0; } to { width: 100%; } }
+.cc-dtodo-event { color: var(--accent-grey); }
+.cc-dtodo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; line-height: 1.5; }
+.cc-dtodo-prio { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-weight: 800; letter-spacing: -0.05em; color: var(--event-red-border, #e5484d); }
+.cc-dtodo-prio[data-level="4"], .cc-dtodo-prio[data-level="5"] {
+  background: var(--event-red-border, #e5484d); color: #fff; padding: 0 4px; border-radius: 4px;
+}
+.cc-dtodo-due { color: var(--accent-grey); }
+.cc-dtodo-due-over { color: var(--event-red-border, #e5484d); font-weight: 600; }
+.cc-dtodo-followup { color: #2f8a8a; font-weight: 500; }
+.cc-dtodo-followup.cc-dtodo-due-over { color: var(--event-red-border, #e5484d); }
+.cc-dtodo-tag { color: var(--highlight); opacity: 0.85; }
+
+/* recently-completed rows: struck through + dimmed, with a green finish stamp. Untick (the
+   checkbox) removes the done: token and the item returns to its open section. */
+.cc-dtodo-is-done .cc-dtodo-text { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--accent-grey) 60%, transparent); color: var(--accent-grey); }
+.cc-dtodo-is-done .cc-dtodo-main:hover .cc-dtodo-text { color: var(--accent-dark); }
+.cc-dtodo-fin { color: var(--event-darkgreen-border, #4f7a3e); opacity: 0.85; }
+
+/* Daily timeline resize handle: a wide invisible grab strip whose thin bar fades in on approach. */
+.cc-daily-resize { position: absolute; z-index: 15; cursor: ew-resize; display: flex; justify-content: center; }
+.cc-daily-resize-bar { width: 2px; height: 100%; background: var(--accent-dark); opacity: 0; transition: opacity 0.15s ease; }
+.cc-daily-resize:hover .cc-daily-resize-bar,
+body.cc-col-resizing .cc-daily-resize-bar { opacity: 0.55; }
+body.cc-col-resizing { cursor: ew-resize; user-select: none; }
+
+/* Month-boundary overscroll prompt (daily view): a circular progress ring that fills as you push
+   past the month edge; "ready" at full → a release commits the month-jump. */
+.cc-month-edge {
+  position: absolute;
+  z-index: 13;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+}
+.cc-month-edge-circle {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--background) 80%, transparent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.cc-month-edge-circle svg { position: absolute; inset: 0; }
+.cc-month-edge-track { fill: none; stroke: var(--cc-sep); stroke-width: 3; }
+.cc-month-edge-prog {
+  fill: none; stroke: var(--accent-dark); stroke-width: 3; stroke-linecap: round;
+  transform: rotate(-90deg); transform-origin: center; /* start at 12 o'clock */
+}
+.cc-month-edge-arrow {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; opacity: 0.8;
+}
+.cc-month-edge-text {
+  font-size: 11px; opacity: 0.75;
+  background: var(--background); padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+}
+.cc-month-edge.ready .cc-month-edge-prog { stroke: var(--cc-now); }
+.cc-month-edge.ready .cc-month-edge-arrow { opacity: 1; }
+.cc-month-edge.ready .cc-month-edge-circle { box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-now) 50%, transparent), 0 2px 8px rgba(0, 0, 0, 0.18); }
+.cc-gutter { /* solid strip that occludes lane content sliding under it (week view) */
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  background: var(--background);
+  z-index: 5;
+}
+

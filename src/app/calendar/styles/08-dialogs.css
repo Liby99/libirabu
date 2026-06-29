@@ -1,0 +1,147 @@
+/* ── Delete confirmation dialog ──────────────────────────────────── */
+.cc-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Help modal (Docs Help / Keyboard Shortcuts) — portaled to <body>, above everything. */
+.cc-help-backdrop {
+  position: fixed; inset: 0; z-index: 85;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex; align-items: center; justify-content: center;
+}
+.cc-help-modal {
+  position: relative;
+  width: 440px; max-width: 90vw; max-height: 80vh; overflow-y: auto;
+  padding: 18px 20px;
+  background: var(--background);
+  border: 1px solid var(--accent-grey);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+.cc-help-x {
+  position: absolute; top: 11px; right: 11px;
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+  border: none; border-radius: 6px; background: none; cursor: pointer; color: var(--accent-grey);
+}
+.cc-help-x:hover { background: var(--accent-bg); color: var(--accent-dark); }
+.cc-help-title { font-weight: 700; font-size: 1rem; color: var(--accent-dark); margin-bottom: 10px; padding-right: 26px; }
+.cc-help-body { font-size: 0.86rem; line-height: 1.55; color: var(--accent-dark); }
+.cc-help-body p { margin: 0 0 9px; }
+.cc-confirm {
+  width: 290px;
+  max-width: 90vw;
+  padding: 18px 20px;
+  background: var(--background);
+  border: 1px solid var(--accent-grey);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+.cc-confirm-title { font-weight: 700; font-size: 0.95rem; color: var(--accent-dark); margin-bottom: 6px; }
+.cc-confirm-msg { font-size: 0.84rem; line-height: 1.35; color: var(--accent-dark); opacity: 0.8; margin-bottom: 16px; }
+.cc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.cc-confirm-cancel, .cc-confirm-delete {
+  padding: 6px 14px;
+  border-radius: 7px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: 1px solid var(--accent-grey);
+}
+.cc-confirm-cancel { background: var(--background); color: var(--accent-dark); }
+.cc-confirm-cancel:hover { background: var(--accent-bg); }
+.cc-confirm-delete { background: #c0392b; border-color: #c0392b; color: #fff; }
+.cc-confirm-delete:hover { background: #a93226; }
+.cc-confirm-go { background: var(--accent-dark); border-color: var(--accent-dark); color: var(--background); } /* non-destructive primary action (e.g. jump to year) */
+.cc-confirm-go:hover { background: color-mix(in srgb, var(--accent-dark) 85%, #000); }
+
+/* recurring-delete scope picker: compact card, X to cancel, three options in a row */
+.cc-confirm-recur { width: 380px; position: relative; padding: 11px 12px; border-radius: 8px; }
+.cc-confirm-recur .cc-confirm-title { font-size: 0.8rem; margin-bottom: 2px; padding-right: 20px; }
+.cc-confirm-recur .cc-confirm-msg { font-size: 0.7rem; margin-bottom: 9px; }
+.cc-confirm-x {
+  position: absolute; top: 7px; right: 7px;
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0;
+  border: none; border-radius: 4px; background: none; cursor: pointer;
+  color: var(--accent-grey);
+}
+.cc-confirm-x:hover { background: var(--accent-bg); color: var(--accent-dark); }
+.cc-confirm-recur-actions { gap: 6px; }
+.cc-confirm-opt {
+  flex: 1;
+  padding: 6px 6px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid var(--accent-grey);
+  background: var(--background);
+  color: var(--accent-dark);
+}
+.cc-confirm-opt:hover { background: var(--accent-bg); }
+/* "all events" stays neutral in the row, turning destructive-red only on hover */
+.cc-confirm-opt.cc-confirm-delete { background: var(--background); border-color: var(--accent-grey); color: var(--accent-dark); }
+.cc-confirm-opt.cc-confirm-delete:hover { background: #c0392b; border-color: #c0392b; color: #fff; }
+
+/* ── Right-click callout (GridCal sticker menu) ──────────────────── */
+.cc-sticker {
+  position: fixed;
+  z-index: 60;
+  transform: translate(-50%, calc(-100% - 9px));
+  padding: 6px 8px;
+  background: var(--background);
+  border: 1px solid var(--accent-grey);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.cc-sticker-row { display: flex; align-items: center; gap: 6px; }
+.cc-sticker-div { width: 1px; height: 18px; background: var(--accent-grey); margin: 0 2px; }
+.cc-sticker-trash {
+  display: flex; align-items: center;
+  border: none; background: none; cursor: pointer;
+  color: var(--accent-dark);
+  padding: 2px; border-radius: 4px;
+}
+.cc-sticker-trash:hover { background: color-mix(in srgb, #c0392b 12%, transparent); color: #c0392b; }
+.cc-sticker-caret {
+  position: absolute;
+  bottom: -6px; left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px; height: 10px;
+  background: var(--background);
+  border-right: 1px solid var(--accent-grey);
+  border-bottom: 1px solid var(--accent-grey);
+}
+
+/* ── Track-name editor (left gutter) ─────────────────────────────── */
+.cc-track-edit { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+.cc-track-month { position: absolute; top: 0; left: 0; }
+.cc-track-cell {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px dotted var(--accent-grey); /* single-sided → 1px between stacked cells/months */
+  pointer-events: auto;
+}
+.cc-tc-last { border-bottom: 1px solid var(--cc-sep); }
+.cc-track-input {
+  width: 100%; height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--accent-dark);
+  font-family: var(--font-handwriting), cursive; /* user input → handwriting */
+  font-size: 0.85rem;
+  padding: 0 6px;
+  outline: none;
+}
+.cc-track-input:focus { background: var(--highlight-bg); }
+.cc-track-input::placeholder { color: var(--accent-grey); }
+

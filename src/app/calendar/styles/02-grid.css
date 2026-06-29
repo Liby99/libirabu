@@ -1,0 +1,197 @@
+/* ── Item base ───────────────────────────────────────────────────── */
+/* Every positioned primitive. Only geometry/opacity/dynamic values are inline. */
+.cc-item { position: absolute; box-sizing: border-box; }
+
+/* ── Lanes & grid lines ──────────────────────────────────────────── */
+/* Track lane: no fill — dotted day-cell verticals via gradient (the horizontal bg
+   stripe drawn on top chops them into dots). --dayw is set inline. */
+.cc-row {
+  background-image:
+    repeating-linear-gradient(to bottom, var(--background) 0 2px, rgba(0, 0, 0, 0) 2px 4px),
+    repeating-linear-gradient(to right, var(--cc-grid) 0 1px, rgba(0, 0, 0, 0) 1px var(--dayw));
+}
+/* only inner lanes (t>0) draw the dotted separator — avoids doubling with the
+   solid month divider at the band top/bottom */
+.cc-row.cc-row-inner { border-top: 1px dotted var(--cc-grid-top); }
+
+/* Grid lines: solid separator by default; dotted/dashed cell borders via modifiers. */
+.cc-gridline { background: var(--cc-line); }
+.cc-gridline.cc-dotted-v { background: transparent; border-left: 1px dotted var(--cc-line); }
+.cc-gridline.cc-dotted-h { background: transparent; border-top: 1px dotted var(--cc-line); }
+.cc-gridline.cc-dashed-v { background: transparent; border-left: 1px dashed var(--cc-line); }
+.cc-gridline.cc-dashed-h { background: transparent; border-top: 1px dashed var(--cc-line); }
+
+/* Dimmed area for days past a month's length (e.g. Feb 29–31): a faint diagonal
+   hatch over a light tint — cells still show but read as inactive. */
+.cc-dim {
+  background-color: var(--accent-bg-dark);
+  background-image: repeating-linear-gradient(45deg, var(--accent-grey) 0 1px, transparent 1px 6px);
+}
+
+/* Hierarchical hover highlight: a soft tint over the hovered region, brighter for
+   the precise cell. Persistent layers (stable keys) → the opacity transition
+   animates the dim/brighten and cross-fades between zoom levels. accent-dark is
+   theme-aware (dark in light mode, light in dark mode) so it always reads as a
+   contrast wash. Sits above the lanes/events (z:3) but below labels. */
+.cc-hl {
+  background: var(--accent-dark);
+  border-radius: 3px;
+  pointer-events: none;
+  transition: opacity 0.16s ease, background-color 0.16s ease;
+}
+
+/* Weekend (Sat/Sun) column: a very faint wash to set weekends apart. */
+.cc-weekend { background: var(--cc-weekend); pointer-events: none; }
+
+/* Today: a soft pink-red tint on today's day column (persistent). */
+.cc-today {
+  background: var(--cc-today);
+  border-radius: 3px;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+/* Current-time line: a bright pink-red rule across today's column with a small
+   dot at each end. The item box IS the 2px line; the dots are pseudo-elements. */
+.cc-now {
+  background: var(--cc-now);
+  pointer-events: none;
+  overflow: visible;
+  transition: opacity 0.16s ease;
+}
+/* Daily view: drop the opacity transition so the now-line/label fade tracks the swipe per-frame
+   (like the deadlines), instead of lagging behind it. */
+.cc-instant { transition: none !important; }
+.cc-now::before, .cc-now::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--background);          /* hollow centre */
+  border: 1.5px solid var(--cc-now);
+  transform: translateY(-50%);
+}
+.cc-now::before { left: -4px; }
+.cc-now::after { right: -4px; }
+
+/* Mouse time cursor (week view): same shape as the now line but soft-white, with a
+   faint shadow so it stays visible on light backgrounds. */
+.cc-cursor {
+  background: var(--cc-cursor);
+  pointer-events: none;
+  overflow: visible;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+  transition: opacity 0.16s ease;
+}
+.cc-cursor::before, .cc-cursor::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--background);
+  border: 1.5px solid var(--cc-cursor);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+  transform: translateY(-50%);
+}
+.cc-cursor::before { left: -4px; }
+.cc-cursor::after { right: -4px; }
+/* Over an event: hide the cursor LINE (keep the two end dots, which are pseudo-elements). */
+.cc-wrap.cc-over-event .cc-cursor { background: transparent; box-shadow: none; }
+
+/* "TODAY" caption under the year-view today marker. */
+.cc-todaytag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cc-now);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+/* Weekday chip above the hovered day column in year view. Compact opaque pill so it
+   stays legible over the band stacked directly above it. */
+.cc-weekdaytag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+.cc-weekdaytag > span {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--popup-bg, var(--background));
+  border: 1px solid var(--accent-grey);
+  color: var(--accent-dark);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* "Current Time / HH:MM" label beside the now line. Faint chip so it stays legible
+   over the timeline grid; left/right variant set by which side it sits on. */
+.cc-nowlabel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  line-height: 1.05;
+  background: color-mix(in srgb, var(--background) 82%, transparent);
+  border: 2px solid color-mix(in srgb, var(--cc-now) 60%, transparent);
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+.cc-nowlabel-l { align-items: flex-start; text-align: left; }
+.cc-nowlabel-r { align-items: flex-end; text-align: right; }
+.cc-nowlabel-cap {
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-grey);
+}
+.cc-nowlabel-time { font-size: 13px; font-weight: 700; color: var(--cc-now); }
+
+/* Compact "HH:MM" tag beside the mouse-cursor time line (week view). */
+.cc-timetag {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  padding: 1px 4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--background) 82%, transparent); /* same as the Current Time tag */
+  border: 1px solid var(--cc-cursor);
+  color: var(--cc-cursor);
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+.cc-timetag-l { justify-content: flex-start; }
+.cc-timetag-r { justify-content: flex-end; }
+
+/* ── Labels ──────────────────────────────────────────────────────── */
+.cc-monthlabel {
+  display: flex; align-items: center; justify-content: center;
+  writing-mode: vertical-lr;
+  text-transform: lowercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-dark);
+  pointer-events: none;
+  border-bottom: 1px solid var(--cc-sep);
+  border-right: 1px dotted var(--accent-grey);
+}
+.cc-daylabel { display: flex; align-items: center; color: var(--accent-grey); pointer-events: none; }
+.cc-daylabel.cc-center { justify-content: center; }
+.cc-daylabel.cc-left { justify-content: flex-start; }
+

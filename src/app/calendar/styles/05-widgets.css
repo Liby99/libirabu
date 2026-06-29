@@ -1,0 +1,282 @@
+/* ── Inline TODO token badges (§17.1 DSL, rendered by remarkTodoTokens.ts) ────────
+   Tokens like `due:2026-07-01`, `p:!!`, `#tag`, `@person` render as small pills inside
+   the notes preview. Priority/due/etc. only appear on checkbox lines; #/@ anywhere. */
+.cc-dw-md .cc-todo-tok {
+  display: inline-flex; align-items: center; gap: 0.32em;
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: 0.76em; line-height: 1.35; vertical-align: 1px;
+  padding: 0.05em 0.55em; margin: 0 0.06em;
+  border-radius: 999px; white-space: nowrap; user-select: none;
+  text-decoration: none; /* stay crisp even on a struck-through completed item */
+  border: 1px solid color-mix(in srgb, var(--accent-grey) 55%, transparent);
+  background: color-mix(in srgb, var(--accent-grey) 9%, transparent);
+  color: var(--accent-dark);
+}
+/* keep badges upright/coloured on a completed task (the <li> gets line-through + grey) */
+.cc-dw-md li:has(> .cc-md-check:checked) .cc-todo-tok,
+.cc-dw-md li:has(> p > .cc-md-check:checked) .cc-todo-tok { opacity: 0.55; }
+
+/* faint uppercase key prefix on the value tokens, so a bare date reads as "DUE 2026-07-01" */
+.cc-dw-md .cc-todo-tok-due::before,
+.cc-dw-md .cc-todo-tok-start::before,
+.cc-dw-md .cc-todo-tok-tz::before,
+.cc-dw-md .cc-todo-tok-done::before,
+.cc-dw-md .cc-todo-tok-followup::before {
+  font-size: 0.82em; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; opacity: 0.55;
+}
+/* followup badge: a teal tint to read as "circle back", distinct from the neutral due chip */
+.cc-dw-md .cc-todo-tok-followup {
+  color: #2f8a8a;
+  border-color: color-mix(in srgb, #2f8a8a 42%, transparent);
+  background: color-mix(in srgb, #2f8a8a 11%, transparent);
+}
+.cc-dw-md .cc-todo-tok-due::before { content: "due"; }
+.cc-dw-md .cc-todo-tok-start::before { content: "from"; }
+.cc-dw-md .cc-todo-tok-tz::before { content: "tz"; }
+.cc-dw-md .cc-todo-tok-done::before { content: "done"; }
+.cc-dw-md .cc-todo-tok-followup::before { content: "↪ followup"; }
+.cc-dw-md .cc-todo-tok-done { opacity: 0.7; }
+
+/* priority — red, ramping with the bang count */
+.cc-dw-md .cc-todo-tok-priority {
+  font-weight: 800; letter-spacing: -0.05em; gap: 0;
+  color: var(--event-red-border, #e5484d);
+  border-color: color-mix(in srgb, var(--event-red-border, #e5484d) 45%, transparent);
+  background: color-mix(in srgb, var(--event-red-border, #e5484d) 12%, transparent);
+}
+.cc-dw-md .cc-todo-tok-priority[data-level="4"],
+.cc-dw-md .cc-todo-tok-priority[data-level="5"] {
+  color: #fff;
+  background: var(--event-red-border, #e5484d);
+  border-color: var(--event-red-border, #e5484d);
+}
+
+/* tags — use the link/highlight hue */
+.cc-dw-md .cc-todo-tok-tag {
+  color: var(--highlight);
+  border-color: color-mix(in srgb, var(--highlight) 38%, transparent);
+  background: color-mix(in srgb, var(--highlight) 9%, transparent);
+}
+
+/* entity refs — distinct hue per type (person/project/funding; others fall back to neutral) */
+.cc-dw-md .cc-todo-tok-entity[data-entity="person"] {
+  color: #5a73c9; border-color: color-mix(in srgb, #7c96e2 50%, transparent);
+  background: color-mix(in srgb, #7c96e2 12%, transparent);
+}
+.cc-dw-md .cc-todo-tok-entity[data-entity="project"] {
+  color: #4f7a3e; border-color: color-mix(in srgb, #689256 50%, transparent);
+  background: color-mix(in srgb, #689256 12%, transparent);
+}
+.cc-dw-md .cc-todo-tok-entity[data-entity="funding"] {
+  color: #b9772f; border-color: color-mix(in srgb, rgb(236, 152, 70) 50%, transparent);
+  background: color-mix(in srgb, rgb(236, 152, 70) 14%, transparent);
+}
+
+/* color token — a swatch dot drawn from the calendar palette (`--ev-color` via cc-ev-<key>) */
+.cc-dw-md .cc-todo-tok-color::before {
+  content: ""; width: 0.72em; height: 0.72em; border-radius: 50%;
+  background: var(--ev-color, var(--accent-grey));
+  border: 1px solid color-mix(in srgb, var(--accent-dark) 22%, transparent);
+}
+
+/* VSCode-style find/replace widget (custom CodeMirror panel) — compact card, bottom-right.
+   A 3-column grid [chevron | field (1fr) | actions] so both input boxes are exactly equal
+   width and the buttons sit in stable columns. The replace row (row 2) is hidden until the
+   left chevron expands it. */
+.cc-cm-search {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto; /* minmax(0,…) lets the field shrink so the buttons never spill */
+  align-items: center;
+  box-sizing: border-box;
+  column-gap: 4px; row-gap: 4px;
+  margin: 6px 8px 8px auto;            /* float to the right */
+  width: 300px; max-width: calc(100% - 16px);
+  padding: 5px 6px;
+  background: var(--popup-bg, var(--background));
+  border: 1px solid var(--accent-grey);
+  border-radius: 7px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.2);
+}
+.cc-cm-expand {
+  grid-column: 1; grid-row: 1; align-self: stretch;
+  display: flex; align-items: center; justify-content: center;
+  width: 18px; min-height: 24px;
+  border: none; background: none; border-radius: 4px; cursor: pointer; color: var(--accent-grey);
+}
+.cc-cm-expand:hover { background: var(--accent-bg); color: var(--accent-dark); }
+.cc-cm-expand svg { transition: transform 0.12s ease; }
+.cc-cm-search.expanded .cc-cm-expand { grid-row: 1 / span 2; }
+.cc-cm-search.expanded .cc-cm-expand svg { transform: rotate(90deg); }
+
+.cc-cm-field {
+  display: flex; align-items: center;
+  background: var(--background);
+  border: 1px solid var(--accent-grey);
+  border-radius: 6px;
+  padding: 0 7px;
+}
+.cc-cm-field:focus-within { border-color: var(--highlight); }
+.cc-cm-find-field { grid-column: 2; grid-row: 1; position: relative; }
+.cc-cm-rep-field { grid-column: 2; grid-row: 2; display: none; }
+.cc-cm-search.expanded .cc-cm-rep-field { display: flex; }
+.cc-cm-input {
+  flex: 1; min-width: 0; border: none; outline: none; background: none; color: var(--accent-dark);
+  font: inherit; font-size: 0.72rem; padding: 4px 0;
+}
+.cc-cm-input::placeholder { color: var(--accent-grey); }
+.cc-cm-find-field .cc-cm-input { padding-right: 94px; } /* room for the overlaid count + toggles */
+.cc-cm-overlay {
+  position: absolute; right: 5px; top: 0; bottom: 0;
+  display: flex; align-items: center; gap: 3px;
+}
+.cc-cm-count {
+  min-width: 28px; text-align: right; font-variant-numeric: tabular-nums;
+  font-size: 0.64rem; color: var(--accent-grey); white-space: nowrap;
+}
+.cc-cm-toggles { display: flex; gap: 1px; }
+.cc-cm-tog {
+  min-width: 21px; height: 20px; padding: 0 3px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; background: none; border-radius: 4px; cursor: pointer;
+  color: var(--accent-grey);
+  font-family: var(--font-mono, ui-monospace, Menlo, Consolas, monospace); font-size: 0.68rem; line-height: 1;
+}
+.cc-cm-tog:hover { background: var(--accent-bg); color: var(--accent-dark); }
+.cc-cm-tog.on { background: color-mix(in srgb, var(--highlight) 22%, transparent); color: var(--highlight); }
+.cc-cm-actions { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: 2px; }
+.cc-cm-rep-actions { grid-column: 3; grid-row: 2; display: none; align-items: center; gap: 2px; }
+.cc-cm-search.expanded .cc-cm-rep-actions { display: flex; }
+.cc-cm-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; flex: none;
+  border: none; background: none; border-radius: 5px; cursor: pointer;
+  color: var(--accent-grey);
+}
+.cc-cm-btn:hover { background: var(--accent-bg); color: var(--accent-dark); }
+.cc-dw-foot {
+  position: absolute; left: 16px; right: 16px; bottom: 10px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px; /* left-aligned: toggle · go-to-first · delete */
+}
+.cc-dw-occ { display: flex; align-items: center; gap: 6px; }
+.cc-dw-occ-badge { font-size: 0.72rem; color: var(--accent-grey); }
+.cc-dw-link { border: none; background: none; color: var(--accent-dark); cursor: pointer; font-size: 0.78rem; text-decoration: underline; padding: 0; }
+/* right-aligned cluster: notes view toggle + delete */
+.cc-dw-foot-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.cc-dw-view .cc-seg-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px 8px; }
+/* neutral icon button (e.g. "go to first occurrence"); same shape as the trash, accent hover */
+.cc-dw-iconbtn {
+  border: none; background: none; cursor: pointer; color: var(--accent-grey);
+  display: flex; padding: 7px; border-radius: 7px; transition: color 0.12s, background-color 0.12s;
+}
+.cc-dw-iconbtn:hover { color: var(--accent-dark); background: var(--accent-bg); }
+.cc-dw-trash {
+  border: none; background: none; cursor: pointer; color: var(--accent-grey);
+  display: flex; padding: 7px; border-radius: 7px; transition: color 0.12s, background-color 0.12s;
+}
+.cc-dw-trash:hover { color: #c0392b; background: color-mix(in srgb, #c0392b 9%, transparent); }
+/* recurrence: clickable ghost copies, repeat "until this event", menu delete options */
+.cc-tevent.cc-ghost { cursor: pointer; }
+.cc-ddl.cc-ghost .cc-ddl-label { cursor: pointer; }
+.cc-rec-badge {
+  position: absolute; top: 2px; right: 3px;
+  color: var(--ev-color, var(--accent-grey));
+  opacity: 0.9; pointer-events: none;
+}
+/* Corner badge cluster (AI provenance + recurrence), small so they sit side-by-side. */
+.cc-badges {
+  position: absolute; top: 2px; right: 3px;
+  display: flex; gap: 2px; align-items: center;
+  pointer-events: none;
+}
+.cc-badge { color: var(--ev-color, var(--accent-grey)); opacity: 0.9; }
+/* on band blocks (incl. promoted ghosts) the badges sit smaller and tucked into the corner */
+.cc-tevent-band .cc-badges { top: 1px; right: 2px; gap: 1px; }
+.cc-tevent-band .cc-badge { width: 7px; height: 7px; }
+.cc-rep-until-here { margin-left: 4px; border: 1px dashed var(--accent-grey); background: none; color: var(--accent-grey); border-radius: 5px; font-size: 0.72rem; padding: 1px 6px; cursor: pointer; }
+.cc-rep-until-here:hover { color: var(--accent-dark); border-color: var(--accent-dark); }
+.cc-sticker-del { display: flex; flex-direction: column; gap: 3px; padding: 3px; }
+.cc-sticker-del button {
+  border: none; background: none; cursor: pointer; text-align: left;
+  font-size: 0.8rem; color: var(--accent-dark); padding: 4px 8px; border-radius: 5px; white-space: nowrap;
+}
+.cc-sticker-del button:hover { background: var(--accent-bg-dark); }
+
+/* Connected segmented toggle group (Track, Weekdays, …): one bordered pill, buttons share
+   a hairline divider, the selected button fills. */
+.cc-seg { display: inline-flex; border: 1px solid var(--accent-grey); border-radius: 6px; overflow: hidden; }
+.cc-seg-fill { display: flex; width: 100%; }
+.cc-seg-fill .cc-seg-btn { flex: 1; text-align: center; }
+.cc-seg-btn {
+  padding: 3px 9px; border: none; border-right: 1px solid var(--accent-grey);
+  background: none; cursor: pointer; font-size: 0.68rem; line-height: 1.25; color: var(--accent-grey);
+}
+.cc-seg-btn:last-child { border-right: none; }
+.cc-seg-btn.sel { background: var(--accent-bg-dark); color: var(--accent-dark); font-weight: 600; }
+.cc-seg-btn.locked { cursor: default; }
+
+/* repeat editor */
+.cc-rep { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.cc-rep-tabs { display: flex; width: 100%; border: 1px solid var(--accent-grey); border-radius: 6px; overflow: hidden; }
+.cc-rep-tab {
+  flex: 1 1 0; padding: 4px 2px; border: none; border-right: 1px solid var(--accent-grey);
+  background: none; cursor: pointer; font-size: 0.68rem; color: var(--accent-grey);
+}
+.cc-rep-tab:last-child { border-right: none; }
+.cc-rep-tab.sel { background: var(--accent-bg-dark); color: var(--accent-dark); font-weight: 600; }
+.cc-rep-fields { display: flex; flex-direction: column; gap: 8px; }
+.cc-rep-field { display: flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--accent-grey); }
+.cc-rep-field input, .cc-rep-field select {
+  font: inherit; font-size: 0.76rem; color: var(--accent-dark);
+  border: none; background: none; outline: none; border-bottom: 1px dashed var(--accent-grey); padding: 1px 2px;
+}
+/* until: a None | Date segmented toggle */
+.cc-rep-until { flex-wrap: wrap; }
+.cc-rep-toggle { display: flex; border: 1px solid var(--accent-grey); border-radius: 6px; overflow: hidden; }
+.cc-rep-toggle-btn {
+  padding: 3px 9px; border: none; border-right: 1px solid var(--accent-grey);
+  background: none; cursor: pointer; font-size: 0.68rem; color: var(--accent-grey);
+}
+.cc-rep-toggle-btn:last-child { border-right: none; }
+.cc-rep-toggle-btn.sel { background: var(--accent-bg-dark); color: var(--accent-dark); font-weight: 600; }
+
+/* #tag editor */
+.cc-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cc-tag {
+  display: inline-flex; align-items: center; gap: 1px;
+  padding: 2px 7px; border-radius: 999px;
+  background: var(--accent-bg-dark); color: var(--accent-dark);
+  font-size: 0.74rem; white-space: nowrap;
+}
+.cc-tag-x { display: none; align-items: center; border: none; background: none; cursor: pointer; color: var(--accent-grey); padding: 0; }
+.cc-tag:hover .cc-tag-x { display: inline-flex; }
+.cc-tag-x:hover { color: var(--accent-dark); }
+.cc-tag-add {
+  padding: 2px 9px; border-radius: 999px;
+  border: 1px dashed var(--accent-grey); background: none; color: var(--accent-grey);
+  font-size: 0.74rem; cursor: pointer; transition: color 0.12s, border-color 0.12s;
+}
+.cc-tag-add:hover { color: var(--accent-dark); border-color: var(--accent-dark); }
+.cc-tag-input {
+  width: 76px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--accent-dark); background: var(--background); color: var(--accent-dark);
+  font: inherit; font-size: 0.74rem; outline: none;
+}
+
+/* ── Drawer spotlight ─────────────────────────────────────────────── */
+/* Veil that dims + lightly blurs the whole calendar while the drawer is open. Captures
+   clicks (blocks interaction with the UI beneath); clicking it closes the drawer. */
+.cc-spot-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.34); /* explicit black so it darkens in any theme (accent-dark is light in dark mode) */
+  -webkit-backdrop-filter: blur(2.5px);
+  backdrop-filter: blur(2.5px);
+  cursor: pointer;
+  animation: ccSpotIn 0.2s ease;
+}
+@keyframes ccSpotIn { from { opacity: 0; } to { opacity: 1; } }
+/* The duplicate event sits above the veil so it stays sharp + highlighted. */
+.cc-tevent.cc-spot-dup { cursor: default; box-shadow: 0 8px 26px rgba(0, 0, 0, 0.32); }
+
