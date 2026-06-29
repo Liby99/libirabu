@@ -30,8 +30,27 @@ function firstWeekIn(baseWeek: Date, stepDays: number, winStart: Date): Date {
   return addDays(baseWeek, stepDays * k);
 }
 
+// Memoized public entry. Expansion is a pure function of (base, repeat, year), and edits
+// always REPLACE the repeat object (immutable state updates — e.g. deleteOccurrence builds
+// a fresh {...repeat, exdates}), so a WeakMap keyed on the repeat object stays correct and
+// self-invalidates: a changed repeat is a new object (cache miss), and a deleted/edited
+// event drops its old repeat (entry GC'd). This matters because the render layers re-expand
+// recurrences every animation frame; without this a handful of daily-repeat events cost
+// several ms/frame (measured) re-deriving identical date lists. Callers never mutate the
+// returned array, so sharing the cached instance across frames is safe.
+const occCache = new WeakMap<Repeat, Map<string, YMD[]>>();
+
 export function occurrenceDates(base: YMD, repeat: Repeat | undefined | null, year: number): YMD[] {
   if (!repeat || repeat.kind === "none") return [];
+  let byKey = occCache.get(repeat);
+  if (!byKey) { byKey = new Map(); occCache.set(repeat, byKey); }
+  const key = `${base.year}-${base.month}-${base.day}-${year}`;
+  let res = byKey.get(key);
+  if (!res) { res = computeOccurrences(base, repeat, year); byKey.set(key, res); }
+  return res;
+}
+
+function computeOccurrences(base: YMD, repeat: Repeat, year: number): YMD[] {
   const baseDate = new Date(base.year, base.month, base.day);
   const winStart = new Date(year, 0, 1);
   const yearEnd = new Date(year, 11, 31);
