@@ -60,6 +60,8 @@ type GestureLikeEvent = { scale: number; clientX: number; clientY: number; preve
 // True while an event drawer is open (CalendarCanvas toggles this class on <body>). The
 // canvas freezes its scroll/zoom gestures then, so the masked calendar can't move underneath.
 const drawerOpen = () => typeof document !== "undefined" && document.body.classList.contains("cc-drawer-open");
+// A unified <Dialog> (confirm / Help / …) is open → the canvas must be inert (no zoom/scroll/keys).
+const dialogOpen = () => typeof document !== "undefined" && document.body.classList.contains("ui-dialog-open");
 
 // ── URL state (year / view level / month / week) ───────────────────────────
 // The calendar position is mirrored in the query string so a refresh restores it:
@@ -406,7 +408,7 @@ export function useCalendarInteractions() {
     const arm = () => { clearTimeout(idle); idle = window.setTimeout(() => { idle = 0; snapNow(); }, 240); };
     const onStart = (e: GestureLikeEvent) => {
       e.preventDefault();
-      if (drawerOpen()) return; // a drawer is open → freeze the canvas (zoom disabled)
+      if (drawerOpen() || dialogOpen()) return; // a drawer or modal dialog is open → freeze the canvas (zoom disabled)
       cancelTween(); cancelWeekTween(); clearSnap();
       startZ = zRef.current;
       const rect = el.getBoundingClientRect();
@@ -416,7 +418,7 @@ export function useCalendarInteractions() {
     };
     const onChange = (e: GestureLikeEvent) => {
       e.preventDefault();
-      if (drawerOpen()) return;
+      if (drawerOpen() || dialogOpen()) return;
       const vpNow = { w: el.clientWidth, h: el.clientHeight };
       const nz = Math.max(0, Math.min(3, startZ + Math.log2(e.scale) * 0.6)); // lower = slower
       // Lock focus/week/day once, based on the level we STARTED at + the gesture origin.
@@ -601,7 +603,7 @@ export function useCalendarInteractions() {
     };
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // pinch handled via gesture events
-      if (drawerOpen()) return; // a drawer is open → freeze the canvas (scroll/zoom disabled)
+      if (drawerOpen() || dialogOpen()) return; // a drawer or modal dialog is open → freeze the canvas (scroll/zoom disabled)
       if (zRef.current < 0.5 && Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
         e.preventDefault();
         const gap = yLastWheelT ? e.timeStamp - yLastWheelT : 999;
@@ -824,6 +826,7 @@ export function useCalendarInteractions() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (document.body.classList.contains("cc-drawer-open")) return; // drawer handles it
+      if (dialogOpen()) return; // a modal dialog handles its own Escape (and stays open otherwise)
       const a = document.activeElement as HTMLElement | null;
       if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
       const lvl = zRef.current < 0.5 ? 0 : zRef.current < 1.5 ? 1 : zRef.current < 2.5 ? 2 : 3;
@@ -1062,6 +1065,16 @@ export function useCalendarInteractions() {
     });
   }, [tweenTo]);
 
+  // Scroll the week-view timeline so a given hour-of-day (0–24, fractional) sits centered in view.
+  // Used to reveal a timed event after navigating to its week (the assistant "follow" navigation).
+  const revealHour = useCallback((hourFrac: number) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const tlTop = TOP_PAD + 4 * TRACK_H + 18;
+    const { hourH, viewH, maxScroll } = hourMetrics(tlTop, el.clientHeight - 8, 2, 0);
+    setTlScroll(maxScroll <= 0 ? 0 : Math.max(0, Math.min(maxScroll, hourFrac * hourH - viewH / 2)));
+  }, []);
+
   // The month the breadcrumb should show: flips to the page-turn target as soon as the gesture
   // passes the commit threshold (during drag AND snap), so the label updates the moment the new
   // month is committed-to — not after the animation settles. Reverts if the drag is pulled back.
@@ -1069,5 +1082,5 @@ export function useCalendarInteractions() {
     ? Math.max(0, Math.min(11, focus + monthAnim.dir))
     : focus;
 
-  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover };
+  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToMonth, goToOccurrence, revealHour, tweenTo, onMove, onClick, clearHover };
 }

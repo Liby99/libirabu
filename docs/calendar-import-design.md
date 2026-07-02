@@ -296,14 +296,18 @@ A dedicated algorithm (`lib/import/renderManagedNote.ts`) formats the vendor's m
 (going/declined/tentative), status** — into clean markdown, wrapped in **HTML-comment markers**:
 
 ```md
-<!-- gcal:managed:begin connection=<connId> uid=<iCalUID> rev=<etag> -->
+<!-- libirabu:import:begin uid=<iCalUID> rev=<etag> -->
+*Imported from Apple · Google · Liby's Work*
 📍 **Where** · 3400 N Charles St, Baltimore
-🔗 **Join** · [Google Meet](https://meet.google.com/abc-defg-hij)
+🔗 **Join** · https://meet.google.com/abc-defg-hij
 👤 **Organizer** · alice@example.com
-👥 **Attendees** · You ✓ · Alice ✓ · Bob (tentative) · Carol ✗
-📝 <vendor description, markdown-escaped>
-<!-- gcal:managed:end -->
+👥 **Attendees** · Alice ✓ · Bob ~ · Carol ✗
+📝 <vendor description, marker-sanitized>
+<!-- libirabu:import:end -->
 ```
+
+(Markers use a **source-neutral** namespace `libirabu:import` — not Google-specific — since the
+primary source is Apple Calendar. Implemented in `src/lib/import/managedNote.ts`.)
 
 **Why HTML comments:** `NotesPreview` renders react-markdown **without `rehype-raw`** ("No raw
 HTML"), so the marker comments are **invisible when rendered** yet **persist in the stored note
@@ -375,9 +379,14 @@ Source event (EventKit JSON or parsed VEVENT) → libirabu's floating **main-tz 
 shape (kept identical to what `createEventForUser` validates, so import reuses that one write path).
 Both sources land in the same `NormalizedEvent`, so `normalize.ts` is source-agnostic past the fetch.
 
-- **Kind mapping:** all-day → `band`; single-day timed → `timed`; a zero-duration / single-instant
-  item *may* map to `deadline`. Multi-day **timed** events (libirabu `timed` is single-day) get
-  promoted to `band` or flagged in preview (§11).
+- **All-day events are ignored by default.** The user rarely uses all-day items (they're mostly
+  birthdays/holidays), so `normalizeEvents` **partitions source all-day events out** of the import
+  set (`{ events, allDay }`); the pipeline imports `events` and drops `allDay`. They aren't lost —
+  `allDay` is returned, so a future "inbox" can surface them for opt-in. (Reinforced by the
+  Birthdays/Holidays calendars defaulting to *disabled* in the Apple bridge — §11.)
+- **Kind mapping (for the timed events that are imported):** single-day timed → `timed`. Multi-day
+  **timed** events (libirabu `timed` is single-day) get promoted to `band` over the day span (flagged
+  in preview, §11). Imports never produce `deadline` (a CFP/assistant concern, not calendar import).
 - **All-day end is exclusive** in iCal (`DTEND` for `VALUE=DATE`); EventKit gives explicit
   start/end `Date`s. libirabu `band` end is **inclusive** → normalize to the inclusive last day.
 - **Timezones:** the bridge emits ISO instants; iCal gives `DTSTART;TZID=…`. Convert the instant to
@@ -487,4 +496,71 @@ guarantee holds); tier-1 UID matches are pre-decided, tier-2 go to the decision 
 7. **Birthdays / Holidays / Siri Suggestions calendars:** import by default or off until enabled?
    *Recommend: enumerate all, default-enable only the user's own calendars; auto-generated ones
    (Birthdays, Siri Suggestions) start disabled.*
+
+**Resolved (2026-06-30):**
+- **All-day events → ignored by default** (the user rarely uses them; mostly birthdays/holidays).
+  `normalizeEvents` partitions them into `allDay` and the pipeline drops them; recoverable via a
+  future inbox. (§8)
+- **Marker namespace** = `libirabu:import` (source-neutral), not `gcal:`. (§7.1)
+
+---
+
+## 12. Deployment topology & future clients
+
+The bridge is a **server-side capability behind the REST API**; clients never touch EventKit. So the
+same server runs on the user's laptop today and an always-on Mac later with **no client changes** — the
+only requirement is that the host is a Mac signed into the relevant Calendar accounts.
+
+### 12.1 Two host modes (same code)
+
+- **Local-Mac mode (now):** `next dev`/Electron on the user's Mac. The controlling process holds the
+  Calendars TCC permission (terminal in dev; the app bundle in Electron). On-demand "Sync now" + `.ics`.
+- **Mac-Mini-server mode (target):** an always-on Mac Mini runs the Next.js server + Postgres + the
+  `eventkit-bridge` + a periodic sync agent. Because the Mini is logged into the same iCloud/Google
+  account, its Calendar.app aggregates the same calendars. All clients read the one DB via the API.
+
 ```
+[laptop browser] [iOS app] [other devices]
+        └──────────── HTTPS over Tailscale / LAN ───────────┐
+                                                            ▼
+                        ┌──────────── Mac Mini (always on, auto-login) ───────────┐
+                        │ Next.js (libirabu)  +  Postgres   ← single source of truth │
+                        │ eventkit-bridge (EventKit, same accounts)                  │
+                        │ launchd LaunchAgent: periodic pull → diff → ingest         │
+                        └─────────────────────────────────────────────────────────┘
+```
+
+### 12.2 Communication scheme
+
+- **Transport:** REST + SSE over HTTP. Same LAN → `http://macmini.local:8100`; remote → **Tailscale**
+  (zero-config WireGuard, stable private IP, encrypted, no port-forwarding). Cloudflare Tunnel if a
+  public hostname is ever wanted.
+- **Source of truth:** Postgres on the Mini. The bridge syncs Apple Calendar → DB; every client reads
+  the same DB, so "everything synced" is automatic.
+- **Auth:** existing NextAuth, plus network-level isolation from Tailscale.
+
+### 12.3 Background sync needs an async preview (refines the always-preview rule)
+
+An unattended cron can't show a modal. Resolution that **preserves the always-review intent**:
+
+- **Background/launchd sync** auto-commits **tier-1 (UID) merges** (safe) and **parks tier-2 + new
+  events in a "pending imports" inbox** (a queue table / `ActionLog`-style rows) for later review.
+- **Manual `.ics` drops and on-demand "Sync now"** keep the **synchronous** preview screen.
+- A **"Pending imports" badge** in the Connectivity menu surfaces the queue; the user clears it from
+  any client (laptop or iOS) with the same New / Decide / Duplicate UI, just time-shifted.
+
+This is a **Later** concern (lands with the Mac-Mini/background-sync work), but the schema reserves
+the seam now (the preview/commit split already separates "compute decisions" from "apply").
+
+### 12.4 Headless Mac Mini caveats
+
+- **TCC is GUI-granted:** grant Calendar access once via Screen Sharing/locally; it persists.
+- **Auto-login + stay-logged-in:** EventKit/iCloud calendar access needs a live user session, so the
+  sync agent must be a **user LaunchAgent**, not a system LaunchDaemon.
+- **Calendar.app configured:** the Mini must have the same accounts added and syncing.
+
+### 12.5 Future iOS app
+
+A **thin client** over the same API (Tailscale) — no EventKit of its own, since the Mini is the
+calendar gateway. Minimal UI, focused on **quick AI actions** (the assistant SSE endpoint) and reading
+the synced calendar/TODOs. It rides entirely on the existing server contract; no server changes needed.

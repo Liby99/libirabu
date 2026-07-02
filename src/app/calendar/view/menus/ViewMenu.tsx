@@ -15,6 +15,12 @@ interface Props {
   onToggle: (key: string) => void;
   onShowAll: () => void;
   onHideAll: () => void;
+  // "Show hidden events" — reveal soft-deleted (dismissed) imported events, dimmed.
+  showHidden: boolean;
+  onToggleShowHidden: () => void;
+  // "Dim past events" — fade events whose time has already elapsed.
+  dimPast: boolean;
+  onToggleDimPast: () => void;
 }
 
 // Levels deepest-first (Today on top). Each jumps to the CURRENT date at that zoom level,
@@ -27,7 +33,7 @@ const ITEMS: { level: number; label: string; hint: string }[] = [
 ];
 
 // "View" dropdown in the top bar: jump-to-now levels + a Tag Filter flyout.
-export default function ViewMenu({ onGo, tags, untaggedCount, hidden, onToggle, onShowAll, onHideAll }: Props) {
+export default function ViewMenu({ onGo, tags, untaggedCount, hidden, onToggle, onShowAll, onHideAll, showHidden, onToggleShowHidden, dimPast, onToggleDimPast }: Props) {
   const [open, setOpen] = useState(false);
   const [tagOpen, setTagOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -56,6 +62,10 @@ export default function ViewMenu({ onGo, tags, untaggedCount, hidden, onToggle, 
           {ITEMS.map((it) => (
             <button key={it.level} className="cc-menu-item" onClick={() => { onGo(it.level); setOpen(false); }}>{it.label}<span className="cc-menu-sc">{it.hint}</span></button>
           ))}
+          <div className="cc-menu-sep" />
+          {/* view toggles: kept open on click so the checkmark visibly flips */}
+          <button className="cc-menu-item" role="menuitemcheckbox" aria-checked={dimPast} onClick={onToggleDimPast}>Dim past events<span className="cc-menu-sc">{dimPast ? "✓" : ""}</span></button>
+          <button className="cc-menu-item" role="menuitemcheckbox" aria-checked={showHidden} onClick={onToggleShowHidden}>Show hidden events<span className="cc-menu-sc">{showHidden ? "✓" : ""}</span></button>
           <div className="cc-menu-sep" />
           <div className="cc-menu-sub" onMouseEnter={() => setTagOpen(true)} onMouseLeave={() => setTagOpen(false)}>
             <button className="cc-menu-item">Tag Filter<span className="cc-menu-sc">{filtering ? "Filtered ›" : "›"}</span></button>

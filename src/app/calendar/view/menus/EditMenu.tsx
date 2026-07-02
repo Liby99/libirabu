@@ -21,14 +21,12 @@ interface Props {
   onAltTz: (tz: string | null) => void;
   mainTz: string; // the stored main-tz setting (a concrete id, or AUTO_TZ)
   onMainTz: (tz: string) => void;
-  dimPast: boolean;
-  onToggleDimPast: () => void;
 }
 
 // macOS / Google-Docs-style "Edit" menu: a button that drops a command list — Undo/Redo,
 // Cut/Copy/Paste, and an Alternative-Timezone flyout submenu (opens to the left since the
 // menu hugs the right edge of the bar).
-export default function EditMenu({ canUndo, onUndo, canRedo, onRedo, canCut, onCut, canCopy, onCopy, canPaste, onPaste, altTz, onAltTz, mainTz, onMainTz, dimPast, onToggleDimPast }: Props) {
+export default function EditMenu({ canUndo, onUndo, canRedo, onRedo, canCut, onCut, canCopy, onCopy, canPaste, onPaste, altTz, onAltTz, mainTz, onMainTz }: Props) {
   const [open, setOpen] = useState(false);
   const [tzOpen, setTzOpen] = useState(false);
   const [mainTzOpen, setMainTzOpen] = useState(false);
@@ -67,9 +65,6 @@ export default function EditMenu({ canUndo, onUndo, canRedo, onRedo, canCut, onC
           <button className="cc-menu-item" disabled={!canCut} onClick={run(onCut, canCut)}>Cut<span className="cc-menu-sc">⌘X</span></button>
           <button className="cc-menu-item" disabled={!canCopy} onClick={run(onCopy, canCopy)}>Copy<span className="cc-menu-sc">⌘C</span></button>
           <button className="cc-menu-item" disabled={!canPaste} onClick={run(onPaste, canPaste)}>Paste<span className="cc-menu-sc">⌘V</span></button>
-          <div className="cc-menu-sep" />
-          {/* view toggle: kept open on click so the checkmark visibly flips */}
-          <button className="cc-menu-item" role="menuitemcheckbox" aria-checked={dimPast} onClick={onToggleDimPast}>Dim past events<span className="cc-menu-sc">{dimPast ? "✓" : ""}</span></button>
           <div className="cc-menu-sep" />
           <div className="cc-menu-sub" onMouseEnter={() => setMainTzOpen(true)} onMouseLeave={() => setMainTzOpen(false)}>
             <button className="cc-menu-item">Current Timezone<span className="cc-menu-sc">{mainLabel} ›</span></button>

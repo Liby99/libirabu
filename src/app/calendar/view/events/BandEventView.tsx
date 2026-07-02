@@ -94,7 +94,7 @@ export default function BandEventView({ ev, rect, vw, gap, raised, onHover, sele
       )}
     <div
       data-ev-id={ev.id}
-      className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color}${selected ? " selected" : ""}${moving ? " moving" : ""}${gap != null ? " cc-band-clip" : ""}${raised ? " cc-band-raised" : ""}`}
+      className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color}${selected ? " selected" : ""}${moving ? " moving" : ""}${gap != null ? " cc-band-clip" : ""}${raised ? " cc-band-raised" : ""}${ev.hidden ? " cc-hidden" : ""}`}
       style={style}
       onMouseEnter={() => onHover(ev.id)}
       onMouseLeave={() => onHover(null)}
@@ -140,7 +140,7 @@ export default function BandEventView({ ev, rect, vw, gap, raised, onHover, sele
         )}
       </div>
 
-      <EventBadges ai={ev.createdByAI} />
+      <EventBadges ai={ev.createdByAI} imported={ev.imported} />
 
       {/* Resize edges — only on the selected bar, and only for an edge that's on-screen. */}
       {selected && !rect.clipStart && (

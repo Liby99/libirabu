@@ -17,6 +17,7 @@ interface Props {
   value: string;
   onChange?: (v: string) => void;
   onEditAt?: (line: number) => void; // ⌘/Ctrl-click a block → jump into the editor at its source line
+  inline?: boolean; // render as a plain block (no scroll container) — composed inside another scroll area
 }
 
 const srcLine = (node: unknown) => (node as { position?: { start?: { line?: number } } } | undefined)?.position?.start?.line;
@@ -24,7 +25,7 @@ const srcLine = (node: unknown) => (node as { position?: { start?: { line?: numb
 // Render of an event's notes: GFM markdown + LaTeX (KaTeX). No raw HTML. Task checkboxes are
 // interactive (each rewrites exactly its own source line, via the list item's AST position).
 // ⌘/Ctrl-click any block jumps into the editor at that line (blocks carry data-srcline).
-export default function NotesPreview({ value, onChange, onEditAt }: Props) {
+export default function NotesPreview({ value, onChange, onEditAt, inline }: Props) {
   const toggleLine = (line: number) => {
     if (!onChange) return;
     const lines = value.split("\n");
@@ -100,7 +101,7 @@ export default function NotesPreview({ value, onChange, onEditAt }: Props) {
   };
 
   return (
-    <div className="cc-dw-md" onClick={onContainerClick}>
+    <div className={`cc-dw-md${inline ? " cc-dw-md-inline" : ""}`} onClick={onContainerClick}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath, remarkTodoTokens]}
         rehypePlugins={[rehypeKatex]}

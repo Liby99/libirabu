@@ -176,3 +176,10 @@
 }
 .cc-swatch.sel { border-color: var(--accent-dark); }
 
+
+/* Soft-deleted (hidden) imported events — visible only via View → "Show hidden events". Desaturated,
+   dimmed, and dashed so they read as "dismissed". `filter: opacity()` composes with the inline
+   reveal opacity, so no !important is needed. Restore them from the event drawer. */
+.cc-hidden { filter: grayscale(0.75) opacity(0.5); }
+.cc-hidden .cc-tevent-inner { border-style: dashed !important; }
+.cc-ddl.cc-hidden .cc-ddl-line { border-top-style: dashed; }

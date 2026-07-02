@@ -33,7 +33,7 @@ export function apiToTimed(e: ApiEvent): TimedEvent {
     id: e.id, year: y, month: mo - 1, day: d,
     startHour: (msOf(e.start) - startMid) / HOUR_MS,
     endHour: (msOf(e.end) - startMid) / HOUR_MS, // 24 → next-day midnight
-    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, createdByAI: e.createdByAI, promoteTrack: e.promoteTrack ?? null, occurrenceNotes: e.occurrenceNotes,
+    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, createdByAI: e.createdByAI, imported: e.source !== "manual", externalUrl: e.externalUrl ?? null, hidden: e.hidden ?? false, promoteTrack: e.promoteTrack ?? null, occurrenceNotes: e.occurrenceNotes,
   };
 }
 function timedBody(ev: TimedEvent) {
@@ -51,7 +51,7 @@ export function apiToBand(e: ApiEvent): BandEvent {
   const [, , ed] = e.end.split("-").map(Number);
   return {
     id: e.id, year: sy, month: smo - 1, track: e.track ?? 0, startDay: sd, endDay: ed,
-    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, createdByAI: e.createdByAI, occurrenceNotes: e.occurrenceNotes,
+    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, createdByAI: e.createdByAI, imported: e.source !== "manual", externalUrl: e.externalUrl ?? null, hidden: e.hidden ?? false, occurrenceNotes: e.occurrenceNotes,
   };
 }
 function bandBody(ev: BandEvent) {
@@ -70,7 +70,7 @@ export function apiToDeadline(e: ApiEvent): Deadline {
   return {
     id: e.id, year: y, month: mo - 1, day: d,
     hour: (msOf(e.start) - startMid) / HOUR_MS,
-    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, originTz: e.originTz ?? null, createdByAI: e.createdByAI, promoteTrack: e.promoteTrack ?? null, occurrenceNotes: e.occurrenceNotes,
+    title: e.title, color: e.color, notes: e.notes ?? undefined, tags: e.tags ?? [], repeat: e.repeat, originTz: e.originTz ?? null, createdByAI: e.createdByAI, imported: e.source !== "manual", externalUrl: e.externalUrl ?? null, hidden: e.hidden ?? false, promoteTrack: e.promoteTrack ?? null, occurrenceNotes: e.occurrenceNotes,
   };
 }
 function deadlineBody(d: Deadline) {
@@ -96,10 +96,14 @@ async function send(method: string, url: string, body?: unknown): Promise<Respon
   return res;
 }
 
-export async function fetchEvents(year: number, kind: EventKind): Promise<ApiEvent[]> {
-  const res = await send("GET", `/api/calendar/events?year=${year}&kind=${kind}`);
+export async function fetchEvents(year: number, kind: EventKind, includeHidden = false): Promise<ApiEvent[]> {
+  const res = await send("GET", `/api/calendar/events?year=${year}&kind=${kind}${includeHidden ? "&includeHidden=1" : ""}`);
   return (await res.json()).events as ApiEvent[];
 }
+/** Soft-delete toggle for an imported event ("delete" = hide; restore = unhide). */
+export const setEventHidden = (id: string, hidden: boolean) => send("PATCH", `/api/calendar/events/${id}`, { hidden });
+/** Detach an imported event into an editable manual copy (hides the original). */
+export const internalizeEvent = (id: string) => send("POST", `/api/calendar/events/${id}/internalize`);
 export const createTimed = (ev: TimedEvent) => send("POST", "/api/calendar/events", timedBody(ev));
 export const createBand = (ev: BandEvent) => send("POST", "/api/calendar/events", bandBody(ev));
 export const patchTimed = (ev: TimedEvent) => send("PATCH", `/api/calendar/events/${ev.id}`, timedBody(ev));

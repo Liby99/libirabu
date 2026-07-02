@@ -381,6 +381,7 @@ export default function DailyDashboard({ left, top, bandH, bottom, right, opacit
   useEffect(() => {
     if (tab !== "note") return;
     const onKey = (e: KeyboardEvent) => {
+      if (document.body.classList.contains("ui-dialog-open")) return; // a modal dialog is open → inert
       const el = e.target as HTMLElement | null;
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "v" || e.key === "V") &&
           !el?.closest(".cm-editor, input, textarea, [contenteditable='true']")) {
@@ -395,7 +396,7 @@ export default function DailyDashboard({ left, top, bandH, bottom, right, opacit
   return (
     <div
       className="cc-daily-dash"
-      style={{ left, top, width, height: Math.max(0, bottom - top), opacity, pointerEvents: opacity > 0.9 ? "auto" : "none" }}
+      style={{ left, top: top - 0.1, width, height: Math.max(0, bottom - top), opacity, pointerEvents: opacity > 0.9 ? "auto" : "none" }}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
@@ -407,7 +408,7 @@ export default function DailyDashboard({ left, top, bandH, bottom, right, opacit
         return (
           <div key={d.key} className="cc-daily-inner-dash" style={{ transform: `translateX(${x}px)`, opacity: op }}>
             {/* top bar — matches the track band's top border */}
-            <div className="cc-dd-bar" />
+            <div className="cc-dd-bar top" />
             {/* title zone — title bottom-left, the TODO/NOTE tabs bottom-right. */}
             <div className="cc-dd-titlezone" style={{ height: Math.max(0, bandH - 1) }}>
               <div className="cc-dd-titlemain">

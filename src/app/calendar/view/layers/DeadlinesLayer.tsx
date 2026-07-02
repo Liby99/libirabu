@@ -79,15 +79,23 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
     const wStart = weekly ? weekStartDOM(focus, Math.round(week)) : 1;
     const lo = weekly ? Math.max(1, wStart) : 1;
     const hi = weekly ? Math.min(dim, wStart + 6) : dim;
+    // The label is grabbed at an offset from the deadline LINE (it sits left of, and vertically
+    // centered on, the line). So we must NOT snap to the raw cursor — that would teleport the line to
+    // the label's position. Instead record the line's CENTER at drag start and move it by the mouse
+    // delta; at zero delta the line stays put no matter where on the label you grabbed.
+    const rel0 = relDomOf(focus, dl.month, dl.day) ?? dl.day;
+    const centerX0 = f.x0 + (rel0 - 1) * colW + lineW / 2; // line center x (layer coords)
+    const centerY0 = yOf(dl.hour);                          // line y (layer coords)
+    const startX = e.clientX, startY = e.clientY;
     movedRef.current = false;
     const onMove = (me: MouseEvent) => {
-      if (Math.abs(me.clientX - e.clientX) > 3 || Math.abs(me.clientY - e.clientY) > 3) movedRef.current = true;
+      if (Math.abs(me.clientX - startX) > 3 || Math.abs(me.clientY - startY) > 3) movedRef.current = true;
       if (!movedRef.current) return;
       setMovingId(id);
-      const r = layerRef.current!.getBoundingClientRect();
-      const px = me.clientX - r.left, py = me.clientY - r.top;
-      const day = Math.min(hi, Math.max(lo, Math.floor((px - f.x0) / colW) + 1));
-      const rawHour = (py - tlTop + scroll) / hourH;
+      const cx = centerX0 + (me.clientX - startX); // line center moved by the mouse delta
+      const cy = centerY0 + (me.clientY - startY);
+      const day = Math.min(hi, Math.max(lo, Math.floor((cx - f.x0) / colW) + 1));
+      const rawHour = (cy - tlTop + scroll) / hourH;
       const hour = Math.min(23.75, Math.max(0, Math.round(rawHour * 4) / 4)); // 15-minute snap
       updateDeadline(id, { day, hour });
     };
@@ -174,7 +182,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
               >
                 <span className="cc-ddl-title">{d.title}</span>
                 <span className="cc-ddl-time">{deadlineTimeLabel(d, mainTz)}</span>
-                <EventBadges ai={d.createdByAI} recurring />
+                <EventBadges ai={d.createdByAI} imported={d.imported} recurring />
               </div>
             </div>
           );
@@ -192,7 +200,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
           // label sits to the LEFT of the line; flip right only when there's no room before the gutter
           const labelLeft = x - 8 - 120 > LABEL_W;
           return (
-            <div key={d.id} className={`cc-ddl cc-ev-${d.color}${selected ? " selected" : ""}${d.id === movingId ? " moving" : ""}`} style={{ opacity: dailyFade(rel, z) * pdim(d.year, d.month, d.day, d.hour) }}>
+            <div key={d.id} className={`cc-ddl cc-ev-${d.color}${selected ? " selected" : ""}${d.id === movingId ? " moving" : ""}${d.hidden ? " cc-hidden" : ""}`} style={{ opacity: dailyFade(rel, z) * pdim(d.year, d.month, d.day, d.hour) }}>
               <div data-ev-line-id={d.id} className="cc-ddl-line" style={{ transform: `translate(${x}px, ${y - 1}px)`, width: lineW }} />
               <div
                 data-ev-id={d.id}
@@ -211,7 +219,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
               >
                 <span className="cc-ddl-title">{d.title}</span>
                 <span className="cc-ddl-time">{deadlineTimeLabel(d, mainTz)}</span>
-                <EventBadges ai={d.createdByAI} />
+                <EventBadges ai={d.createdByAI} imported={d.imported} />
               </div>
             </div>
           );
@@ -231,7 +239,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
                 >
                   <span className="cc-ddl-title">{d.title}</span>
                   <span className="cc-ddl-time">{deadlineTimeLabel(d, mainTz)}</span>
-                  <EventBadges ai={d.createdByAI} recurring={recurring} />
+                  <EventBadges ai={d.createdByAI} imported={d.imported} recurring={recurring} />
                 </div>
               </div>
             );

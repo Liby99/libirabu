@@ -47,10 +47,6 @@ export function TagFilterPanel({ tags, untaggedCount, hidden, onToggle, onShowAl
 
   return (
     <>
-      <div className="cc-tag-allrow">
-        <button className="cc-tag-all" onClick={onShowAll}>Show All</button>
-        <button className="cc-tag-all" onClick={onHideAll}>Hide All</button>
-      </div>
       <input
         ref={searchRef}
         className="cc-tag-search"
@@ -70,6 +66,11 @@ export function TagFilterPanel({ tags, untaggedCount, hidden, onToggle, onShowAl
           );
         })}
         {rows.length === 0 && <div className="cc-tag-empty">No matching tags</div>}
+      </div>
+      <div className="cc-tag-sep" />
+      <div className="cc-tag-allrow">
+        <button className="cc-tag-all" onClick={onShowAll}>Show All</button>
+        <button className="cc-tag-all" onClick={onHideAll}>Show None</button>
       </div>
     </>
   );

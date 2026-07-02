@@ -1,0 +1,108 @@
+/* Unified dialog / modal / confirm styling. Owned by ui/Dialog.tsx (imported there so it
+   loads wherever a dialog renders — including the calendar page, which is a different CSS
+   world from the dashboard). Uses the app's design tokens so it themes light/dark. */
+
+.ui-dlg-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000; /* above the event drawer (portaled at ~1000) and all calendar chrome */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* light dim only — the frosted card (below) provides the visual separation, matching the
+     AI assistant panel's floating look rather than a heavy modal scrim. */
+  background: rgba(0, 0, 0, 0.14);
+  animation: ui-dlg-fade 0.14s ease;
+}
+
+/* Frosted, borderless surface — same language as the assistant panel (.ca-panel): a
+   translucent popup-bg tint over a blurred backdrop, soft deep shadow, no border. */
+.ui-dlg-card {
+  position: relative;
+  width: 420px;
+  max-width: 100%;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px;
+  background: color-mix(in srgb, var(--popup-bg, var(--background)) 72%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  backdrop-filter: blur(10px) saturate(1.2);
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.22);
+  outline: none;
+  animation: ui-dlg-pop 0.16s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+/* compact variant for tight multi-choice cards (e.g. recurring-delete scope) */
+.ui-dlg-card.ui-dlg--compact { width: 380px; padding: 14px 16px; }
+
+.ui-dlg-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--accent-dark);
+  padding-right: 22px; /* room for an optional close (×) button */
+}
+.ui-dlg-body {
+  margin-top: 8px;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--accent-dark);
+}
+.ui-dlg-msg { margin: 0; font-size: 0.86rem; line-height: 1.55; color: var(--accent-dark); }
+
+.ui-dlg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+/* multi-choice: let the option buttons share the row and grow evenly */
+.ui-dlg-actions.ui-dlg-actions--spread { justify-content: stretch; }
+.ui-dlg-actions.ui-dlg-actions--spread .ui-btn { flex: 1; white-space: nowrap; }
+
+.ui-dlg-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  padding: 4px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  color: var(--accent-grey);
+  cursor: pointer;
+  transition: color 0.12s, background-color 0.12s;
+}
+.ui-dlg-close:hover { color: var(--accent-dark); background: var(--accent-bg); }
+
+/* ── Buttons — the one canonical set for dialog actions ─────────────────────── */
+.ui-btn {
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
+}
+.ui-btn:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.ui-btn:disabled { opacity: 0.55; cursor: default; }
+
+.ui-btn--primary { background: var(--accent-dark); color: var(--background); border-color: var(--accent-dark); }
+.ui-btn--primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-dark) 85%, black); }
+
+.ui-btn--ghost { background: transparent; color: var(--accent-dark); border-color: var(--accent-grey); }
+.ui-btn--ghost:hover:not(:disabled) { background: var(--accent-bg); }
+
+/* destructive — outline red (matches the app's .btn-danger language) */
+.ui-btn--danger { background: transparent; color: #b0334a; border-color: #c0556a; }
+.ui-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, #c0556a 12%, transparent); }
+
+@keyframes ui-dlg-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ui-dlg-pop { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }

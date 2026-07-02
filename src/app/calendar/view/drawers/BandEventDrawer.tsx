@@ -13,6 +13,8 @@ interface Props {
   event: BandEvent;
   onChange: (id: string, patch: Partial<BandEvent>) => void;
   onDelete: (id: string) => void;
+  onRestore?: (id: string) => void;
+  onInternalize?: (id: string) => void;
   onClose: () => void;
   onColorPreview?: (c: string | null) => void;
   focusOcc?: string | null;
@@ -20,7 +22,7 @@ interface Props {
 }
 
 // All-day (band) event: single month, so the date pickers are clamped to its month.
-export default function BandEventDrawer({ event, onChange, onDelete, onClose, onColorPreview, focusOcc, onGoToFirst }: Props) {
+export default function BandEventDrawer({ event, onChange, onDelete, onClose, onRestore, onInternalize, onColorPreview, focusOcc, onGoToFirst }: Props) {
   const dim = daysInMonth(event.month);
   const monthPrefix = `${event.year}-${pad(event.month + 1)}`;
   const minDate = `${monthPrefix}-01`;
@@ -52,6 +54,11 @@ export default function BandEventDrawer({ event, onChange, onDelete, onClose, on
       onOccNotes={(v) => { const k = focusOcc ?? `${monthPrefix}-${pad(event.startDay)}`; onChange(event.id, { occurrenceNotes: { ...(event.occurrenceNotes ?? {}), [k]: v } }); }}
       onDelete={() => onDelete(event.id)}
       onClose={onClose}
+      imported={event.imported}
+      externalUrl={event.externalUrl}
+      hidden={event.hidden}
+      onRestore={onRestore ? () => onRestore(event.id) : undefined}
+      onInternalize={onInternalize ? () => onInternalize(event.id) : undefined}
       configChildren={
         <div className="cc-dw-row cc-dw-when">
           <span className="cc-dw-label">Track</span>

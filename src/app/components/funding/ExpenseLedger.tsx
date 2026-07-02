@@ -7,6 +7,7 @@ import {
 } from "@/app/actions/expenses";
 import { EXPENSE_CATEGORIES, EXPENSE_STATUSES } from "@/lib/enums";
 import { money, shortDate } from "@/lib/format";
+import { useConfirm } from "@/app/components/ui/confirm";
 
 interface Opt { id: string; name: string }
 export interface ExpenseRow {
@@ -33,6 +34,7 @@ export default function ExpenseLedger({
   trips: Opt[];
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [desc, setDesc] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("OTHER");
@@ -134,7 +136,7 @@ export default function ExpenseLedger({
                 />
                 <button className="link-btn" disabled={busy} onClick={() => fileRefs.current[e.id]?.click()}>+ receipt</button>
               </td>
-              <td><button className="x-btn" disabled={busy} onClick={() => { if (confirm("Delete expense?")) wrap(() => deleteExpense(e.id)); }}>×</button></td>
+              <td><button className="x-btn" disabled={busy} onClick={async () => { if (await confirm({ title: "Delete expense?", confirmLabel: "Delete", variant: "danger" })) wrap(() => deleteExpense(e.id)); }}>×</button></td>
             </tr>
           ))}
         </tbody>

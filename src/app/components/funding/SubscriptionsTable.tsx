@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createSubscription, updateSubscription, deleteSubscription } from "@/app/actions/funding";
 import { SUBSCRIPTION_CYCLES } from "@/lib/enums";
 import { money, shortDate } from "@/lib/format";
+import { useConfirm } from "@/app/components/ui/confirm";
 
 interface Opt { id: string; name: string }
 export interface SubRow {
@@ -25,6 +26,7 @@ export default function SubscriptionsTable({
   sources: Opt[];
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [name, setName] = useState("");
   const [vendor, setVendor] = useState("");
   const [cost, setCost] = useState("");
@@ -85,7 +87,7 @@ export default function SubscriptionsTable({
                   {["ACTIVE", "CANCELLED"].map((x) => <option key={x} value={x}>{x}</option>)}
                 </select>
               </td>
-              <td><button className="x-btn" disabled={busy} onClick={() => { if (confirm("Delete subscription?")) wrap(() => deleteSubscription(s.id)); }}>×</button></td>
+              <td><button className="x-btn" disabled={busy} onClick={async () => { if (await confirm({ title: "Delete subscription?", confirmLabel: "Delete", variant: "danger" })) wrap(() => deleteSubscription(s.id)); }}>×</button></td>
             </tr>
           ))}
         </tbody>

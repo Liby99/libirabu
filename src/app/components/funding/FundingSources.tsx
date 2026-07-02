@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createFundingSource, deleteFundingSource } from "@/app/actions/funding";
 import { money, shortDate } from "@/lib/format";
+import { useConfirm } from "@/app/components/ui/confirm";
 
 export interface SourceRow {
   id: string;
@@ -20,6 +21,7 @@ export interface SourceRow {
 
 export default function FundingSources({ sources }: { sources: SourceRow[] }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [name, setName] = useState("");
   const [agency, setAgency] = useState("");
   const [awardNumber, setAwardNumber] = useState("");
@@ -61,7 +63,7 @@ export default function FundingSources({ sources }: { sources: SourceRow[] }) {
             <div key={s.id} className="proj-card" style={{ cursor: "default" }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span className="proj-title">{s.name}</span>
-                <button className="x-btn" disabled={busy} onClick={() => { if (confirm("Delete funding source?")) wrap(() => deleteFundingSource(s.id)); }}>×</button>
+                <button className="x-btn" disabled={busy} onClick={async () => { if (await confirm({ title: "Delete funding source?", confirmLabel: "Delete", variant: "danger" })) wrap(() => deleteFundingSource(s.id)); }}>×</button>
               </div>
               <span className="proj-meta">{s.agency || "—"}{s.awardNumber ? ` · ${s.awardNumber}` : ""}</span>
               <span className="proj-meta">{shortDate(s.startDate)} – {shortDate(s.endDate)}</span>

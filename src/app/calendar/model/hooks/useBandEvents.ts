@@ -12,7 +12,7 @@ const PATCH_DEBOUNCE = 400;
 // All-day (band) events for the displayed year, persisted via /api/calendar. Optimistic
 // local state; background sync. Stacking is by start day (see BandEventView), not order.
 // Mutations also feed the shared undo/redo History (see useEvents for the pattern).
-export function useBandEvents(year: number, history: History) {
+export function useBandEvents(year: number, history: History, includeHidden = false) {
   const [events, setEvents] = useState<BandEvent[]>([]);
   const eventsRef = useRef<BandEvent[]>([]);
   eventsRef.current = events;
@@ -20,13 +20,13 @@ export function useBandEvents(year: number, history: History) {
 
   useEffect(() => {
     let alive = true;
-    const load = () => fetchEvents(year, "band")
+    const load = () => fetchEvents(year, "band", includeHidden)
       .then((rows) => { if (alive) setEvents(rows.map(apiToBand)); })
       .catch((e) => console.error("[calendar] load band events", e));
     load();
     window.addEventListener("calendar:changed", load);
     return () => { alive = false; window.removeEventListener("calendar:changed", load); };
-  }, [year]);
+  }, [year, includeHidden]);
 
   useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);
 

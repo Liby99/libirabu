@@ -16,6 +16,7 @@ interface Props {
   placeholder?: string;
   cursorLine?: number | null; // ⌘-clicked source line → place the caret there + focus on mount
   onPreview?: () => void; // ⌘⇧V while editing → switch to the rendered preview
+  grow?: boolean; // auto-height (grows with content, no internal scroll) → shares a parent scroll
 }
 
 const MONO = "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace)";
@@ -88,7 +89,7 @@ const openLinks = EditorView.domEventHandlers({
   },
 });
 
-export default function NotesEditor({ value, onChange, placeholder, cursorLine, onPreview }: Props) {
+export default function NotesEditor({ value, onChange, placeholder, cursorLine, onPreview, grow }: Props) {
   // On mount (the editor remounts when you switch into it), drop the caret on the ⌘-clicked
   // line and focus, so editing continues from where the preview was clicked.
   const onCreate = (view: EditorView) => {
@@ -105,12 +106,12 @@ export default function NotesEditor({ value, onChange, placeholder, cursorLine, 
   ]));
   return (
     <CodeMirror
-      className="cc-dw-cm"
+      className={`cc-dw-cm${grow ? " cc-dw-cm-grow" : ""}`}
       value={value}
       onChange={onChange}
       onCreateEditor={onCreate}
       placeholder={placeholder}
-      height="100%"
+      height={grow ? undefined : "100%"}
       theme={theme}
       extensions={[markdown(), EditorView.lineWrapping, mdHighlight, openLinks, cmSearch, previewKey]}
       basicSetup={{

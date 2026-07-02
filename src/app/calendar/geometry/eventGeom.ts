@@ -104,13 +104,18 @@ export interface EventRect { x: number; y: number; w: number; h: number }
 //    other vertically) cascade with a small left indent instead of splitting further.
 export interface EventLayout { col: number; nCols: number; level: number; maxLevel: number }
 
+// The minimum an item needs to take part in a day's overlap layout: a stable key and its
+// time span. Base events use their id as the key; recurrence occurrences use occKey(id, date)
+// so each ghost is packed as its own instance alongside the base events sharing its day.
+export interface LayoutItem { id: string; startHour: number; endHour: number }
+
 const TITLE_H = 1;    // title + time occupy ~1 hour of height
 const INDENT_PX = 9;  // per-level left indent / right margin for cascaded events
 const MIN_W = 26;     // floor on an event's drawn width
 
-interface PackCol { events: TimedEvent[]; maxTitleEnd: number }
+interface PackCol { events: LayoutItem[]; maxTitleEnd: number }
 
-export function layoutDay(events: TimedEvent[]): Map<string, EventLayout> {
+export function layoutDay(events: LayoutItem[]): Map<string, EventLayout> {
   const out = new Map<string, EventLayout>();
   const sorted = [...events].sort((a, b) => a.startHour - b.startHour || b.endHour - a.endHour);
   const level = new Map<string, number>();

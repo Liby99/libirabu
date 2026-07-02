@@ -36,6 +36,58 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
   padding: 0 26px 2px 0; /* right room for the close (X) button */
 }
 .cc-dw-name::placeholder { color: var(--accent-grey); }
+/* Imported event: title is source-owned (read-only) → default cursor, no text caret */
+.cc-dw-name-locked { cursor: default; }
+
+/* Imported-event provenance row (under the title) + "open at source" link (docs §7.5) */
+.cc-dw-source {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 1px 26px 7px 0; font-size: 0.72rem; color: var(--accent-grey);
+}
+.cc-dw-source a { color: var(--highlight); text-decoration: none; white-space: nowrap; }
+.cc-dw-source a:hover { text-decoration: underline; }
+/* Source-owned controls (the time row on an imported event): visible but non-interactive */
+.cc-dw-locked { pointer-events: none; opacity: 0.55; }
+
+/* Imported series note (§7.2): the synced info + the editable note SHARE one scroll region, whose
+   bottom padding clears the absolutely-positioned .cc-dw-foot — so the editor never collides with
+   the footer buttons and a long synced block just scrolls. Text is selectable/copyable. */
+.cc-dw-managed-edit, .cc-dw-note-scroll {
+  flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
+  padding-bottom: 44px; /* clears the absolute .cc-dw-foot (left/right 16px, bottom 10px) */
+  user-select: text; -webkit-user-select: text;
+}
+/* Synced info in the EDIT view — monospace like the raw note; top margin, left border only. */
+.cc-dw-managed-pre {
+  flex: none;
+  margin: 5px 0 8px; padding: 1px 0 1px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--highlight) 55%, transparent);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.72rem; line-height: 1.55;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--accent-dark);
+  user-select: text; -webkit-user-select: text;
+}
+/* Auto-height CodeMirror (no internal scroll) — the parent scroll region scrolls instead. */
+.cc-dw-cm.cc-dw-cm-grow { flex: none; height: auto; overflow: visible; min-height: 0; }
+.cc-dw-cm-grow .cm-editor { height: auto; }
+.cc-dw-cm-grow .cm-scroller { overflow: visible; }
+.cc-dw-cm-grow .cm-content { min-height: 140px; padding-bottom: 4px; }
+
+/* Synced info in the PREVIEW view — a key:value table (§ user request). No UID; links clickable. */
+.cc-dw-mi {
+  margin: 5px 0 12px; padding: 2px 0 8px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--highlight) 55%, transparent);
+  font-size: 0.8rem; line-height: 1.5; color: var(--accent-dark);
+}
+.cc-dw-mi-row { display: flex; gap: 8px; padding: 1.5px 0; align-items: baseline; }
+.cc-dw-mi-key { flex: none; min-width: 94px; color: var(--accent-grey); }
+.cc-dw-mi-val { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cc-dw-mi-val a { color: var(--highlight); text-decoration: underline; text-underline-offset: 2px; }
+.cc-dw-mi-desc { margin-top: 7px; }
+
+/* NotesPreview inline variant: not a scroll box — composes inside another scroll region. */
+.cc-dw-md.cc-dw-md-inline { flex: none; min-height: 0; overflow: visible; padding: 0; }
 /* last-resort close button, top-right of the drawer */
 .cc-dw-close {
   position: absolute; top: 13px; right: 13px; z-index: 11;
@@ -96,6 +148,11 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
   flex: 1; min-height: 80px; width: 100%; overflow: hidden;
 }
 .cc-dw-cm .cm-editor { height: 100%; position: relative; }
+/* The daily-dashboard note editor lives inside .cc-wrap, which sets user-select:none;
+   that inherits into CodeMirror's contenteditable and suppresses the caret in WebKit/Blink
+   (the drawer editor escapes it only by being portaled to <body>). Re-enable selection on
+   the editable so the caret shows and text is selectable wherever the editor is mounted. */
+.cc-dw-cm .cm-content { user-select: text; -webkit-user-select: text; cursor: text; }
 .cc-dw-cm .cm-placeholder { color: var(--accent-grey); }
 /* overlay the search widget at the bottom (don't push the text up) — the host is
    transparent; the .cc-cm-search card is the only visible chrome */
@@ -183,3 +240,7 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
 /* KaTeX block math: centered with breathing room, scroll if too wide */
 .cc-dw-md .katex-display { margin: 0.9em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 
+
+/* "Make editable copy" action in the imported-event source row (§7). */
+.cc-dw-source-btn { border: none; background: none; padding: 0; margin: 0; font: inherit; color: var(--highlight); cursor: pointer; text-decoration: underline; white-space: nowrap; }
+.cc-dw-source-btn:hover { opacity: 0.8; }

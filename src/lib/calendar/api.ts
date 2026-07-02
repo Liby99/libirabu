@@ -89,6 +89,19 @@ export const defaultTrackNames = (): string[][] =>
  *    the MAIN tz; `originTz` (or null) is the tz it was originally specified in. The
  *    origin-tz time is `convertWallClock(start, mainTz, originTz)`.
  */
+// A sparse per-occurrence override for a recurring event (edit "This event" only). Unset fields
+// fall through to the series. `start`/`end` are wall-clock for that occurrence's own date.
+export interface OccurrenceOverride {
+  title?: string;
+  color?: string;
+  start?: string;
+  end?: string;
+  track?: number | null;
+  promoteTrack?: number | null;
+  originTz?: string | null;
+  tags?: string[];
+}
+
 export interface ApiEvent {
   id: string;
   kind: EventKind;
@@ -96,6 +109,7 @@ export interface ApiEvent {
   color: string;
   notes: string | null;
   occurrenceNotes: Record<string, string>; // recurring events: per-occurrence notes by date ({} when none)
+  occurrenceOverrides: Record<string, OccurrenceOverride>; // recurring events: per-occurrence field overrides ({} when none)
   allDay: boolean; // false for timed/deadline, true for band
   start: string;
   end: string;
@@ -105,6 +119,9 @@ export interface ApiEvent {
   tags: string[];
   repeat: Repeat; // {kind:"none"} when not recurring
   createdByAI: boolean; // provenance: created/edited by the AI assistant
+  source: string; // import provenance: "manual" | "apple" | "ical" — drives the imported badge/guard
+  externalUrl: string | null; // "open at source" deep link for imported events
+  hidden: boolean; // soft-deleted (imported events) — dismissed, excluded from the calendar by default
   createdAt: string; // ISO-8601 UTC
   updatedAt: string;
 }
@@ -121,12 +138,26 @@ export interface ApiSettings {
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/;
 
+// One occurrence's sparse field override. All keys optional; only the overridden fields are stored.
+const occurrenceOverrideSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  color: z.string().min(1).max(40).optional(),
+  start: z.string().min(1).optional(),
+  end: z.string().min(1).optional(),
+  track: z.number().int().min(0).max(TRACK_LANES - 1).nullish(),
+  promoteTrack: z.number().int().min(0).max(TRACK_LANES - 1).nullish(),
+  originTz: z.string().min(1).max(64).nullish(),
+  tags: z.array(z.string().min(1).max(40)).max(50).optional(),
+});
+const occurrenceOverridesSchema = z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), occurrenceOverrideSchema);
+
 export const eventCreateSchema = z.object({
   id: z.string().min(1).max(64).optional(), // client-supplied id allowed (else server cuid)
   kind: z.enum(EVENT_KINDS),
   title: z.string().min(1).max(200),
   notes: z.string().max(4000).nullish(),
   occurrenceNotes: z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.string().max(4000)).optional(), // per-occurrence notes
+  occurrenceOverrides: occurrenceOverridesSchema.optional(), // per-occurrence field overrides
 
   color: z.string().min(1).max(40).optional(),
   start: z.string().min(1).optional(),       // main-tz wall-clock; for deadlines may be derived from origin
@@ -146,6 +177,7 @@ export const eventUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   notes: z.string().max(4000).nullish(),
   occurrenceNotes: z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.string().max(4000)).optional(), // per-occurrence notes
+  occurrenceOverrides: occurrenceOverridesSchema.optional(), // per-occurrence field overrides
 
   color: z.string().min(1).max(40).optional(),
   start: z.string().min(1).optional(),
@@ -156,6 +188,7 @@ export const eventUpdateSchema = z.object({
   originAt: z.string().min(1).nullish(),
   tags: z.array(z.string().min(1).max(40)).max(50).optional(),
   repeat: repeatSchema.optional(),
+  hidden: z.boolean().optional(), // soft-delete toggle (imported events)
 });
 export type EventUpdate = z.infer<typeof eventUpdateSchema>;
 
@@ -230,6 +263,7 @@ export interface EventRow {
   title: string;
   notes: string | null;
   occurrenceNotes: unknown; // Prisma Json
+  occurrenceOverrides: unknown; // Prisma Json
   color: string;
   start: Date;
   end: Date;
@@ -239,6 +273,9 @@ export interface EventRow {
   tags: string[];
   repeat: unknown; // Prisma Json
   createdByAI: boolean;
+  source?: string;
+  externalUrl?: string | null;
+  hidden?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -252,6 +289,7 @@ export function toApiEvent(row: EventRow): ApiEvent {
     color: row.color,
     notes: row.notes ?? null,
     occurrenceNotes: (row.occurrenceNotes as Record<string, string> | null) ?? {},
+    occurrenceOverrides: (row.occurrenceOverrides as Record<string, OccurrenceOverride> | null) ?? {},
     allDay,
     start: formatWallClock(row.start, allDay),
     end: formatWallClock(row.end, allDay),
@@ -261,8 +299,47 @@ export function toApiEvent(row: EventRow): ApiEvent {
     tags: row.tags ?? [],
     repeat: (row.repeat as Repeat | null) ?? NO_REPEAT,
     createdByAI: row.createdByAI ?? false,
+    source: row.source ?? "manual",
+    externalUrl: row.externalUrl ?? null,
+    hidden: row.hidden ?? false,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** The effective fields of one occurrence of a recurring event — base merged with its override. */
+export interface ResolvedOccurrence {
+  title: string;
+  color: string;
+  start: string; // wall-clock on the occurrence's date
+  end: string;
+  track: number | null;
+  promoteTrack: number | null;
+  originTz: string | null;
+  tags: string[];
+  overridden: boolean; // true when this occurrence has any override (drives the "edited" affordance)
+}
+
+/**
+ * Resolve one occurrence of a recurring event on `occDate` ("YYYY-MM-DD"): start from the series'
+ * fields projected onto that date (keep the base time-of-day), then apply the sparse override.
+ * Timed/deadline occurrences are single-day, so the date swaps to `occDate` while the time is kept;
+ * band end (a different day) is left to the override when present.
+ */
+export function resolveOccurrence(base: ApiEvent, occDate: string, override?: OccurrenceOverride): ResolvedOccurrence {
+  const o = override ?? {};
+  const defStart = occDate + base.start.slice(10); // swap date, keep any "THH:MM:SS"
+  const defEnd = base.kind === "band" ? base.end : occDate + base.end.slice(10);
+  return {
+    title: o.title ?? base.title,
+    color: o.color ?? base.color,
+    start: o.start ?? defStart,
+    end: o.end ?? defEnd,
+    track: o.track !== undefined ? o.track : base.track,
+    promoteTrack: o.promoteTrack !== undefined ? o.promoteTrack : base.promoteTrack,
+    originTz: o.originTz !== undefined ? o.originTz : base.originTz,
+    tags: o.tags ?? base.tags,
+    overridden: Object.keys(o).length > 0,
   };
 }
 
@@ -287,6 +364,7 @@ export function eventCreateData(input: EventCreate, startWall: string, endWall: 
     title: input.title,
     notes: input.notes ?? null,
     occurrenceNotes: input.occurrenceNotes ?? {},
+    occurrenceOverrides: input.occurrenceOverrides ?? {},
     color: input.color ?? "default",
     start: parseWallClock(startWall),
     end: parseWallClock(endWall),
@@ -308,6 +386,7 @@ export function eventUpdateData(patch: EventUpdate, kind: EventKind, startWall: 
   if (patch.title !== undefined) data.title = patch.title;
   if (patch.notes !== undefined) data.notes = patch.notes ?? null;
   if (patch.occurrenceNotes !== undefined) data.occurrenceNotes = patch.occurrenceNotes ?? {};
+  if (patch.occurrenceOverrides !== undefined) data.occurrenceOverrides = patch.occurrenceOverrides ?? {};
   if (patch.color !== undefined) data.color = patch.color;
   if (startWall !== undefined) {
     data.start = parseWallClock(startWall);
@@ -319,5 +398,6 @@ export function eventUpdateData(patch: EventUpdate, kind: EventKind, startWall: 
   if (patch.originTz !== undefined) data.originTz = patch.originTz ?? null;
   if (patch.tags !== undefined) data.tags = patch.tags ?? [];
   if (patch.repeat !== undefined) data.repeat = patch.repeat ?? NO_REPEAT;
+  if (patch.hidden !== undefined) data.hidden = patch.hidden;
   return data;
 }

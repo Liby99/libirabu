@@ -216,7 +216,7 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(ev.id, r.left + r.width / 2, r.top, occDate(o)); }}
           >
             <div className="cc-tevent-inner"><div className="cc-tevent-title">{ev.title}</div></div>
-            <EventBadges ai={ev.createdByAI} recurring />
+            <EventBadges ai={ev.createdByAI} imported={ev.imported} recurring />
           </div>
         );
       })}

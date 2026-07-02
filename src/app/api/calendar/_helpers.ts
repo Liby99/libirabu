@@ -8,11 +8,25 @@ import {
   eventCreateData, eventUpdateSchema, eventUpdateData, resolveStartWall, toApiEvent,
   formatWallClock, convertWallClock,
 } from "@/lib/calendar/api";
+import { flattenManaged } from "@/lib/import/managedNote";
 
-/** The user's main timezone (for deadline origin↔main conversion); default if unset. */
+/**
+ * Resolve a stored tz setting to a concrete IANA zone safe to hand to Intl. The client stores an
+ * "auto" sentinel (see util/timezones.ts) meaning "use the local zone" — the server must resolve it
+ * (to its own zone; on this single-user/local deployment that IS the user's zone) or Intl throws
+ * `RangeError: Invalid time zone specified: auto`. Also guards any other non-IANA value.
+ */
+export function toIanaTz(tz: string | null | undefined): string {
+  if (tz && tz !== "auto") {
+    try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return tz; } catch { /* not a valid zone → fall through */ }
+  }
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_MAIN_TZ; } catch { return DEFAULT_MAIN_TZ; }
+}
+
+/** The user's main timezone as a concrete IANA zone (for deadline origin↔main conversion + import). */
 export async function getMainTz(userId: string): Promise<string> {
   const prefs = await prisma.calendarPrefs.findUnique({ where: { userId }, select: { mainTz: true } });
-  return prefs?.mainTz ?? DEFAULT_MAIN_TZ;
+  return toIanaTz(prefs?.mainTz);
 }
 
 /** Resolve the session user id, or a ready-to-return 401 response. */
@@ -38,6 +52,16 @@ export const serverError = (e: unknown) => {
   return NextResponse.json({ error: "server_error", message: "Unexpected error." }, { status: 500 });
 };
 
+/** Import provenance written alongside an event on import/re-sync (columns absent from the zod schema). */
+export interface ImportProvenance {
+  source: string; // "apple" | "ical"
+  externalUid: string | null;
+  externalId: string | null;
+  externalEtag: string | null;
+  externalUrl: string | null;
+  connectionId: string | null;
+}
+
 /** Thrown by create/update on schema/semantic problems (maps to HTTP 400). */
 export class EventValidationError extends Error {}
 /** Thrown when the event doesn't exist / isn't owned by the user (maps to HTTP 404). */
@@ -47,11 +71,24 @@ export class EventNotFoundError extends Error {}
 export const isUniqueViolation = (e: unknown): boolean =>
   !!e && typeof e === "object" && "code" in e && (e as { code: string }).code === "P2002";
 
+/** Order/undefined-robust recurrence equality. Postgres jsonb reorders object keys and zod re-parse
+ *  emits schema order, so JSON.stringify comparison gives false diffs — compare fields instead. */
+function sameRepeat(a: Repeat | null | undefined, b: Repeat | null | undefined): boolean {
+  const x = a ?? { kind: "none" };
+  const y = b ?? { kind: "none" };
+  const arr = (v?: Array<number | string>) => [...(v ?? [])].map(String).sort().join(",");
+  return (x.kind ?? "none") === (y.kind ?? "none")
+    && (x.n ?? 1) === (y.n ?? 1)
+    && (x.until ?? null) === (y.until ?? null)
+    && arr(x.days) === arr(y.days)
+    && arr(x.exdates) === arr(y.exdates);
+}
+
 // Create one event for a user from a raw body (zod-validated). Shared by the POST route
 // and the AI assistant's create_event tool so both go through identical validation,
 // deadline-timezone resolution, and semantic checks. Throws EventValidationError on bad
 // input; lets the Prisma P2002 (duplicate id) bubble for the caller to map to 409.
-export async function createEventForUser(userId: string, body: unknown, actor: "user" | "ai" = "user"): Promise<ApiEvent> {
+export async function createEventForUser(userId: string, body: unknown, actor: "user" | "ai" = "user", provenance?: ImportProvenance): Promise<ApiEvent> {
   const parsed = eventCreateSchema.safeParse(body);
   if (!parsed.success) throw new EventValidationError(parsed.error.issues.map((i) => i.message).join("; "));
   const input = parsed.data;
@@ -72,8 +109,10 @@ export async function createEventForUser(userId: string, body: unknown, actor: "
       userId, ...data,
       repeat: data.repeat as unknown as Prisma.InputJsonValue,
       occurrenceNotes: data.occurrenceNotes as unknown as Prisma.InputJsonValue,
+      occurrenceOverrides: data.occurrenceOverrides as unknown as Prisma.InputJsonValue,
       createdByAI: actor === "ai" || data.createdByAI, // AI path forces provenance true
       ...(input.id ? { id: input.id } : {}),
+      ...(provenance ? { ...provenance, importedAt: new Date() } : {}),
     },
   });
   const ev = toApiEvent(row);
@@ -84,7 +123,7 @@ export async function createEventForUser(userId: string, body: unknown, actor: "
 // Partial-update one event (kind immutable). Shared by the PATCH route and the assistant's
 // update_event tool. actor "ai" stamps provenance (createdByAI=true → AI badge). Throws
 // EventNotFoundError / EventValidationError for the caller to map to 404 / 400.
-export async function updateEventForUser(userId: string, id: string, body: unknown, actor: "user" | "ai" = "user"): Promise<ApiEvent> {
+export async function updateEventForUser(userId: string, id: string, body: unknown, actor: "user" | "ai" = "user", provenance?: ImportProvenance): Promise<ApiEvent> {
   const existing = await prisma.calendarItem.findFirst({ where: { id, userId } });
   if (!existing) throw new EventNotFoundError();
   const before = toApiEvent(existing);
@@ -93,6 +132,24 @@ export async function updateEventForUser(userId: string, id: string, body: unkno
   if (!parsed.success) throw new EventValidationError(parsed.error.issues.map((i) => i.message).join("; "));
   const patch = parsed.data;
   const kind = existing.kind as EventKind;
+
+  // Imported-event guard (docs/calendar-import-design.md §7.4): title/time/recurrence are owned by
+  // the source, so a normal user/AI edit can't change them — only overlays (tags, color, notes,
+  // promoteTrack, occurrenceNotes) are allowed. The import re-sync path passes `provenance`, which
+  // bypasses the guard (the vendor legitimately updates those fields). The client sends the WHOLE
+  // event on every PATCH, so we compare against stored values and only block ACTUAL changes.
+  if (!provenance && existing.source && existing.source !== "manual") {
+    const allDay = existing.kind === "band";
+    const curRepeat = (existing.repeat as Repeat | null) ?? ({ kind: "none" } as Repeat);
+    const changed: string[] = [];
+    if (patch.title !== undefined && patch.title !== existing.title) changed.push("title");
+    if (patch.start !== undefined && patch.start !== formatWallClock(existing.start, allDay)) changed.push("start");
+    if (patch.end !== undefined && patch.end !== formatWallClock(existing.end, allDay)) changed.push("end");
+    if (patch.repeat !== undefined && !sameRepeat(patch.repeat, curRepeat)) changed.push("recurrence");
+    if (changed.length) {
+      throw new EventValidationError(`This event is synced from ${existing.source}; ${changed.join(", ")} is read-only — edit it at the source.`);
+    }
+  }
 
   // Resolve a new main-tz start if the patch moves a deadline (directly or via origin tz).
   let startWall = patch.start ?? undefined;
@@ -118,11 +175,37 @@ export async function updateEventForUser(userId: string, id: string, body: unkno
   const data = eventUpdateData(patch, kind, startWall);
   const row = await prisma.calendarItem.update({
     where: { id },
-    data: { ...data, ...(actor === "ai" ? { createdByAI: true } : {}) },
+    data: { ...data, ...(actor === "ai" ? { createdByAI: true } : {}), ...(provenance ? { ...provenance, importedAt: new Date() } : {}) },
   });
   const ev = toApiEvent(row);
   if (actor === "ai") await logAiAction(userId, "update", before, ev).catch(() => {});
   return ev;
+}
+
+// "Internalize" an imported event: create a fully-owned MANUAL copy (vendor details flattened into
+// editable notes, provenance preserved as text) and hide the original — so edits don't touch the
+// source and re-sync won't resurrect it. Returns the new copy. (docs §7 — user-requested detach.)
+export async function internalizeEventForUser(userId: string, id: string): Promise<ApiEvent> {
+  const existing = await prisma.calendarItem.findFirst({ where: { id, userId } });
+  if (!existing) throw new EventNotFoundError();
+  const src = toApiEvent(existing);
+  const body = {
+    kind: src.kind,
+    title: src.title,
+    notes: flattenManaged(src.notes) || undefined,
+    start: src.start,
+    end: src.end,
+    track: src.track ?? undefined,
+    promoteTrack: src.promoteTrack ?? undefined,
+    color: src.color,
+    tags: src.tags,
+    repeat: src.repeat,
+    originTz: src.originTz ?? undefined,
+    occurrenceNotes: src.occurrenceNotes,
+  };
+  const copy = await createEventForUser(userId, body, "user"); // no provenance → source "manual", fully editable
+  await prisma.calendarItem.update({ where: { id }, data: { hidden: true } });
+  return copy;
 }
 
 export interface DeleteResult { ok: true; mode: "series" | "occurrence"; id: string }

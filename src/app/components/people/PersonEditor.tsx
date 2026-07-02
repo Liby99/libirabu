@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updatePerson, deletePerson } from "@/app/actions/people";
 import { PERSON_ROLES } from "@/lib/enums";
+import { useConfirm } from "@/app/components/ui/confirm";
 
 interface PersonData {
   id: string;
@@ -22,6 +23,7 @@ export default function PersonEditor({
   advisorOptions: { id: string; name: string }[];
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [name, setName] = useState(person.name);
   const [role, setRole] = useState(person.role);
   const [affiliation, setAffiliation] = useState(person.affiliation ?? "");
@@ -52,7 +54,7 @@ export default function PersonEditor({
   }
 
   async function remove() {
-    if (!confirm(`Delete ${person.name}?`)) return;
+    if (!(await confirm({ title: `Delete ${person.name}?`, confirmLabel: "Delete", variant: "danger" }))) return;
     setBusy(true);
     try {
       await deletePerson(person.id);

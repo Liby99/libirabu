@@ -21,14 +21,19 @@ export type ActionKind =
   | "update_event"
   | "delete_event"
   | "set_view"
-  | "remember";
+  | "remember"
+  | "forget";
 
 /** Server→client SSE events (design §6.1). */
 export type ServerEvent =
   | { t: "text"; delta: string }
+  | { t: "thinking"; content: string } // reasoning-model "thinking" for a step (rendered collapsed)
   | { t: "action"; id: string; kind: ActionKind; status: "running" | "done" | "error" | "blocked" | "confirm"; summary: string; detail?: unknown }
   | { t: "calendar_changed"; items: unknown[] }
   | { t: "view_change"; view: Partial<ViewContext> }
+  // Follow the agent: move the calendar to an event it just touched. band → month view; timed/
+  // deadline → the week; `openDrawer` opens the event's drawer (edits); `occ` targets an occurrence.
+  | { t: "navigate"; id: string; year: number; month: number; day: number; hour?: number; zoom: "month" | "week"; openDrawer?: boolean; occ?: string | null }
   | { t: "error"; message: string }
   | { t: "done" };
 

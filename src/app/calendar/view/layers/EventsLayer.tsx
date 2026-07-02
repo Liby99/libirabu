@@ -6,7 +6,7 @@ import { useRef, useState } from "react";
 import EventBadges from "../events/EventBadges";
 import { Vp } from "../../geometry/types";
 import { TimedEvent, snapHour, fmtRange } from "../../model/types/eventTypes";
-import { timelineInfo, eventRect, layoutDay, pointToSlot, eventTextLayout, incomingDetailReveal, relDomOf, EventRect, EventLayout } from "../../geometry/eventGeom";
+import { timelineInfo, eventRect, layoutDay, pointToSlot, eventTextLayout, incomingDetailReveal, relDomOf, EventRect, EventLayout, LayoutItem } from "../../geometry/eventGeom";
 import { occurrenceDates, occKey, occDate, baseHidden } from "../../model/occurrences";
 import { resolveDate, momentIsPast } from "../../util/dates";
 import { PAST_DIM } from "../../geometry/constants";
@@ -40,14 +40,29 @@ interface Props {
 
 const MIN = 0.25; // 15-minute minimum duration / gap
 
-// Per-day overlap layout for all events in the displayed year.
+// Per-day overlap layout for everything drawn in the displayed year — base events AND each
+// recurrence occurrence ("ghost"). Occurrences are packed as their own instances (keyed by
+// occKey) on the day they land, so a ghost and a normal event that overlap get offset just
+// like two normal events would. The layout map is keyed by ev.id for bases and occKey(id, o)
+// for ghosts; each renderer looks up its own key.
 function buildLayout(events: TimedEvent[], year: number): Map<string, EventLayout> {
-  const byDay = new Map<string, TimedEvent[]>();
-  for (const ev of events) {
-    if (ev.year !== year) continue;
-    const k = `${ev.month}-${ev.day}`;
+  const byDay = new Map<string, LayoutItem[]>();
+  const push = (month: number, day: number, item: LayoutItem) => {
+    const k = `${month}-${day}`;
     const arr = byDay.get(k);
-    if (arr) arr.push(ev); else byDay.set(k, [ev]);
+    if (arr) arr.push(item); else byDay.set(k, [item]);
+  };
+  for (const ev of events) {
+    // the base occurrence, unless it's individually hidden (exdate / past `until`)
+    if (ev.year === year && !baseHidden(occDate({ year: ev.year, month: ev.month, day: ev.day }), ev.repeat)) {
+      push(ev.month, ev.day, { id: ev.id, startHour: ev.startHour, endHour: ev.endHour });
+    }
+    // recurrence ghosts on their occurrence days (occurrenceDates already drops exdates/until)
+    if (ev.repeat && ev.repeat.kind !== "none") {
+      for (const o of occurrenceDates({ year: ev.year, month: ev.month, day: ev.day }, ev.repeat, year)) {
+        push(o.month, o.day, { id: occKey(ev.id, o), startHour: ev.startHour, endHour: ev.endHour });
+      }
+    }
   }
   const out = new Map<string, EventLayout>();
   for (const group of byDay.values()) layoutDay(group).forEach((v, id) => out.set(id, v));
@@ -221,7 +236,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
   const ghosts = tl.reveal > 0.02
     ? events.filter((ev) => ev.repeat && ev.repeat.kind !== "none")
         .flatMap((ev) => occurrenceDates({ year: ev.year, month: ev.month, day: ev.day }, ev.repeat, year)
-          .map((o) => ({ ev, o, rect: eventRect({ month: o.month, day: o.day, startHour: ev.startHour, endHour: ev.endHour }, focus, tl, vp) }))
+          .map((o) => ({ ev, o, rect: eventRect({ month: o.month, day: o.day, startHour: ev.startHour, endHour: ev.endHour }, focus, tl, vp, layoutMap.get(occKey(ev.id, o))) }))
           .filter((x): x is { ev: TimedEvent; o: { year: number; month: number; day: number }; rect: EventRect } => x.rect != null))
     : [];
 
@@ -241,7 +256,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
     ? events.filter((ev) => ev.repeat && ev.repeat.kind !== "none")
         .flatMap((ev) => occurrenceDates({ year: ev.year, month: ev.month, day: ev.day }, ev.repeat, year)
           .filter((o) => o.month === inTo)
-          .map((o) => ({ ev, o, rect: eventRect({ month: o.month, day: o.day, startHour: ev.startHour, endHour: ev.endHour }, inTo, tl, vp) }))
+          .map((o) => ({ ev, o, rect: eventRect({ month: o.month, day: o.day, startHour: ev.startHour, endHour: ev.endHour }, inTo, tl, vp, inLayout!.get(occKey(ev.id, o))) }))
           .filter((x): x is { ev: TimedEvent; o: { year: number; month: number; day: number }; rect: EventRect } => x.rect != null))
     : [];
 
@@ -278,7 +293,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                   {tl.wide && <div className="cc-tevent-title" style={{ WebkitLineClamp: titleLines } as React.CSSProperties}>{ev.title}</div>}
                   {tl.wide && !short && <div className="cc-tevent-time">{fmtRange(ev.startHour, ev.endHour)}</div>}
                 </div>
-                <EventBadges ai={ev.createdByAI} recurring />
+                <EventBadges ai={ev.createdByAI} imported={ev.imported} recurring />
               </div>
               );
             })}
@@ -318,7 +333,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                     {tl.wide && <div className="cc-tevent-title" style={{ WebkitLineClamp: titleLines } as React.CSSProperties}>{ev.title}</div>}
                     {tl.wide && !short && <div className="cc-tevent-time">{fmtRange(ev.startHour, ev.endHour)}</div>}
                   </div>
-                  <EventBadges ai={ev.createdByAI} recurring={recurring} />
+                  <EventBadges ai={ev.createdByAI} imported={ev.imported} recurring={recurring} />
                 </div>
               );
             })}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updatePaper, deletePaper, addAuthor, removeAuthor } from "@/app/actions/papers";
 import { PAPER_STATUSES } from "@/lib/enums";
+import { useConfirm } from "@/app/components/ui/confirm";
 
 interface PaperData {
   id: string;
@@ -29,6 +30,7 @@ export default function PaperDetail({
   projects: { id: string; title: string }[];
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [f, setF] = useState({
     title: paper.title,
     venue: paper.venue ?? "",
@@ -81,7 +83,7 @@ export default function PaperDetail({
         <textarea className="auth-input" rows={3} placeholder="Abstract" value={f.abstract} onChange={(e) => set("abstract", e.target.value)} />
         <div className="modal-actions">
           <button className="btn-danger" disabled={busy}
-            onClick={() => { if (confirm("Delete paper?")) wrap(async () => { await deletePaper(paper.id); router.push("/papers"); }); }}>Delete</button>
+            onClick={async () => { if (await confirm({ title: "Delete paper?", confirmLabel: "Delete", variant: "danger" })) wrap(async () => { await deletePaper(paper.id); router.push("/papers"); }); }}>Delete</button>
           <span style={{ flex: 1 }} />
           {msg && <span className="muted">{msg}</span>}
           <button className="btn-primary" disabled={busy}

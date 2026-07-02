@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createTrip, deleteTrip } from "@/app/actions/trips";
 import { TRIP_PURPOSES } from "@/lib/enums";
 import { money, shortDate } from "@/lib/format";
+import { useConfirm } from "@/app/components/ui/confirm";
 
 interface Opt { id: string; name: string }
 export interface TripRow {
@@ -31,6 +32,7 @@ export default function TripsManager({
   people: Opt[];
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [title, setTitle] = useState("");
   const [destination, setDestination] = useState("");
   const [purpose, setPurpose] = useState("CONFERENCE");
@@ -101,7 +103,7 @@ export default function TripsManager({
               <td>{personName(t.travelerPersonId)}</td>
               <td className="muted">{t.fundingSourceName || "—"}</td>
               <td>{money(t.estCost)} / {money(t.spent)}</td>
-              <td><button className="x-btn" disabled={busy} onClick={() => { if (confirm("Delete trip?")) wrap(() => deleteTrip(t.id)); }}>×</button></td>
+              <td><button className="x-btn" disabled={busy} onClick={async () => { if (await confirm({ title: "Delete trip?", confirmLabel: "Delete", variant: "danger" })) wrap(() => deleteTrip(t.id)); }}>×</button></td>
             </tr>
           ))}
         </tbody>

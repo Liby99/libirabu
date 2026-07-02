@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createDeadline, deleteDeadline, toggleWatched } from "@/app/actions/deadlines";
 import { DEADLINE_KINDS } from "@/lib/enums";
+import { useConfirm } from "@/app/components/ui/confirm";
 
 export interface DeadlineRow {
   id: string;
@@ -34,6 +35,7 @@ function urgency(d: number): string {
 
 export default function DeadlinesBoard({ deadlines }: { deadlines: DeadlineRow[] }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [now, setNow] = useState<number>(() => Date.now());
   const [venue, setVenue] = useState("");
   const [kind, setKind] = useState("CONF_FULL");
@@ -101,7 +103,7 @@ export default function DeadlinesBoard({ deadlines }: { deadlines: DeadlineRow[]
               </div>
               <div className="dl-actions">
                 <button className="link-btn" disabled={busy} onClick={() => wrap(() => toggleWatched(d.id, !d.watched))}>{d.watched ? "unwatch" : "watch"}</button>
-                <button className="x-btn" disabled={busy} onClick={() => { if (confirm("Delete deadline?")) wrap(() => deleteDeadline(d.id)); }}>×</button>
+                <button className="x-btn" disabled={busy} onClick={async () => { if (await confirm({ title: "Delete deadline?", confirmLabel: "Delete", variant: "danger" })) wrap(() => deleteDeadline(d.id)); }}>×</button>
               </div>
             </div>
           );

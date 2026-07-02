@@ -195,12 +195,6 @@
 .cc-tevent-band .cc-badge { width: 7px; height: 7px; }
 .cc-rep-until-here { margin-left: 4px; border: 1px dashed var(--accent-grey); background: none; color: var(--accent-grey); border-radius: 5px; font-size: 0.72rem; padding: 1px 6px; cursor: pointer; }
 .cc-rep-until-here:hover { color: var(--accent-dark); border-color: var(--accent-dark); }
-.cc-sticker-del { display: flex; flex-direction: column; gap: 3px; padding: 3px; }
-.cc-sticker-del button {
-  border: none; background: none; cursor: pointer; text-align: left;
-  font-size: 0.8rem; color: var(--accent-dark); padding: 4px 8px; border-radius: 5px; white-space: nowrap;
-}
-.cc-sticker-del button:hover { background: var(--accent-bg-dark); }
 
 /* Connected segmented toggle group (Track, Weekdays, …): one bordered pill, buttons share
    a hairline divider, the selected button fills. */

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.libirabu.app</string>
+  <key>CFBundleName</key><string>Libirabu</string>
+  <key>CFBundleExecutable</key><string>Libirabu</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSUIElement</key><true/>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>NSCalendarsUsageDescription</key><string>libirabu reads your calendars to import events.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>libirabu reads your calendars to import events.</string>
+  <key>LibirabuProjectDir</key><string>/Users/liby99/Local/Projects/libirabu</string>
+  <key>LibirabuNode</key><string>/Users/liby99/.local/share/fnm/node-versions/v24.12.0/installation/bin/node</string>
+</dict>
+</plist>

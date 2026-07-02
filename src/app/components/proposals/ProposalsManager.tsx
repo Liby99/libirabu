@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createProposal, updateProposal, deleteProposal } from "@/app/actions/proposals";
 import { PROPOSAL_STATUSES, PROPOSAL_ROLES } from "@/lib/enums";
+import { useConfirm } from "@/app/components/ui/confirm";
 
 export interface ProposalRow {
   id: string;
@@ -27,6 +28,7 @@ export default function ProposalsManager({
   projects: { id: string; title: string }[];
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [title, setTitle] = useState("");
   const [agency, setAgency] = useState("");
   const [role, setRole] = useState("PI");
@@ -99,7 +101,7 @@ export default function ProposalsManager({
               </td>
               <td className="muted">{p.projectTitle || "—"}</td>
               <td><button className="x-btn" disabled={busy}
-                onClick={() => { if (confirm("Delete proposal?")) wrap(() => deleteProposal(p.id)); }}>×</button></td>
+                onClick={async () => { if (await confirm({ title: "Delete proposal?", confirmLabel: "Delete", variant: "danger" })) wrap(() => deleteProposal(p.id)); }}>×</button></td>
             </tr>
           ))}
         </tbody>

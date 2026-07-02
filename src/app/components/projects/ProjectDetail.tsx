@@ -10,6 +10,7 @@ import {
 } from "@/app/actions/projects";
 import { createTask, updateTask, deleteTask } from "@/app/actions/tasks";
 import { PROJECT_STATUSES } from "@/lib/enums";
+import { useConfirm } from "@/app/components/ui/confirm";
 
 interface ProjectData {
   id: string;
@@ -37,6 +38,7 @@ export default function ProjectDetail({
   allPeople: { id: string; name: string }[];
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [title, setTitle] = useState(project.title);
   const [description, setDescription] = useState(project.description ?? "");
   const [status, setStatus] = useState(project.status);
@@ -66,7 +68,7 @@ export default function ProjectDetail({
             Save
           </button>
           <button className="btn-danger" disabled={busy}
-            onClick={() => { if (confirm("Delete project?")) wrap(async () => { await deleteProject(project.id); router.push("/projects"); }); }}>
+            onClick={async () => { if (await confirm({ title: "Delete project?", confirmLabel: "Delete", variant: "danger" })) wrap(async () => { await deleteProject(project.id); router.push("/projects"); }); }}>
             Delete
           </button>
         </div>

@@ -14,6 +14,9 @@ export interface TimedEvent {
   tags?: string[];
   repeat?: import("@/lib/calendar/api").Repeat;
   createdByAI?: boolean; // provenance: created/edited by the AI assistant
+  imported?: boolean; // provenance: pulled from an external calendar (Apple/.ics)
+  hidden?: boolean; // soft-deleted (imported events) — hidden from the calendar unless "Show hidden" is on
+  externalUrl?: string | null; // "open at source" deep link, when imported
   promoteTrack?: number | null; // promoted to a ghost band on this lane 0–3; null = not promoted
   occurrenceNotes?: Record<string, string>; // recurring: per-occurrence notes keyed by date
 }

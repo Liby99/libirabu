@@ -86,11 +86,22 @@ export class JhuGatewayProvider implements LLMProvider {
         arguments: (safeParse(t.function.arguments) as Record<string, unknown>) ?? {},
       }),
     );
+    // Reasoning models expose their "thinking" either as a sibling field (`reasoning_content` —
+    // vLLM/DeepSeek convention — or `reasoning`), or inline as a `<think>…</think>` block in
+    // content. Capture whichever is present; strip an inline block out of the visible content.
+    let content: string = msg.content ?? "";
+    let reasoning: string | undefined = msg.reasoning_content ?? msg.reasoning ?? undefined;
+    const think = content.match(/<think>([\s\S]*?)<\/think>/i);
+    if (think) {
+      reasoning = reasoning ?? think[1].trim();
+      content = content.replace(/<think>[\s\S]*?<\/think>/i, "").trim();
+    }
     return {
       message: {
         role: "assistant",
-        content: msg.content ?? "",
+        content,
         toolCalls,
+        ...(reasoning ? { reasoning } : {}),
       },
       finishReason: choice?.finish_reason ?? "stop",
     };

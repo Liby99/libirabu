@@ -10,6 +10,8 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
   /** present on role:"tool" turns, echoing the call this responds to */
   toolCallId?: string;
+  /** reasoning-model "thinking" (from `reasoning_content`, `reasoning`, or `<think>…</think>`) */
+  reasoning?: string;
 }
 
 export interface ToolCall {

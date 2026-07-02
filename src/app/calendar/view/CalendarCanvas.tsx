@@ -19,7 +19,6 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { X } from "lucide-react";
 import { buildScene } from "../geometry/scene";
 import { setDaily } from "../geometry/frames";
 import DailyDashboard from "./daily/DailyDashboard";
@@ -32,6 +31,7 @@ import { timelineInfo, pointToSlot, eventTextLayout } from "../geometry/eventGeo
 import EventBadges from "./events/EventBadges";
 import { bandSlotAtPoint } from "../geometry/bandGeom";
 import { daysInMonth } from "../model/api/mock";
+import { setEventHidden, internalizeEvent } from "../model/api/apiClient";
 import { BandEvent } from "../model/types/bandEventTypes";
 import { Deadline } from "../model/types/deadlineTypes";
 import TimelineScrollbar from "./daily/TimelineScrollbar";
@@ -51,6 +51,7 @@ import EventContextMenu from "./menus/EventContextMenu";
 import EditMenu from "./menus/EditMenu";
 import ViewMenu from "./menus/ViewMenu";
 import HelpMenu from "./menus/HelpMenu";
+import ConnectivityMenu from "./menus/ConnectivityMenu";
 import { TagRow, UNTAGGED } from "./menus/TagFilterMenu";
 import BandEventsLayer from "./layers/BandEventsLayer";
 import PromotedBandLayer from "./layers/PromotedBandLayer";
@@ -58,6 +59,7 @@ import DeadlinesLayer from "./layers/DeadlinesLayer";
 import { deadlineTimeLabel } from "../util/deadlineFormat";
 import { NO_REPEAT, Repeat } from "@/lib/calendar/api";
 import type { ParsedTodo } from "@/lib/assistant/tools/todos";
+import { ConfirmDialog } from "@/app/components/ui/ConfirmDialog";
 
 // Layout constants bridged into CSS as custom properties on the .cc-wrap root, so a
 // number that CSS needs lives only in TS (geometry/constants) and can't drift. The CSS
@@ -72,13 +74,14 @@ function ordinal(n: number): string {
 }
 
 export default function CalendarCanvas() {
-  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToMonth, goToOccurrence, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade } =
+  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToMonth, goToOccurrence, revealHour, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade } =
     useCalendarInteractions();
   const { trackNames, editTrack, mainTz, mainTzSetting, altTz, setAltTz, setMainTz } = useCalendarSettings(year);
   const history = useHistory();
-  const { events, addEvent, updateEvent, removeEvent } = useEvents(year, history);
-  const { events: bandEvents, addEvent: addBandEvent, updateEvent: updateBandEvent, removeEvent: removeBandEvent } = useBandEvents(year, history);
-  const { deadlines, addDeadline, updateDeadline, removeDeadline } = useDeadlines(year, history);
+  const [showHidden, setShowHidden] = useState(false); // View → "Show hidden events" (soft-deleted imports)
+  const { events, addEvent, updateEvent, removeEvent } = useEvents(year, history, showHidden);
+  const { events: bandEvents, addEvent: addBandEvent, updateEvent: updateBandEvent, removeEvent: removeBandEvent } = useBandEvents(year, history, showHidden);
+  const { deadlines, addDeadline, updateDeadline, removeDeadline } = useDeadlines(year, history, showHidden);
 
   // Each year loads its own events; entries referencing other years would be stale.
   // Depend on the stable `clear` only — `history` identity flips when canUndo/canRedo
@@ -123,6 +126,7 @@ export default function CalendarCanvas() {
   const hadSelectionAtDownRef = useRef(false);
   const [focusedOcc, setFocusedOcc] = useState<string | null>(null); // the clicked occurrence date "YYYY-MM-DD" (null = the base)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [hideConfirmId, setHideConfirmId] = useState<string | null>(null); // "make invisible?" callout for imported events
   const [recurDelete, setRecurDelete] = useState<{ id: string; occ: string } | null>(null); // recurring delete → pick scope
   const [crossYear, setCrossYear] = useState<{ id: string; ty: number; tm: number; tw: number; lvl: number } | null>(null); // "go to first" lands in another year → confirm
   // View preference: dim events that have already happened (opacity). Persisted in localStorage
@@ -239,7 +243,23 @@ export default function CalendarCanvas() {
   };
   // Delete request (drawer button / Delete key): a recurring event asks which scope to remove;
   // a plain event is deleted outright. `occ` is the viewed occurrence (a ghost, else the base).
+  // Imported events soft-delete (hide) so re-sync won't resurrect them; manual events hard-delete.
+  const anyEventById = (id: string) => events.find((e) => e.id === id) ?? bandEvents.find((e) => e.id === id) ?? deadlines.find((e) => e.id === id);
+  const hideEvent = (id: string) => {
+    setEventHidden(id, true).then(() => window.dispatchEvent(new CustomEvent("calendar:changed"))).catch((e) => console.error("[calendar] hide", e));
+    setSelectedId(null); setDrawerId(null); setHideConfirmId(null);
+  };
+  const restoreEvent = (id: string) => {
+    setEventHidden(id, false).then(() => window.dispatchEvent(new CustomEvent("calendar:changed"))).catch((e) => console.error("[calendar] restore", e));
+    setDrawerId(null);
+  };
+  // Detach an imported event → an editable manual copy (server hides the original + makes the copy).
+  const internalizeCopy = (id: string) => {
+    internalizeEvent(id).then(() => window.dispatchEvent(new CustomEvent("calendar:changed"))).catch((e) => console.error("[calendar] internalize", e));
+    setSelectedId(null); setDrawerId(null);
+  };
   const requestDeleteEvent = (id: string) => {
+    if (anyEventById(id)?.imported) { setHideConfirmId(id); return; } // → "make invisible?" callout
     if (isRecurring(id)) { const occ = focusedOcc ?? eventDateOf(id); if (occ) { setRecurDelete({ id, occ }); return; } }
     deleteAny(id);
     setSelectedId(null);
@@ -279,6 +299,32 @@ export default function CalendarCanvas() {
     window.setTimeout(() => goToOccurrence(ty, tm, tw, lvl, () => openDrawer(id, occ)), 200);
   };
 
+  // Follow-the-agent navigation: the assistant emits `calendar:navigate` as it acts (band → month
+  // view, timed/deadline → the week; openDrawer opens edits). A ref keeps the handler's closures
+  // fresh without re-subscribing the window listener each render.
+  type NavDetail = { id: string; year: number; month: number; day: number; hour?: number; zoom: "month" | "week"; openDrawer?: boolean; occ?: string | null };
+  const onNavigateRef = useRef<(v: NavDetail) => void>(() => {});
+  onNavigateRef.current = (v: NavDetail) => {
+    if (v.openDrawer) { navigateAndOpenDrawer(v.id, v.year, v.month, v.day, v.occ ?? null); return; }
+    if (v.zoom === "month") {
+      if (v.year !== year) selectYear(v.year);
+      goToMonth(v.month);
+      selectEvent(v.id, v.occ ?? null); // highlight the event we navigated to
+    } else {
+      const tw = Math.floor((new Date(v.year, v.month, 1).getDay() + v.day - 1) / 7);
+      // week view containing the day; on arrival scroll the timeline to the event's hour + select it
+      goToOccurrence(v.year, v.month, tw, 2, () => {
+        if (typeof v.hour === "number") revealHour(v.hour);
+        selectEvent(v.id, v.occ ?? null);
+      });
+    }
+  };
+  useEffect(() => {
+    const h = (e: Event) => onNavigateRef.current((e as CustomEvent<NavDetail>).detail);
+    window.addEventListener("calendar:navigate", h);
+    return () => window.removeEventListener("calendar:navigate", h);
+  }, []);
+
   // A daily-note TODO click → navigate to that day, then ask the dashboard to open its NOTE tab and
   // place the caret on that source line (consumed + cleared by DailyDashboard).
   const [noteEdit, setNoteEdit] = useState<{ date: string; line: number } | null>(null);
@@ -312,8 +358,6 @@ export default function CalendarCanvas() {
   // Click an "Upcoming Deadlines" row → jump to that deadline + open its drawer.
   const openDeadlineItem = (d: Deadline) => navigateAndOpenDrawer(d.id, d.year, d.month, d.day, null);
 
-  const menuRepeat = menu ? repeatOf(menu.id) : null;
-  const menuRecurring = !!menuRepeat && menuRepeat.kind !== "none";
 
   // ── Copy / cut / paste (the selected event) ──
   // Copy snapshots the selected event into `clip` (a shallow copy, so a later edit of the
@@ -378,7 +422,7 @@ export default function CalendarCanvas() {
   // `shape` is read from each measured element's own class — so a promoted timed/deadline
   // event (which is a BAND element) is duplicated band-shaped even though its drawer is timed
   // /deadline, and is visible in year view where the original (timeline) element isn't drawn.
-  type Spot = { left: number; top: number; width: number; height: number; occ: string | null; shape: "ddl" | "band" | "timed"; bandGap: string | null };
+  type Spot = { left: number; top: number; width: number; height: number; occ: string | null; shape: "ddl" | "band" | "timed"; bandGap: string | null; caret: "l" | "r" | null };
   const [spotBoxes, setSpotBoxes] = useState<Spot[]>([]);
   const [spotLines, setSpotLines] = useState<Spot[]>([]); // deadline lines
   useLayoutEffect(() => {
@@ -392,7 +436,10 @@ export default function CalendarCanvas() {
       // Bands clip their title before the next bar on the lane (--band-gap). Carry that over so
       // the duplicates clamp identically — recurrence copies don't overlap their neighbours' text.
       const bandGap = cl.contains("cc-band-clip") ? getComputedStyle(el as HTMLElement).getPropertyValue("--band-gap").trim() || null : null;
-      return { left: r.left - wr.left, top: r.top - wr.top, width: r.width, height: r.height, occ: (el as HTMLElement).getAttribute("data-occ"), shape, bandGap };
+      // Which side the deadline label's caret points (its -l/-r modifier) — needed so the spotlight
+      // duplicate renders the same caret (it's a ::after whose colour comes from that modifier).
+      const caret = cl.contains("cc-ddl-label-l") ? "l" : cl.contains("cc-ddl-label-r") ? "r" : null;
+      return { left: r.left - wr.left, top: r.top - wr.top, width: r.width, height: r.height, occ: (el as HTMLElement).getAttribute("data-occ"), shape, bandGap, caret };
     };
     setSpotBoxes([...wrap.querySelectorAll(`[data-ev-id="${drawerId}"]`)].map(rel));
     setSpotLines([...wrap.querySelectorAll(`[data-ev-line-id="${drawerId}"]`)].map(rel)); // deadline lines only (empty otherwise)
@@ -440,9 +487,9 @@ export default function CalendarCanvas() {
 
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
   keyHandlerRef.current = (e: KeyboardEvent) => {
-    // The recurring-delete scope dialog is modal: swallow every key (Escape dismisses it) so the
-    // canvas behind stays inert.
-    if (recurDelete != null) { if (e.key === "Escape") { e.preventDefault(); setRecurDelete(null); } else e.preventDefault(); return; }
+    // A modal dialog (delete / hide / recurring-delete / cross-year confirm, or Help) is open →
+    // the canvas is inert. The dialog owns its own keys (Escape closes it via <Dialog>).
+    if (document.body.classList.contains("ui-dialog-open")) return;
     // Calendar-level undo/redo. While a text field is focused, Cmd+Z belongs to the
     // browser (native per-field text history) — bail and let it through.
     if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
@@ -464,11 +511,6 @@ export default function CalendarCanvas() {
         if (k === "x" && selectedId) { e.preventDefault(); doCut(); return; }
         if (k === "v" && clip) { e.preventDefault(); doPaste(); return; }
       }
-    }
-    if (confirmDeleteId != null) {
-      if (e.key === "Escape") { e.preventDefault(); setConfirmDeleteId(null); }
-      else if (e.key === "Enter") { e.preventDefault(); removeEvent(confirmDeleteId); removeBandEvent(confirmDeleteId); removeDeadline(confirmDeleteId); setSelectedId(null); setConfirmDeleteId(null); }
-      return;
     }
     // Selected-event shortcuts: Enter = inline rename, Space = open drawer, Up/Down = ±15 min.
     if (selectedId != null) {
@@ -492,6 +534,7 @@ export default function CalendarCanvas() {
     e.preventDefault();
     const ev = events.find((x) => x.id === selectedId) ?? bandEvents.find((x) => x.id === selectedId) ?? deadlines.find((x) => x.id === selectedId);
     if (!ev) return;
+    if (ev.imported) { setHideConfirmId(ev.id); return; } // imported → hide (no delete / recurring scope)
     if (isRecurring(ev.id)) { const occ = focusedOcc ?? eventDateOf(ev.id); if (occ) { setRecurDelete({ id: ev.id, occ }); return; } } // recurring → pick scope
     if (ev.title === "Event" || ev.title === "Deadline") { removeEvent(ev.id); removeBandEvent(ev.id); removeDeadline(ev.id); setSelectedId(null); } // untouched → no prompt
     else setConfirmDeleteId(ev.id);
@@ -675,7 +718,6 @@ export default function CalendarCanvas() {
             canPaste={clip != null} onPaste={doPaste}
             altTz={altTz} onAltTz={setAltTz}
             mainTz={mainTzSetting} onMainTz={setMainTz}
-            dimPast={dimPast} onToggleDimPast={toggleDimPast}
           />
           <ViewMenu
             onGo={goToNow}
@@ -685,7 +727,11 @@ export default function CalendarCanvas() {
             onToggle={toggleTag}
             onShowAll={showAllTags}
             onHideAll={hideAllTags}
+            showHidden={showHidden}
+            onToggleShowHidden={() => setShowHidden((v) => !v)}
+            dimPast={dimPast} onToggleDimPast={toggleDimPast}
           />
+          <ConnectivityMenu />
           <HelpMenu />
         </div>
       </div>
@@ -803,12 +849,13 @@ export default function CalendarCanvas() {
         const evColor = previewColor ?? drawerEv.color;
         const isRec = (drawerEv.repeat?.kind ?? "none") !== "none";
         const ai = !!drawerEv.createdByAI;
+        const imported = !!drawerEv.imported;
         // Badges match how the underlying element renders them: base copies (occ null) show none,
         // occurrence ghosts add the recurrence mark, and band-shaped copies of a timed/deadline
         // event are promotions (the recurrence mark follows the series, like PromotedBandLayer).
         const badgesFor = (b: Spot) => {
           const promoted = b.shape === "band" && !drawerBand;
-          return { ai, recurring: isRec && (b.occ != null || promoted), promoted };
+          return { ai, imported, recurring: isRec && (b.occ != null || promoted), promoted };
         };
         return (
           <>
@@ -824,7 +871,7 @@ export default function CalendarCanvas() {
               if (b.shape === "ddl") return (
                 <div key={i} className={`cc-ddl cc-ev-${evColor}${b.occ === focusedOcc ? " selected" : ""}`} style={{ position: "absolute", inset: 0, zIndex: 91, pointerEvents: "none" }}>
                   <div
-                    className="cc-ddl-label"
+                    className={`cc-ddl-label${b.caret === "l" ? " cc-ddl-label-l" : b.caret === "r" ? " cc-ddl-label-r" : ""}`}
                     style={{ position: "absolute", left: b.left, top: b.top, width: b.width, height: b.height, transform: "none", pointerEvents: b.occ === focusedOcc ? "auto" : "none" }}
                     onMouseDown={(e) => e.stopPropagation()}
                   >
@@ -861,9 +908,9 @@ export default function CalendarCanvas() {
 
       {(() => {
         if (!drawerId) return null;
-        if (drawerTimed) return <EventDrawer key={drawerId} event={drawerTimed} onChange={updateEvent} onDelete={requestDeleteEvent} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
-        if (drawerBand) return <BandEventDrawer key={drawerId} event={drawerBand} onChange={updateBandEvent} onDelete={requestDeleteEvent} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
-        if (drawerDeadline) return <DeadlineDrawer key={drawerId} event={drawerDeadline} mainTz={mainTz} onChange={updateDeadline} onDelete={requestDeleteEvent} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
+        if (drawerTimed) return <EventDrawer key={drawerId} event={drawerTimed} onChange={updateEvent} onDelete={requestDeleteEvent} onRestore={restoreEvent} onInternalize={internalizeCopy} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
+        if (drawerBand) return <BandEventDrawer key={drawerId} event={drawerBand} onChange={updateBandEvent} onDelete={requestDeleteEvent} onRestore={restoreEvent} onInternalize={internalizeCopy} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
+        if (drawerDeadline) return <DeadlineDrawer key={drawerId} event={drawerDeadline} mainTz={mainTz} onChange={updateDeadline} onDelete={requestDeleteEvent} onRestore={restoreEvent} onInternalize={internalizeCopy} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
         return null;
       })()}
 
@@ -872,16 +919,15 @@ export default function CalendarCanvas() {
         const bev = menu ? bandEvents.find((e) => e.id === menu.id) : null;
         const ddl = menu ? deadlines.find((e) => e.id === menu.id) : null;
         const color = tev?.color ?? bev?.color ?? ddl?.color;
+        const menuImported = !!(tev?.imported || bev?.imported || ddl?.imported);
         return menu && color != null ? (
           <EventContextMenu
             x={menu.x}
             y={menu.y}
             color={color}
             onColor={(c) => { if (tev) updateEvent(menu.id, { color: c }); else if (bev) updateBandEvent(menu.id, { color: c }); else updateDeadline(menu.id, { color: c }); }}
-            onDelete={() => { removeEvent(menu.id); removeBandEvent(menu.id); removeDeadline(menu.id); }}
-            recurring={menuRecurring}
-            onDeleteThis={menuRecurring && focusedOcc ? () => deleteOccurrence(menu.id, focusedOcc) : undefined}
-            onDeleteFuture={menuRecurring && focusedOcc ? () => deleteFuture(menu.id, focusedOcc) : undefined}
+            onDelete={() => { requestDeleteEvent(menu.id); setMenu(null); }}
+            imported={menuImported}
             onClose={() => setMenu(null)}
           />
         ) : null;
@@ -892,16 +938,26 @@ export default function CalendarCanvas() {
           ? (events.find((e) => e.id === confirmDeleteId) ?? bandEvents.find((e) => e.id === confirmDeleteId) ?? deadlines.find((e) => e.id === confirmDeleteId))
           : null;
         return ev ? (
-          <div className="cc-confirm-backdrop" onMouseDown={() => setConfirmDeleteId(null)}>
-            <div className="cc-confirm" onMouseDown={(e) => e.stopPropagation()}>
-              <div className="cc-confirm-title">Delete this event?</div>
-              <div className="cc-confirm-msg">“{ev.title}” will be removed. This can’t be undone.</div>
-              <div className="cc-confirm-actions">
-                <button className="cc-confirm-cancel" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
-                <button className="cc-confirm-delete" onClick={() => { removeEvent(ev.id); removeBandEvent(ev.id); removeDeadline(ev.id); setSelectedId(null); setConfirmDeleteId(null); }}>Delete</button>
-              </div>
-            </div>
-          </div>
+          <ConfirmDialog
+            open
+            title="Delete this event?"
+            message={<>“{ev.title}” will be removed. This can’t be undone.</>}
+            onCancel={() => setConfirmDeleteId(null)}
+            choices={[{ label: "Delete", variant: "danger", onClick: () => { removeEvent(ev.id); removeBandEvent(ev.id); removeDeadline(ev.id); setSelectedId(null); setConfirmDeleteId(null); } }]}
+          />
+        ) : null;
+      })()}
+
+      {(() => {
+        const ev = hideConfirmId ? anyEventById(hideConfirmId) : null;
+        return ev ? (
+          <ConfirmDialog
+            open
+            title="Make this event invisible?"
+            message={<>“{ev.title}” is synced from a calendar, so it can’t be deleted here. We’ll hide it — and it won’t reappear on the next sync. Restore it anytime from View → Show hidden events.</>}
+            onCancel={() => setHideConfirmId(null)}
+            choices={[{ label: "Hide", variant: "primary", onClick: () => hideEvent(ev.id) }]}
+          />
         ) : null;
       })()}
 
@@ -911,32 +967,31 @@ export default function CalendarCanvas() {
           : null;
         const close = () => setRecurDelete(null);
         return recurDelete && ev ? (
-          <div className="cc-confirm-backdrop" onMouseDown={close}>
-            <div className="cc-confirm cc-confirm-recur" onMouseDown={(e) => e.stopPropagation()}>
-              <button className="cc-confirm-x" onClick={close} title="Cancel" aria-label="Cancel"><X size={13} /></button>
-              <div className="cc-confirm-title">Delete recurring event</div>
-              <div className="cc-confirm-msg">“{ev.title}” repeats. What would you like to delete?</div>
-              <div className="cc-confirm-actions cc-confirm-recur-actions">
-                <button className="cc-confirm-opt" onClick={() => { deleteOccurrence(recurDelete.id, recurDelete.occ); close(); }}>This event only</button>
-                <button className="cc-confirm-opt" onClick={() => { deleteFuture(recurDelete.id, recurDelete.occ); close(); }}>This &amp; all future</button>
-                <button className="cc-confirm-opt cc-confirm-delete" onClick={() => { deleteAny(recurDelete.id); setSelectedId(null); close(); }}>All events</button>
-              </div>
-            </div>
-          </div>
+          <ConfirmDialog
+            open
+            compact
+            spread
+            closeAsX
+            title="Delete recurring event"
+            message={<>“{ev.title}” repeats. What would you like to delete?</>}
+            onCancel={close}
+            choices={[
+              { label: "This event only", variant: "ghost", onClick: () => { deleteOccurrence(recurDelete.id, recurDelete.occ); close(); } },
+              { label: "This & all future", variant: "ghost", onClick: () => { deleteFuture(recurDelete.id, recurDelete.occ); close(); } },
+              { label: "All events", variant: "danger", onClick: () => { deleteAny(recurDelete.id); setSelectedId(null); close(); } },
+            ]}
+          />
         ) : null;
       })()}
 
       {crossYear && (
-        <div className="cc-confirm-backdrop" onMouseDown={() => setCrossYear(null)}>
-          <div className="cc-confirm" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="cc-confirm-title">Jump to {crossYear.ty}?</div>
-            <div className="cc-confirm-msg">The first occurrence of this event is in {crossYear.ty}, a different year from the one you’re viewing. Jump there to see it?</div>
-            <div className="cc-confirm-actions">
-              <button className="cc-confirm-cancel" onClick={() => setCrossYear(null)}>Cancel</button>
-              <button className="cc-confirm-go" onClick={() => { const c = crossYear; setCrossYear(null); runGoToFirst(c.id, c.ty, c.tm, c.tw, c.lvl); }}>Jump to {crossYear.ty}</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          open
+          title={`Jump to ${crossYear.ty}?`}
+          message={`The first occurrence of this event is in ${crossYear.ty}, a different year from the one you’re viewing. Jump there to see it?`}
+          onCancel={() => setCrossYear(null)}
+          choices={[{ label: `Jump to ${crossYear.ty}`, variant: "primary", onClick: () => { const c = crossYear; setCrossYear(null); runGoToFirst(c.id, c.ty, c.tm, c.tw, c.lvl); } }]}
+        />
       )}
     </div>
   );

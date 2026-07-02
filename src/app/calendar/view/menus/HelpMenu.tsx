@@ -3,9 +3,8 @@
 // Help modal: docs + keyboard-shortcut tabs.
 
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { X } from "lucide-react";
 import MenuBackdrop from "./MenuBackdrop";
+import { Dialog } from "@/app/components/ui/Dialog";
 
 type Which = "docs" | "keys";
 
@@ -32,24 +31,11 @@ const CONTENT: Record<Which, { title: string; body: React.ReactNode }> = {
 };
 
 function HelpModal({ which, onClose }: { which: Which; onClose: () => void }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
-  if (!mounted) return null;
   const { title, body } = CONTENT[which];
-  return createPortal(
-    <div className="cc-help-backdrop" onMouseDown={onClose}>
-      <div className="cc-help-modal" onMouseDown={(e) => e.stopPropagation()}>
-        <button className="cc-help-x" onClick={onClose} title="Close" aria-label="Close"><X size={16} /></button>
-        <div className="cc-help-title">{title}</div>
-        <div className="cc-help-body">{body}</div>
-      </div>
-    </div>,
-    document.body,
+  return (
+    <Dialog open onClose={onClose} title={title} showClose>
+      {body}
+    </Dialog>
   );
 }
 

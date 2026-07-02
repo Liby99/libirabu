@@ -30,6 +30,7 @@ interface PItem {
   color: string;
   recurring: boolean;
   ai: boolean;
+  imported: boolean;
 }
 
 interface Props {
@@ -64,10 +65,10 @@ export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, t
   const [movingId, setMovingId] = useState<string | null>(null);
 
   const items: PItem[] = [];
-  const add = (kind: "timed" | "deadline", id: string, eyear: number, month: number, day: number, track: number | null | undefined, title: string, color: string, repeat: TimedEvent["repeat"], ai: boolean) => {
+  const add = (kind: "timed" | "deadline", id: string, eyear: number, month: number, day: number, track: number | null | undefined, title: string, color: string, repeat: TimedEvent["repeat"], ai: boolean, imported: boolean) => {
     if (track == null) return;
     const recurring = isRecurring(repeat);
-    const base = { kind, id, track, title, color, recurring, ai };
+    const base = { kind, id, track, title, color, recurring, ai, imported };
     if (eyear === year && !baseHidden(occDate({ year: eyear, month, day }), repeat)) items.push({ ...base, key: id, occ: null, month, day }); // the base day (this year only)
     if (recurring) {
       for (const o of occurrenceDates({ year: eyear, month, day }, repeat, year)) {
@@ -75,8 +76,8 @@ export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, t
       }
     }
   };
-  timed.forEach((e) => add("timed", e.id, e.year, e.month, e.day, e.promoteTrack, e.title, e.color, e.repeat, !!e.createdByAI));
-  deadlines.forEach((d) => add("deadline", d.id, d.year, d.month, d.day, d.promoteTrack, d.title, d.color, d.repeat, !!d.createdByAI));
+  timed.forEach((e) => add("timed", e.id, e.year, e.month, e.day, e.promoteTrack, e.title, e.color, e.repeat, !!e.createdByAI, !!e.imported));
+  deadlines.forEach((d) => add("deadline", d.id, d.year, d.month, d.day, d.promoteTrack, d.title, d.color, d.repeat, !!d.createdByAI, !!d.imported));
 
   const setTrack = (it: PItem, track: number) => {
     if (it.kind === "timed") updateTimed(it.id, { promoteTrack: track });
@@ -153,7 +154,7 @@ export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, t
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(it.id, r.left + r.width / 2, r.top, it.occ); }}
           >
             <div className="cc-tevent-inner"><div className="cc-tevent-title">{it.title}</div></div>
-            <EventBadges ai={it.ai} recurring={it.recurring} promoted />
+            <EventBadges ai={it.ai} imported={it.imported} recurring={it.recurring} promoted />
           </div>
         );
       })}

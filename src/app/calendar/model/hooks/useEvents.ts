@@ -14,7 +14,7 @@ const PATCH_DEBOUNCE = 400; // coalesce the flood of updates during a drag into 
 // All mutations also feed the shared undo/redo History (edits coalesce per id; create and
 // delete push explicit inverse entries; undo/redo replay through these same paths so they
 // persist too).
-export function useEvents(year: number, history: History) {
+export function useEvents(year: number, history: History, includeHidden = false) {
   const [events, setEvents] = useState<TimedEvent[]>([]);
   const eventsRef = useRef<TimedEvent[]>([]);
   eventsRef.current = events;
@@ -22,14 +22,14 @@ export function useEvents(year: number, history: History) {
 
   useEffect(() => {
     let alive = true;
-    const load = () => fetchEvents(year, "timed")
+    const load = () => fetchEvents(year, "timed", includeHidden)
       .then((rows) => { if (alive) setEvents(rows.map(apiToTimed)); })
       .catch((e) => console.error("[calendar] load timed events", e));
     load();
     // The AI assistant dispatches this after a server-side write so the canvas refreshes.
     window.addEventListener("calendar:changed", load);
     return () => { alive = false; window.removeEventListener("calendar:changed", load); };
-  }, [year]);
+  }, [year, includeHidden]);
 
   useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);
 

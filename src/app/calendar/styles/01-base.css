@@ -48,6 +48,7 @@
 .cc-daily-inner-dash { --dd-pad: 25px; }
 /* the two horizontal bars — same color/height as the track band's top border & bottom divider */
 .cc-dd-bar { flex: none; height: 1px; margin-left: var(--dd-pad); background: color-mix(in srgb, var(--cc-line) 58%, transparent); }
+.cc-dd-bar.top { margin-top: 0.1px; }
 /* title zone fills the band region; title bottom-LEFT, the TODO/NOTE tabs bottom-RIGHT */
 .cc-dd-titlezone { flex: none; display: flex; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 10px; padding: 0 18px 7px var(--dd-pad); box-sizing: border-box; overflow: hidden; }
 .cc-dd-titlemain { min-width: 0; overflow: hidden; }

@@ -8,7 +8,7 @@ import { Prisma } from "@/generated/prisma/client";
 /** All remembered facts for a user, as a { key: value } map (most-recent first, capped). */
 export async function recallAll(userId: string): Promise<Record<string, unknown>> {
   const rows = await prisma.assistantMemory.findMany({
-    where: { userId },
+    where: { userId, NOT: { key: { startsWith: "assistant." } } }, // hide internal settings from the prompt
     orderBy: { updatedAt: "desc" },
     take: 100,
   });
@@ -28,4 +28,21 @@ export async function remember(userId: string, key: string, value: unknown): Pro
     create: { userId, key, value: value as Prisma.InputJsonValue },
     update: { value: value as Prisma.InputJsonValue },
   });
+}
+
+/** Delete one remembered fact (the assistant's `forget` tool + the user's Memory browser). */
+export async function forget(userId: string, key: string): Promise<void> {
+  await prisma.assistantMemory.deleteMany({ where: { userId, key } });
+}
+
+export interface MemoryEntry { key: string; value: unknown; updatedAt: string }
+
+/** Browsable facts for the Memory UI — excludes internal `assistant.*` settings (e.g. the model pick). */
+export async function listMemories(userId: string): Promise<MemoryEntry[]> {
+  const rows = await prisma.assistantMemory.findMany({
+    where: { userId, NOT: { key: { startsWith: "assistant." } } },
+    orderBy: { updatedAt: "desc" },
+    take: 300,
+  });
+  return rows.map((r) => ({ key: r.key, value: r.value, updatedAt: r.updatedAt.toISOString() }));
 }

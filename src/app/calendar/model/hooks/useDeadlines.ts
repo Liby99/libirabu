@@ -12,7 +12,7 @@ const PATCH_DEBOUNCE = 400;
 // Deadlines for the displayed year, persisted via /api/calendar. Optimistic local state
 // + debounced background sync (mirrors useEvents / useBandEvents), and feeds the shared
 // undo/redo History the same way.
-export function useDeadlines(year: number, history: History) {
+export function useDeadlines(year: number, history: History, includeHidden = false) {
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
   const ref = useRef<Deadline[]>([]);
   ref.current = deadlines;
@@ -20,13 +20,13 @@ export function useDeadlines(year: number, history: History) {
 
   useEffect(() => {
     let alive = true;
-    const load = () => fetchEvents(year, "deadline")
+    const load = () => fetchEvents(year, "deadline", includeHidden)
       .then((rows) => { if (alive) setDeadlines(rows.map(apiToDeadline)); })
       .catch((e) => console.error("[calendar] load deadlines", e));
     load();
     window.addEventListener("calendar:changed", load);
     return () => { alive = false; window.removeEventListener("calendar:changed", load); };
-  }, [year]);
+  }, [year, includeHidden]);
 
   useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);
 

@@ -11,6 +11,27 @@ import { buildAuditContext } from "./auditContext";
 import type { ServerEvent, ViewContext } from "./types";
 
 const MAX_STEPS = 10;
+const PACE_MS = 750; // brief pause after navigating to an action, so the user can watch it happen
+
+// A short, abortable delay (so Stop doesn't leave the turn hanging on a pause).
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((res) => {
+    if (signal?.aborted) return res();
+    const t = setTimeout(res, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(t); res(); }, { once: true });
+  });
+
+// Build a "navigate" event to follow the agent to an event it touched. `dateStr` is a wall-clock
+// (YYYY-MM-DD[T…]); band → month view, timed/deadline → the week; openDrawer opens edits.
+function navEvent(id: unknown, dateStr: unknown, kind: unknown, openDrawer: boolean, occ: string | null = null): ServerEvent | null {
+  if (typeof id !== "string" || typeof dateStr !== "string") return null;
+  const [datePart, timePart] = dateStr.split(/[T ]/);
+  const [y, mo, d] = datePart.split("-").map(Number);
+  if (!y || !mo || !d) return null;
+  let hour: number | undefined;
+  if (timePart) { const [h, mi] = timePart.split(":").map(Number); hour = h + (mi || 0) / 60; } // for the week-view vertical scroll
+  return { t: "navigate", id, year: y, month: mo - 1, day: d, hour, zoom: kind === "band" ? "month" : "week", openDrawer, occ };
+}
 
 export interface AgentInput {
   userId: string;
@@ -45,8 +66,11 @@ function buildSystem(view: ViewContext, memory: Record<string, unknown>): string
     "Conventions:",
     "- Colors are personal. Before choosing one, read the user's existing similar events with list_events and reuse their color/tags; don't guess. Palette: default, red, orange, yellow, green, blue, purple.",
     "- Conference CFP deadlines are almost always Anywhere-on-Earth: create a 'deadline' with originTz:\"AOE\" and originAt at 23:59 on the date.",
-    "- When you learn a durable preference (a color/tag convention, a contact's details, a default), call remember so future sessions reuse it without re-asking.",
-    "- To add a TODO, put a markdown checkbox in an event's notes with DSL tokens, e.g. `- [ ] submit abstract due:2026-07-01 !! #paper-submission @project:foo start:2026-06-15`. Use start: to keep not-yet-actionable items out of the feed. Use real markdown links [label](url).",
+    "- Finding an event: search across ALL kinds (omit `kind` in list_events). A 'deadline' the user names may actually be stored as a timed or all-day (band) event — don't conclude it doesn't exist just because it isn't a 'deadline'.",
+    "- Event kinds: a deadline (a due-moment) and a timed event (hourly) carry TIME; a band is an all-day, multi-day bar on a monthly track lane. Deadline/timed are the single source of truth — they have finer info. Do NOT create a separate all-day band just to make a deadline/timed event show on a monthly track: instead PROMOTE it — set promoteTrack to a lane 0–3 and it mirrors there as a ghost band. If you find a duplicate all-day band that just mirrors an existing deadline/timed event, delete the band and promote the deadline/timed instead (no duplicates).",
+    "- Choosing the promote lane: call get_tracks and match the lane NAME to the event's topic (e.g. a paper-submission deadline in a month whose lane 3 is 'research' → promoteTrack 3).",
+    "- Memory: when you learn a DURABLE, GENERAL fact (a color/tag convention, a contact's details, a default, a standing constraint), call remember so future sessions reuse it. Don't memorize one-off chatter, single events, or things already in the calendar. If a remembered fact is wrong or the user corrects it, call remember with the same key to update it, or forget to drop it.",
+    "- To add a TODO, put a markdown checkbox in an event's notes with DSL tokens, e.g. `- [ ] submit abstract due:2026-07-01 p:!! #paper-submission @project:foo start:2026-06-15`. Priority MUST use the `p:` prefix with bang-count for the level — `p:!` (low) … `p:!!!` (high) … `p:!!!!!` (top); bare `!!!` is NOT a priority. Other tokens: `due:YYYY-MM-DD` (accepts `today`/`tomorrow`/`3d`/`5pm`), `start:` (defer until), `#tag`, `@person` / `@project:slug`, `followup:30d` (off the event's end). Use real markdown links [label](url).",
     "- Don't fabricate facts (dates, URLs). If something isn't known yet, mark it tentative, add a TODO to confirm, or ask.",
     "",
     "Every create is checked by a separate safety auditor. If a tool result says the action was denied/blocked, tell the user it was blocked and the reason — do NOT claim you made the change, and do NOT retry the same action.",
@@ -105,6 +129,7 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<ServerEvent> 
     const m = result.message;
     const calls = m.toolCalls ?? [];
     console.log(`[asst] step ${step} finish=${result.finishReason} contentLen=${(m.content || "").trim().length} tools=${calls.length}`);
+    if (m.reasoning && m.reasoning.trim()) yield { t: "thinking", content: m.reasoning }; // surfaced as a collapsed bubble
     if (m.content && m.content.trim()) yield { t: "text", delta: m.content };
 
     if (calls.length === 0) {
@@ -142,9 +167,12 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<ServerEvent> 
         const verdict = await audit(userTurns, { name: call.name, arguments: call.arguments }, auditCtx, model);
         if (verdict.decision === "deny") {
           console.log(`[asst] BLOCKED ${call.name}: ${verdict.reason}`);
-          yield { t: "action", id: call.id, kind: tool.actionKind, status: "blocked", summary: `Blocked: ${summary}`, detail: { reason: verdict.reason } };
-          messages.push({ role: "tool", content: JSON.stringify({ denied: true, reason: verdict.reason }), toolCallId: call.id });
-          continue;
+          // A block HALTS the turn: don't run this or any subsequent action. The card shows the
+          // auditor's reason + an "Allow anyway" override (/api/assistant/allow); the user decides.
+          // include the call so it can be re-run on override.
+          yield { t: "action", id: call.id, kind: tool.actionKind, status: "blocked", summary: `Blocked: ${summary}`, detail: { reason: verdict.reason, name: call.name, arguments: call.arguments } };
+          yield { t: "done" };
+          return;
         }
       }
 
@@ -152,7 +180,11 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<ServerEvent> 
       // must click Confirm in the UI, which calls /api/assistant/execute to actually run it.
       if (tool.confirm) {
         try {
-          const spec = await tool.run(call.arguments, { userId, view });
+          const spec = await tool.run(call.arguments, { userId, view }) as Record<string, unknown>;
+          // Delete: take the user to the event's week FIRST (design: "before removing, go there"),
+          // so they see what they're about to confirm removing.
+          const nav = navEvent(spec.id, spec.date, spec.kind, false, (spec.occurrenceDate as string) ?? null);
+          if (nav) { yield nav; await sleep(PACE_MS, input.signal); }
           yield { t: "action", id: call.id, kind: tool.actionKind, status: "confirm", summary, detail: spec };
           messages.push({ role: "tool", content: JSON.stringify({ staged: true, awaiting_user_confirmation: true, spec }), toolCallId: call.id });
         } catch (e) {
@@ -169,6 +201,13 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<ServerEvent> 
         yield { t: "action", id: call.id, kind: tool.actionKind, status: "done", summary, detail: out };
         if (!tool.readOnly && out) yield { t: "calendar_changed", items: [out] };
         if (tool.actionKind === "set_view" && out) yield { t: "view_change", view: out as Partial<ViewContext> };
+        // Follow the agent to the event it created/edited (edits open the drawer to show the change),
+        // then pause briefly so the movement is watchable before the next step.
+        if (tool.actionKind === "create_event" || tool.actionKind === "update_event") {
+          const o = out as Record<string, unknown> | null;
+          const nav = navEvent(o?.id, o?.start, o?.kind, tool.actionKind === "update_event");
+          if (nav) { yield nav; await sleep(PACE_MS, input.signal); }
+        }
         messages.push({ role: "tool", content: JSON.stringify(out), toolCallId: call.id });
       } catch (e) {
         const msg = errMsg(e);

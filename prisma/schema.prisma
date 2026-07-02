@@ -154,6 +154,10 @@ model CalendarItem {
   notes  String? // the "series" note (the whole event / all occurrences)
   // recurring events: per-occurrence notes, keyed by occurrence date → text { "YYYY-MM-DD": "…" }
   occurrenceNotes Json?
+  // recurring events: per-occurrence field overrides (edit "This event" only), keyed by occurrence
+  // date → sparse partial { "YYYY-MM-DD": { title?, color?, start?, end?, track?, promoteTrack?, tags? } }.
+  // Unset fields fall through to the series; deleting a key re-attaches that occurrence.
+  occurrenceOverrides Json?
   color  String   @default("default") // palette key shared with the UI (EVENT_COLORS)
   tags   String[] @default([]) // freeform #tags
   repeat Json? // recurrence config { kind, n?, until?, days? }; null/absent = none
@@ -172,10 +176,75 @@ model CalendarItem {
   // provenance: true when the AI assistant created (or edited) this event — drives the AI badge.
   createdByAI Boolean @default(false)
 
+  // ── Import provenance (docs/calendar-import-design.md) ──────────────────
+  // External-calendar import (Apple Calendar via EventKit, or an emailed .ics). "manual" = native.
+  source       String    @default("manual") // "manual" | "apple" | "ical" (later: "google")
+  externalUid  String? // iCalUID / EKEvent.calendarItemExternalIdentifier — cross-system dedup key
+  externalId   String? // source-native id (Apple: EKEvent.calendarItemIdentifier); for re-sync
+  externalEtag String? // change token (Apple: EKEvent.lastModifiedDate); skip-unchanged on re-sync
+  externalUrl  String? // "open this event" deep link (Apple: ical:// ; Google: htmlLink)
+  connectionId String? // → CalendarConnection.id; null for .ics imports
+  importedAt   DateTime?
+  // Soft-delete for imported events: "deleting" an imported event hides it instead of removing the
+  // row, so re-sync knows it was dismissed and won't re-import/re-show it. Manual events hard-delete.
+  hidden       Boolean   @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([userId, connectionId, externalUid]) // re-sync idempotency (NULL connectionId stays app-deduped)
   @@index([userId, start])
+}
+
+// A connected external calendar enabled for import (docs/calendar-import-design.md §4.1).
+// For Apple Calendar, one row per EKCalendar: accountLabel = EKSource.title (iCloud/Google/account),
+// externalCalId = EKCalendar.calendarIdentifier, tokens null (the EventKit bridge uses the OS
+// Calendars permission). The model stays generic so Google/CalDAV slot in later (they'd populate the
+// encrypted OAuth-token columns).
+model CalendarConnection {
+  id            String  @id @default(cuid())
+  userId        String
+  provider      String // "apple" (later: "google" | "caldav" | "outlook")
+  accountLabel  String // Apple: EKSource.title; Google: account email
+  externalCalId String // Apple: EKCalendar.calendarIdentifier; vendor calendar id otherwise
+  calName       String // display name ("Liby's Work", "US Holidays", …)
+  color         String? // EKCalendar.color — UI hint
+
+  // OAuth tokens — null for Apple; AES-256-GCM encrypted (src/lib/crypto.ts) when present.
+  accessTokenEnc  Bytes?
+  refreshTokenEnc Bytes?
+  expiresAt       Int?
+
+  syncToken    String? // Google incremental cursor (later); Apple uses window re-fetch
+  lastSyncedAt DateTime?
+  enabled      Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, provider, externalCalId])
+  @@index([userId])
+}
+
+// Pending tier-2 dedup decisions (docs/calendar-import-design.md §6). When a sync finds an incoming
+// event that FUZZILY matches an existing one (close title + nearby time, no UID match), it can't be
+// auto-merged — it lands here for the user to resolve later in the Triage box, even outside a sync.
+// The full normalized event is stored so it can be created/merged without re-fetching the source.
+model TriageItem {
+  id           String  @id @default(cuid())
+  userId       String
+  source       String // "apple" | "ical" | "google"
+  connectionId String? // → CalendarConnection.id; null for .ics
+  dedupKey     String // stable per-event key so repeat syncs upsert instead of piling duplicates
+  payload      Json // the NormalizedEvent to create/merge on resolve
+  candidates   Json // MatchCandidate[] — the existing events it might duplicate
+  suggestion   Json? // DedupSuggestion | null — the AI hint
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, dedupKey])
+  @@index([userId])
 }
 
 // Per-user calendar preferences (singleton row, keyed by userId).

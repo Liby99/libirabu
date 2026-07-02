@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "rootDir": "src",
+    "outDir": ".test-out",
+    "incremental": false,
+    "ignoreDeprecations": "6.0",
+    "plugins": []
+  },
+  "include": ["src/lib/import/**/*.ts"]
+}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createApiKey, updateApiKey, deleteApiKey, revealApiKey } from "@/app/actions/apikeys";
 import { APIKEY_STATUSES } from "@/lib/enums";
+import { useConfirm } from "@/app/components/ui/confirm";
 
 export interface ApiKeyRow {
   id: string;
@@ -26,6 +27,7 @@ export default function KeysManager({
   people: { id: string; name: string }[];
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [label, setLabel] = useState("");
   const [provider, setProvider] = useState("");
   const [secret, setSecret] = useState("");
@@ -119,7 +121,7 @@ export default function KeysManager({
                 </select>
               </td>
               <td><button className="x-btn" disabled={busy}
-                onClick={() => { if (confirm("Delete key record?")) wrap(() => deleteApiKey(k.id)); }}>×</button></td>
+                onClick={async () => { if (await confirm({ title: "Delete key record?", confirmLabel: "Delete", variant: "danger" })) wrap(() => deleteApiKey(k.id)); }}>×</button></td>
             </tr>
           ))}
         </tbody>

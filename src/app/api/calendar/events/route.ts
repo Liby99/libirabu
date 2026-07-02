@@ -21,6 +21,9 @@ export async function GET(req: NextRequest) {
     if (kind && !EVENT_KINDS.includes(kind as EventKind)) {
       return badRequest(`kind must be one of ${EVENT_KINDS.join(", ")}`);
     }
+    // Soft-deleted (hidden) events are excluded unless explicitly requested (the "Show hidden" view).
+    const includeHidden = sp.get("includeHidden") === "1";
+    const hiddenFilter = includeHidden ? {} : { hidden: false };
 
     let rangeStart: Date;
     let rangeEnd: Date;
@@ -43,6 +46,7 @@ export async function GET(req: NextRequest) {
       where: {
         userId,
         ...(kind ? { kind } : {}),
+        ...hiddenFilter,
         start: { lt: rangeEnd }, // overlaps [rangeStart, rangeEnd)
         end: { gte: rangeStart },
       },
@@ -61,6 +65,7 @@ export async function GET(req: NextRequest) {
         where: {
           userId,
           ...(kind ? { kind } : {}),
+          ...hiddenFilter,
           start: { lt: rangeStart },                // base is in an earlier year
           repeat: { path: ["kind"], not: "none" },  // …and it recurs
         },

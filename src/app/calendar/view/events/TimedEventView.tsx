@@ -66,7 +66,7 @@ export default function TimedEventView({ ev, rect, wide, reveal, interactive, on
   return (
     <div
       data-ev-id={ev.id}
-      className={`cc-item cc-tevent cc-ev-${ev.color}${selected ? " selected" : ""}${moving ? " moving" : ""}${short ? " cc-tevent-short" : ""}${tiny ? " cc-tevent-tiny" : ""}`}
+      className={`cc-item cc-tevent cc-ev-${ev.color}${selected ? " selected" : ""}${moving ? " moving" : ""}${short ? " cc-tevent-short" : ""}${tiny ? " cc-tevent-tiny" : ""}${ev.hidden ? " cc-hidden" : ""}`}
       style={style}
       onMouseDown={(e) => onMoveStart(ev.id, e)}
       onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; onSelect(ev.id); }}
@@ -116,7 +116,7 @@ export default function TimedEventView({ ev, rect, wide, reveal, interactive, on
         {wide && !short && <div className="cc-tevent-time">{fmtRange(ev.startHour, ev.endHour)}</div>}
       </div>
 
-      <EventBadges ai={ev.createdByAI} />
+      <EventBadges ai={ev.createdByAI} imported={ev.imported} />
 
       {interactive && (
         <div className="cc-tevent-handle cc-tevent-handle-top" onMouseDown={(e) => onResizeStart(ev.id, "top", e)} />
