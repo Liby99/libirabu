@@ -21,6 +21,7 @@ interface Props {
   onDelete: (id: string) => void;
   onRestore?: (id: string) => void;
   onInternalize?: (id: string) => void;
+  onIsolate?: (id: string) => void;
   onClose: () => void;
   onColorPreview?: (c: string | null) => void;
   focusOcc?: string | null;
@@ -29,7 +30,7 @@ interface Props {
 
 // When an origin tz is set, the date/time fields edit the origin-tz value (the stored
 // main-tz moment is recomputed); with no origin tz you edit your main-tz time directly.
-export default function DeadlineDrawer({ event, mainTz, onChange, onDelete, onClose, onRestore, onInternalize, onColorPreview, focusOcc, onGoToFirst }: Props) {
+export default function DeadlineDrawer({ event, mainTz, onChange, onDelete, onClose, onRestore, onInternalize, onIsolate, onColorPreview, focusOcc, onGoToFirst }: Props) {
   const editTz = event.originTz || null;
   const mainWall = `${event.year}-${pad(event.month + 1)}-${pad(event.day)}T${hhmm(event.hour)}`;
   const editWall = editTz ? convertWallClock(mainWall, mainTz, editTz) : mainWall;
@@ -71,6 +72,7 @@ export default function DeadlineDrawer({ event, mainTz, onChange, onDelete, onCl
       hidden={event.hidden}
       onRestore={onRestore ? () => onRestore(event.id) : undefined}
       onInternalize={onInternalize ? () => onInternalize(event.id) : undefined}
+      onIsolate={onIsolate ? () => onIsolate(event.id) : undefined}
       configChildren={<PromoteEditor promoteTrack={event.promoteTrack} onChange={(t) => onChange(event.id, { promoteTrack: t })} />}
     >
       <div className="cc-dw-row cc-dw-when">

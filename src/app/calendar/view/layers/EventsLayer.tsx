@@ -29,7 +29,7 @@ interface Props {
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
   selectedId: string | null;
   focusedOcc: string | null; // the focused occurrence ("YYYY-MM-DD", null = base) → the one instance that gets the standout ring
-  onSelect: (id: string | null, occ?: string | null) => void;
+  onSelect: (id: string | null, occ?: string | null, space?: "timed" | "allday") => void;
   tlScroll: number;
   editingId: string | null;
   onEditConsumed: () => void;
@@ -284,7 +284,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                 data-occ={occDate(o)}
                 className={`cc-item cc-tevent cc-ev-${ev.color} cc-ghost${ev.id === selectedId ? " selected" : ""}${ev.id === selectedId && focusedOcc === occDate(o) ? " cc-focused-occ" : ""}${short ? " cc-tevent-short" : ""}${tiny ? " cc-tevent-tiny" : ""}`}
                 style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, opacity: tl.reveal * dfade(o.month, o.day) * pdim(o.year, o.month, o.day, ev.endHour), pointerEvents: interactive ? "auto" : "none" }}
-                onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
+                onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o), "timed"); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
                 onMouseEnter={() => setHover(occKey(ev.id, o), true)}
                 onMouseLeave={() => setHover(occKey(ev.id, o), false)}
@@ -316,7 +316,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                 onContextMenu={onContextMenu}
                 selected={ev.id === selectedId}
                 focused={ev.id === selectedId && focusedOcc == null}
-                onSelect={onSelect}
+                onSelect={(id) => onSelect(id, null, "timed")}
                 requestEdit={editingId === ev.id}
                 onEditConsumed={onEditConsumed}
               />

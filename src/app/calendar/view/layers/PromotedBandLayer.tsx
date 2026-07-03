@@ -47,7 +47,7 @@ interface Props {
   updateDeadline: (id: string, patch: Partial<Deadline>) => void;
   selectedId: string | null;
   focusedOcc: string | null; // the focused occurrence → the one promoted bar that gets the standout ring
-  onSelect: (id: string | null, occ?: string | null) => void;
+  onSelect: (id: string | null, occ?: string | null, space?: "timed" | "allday") => void;
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
   monthAnim: MonthAnim | null;
@@ -150,7 +150,7 @@ export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, t
             className={`cc-item cc-tevent cc-tevent-band cc-ghost cc-promoted cc-ev-${it.color}${gap != null ? " cc-band-clip" : ""}${it.id === selectedId ? " selected" : ""}${it.id === selectedId && (it.occ ?? null) === (focusedOcc ?? null) ? " cc-focused-occ" : ""}${it.id === movingId ? " moving" : ""}`}
             style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(dim < 1 ? { opacity: dim } : {}), ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}) }}
             onMouseDown={(e) => onMoveStart(it, e)}
-            onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; onSelect(it.id, it.occ); }}
+            onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; onSelect(it.id, it.occ, "allday"); }}
             onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(it.id, it.occ); }}
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(it.id, r.left + r.width / 2, r.top, it.occ); }}
           >

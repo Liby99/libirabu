@@ -18,13 +18,14 @@ interface Props {
   onDelete: (id: string) => void;
   onRestore?: (id: string) => void;
   onInternalize?: (id: string) => void;
+  onIsolate?: (id: string) => void;
   onClose: () => void;
   onColorPreview?: (c: string | null) => void;
   focusOcc?: string | null;
   onGoToFirst?: () => void;
 }
 
-export default function EventDrawer({ event, onChange, onDelete, onClose, onRestore, onInternalize, onColorPreview, focusOcc, onGoToFirst }: Props) {
+export default function EventDrawer({ event, onChange, onDelete, onClose, onRestore, onInternalize, onIsolate, onColorPreview, focusOcc, onGoToFirst }: Props) {
   const dateStr = `${event.year}-${pad(event.month + 1)}-${pad(event.day)}`;
   const occKey = focusOcc ?? dateStr; // the occurrence this drawer's per-occurrence note belongs to
   const recurring = (event.repeat?.kind ?? "none") !== "none";
@@ -65,6 +66,7 @@ export default function EventDrawer({ event, onChange, onDelete, onClose, onRest
       hidden={event.hidden}
       onRestore={onRestore ? () => onRestore(event.id) : undefined}
       onInternalize={onInternalize ? () => onInternalize(event.id) : undefined}
+      onIsolate={onIsolate ? () => onIsolate(event.id) : undefined}
       configChildren={<PromoteEditor promoteTrack={event.promoteTrack} onChange={(t) => onChange(event.id, { promoteTrack: t })} />}
     >
       {recurring ? (

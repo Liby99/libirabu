@@ -140,6 +140,10 @@ export default function CalendarCanvas() {
   // Yearly-view "track" space: which of a focused month's 4 track-name inputs is being edited (0–3), or
   // null. A ref (no re-render) — the visual is the native input focus; the month stays highlighted.
   const trackIdxRef = useRef<number | null>(null);
+  // Which event space a selection belongs to — "timed" (timeline) or "allday" (lane bar). Only needed
+  // to disambiguate a PROMOTED event, whose id renders as BOTH a timed bar and a band bar. Set at every
+  // selection site; spaceOf trusts the DOM for unambiguous events and this discriminator for promoted ones.
+  const selSpaceRef = useRef<"timed" | "allday" | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [hideConfirmId, setHideConfirmId] = useState<string | null>(null); // "make invisible?" callout for imported events
   const [recurDelete, setRecurDelete] = useState<{ id: string; occ: string } | null>(null); // recurring delete → pick scope
@@ -172,11 +176,13 @@ export default function CalendarCanvas() {
   };
   // Interactions carry which occurrence (date) was clicked, so per-occurrence actions work. A mouse
   // selection also seeds the arrow-nav vertical anchor with the picked item's time.
-  const selectEvent = (id: string | null, occ?: string | null) => {
+  const selectEvent = (id: string | null, occ?: string | null, space?: "timed" | "allday") => {
     setSelectedId(id);
     setFocusedOcc(occ ?? null);
     if (dashActive) { setDashActive(false); dashRef.current?.blur(); } // a mouse selection leaves the dashboard nav space
     trackIdxRef.current = null;
+    // Record which representation was clicked (a promoted event has both) so Tab can leave its space.
+    selSpaceRef.current = id == null ? null : (space ?? (wrapRef.current?.querySelector(`.cc-tevent-band[data-ev-id="${id}"]`) ? "allday" : "timed"));
     if (id != null) { const v = vlocOf(id); if (v != null) navAnchorRef.current = v; }
   };
   // Open the drawer, first centering the clicked event in the space left of the drawer: the shell
@@ -265,6 +271,58 @@ export default function CalendarCanvas() {
   };
   const deleteOccurrence = (id: string, occ: string) => patchRepeat(id, { ...(repeatOf(id) ?? NO_REPEAT), exdates: [...(repeatOf(id)?.exdates ?? []), occ] });
   const deleteFuture = (id: string, occ: string) => patchRepeat(id, { ...(repeatOf(id) ?? NO_REPEAT), until: isoMinus1(occ) });
+
+  // "Isolate" one occurrence of a recurring event: punch a hole in the series (exdate `occ`) AND
+  // create a standalone (non-recurring) duplicate at that occurrence's date, then open its drawer.
+  // Both mutations collapse into ONE undo entry (history.run suppresses their self-recording; an
+  // id-ref lets redo re-create cleanly). Not for imported events — their recurrence is source-owned.
+  const isolateOccurrence = (id: string, occ: string) => {
+    const [y, mo, d] = occ.split("-").map(Number);
+    if (!y || !mo || !d) return;
+    const month = mo - 1;
+
+    type IsoOps = { reAdd: () => { id: string }; removeNew: (nid: string) => void };
+    const ops: IsoOps | null = (() => {
+      const t = events.find((e) => e.id === id);
+      if (t) {
+        const dup: Omit<TimedEvent, "id"> = { year: y, month, day: d, startHour: t.startHour, endHour: t.endHour,
+          title: t.title, color: t.color, notes: t.occurrenceNotes?.[occ] ?? t.notes, tags: t.tags,
+          promoteTrack: t.promoteTrack ?? null, repeat: NO_REPEAT, createdByAI: t.createdByAI };
+        return { reAdd: () => addEvent(dup), removeNew: removeEvent };
+      }
+      const b = bandEvents.find((e) => e.id === id);
+      if (b) {
+        const span = b.endDay - b.startDay;
+        const endDay = Math.min(new Date(y, month + 1, 0).getDate(), d + span); // clamp to the month
+        const dup: Omit<BandEvent, "id"> = { year: y, month, track: b.track, startDay: d, endDay,
+          title: b.title, color: b.color, notes: b.occurrenceNotes?.[occ] ?? b.notes, tags: b.tags,
+          repeat: NO_REPEAT, createdByAI: b.createdByAI };
+        return { reAdd: () => addBandEvent(dup), removeNew: removeBandEvent };
+      }
+      const dl = deadlines.find((e) => e.id === id);
+      if (dl) {
+        const dup: Omit<Deadline, "id"> = { year: y, month, day: d, hour: dl.hour,
+          title: dl.title, color: dl.color, notes: dl.occurrenceNotes?.[occ] ?? dl.notes, tags: dl.tags,
+          originTz: dl.originTz ?? null, promoteTrack: dl.promoteTrack ?? null, repeat: NO_REPEAT, createdByAI: dl.createdByAI };
+        return { reAdd: () => addDeadline(dup), removeNew: removeDeadline };
+      }
+      return null;
+    })();
+    if (!ops) return;
+
+    const addExdate = () => deleteOccurrence(id, occ);
+    const removeExdate = () => patchRepeat(id, { ...(repeatOf(id) ?? NO_REPEAT), exdates: (repeatOf(id)?.exdates ?? []).filter((x) => x !== occ) });
+
+    const created = history.run(() => { const c = ops.reAdd(); addExdate(); return c; });
+    const idRef = { current: created.id };
+    history.push({
+      label: "Isolate event",
+      undo: () => history.run(() => { ops.removeNew(idRef.current); removeExdate(); }),
+      redo: () => history.run(() => { idRef.current = ops.reAdd().id; addExdate(); }),
+    });
+    openDrawer(created.id, null);
+  };
+  const requestIsolate = (id: string) => { const occ = focusedOcc ?? eventDateOf(id); if (occ) isolateOccurrence(id, occ); };
   const isRecurring = (id: string) => { const r = repeatOf(id); return !!r && r.kind !== "none"; };
   // The event's own date "YYYY-MM-DD" — the occurrence to act on when not opened from a ghost.
   const eventDateOf = (id: string): string | null => {
@@ -550,7 +608,7 @@ export default function CalendarCanvas() {
       if (repeat && repeat.kind !== "none") for (const o of occurrenceDates(base, repeat, year)) if (o.month === month && o.day === day) out.push({ id, occ: occDate(o), month, day, vloc });
     };
     for (const ev of events) collect(ev.id, { year: ev.year, month: ev.month, day: ev.day }, ev.repeat, ev.startHour, ev.startHour < hour + 1 && ev.endHour > hour);
-    for (const d of deadlines) collect(d.id, { year: d.year, month: d.month, day: d.day }, d.repeat, d.hour, Math.floor(d.hour) === hour);
+    for (const d of deadlines) collect(d.id, { year: d.year, month: d.month, day: d.day }, d.repeat, d.hour, d.hour >= hour && d.hour < hour + 1);
     let best: NavItem | null = null;
     for (const it of out) if (!best || Math.abs(it.vloc - hour) < Math.abs(best.vloc - hour)) best = it;
     return best;
@@ -570,6 +628,7 @@ export default function CalendarCanvas() {
   const selectInstance = (it: NavItem, updateAnchor: boolean) => {
     setSelectedId(it.id);
     setFocusedOcc(it.occ);
+    selSpaceRef.current = "timed";
     if (updateAnchor) navAnchorRef.current = it.vloc;
     ensureHourVisible(it.vloc);
   };
@@ -627,9 +686,6 @@ export default function CalendarCanvas() {
     });
     return out;
   };
-  // Is the current selection one of those lane bars? (Robust across event kinds — a promoted timed/
-  // deadline bar's id lives in `events`/`deadlines`, not `bandEvents`, so we ask the DOM instead.)
-  const isBandSelected = () => !!(selectedId != null && wrapRef.current?.querySelector(`.cc-tevent-band[data-ev-id="${selectedId}"]`));
   // The concrete day a selection sits on (band bar, timed, or deadline) — the occurrence's start for a
   // ghost, else the base's — used to restore a Region focus (Tab / zoom-out) where the element sits.
   const selectionDay = (): { month: number; day: number } | null => {
@@ -657,7 +713,7 @@ export default function CalendarCanvas() {
       const score = along + off * 2;                                     // direction dominates; off-axis is a soft penalty
       if (score < bestScore) { bestScore = score; best = c; }
     }
-    if (best) { setSelectedId(best.id); setFocusedOcc(best.occ); }
+    if (best) { setSelectedId(best.id); setFocusedOcc(best.occ); selSpaceRef.current = "allday"; }
   };
   // Shift+arrows in band gear move the bar itself. Real band: Up/Down = lane (track 0–3), Left/Right =
   // ±1 day (clamped to the month). Promoted timed/deadline bar: Up/Down = its promote lane, Left/Right =
@@ -699,17 +755,33 @@ export default function CalendarCanvas() {
   // selectedId/focusedOcc. Tab cycles the spaces the view offers; Space drills a Region inward; Shift+=/−
   // zoom while preserving the space + element; arrows navigate; Shift+arrows move the selected element.
   const viewOf = (): "year" | "month" | "week" | "day" => (z < 0.5 ? "year" : z < 1.5 ? "month" : z < 2.5 ? "week" : "day");
-  const spaceOf = (): "region" | "allday" | "timed" | "dashboard" | "track" | "none" =>
-    dashActive && viewOf() === "day" ? "dashboard"
-    : viewOf() === "year" && trackIdxRef.current != null && (document.activeElement as HTMLElement | null)?.classList.contains("cc-track-input") ? "track"
-    : isBandSelected() ? "allday" : selectedId != null ? "timed" : kbDay != null ? "region" : "none";
+  const spaceOf = (): "region" | "allday" | "timed" | "dashboard" | "track" | "none" => {
+    if (dashActive && viewOf() === "day") return "dashboard";
+    if (viewOf() === "year" && trackIdxRef.current != null && (document.activeElement as HTMLElement | null)?.classList.contains("cc-track-input")) return "track";
+    if (selectedId != null) {
+      const q = (sel: string) => !!wrapRef.current?.querySelector(sel);
+      const hasBand = q(`.cc-tevent-band[data-ev-id="${selectedId}"]`);          // a lane bar (band or promoted)
+      const hasTimeline = q(`[data-ev-id="${selectedId}"]:not(.cc-tevent-band)`); // a timed bar or deadline label
+      if (hasBand && hasTimeline) return selSpaceRef.current === "timed" ? "timed" : "allday"; // promoted → the discriminator decides
+      if (hasBand) return "allday";
+      if (hasTimeline) return "timed";
+      return selSpaceRef.current ?? "timed"; // nothing rendered (off-screen) → trust the last-set discriminator
+    }
+    return kbDay != null ? "region" : "none";
+  };
   // The representative {month, day, hour} of the current focus — the anchor for "closest element" on Tab.
   const focusAnchor = (): { month: number; day: number; hour: number } => {
     const sp = spaceOf();
     if (sp === "allday") { const d = selectionDay(); return { month: d?.month ?? focus, day: d?.day ?? 1, hour: 12 }; }
     if (sp === "timed") { const d = currentInstanceDay(); return { month: d?.month ?? focus, day: d?.day ?? 1, hour: (selectedId ? vlocOf(selectedId) : null) ?? 12 }; }
     if ((sp === "region" || sp === "track") && kbDay) return { month: kbDay.month, day: kbDay.day, hour: kbDay.hour };
-    return { month: focus, day: viewOf() === "day" ? dailyDom : 1, hour: 12 };
+    // No prior focus: default to a day that's actually in view — the daily day, the middle of the
+    // visible week, else day 1 — so a fresh Region cursor lands somewhere the user can see.
+    const v = viewOf();
+    const day = v === "day" ? dailyDom
+      : v === "week" ? Math.max(1, Math.min(daysInMonth(focus), weekStartDOM(focus, 0) + Math.round(week * 7) + 3))
+      : 1;
+    return { month: focus, day, hour: 12 };
   };
   // Nearest lane bar to an anchor (2D on-screen distance) — works in year view too (crosses months).
   const nearestBandToAnchor = (a: { month: number; day: number }): { id: string; occ: string | null } | null => {
@@ -763,14 +835,14 @@ export default function CalendarCanvas() {
     if (target === "region") {
       setSelectedId(null); setFocusedOcc(null);
       const inHourView = viewOf() === "week" || viewOf() === "day";
-      const hour = inHourView && kbDay ? kbDay.hour : a.hour; // week/day: keep the Region's own last hour across a Tab round-trip
+      const hour = Math.floor(inHourView && kbDay ? kbDay.hour : a.hour); // week/day: keep the Region's own last hour across a Tab round-trip; snap to a whole-hour cell
       setKbDayFocus(a.month, a.day, hour);
       if (inHourView) ensureHourVisible(hour);
       return true;
     }
-    if (target === "allday") { const b = nearestBandToAnchor(a); if (!b) return false; setSelectedId(b.id); setFocusedOcc(b.occ); blurKbFocus(); return true; }
+    if (target === "allday") { const b = nearestBandToAnchor(a); if (!b) return false; setSelectedId(b.id); setFocusedOcc(b.occ); selSpaceRef.current = "allday"; blurKbFocus(); return true; }
     const t = nearestTimedToAnchor(a); if (!t) return false;
-    setSelectedId(t.id); setFocusedOcc(t.occ); navAnchorRef.current = t.vloc; blurKbFocus(); ensureHourVisible(t.vloc); return true;
+    setSelectedId(t.id); setFocusedOcc(t.occ); selSpaceRef.current = "timed"; navAnchorRef.current = t.vloc; blurKbFocus(); ensureHourVisible(t.vloc); return true;
   };
   const RINGS: Record<string, ("region" | "allday" | "timed" | "dashboard")[]> = {
     year: ["region", "allday"], month: ["region", "allday"], week: ["region", "allday", "timed"], day: ["timed", "allday", "region", "dashboard"],
@@ -854,7 +926,7 @@ export default function CalendarCanvas() {
     const day = v === "day" ? dailyDom : kbDay.day;
     const start = Math.max(0, Math.min(23, Math.round(kbDay.hour)));
     const created = addEvent({ year, month: kbDay.month, day, startHour: start, endHour: Math.min(24, start + 1), title: "Event", color: "default" });
-    setSelectedId(created.id); setFocusedOcc(null); blurKbFocus();
+    setSelectedId(created.id); setFocusedOcc(null); selSpaceRef.current = "timed"; blurKbFocus();
     openDrawer(created.id, null);
   };
 
@@ -910,8 +982,8 @@ export default function CalendarCanvas() {
         }
         // Enter over an event in an hour-cursor Region (week/day): select it → switch to Timed mode.
         if (plain && !e.shiftKey && e.key === "Enter" && sp === "region" && kbDay && (viewOf() === "week" || viewOf() === "day")) {
-          const hit = eventAtRegion(kbDay.month, viewOf() === "day" ? dailyDom : kbDay.day, Math.round(kbDay.hour));
-          if (hit) { e.preventDefault(); setSelectedId(hit.id); setFocusedOcc(hit.occ); navAnchorRef.current = hit.vloc; blurKbFocus(); ensureHourVisible(hit.vloc); return; }
+          const hit = eventAtRegion(kbDay.month, viewOf() === "day" ? dailyDom : kbDay.day, Math.floor(kbDay.hour));
+          if (hit) { e.preventDefault(); setSelectedId(hit.id); setFocusedOcc(hit.occ); selSpaceRef.current = "timed"; navAnchorRef.current = hit.vloc; blurKbFocus(); ensureHourVisible(hit.vloc); return; }
         }
         // Shift+N: new event at the week/day hour cursor → drawer with the title focused.
         if (plain && e.shiftKey && (e.key === "n" || e.key === "N") && sp === "region" && (viewOf() === "week" || viewOf() === "day")) { e.preventDefault(); createEventAtRegion(); return; }
@@ -1348,9 +1420,9 @@ export default function CalendarCanvas() {
 
       {(() => {
         if (!drawerId) return null;
-        if (drawerTimed) return <EventDrawer key={drawerId} event={drawerTimed} onChange={updateEvent} onDelete={requestDeleteEvent} onRestore={restoreEvent} onInternalize={internalizeCopy} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
-        if (drawerBand) return <BandEventDrawer key={drawerId} event={drawerBand} onChange={updateBandEvent} onDelete={requestDeleteEvent} onRestore={restoreEvent} onInternalize={internalizeCopy} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
-        if (drawerDeadline) return <DeadlineDrawer key={drawerId} event={drawerDeadline} mainTz={mainTz} onChange={updateDeadline} onDelete={requestDeleteEvent} onRestore={restoreEvent} onInternalize={internalizeCopy} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
+        if (drawerTimed) return <EventDrawer key={drawerId} event={drawerTimed} onChange={updateEvent} onDelete={requestDeleteEvent} onRestore={restoreEvent} onInternalize={internalizeCopy} onIsolate={requestIsolate} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
+        if (drawerBand) return <BandEventDrawer key={drawerId} event={drawerBand} onChange={updateBandEvent} onDelete={requestDeleteEvent} onRestore={restoreEvent} onInternalize={internalizeCopy} onIsolate={requestIsolate} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
+        if (drawerDeadline) return <DeadlineDrawer key={drawerId} event={drawerDeadline} mainTz={mainTz} onChange={updateDeadline} onDelete={requestDeleteEvent} onRestore={restoreEvent} onInternalize={internalizeCopy} onIsolate={requestIsolate} onClose={() => setDrawerId(null)} onColorPreview={setPreviewColor} focusOcc={focusedOcc} onGoToFirst={goToFirst} />;
         return null;
       })()}
 

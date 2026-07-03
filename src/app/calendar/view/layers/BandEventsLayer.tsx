@@ -26,7 +26,7 @@ interface Props {
   updateEvent: (id: string, patch: Partial<BandEvent>) => void;
   selectedId: string | null;
   focusedOcc: string | null; // the focused occurrence → the one bar that gets the standout ring
-  onSelect: (id: string | null, occ?: string | null) => void;
+  onSelect: (id: string | null, occ?: string | null, space?: "timed" | "allday") => void;
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
   editingId: string | null;
@@ -242,7 +242,7 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
               data-occ={occDate(o)}
               className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color} cc-ghost${gap != null ? " cc-band-clip" : ""}${ev.id === selectedId ? " selected" : ""}${ev.id === selectedId && occDate(o) === focusedOcc ? " cc-focused-occ" : ""}${cd ? " cc-band-collide" : ""}${cd && cd.maskLeft > 0 ? " cc-band-undercut" : ""}`}
               style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(cd ? { zIndex: cd.z } : {}), ...(dim < 1 ? { opacity: dim } : {}), ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}), ...(cd && cd.maskLeft > 0 ? ({ "--band-mask-left": `${cd.maskLeft}px` } as React.CSSProperties) : {}) }}
-              onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
+              onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o), "allday"); }}
               onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(ev.id, r.left + r.width / 2, r.top, occDate(o)); }}
             >
@@ -269,7 +269,7 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
           movedRef={movedRef}
           onMoveStart={onMoveStart}
           onResizeStart={onResizeStart}
-          onSelect={onSelect}
+          onSelect={(id) => onSelect(id, null, "allday")}
           onTitleCommit={(eid, title) => updateEvent(eid, { title })}
           onOpenDetail={onOpenDetail}
           onContextMenu={onContextMenu}

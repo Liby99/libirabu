@@ -25,6 +25,9 @@ export interface History {
   redo: () => void;
   clear: () => void;
   suspended: () => boolean;
+  /** Run `fn` with recording SUSPENDED (sub-mutations don't self-record), returning its result.
+   *  Lets a composite action (e.g. "isolate") perform several store mutations yet push ONE entry. */
+  run: <T>(fn: () => T) => T;
   /** Register a pending-edit flush, run before any undo/redo so in-flight edits commit first. */
   register: (flush: () => void) => () => void;
   canUndo: boolean;
@@ -70,6 +73,11 @@ export function useHistory(limit = 100): History {
 
   const clear = useCallback(() => { undoS.current = []; redoS.current = []; force(); }, []);
   const suspended = useCallback(() => suspendedRef.current, []);
+  const run = useCallback(<T,>(fn: () => T): T => {
+    const prev = suspendedRef.current;
+    suspendedRef.current = true;
+    try { return fn(); } finally { suspendedRef.current = prev; }
+  }, []);
   const register = useCallback((flush: () => void) => {
     flushes.current.add(flush);
     return () => { flushes.current.delete(flush); };
@@ -80,8 +88,8 @@ export function useHistory(limit = 100): History {
   // Stable identity except when undo/redo availability actually flips, so consumers (the
   // stores) don't churn their callbacks on every render.
   return useMemo<History>(
-    () => ({ push, undo, redo, clear, suspended, register, canUndo, canRedo }),
-    [push, undo, redo, clear, suspended, register, canUndo, canRedo],
+    () => ({ push, undo, redo, clear, suspended, run, register, canUndo, canRedo }),
+    [push, undo, redo, clear, suspended, run, register, canUndo, canRedo],
   );
 }
 

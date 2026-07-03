@@ -39,6 +39,7 @@ interface Props {
   hidden?: boolean; // soft-deleted imported event → offer Restore instead of the trash
   onRestore?: () => void;
   onInternalize?: () => void; // imported → detach into an editable manual copy (hides the original)
+  onIsolate?: () => void; // recurring (manual) → detach this occurrence into its own standalone event
   children?: React.ReactNode; // the TIME row (per-kind date/time)
   configChildren?: React.ReactNode; // per-kind config control (promote / band track) — lives in the collapse
 }
@@ -49,7 +50,7 @@ const shortDate = (iso: string) => { const p = iso.split("-"); return p.length =
 // Drawer shell shared by every event kind. Top→bottom: title · time · divider · collapsible
 // configuration (tags / colors / repeat / kind control) · divider · "Note" (+ Series|This-event
 // tabs when recurring) · markdown notepad · foot (edit/preview toggle, go-to-first, delete).
-export default function EventDrawerShell({ name, onName, color, onColor, onColorPreview, repeat, onRepeat, anchorDow, anchorDate, focusOcc, onGoToFirst, tags, onTags, notes, onNotes, recurring, occNotes = "", onOccNotes, onDelete, onClose, imported, externalUrl, hidden, onRestore, onInternalize, children, configChildren }: Props) {
+export default function EventDrawerShell({ name, onName, color, onColor, onColorPreview, repeat, onRepeat, anchorDow, anchorDate, focusOcc, onGoToFirst, tags, onTags, notes, onNotes, recurring, occNotes = "", onOccNotes, onDelete, onClose, imported, externalUrl, hidden, onRestore, onInternalize, onIsolate, children, configChildren }: Props) {
   const [mounted, setMounted] = useState(false);
   // Notes view: render markdown by default when there's something to show, edit when empty.
   const [view, setView] = useState<"edit" | "preview">(() => (notes.trim() ? "preview" : "edit"));
@@ -181,12 +182,20 @@ export default function EventDrawerShell({ name, onName, color, onColor, onColor
 
         <div className="cc-dw-noterow">
           <span className="cc-dw-notelabel">Note</span>
-          {recurring && onOccNotes && (
-            <div className="cc-seg cc-dw-notetabs" role="group" aria-label="Note scope">
-              <button type="button" className={`cc-seg-btn${noteTab === "series" ? " sel" : ""}`} onClick={() => switchTab("series")}>Series</button>
-              <button type="button" className={`cc-seg-btn${noteTab === "occ" ? " sel" : ""}`} title="Note for this occurrence only" onClick={() => switchTab("occ")}>This event<span className="cc-dw-tab-date"> – {shortDate(focusOcc ?? anchorDate)}</span></button>
-            </div>
-          )}
+          <div className="cc-dw-noteright">
+            {recurring && onOccNotes && (
+              <div className="cc-seg cc-dw-notetabs" role="group" aria-label="Note scope">
+                <button type="button" className={`cc-seg-btn${noteTab === "series" ? " sel" : ""}`} onClick={() => switchTab("series")}>Series</button>
+                <button type="button" className={`cc-seg-btn${noteTab === "occ" ? " sel" : ""}`} title="Note for this occurrence only" onClick={() => switchTab("occ")}>This event<span className="cc-dw-tab-date"> – {shortDate(focusOcc ?? anchorDate)}</span></button>
+              </div>
+            )}
+            {recurring && onIsolate && !imported && (
+              <button type="button" className="cc-dw-isolate" onClick={onIsolate}
+                title="Detach this occurrence into its own standalone, editable event (leaves a gap in the series)">
+                Isolate
+              </button>
+            )}
+          </div>
         </div>
 
         {view === "edit" ? (

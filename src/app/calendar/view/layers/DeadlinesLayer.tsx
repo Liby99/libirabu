@@ -29,7 +29,7 @@ interface Props {
   addDeadline: (d: Omit<Deadline, "id">) => Deadline;
   updateDeadline: (id: string, patch: Partial<Deadline>) => void;
   selectedId: string | null;
-  onSelect: (id: string | null, occ?: string | null) => void;
+  onSelect: (id: string | null, occ?: string | null, space?: "timed" | "allday") => void;
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
   detailMul?: number; // timeline opacity multiplier during month↕month paging (outgoing month)
@@ -176,7 +176,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
                 style={{ transform: labelTf(x, y, labelLeft), maxWidth: labelMaxW }}
                 onMouseEnter={() => onLabelHover?.(true)}
                 onMouseLeave={() => onLabelHover?.(false)}
-                onClick={(e) => { e.stopPropagation(); onSelect(d.id, occDate(o)); }}
+                onClick={(e) => { e.stopPropagation(); onSelect(d.id, occDate(o), "timed"); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(d.id, occDate(o)); }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(d.id, r.left + r.width / 2, r.top, occDate(o)); }}
               >
@@ -209,7 +209,7 @@ export default function DeadlinesLayer({ vp, z, focus, week, scrollY, tlScroll, 
                 onMouseEnter={() => onLabelHover?.(true)}
                 onMouseLeave={() => onLabelHover?.(false)}
                 onMouseDown={(e) => onMoveStart(d.id, e)}
-                onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; onSelect(d.id); }}
+                onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; onSelect(d.id, null, "timed"); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(d.id); }}
                 onContextMenu={(e) => {
                   e.preventDefault(); e.stopPropagation();

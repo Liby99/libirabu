@@ -141,8 +141,15 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
 .cc-dw-time .cc-dw-row.cc-dw-hint { padding-bottom: 5px; } /* a little more gap before the color picker below */
 /* Markdown notes — a CodeMirror editor that fills the rest of the drawer. */
 /* recurring events: Series | This-event note tabs sitting just above the notepad */
+.cc-dw-noteright { display: flex; align-items: center; gap: 8px; }
 .cc-dw-notetabs { flex: none; }
 .cc-dw-notetabs .cc-seg-btn { white-space: nowrap; padding: 3px 9px; }
+.cc-dw-isolate {
+  flex: none; padding: 3px 10px; border-radius: 6px;
+  border: 1px solid var(--accent-grey); background: none;
+  color: var(--accent-dark); font-size: 0.72rem; cursor: pointer; white-space: nowrap;
+}
+.cc-dw-isolate:hover { background: var(--accent-bg); border-color: var(--highlight); color: var(--highlight); }
 .cc-dw-tab-date { opacity: 0.7; } /* the occurrence date appended to the "This event" tab */
 .cc-dw-cm {
   flex: 1; min-height: 80px; width: 100%; overflow: hidden;
