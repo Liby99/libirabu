@@ -11,7 +11,7 @@
 // design §17.2) grouped into a few day-relative topics (due-this-day / overdue / high-priority due
 // soon). Checkboxes write back through the soft-link PATCH.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Pencil, Eye } from "lucide-react";
 import type { ParsedTodo } from "@/lib/assistant/tools/todos";
 import { fetchTodos, setTodoChecked, todoCheckRef, fetchDailyNote, putDailyNote } from "../../model/api/apiClient";
@@ -236,11 +236,11 @@ function sectionsForDay(todos: ParsedTodo[], viewIso: string, isToday: boolean):
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────────────────────────────
-function TodoRow({ t, viewIso, onToggle, onOpen, completing }: { t: ParsedTodo; viewIso: string; onToggle: (t: ParsedTodo) => void; onOpen: (t: ParsedTodo) => void; completing?: boolean }) {
+function TodoRow({ t, viewIso, onToggle, onOpen, completing, focused }: { t: ParsedTodo; viewIso: string; onToggle: (t: ParsedTodo) => void; onOpen: (t: ParsedTodo) => void; completing?: boolean; focused?: boolean }) {
   const date = opDate(t);
   const overdue = date < viewIso;
   return (
-    <li className={`cc-dtodo${t.done ? " cc-dtodo-is-done" : ""}${completing ? " cc-dtodo-completing" : ""}`}>
+    <li className={`cc-dtodo${t.done ? " cc-dtodo-is-done" : ""}${completing ? " cc-dtodo-completing" : ""}${focused ? " cc-dtodo-focused" : ""}`} data-todo-focused={focused ? "1" : undefined}>
       <input type="checkbox" className="cc-dtodo-check" checked={t.done || !!completing} onChange={() => onToggle(t)} />
       {/* clicking the text (not the checkbox) jumps the calendar to the source event + opens its drawer */}
       <span
@@ -276,8 +276,8 @@ function TodoRow({ t, viewIso, onToggle, onOpen, completing }: { t: ParsedTodo; 
   );
 }
 
-function DayBody({ todos, loaded, viewIso, isToday, onToggle, onOpen, completing }: {
-  todos: ParsedTodo[]; loaded: boolean; viewIso: string; isToday: boolean; onToggle: (t: ParsedTodo) => void; onOpen: (t: ParsedTodo) => void; completing: Set<string>;
+function DayBody({ todos, loaded, viewIso, isToday, onToggle, onOpen, completing, focusedKey }: {
+  todos: ParsedTodo[]; loaded: boolean; viewIso: string; isToday: boolean; onToggle: (t: ParsedTodo) => void; onOpen: (t: ParsedTodo) => void; completing: Set<string>; focusedKey?: string | null;
 }) {
   if (!loaded && todos.length === 0) return <div className="cc-dtodo-empty">Loading…</div>;
   const sections = sectionsForDay(todos, viewIso, isToday).filter((s) => s.items.length > 0);
@@ -292,7 +292,7 @@ function DayBody({ todos, loaded, viewIso, isToday, onToggle, onOpen, completing
           </div>
           <ul className="cc-dtodo-list">
             {s.items.map((t) => (
-              <TodoRow key={todoKey(t)} t={t} viewIso={viewIso} onToggle={onToggle} onOpen={onOpen} completing={completing.has(todoKey(t))} />
+              <TodoRow key={todoKey(t)} t={t} viewIso={viewIso} onToggle={onToggle} onOpen={onOpen} completing={completing.has(todoKey(t))} focused={focusedKey === todoKey(t)} />
             ))}
           </ul>
         </section>
@@ -360,11 +360,41 @@ function DailyNotePanel({ date, view, setView, cursorLine }: { date: string; vie
   );
 }
 
-export default function DailyDashboard({ left, top, bandH, bottom, right, opacity, dir, p, days, today, deadlines, onOpenTodo, onOpenDeadline, noteEdit, onNoteEditConsumed }: Props) {
+// Imperative handle so the calendar's keyboard model can drive the TODO list as a "Navigate" space.
+export interface DashHandle {
+  focusFirst: () => boolean; // focus the first todo (switching to the TODO tab); false if there are none
+  blur: () => void;          // drop the keyboard focus highlight
+  move: (dir: -1 | 1) => void;
+  toggle: () => void;        // check/uncheck the focused todo
+}
+
+const DailyDashboard = forwardRef<DashHandle, Props>(function DailyDashboard({ left, top, bandH, bottom, right, opacity, dir, p, days, today, deadlines, onOpenTodo, onOpenDeadline, noteEdit, onNoteEditConsumed }, ref) {
   const width = Math.max(1, right - left);
   const { todos, loaded, toggle, completing } = useTodoIndex();
   const [tab, setTab] = useState<DashTab>("todo");
   const [noteView, setNoteView] = useState<"edit" | "preview">("edit"); // the daily note is mostly for writing
+
+  // ── Keyboard TODO navigation (the dashboard "Navigate" space) ──
+  // Flat, ordered list of the CURRENT day's todo rows (all sections). A focus index into it drives the
+  // highlight; the calendar's key handler moves it and toggles via the imperative handle below.
+  const curIso = days.find((d) => d.offset === 0)?.iso ?? today;
+  const isToday = curIso === today;
+  const flatTodos = useMemo(() => sectionsForDay(todos, curIso, isToday).filter((s) => s.items.length > 0).flatMap((s) => s.items), [todos, curIso, isToday]);
+  const [focusIdx, setFocusIdx] = useState<number | null>(null);
+  const flatRef = useRef(flatTodos); flatRef.current = flatTodos;
+  const focusIdxRef = useRef(focusIdx); focusIdxRef.current = focusIdx;
+  useEffect(() => { setFocusIdx(null); }, [curIso]); // a new day resets the focus
+  useEffect(() => { // keep the focused row on screen
+    if (focusIdx == null) return;
+    (document.querySelector('.cc-daily-inner-dash [data-todo-focused="1"]') as HTMLElement | null)?.scrollIntoView({ block: "nearest" });
+  }, [focusIdx]);
+  useImperativeHandle(ref, () => ({
+    focusFirst: () => { if (flatRef.current.length === 0) return false; setTab("todo"); setFocusIdx(0); return true; },
+    blur: () => setFocusIdx(null),
+    move: (d) => { const n = flatRef.current.length; if (n === 0) return; setFocusIdx((i) => Math.max(0, Math.min(n - 1, (i ?? 0) + d))); },
+    toggle: () => { const i = focusIdxRef.current; const list = flatRef.current; if (i != null && list[i]) toggle(list[i]); },
+  }), [toggle]);
+  const focusedKey = focusIdx != null && flatTodos[focusIdx] ? todoKey(flatTodos[focusIdx]) : null;
 
   // A daily-note todo was clicked → open the NOTE tab in edit mode (the matching day-panel receives
   // `cursorLine` below and its editor places the caret on mount). Cleared once consumed.
@@ -426,7 +456,7 @@ export default function DailyDashboard({ left, top, bandH, bottom, right, opacit
               {tab === "todo" ? (
                 <>
                   <DeadlineSection deadlines={deadlines} viewIso={d.iso} onOpen={onOpenDeadline} />
-                  <DayBody todos={todos} loaded={loaded} viewIso={d.iso} isToday={d.iso === today} onToggle={toggle} onOpen={onOpenTodo} completing={completing} />
+                  <DayBody todos={todos} loaded={loaded} viewIso={d.iso} isToday={d.iso === today} onToggle={toggle} onOpen={onOpenTodo} completing={completing} focusedKey={d.offset === 0 ? focusedKey : null} />
                 </>
               ) : (
                 <DailyNotePanel date={d.iso} view={noteView} setView={setNoteView} cursorLine={noteEdit && noteEdit.date === d.iso ? noteEdit.line : null} />
@@ -437,4 +467,6 @@ export default function DailyDashboard({ left, top, bandH, bottom, right, opacit
       })}
     </div>
   );
-}
+});
+
+export default DailyDashboard;

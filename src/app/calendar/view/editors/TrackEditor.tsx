@@ -32,6 +32,8 @@ export default function TrackEditor({ trackNames, editTrack, vp, z, focus, week,
         >
           <input
             className="cc-track-input"
+            data-track-m={m}
+            data-track-i={i}
             value={trackNames[m]?.[i] ?? ""}
             placeholder="track…"
             onChange={(e) => editTrack(m, i, e.target.value)}

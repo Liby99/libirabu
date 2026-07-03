@@ -113,6 +113,12 @@ export function useCalendarInteractions() {
   const [hoverMonth, setHoverMonth] = useState<number | null>(null);
   const [hoverWeek, setHoverWeek] = useState<number | null>(null);
   const [hover, setHover] = useState<Hover>(NO_HOVER);
+  // Keyboard "Region" focus (unified across views): the internal focused location — month in year view,
+  // day in month view, (day, hour) in week/day view. `hour` is a decimal hour used only by week/day.
+  // Survives the mouse taking over; kbActive is whether it's the CURRENTLY-SHOWN highlight (vs hover).
+  const [kbDay, setKbDay] = useState<{ month: number; day: number; hour: number } | null>(null);
+  const [kbActive, setKbActive] = useState(false);
+  const kbActiveRef = useRef(kbActive); kbActiveRef.current = kbActive;
   const [now, setNow] = useState(() => Date.now());
   const [year, setYearState] = useState(init.year);
   const currentYear = new Date().getFullYear();
@@ -152,6 +158,8 @@ export function useCalendarInteractions() {
   const lastPtRef = useRef<{ x: number; y: number } | null>(null);
   const tweenRef = useRef<number | null>(null);
   const weekTweenRef = useRef<number | null>(null);
+  const tlTweenRef = useRef<number | null>(null); // week/day timeline vertical-scroll tween (keyboard nav reveal)
+  const scrollTweenRef = useRef<number | null>(null); // year-view scrollY tween (keyboard Region month nav)
   const snapRef = useRef<number | null>(null);
   const monthTweenRef = useRef<number | null>(null);
   const monthAnimRef = useRef(monthAnim); monthAnimRef.current = monthAnim;
@@ -187,6 +195,8 @@ export function useCalendarInteractions() {
   const clearSnap = () => { if (snapRef.current != null) { clearTimeout(snapRef.current); snapRef.current = null; } };
   const cancelTween = () => { if (tweenRef.current != null) cancelAnimationFrame(tweenRef.current); tweenRef.current = null; };
   const cancelWeekTween = () => { if (weekTweenRef.current != null) cancelAnimationFrame(weekTweenRef.current); weekTweenRef.current = null; };
+  const cancelTlTween = () => { if (tlTweenRef.current != null) cancelAnimationFrame(tlTweenRef.current); tlTweenRef.current = null; };
+  const cancelScrollTween = () => { if (scrollTweenRef.current != null) cancelAnimationFrame(scrollTweenRef.current); scrollTweenRef.current = null; };
   const cancelMonthTween = () => {
     if (monthTweenRef.current != null) cancelAnimationFrame(monthTweenRef.current);
     monthTweenRef.current = null;
@@ -286,6 +296,23 @@ export function useCalendarInteractions() {
       else weekTweenRef.current = null;
     };
     weekTweenRef.current = requestAnimationFrame(step);
+  }, []);
+
+  // Smoothly scroll the week/day hourly timeline to `target` px (eased). Used by the keyboard-nav
+  // reveal so every selection shift glides rather than jumps. A sub-pixel move sets directly.
+  const tweenTlScroll = useCallback((target: number, dur = 240) => {
+    cancelTlTween();
+    const start = tlScrollRef.current;
+    if (Math.abs(target - start) < 0.5) { setTlScroll(target); return; }
+    let t0 = 0;
+    const step = (ts: number) => {
+      if (!t0) t0 = ts;
+      const p = Math.min(1, (ts - t0) / dur);
+      setTlScroll(start + (target - start) * easeInOut(p));
+      if (p < 1) tlTweenRef.current = requestAnimationFrame(step);
+      else tlTweenRef.current = null;
+    };
+    tlTweenRef.current = requestAnimationFrame(step);
   }, []);
 
   const tweenTo = useCallback((targetZ: number, dur = 520, onComplete?: () => void) => {
@@ -625,6 +652,7 @@ export function useCalendarInteractions() {
           return;
         }
         if (yOver) { yOver = false; yOverPx = 0; if (yHold) { clearTimeout(yHold); yHold = 0; } setMonthEdge(null); } // pulled back inside the year
+        cancelScrollTween(); // a manual scroll wins over an in-flight keyboard month-nav tween
         setScrollY(Math.max(0, Math.min(max, cur + e.deltaY)));
         return;
       }
@@ -748,6 +776,7 @@ export function useCalendarInteractions() {
         const { maxScroll } = hourMetrics(tlTop, el.clientHeight - 8, zRef.current, tlScrollRef.current);
         if (maxScroll <= 0) return; // nothing to scroll (tall window)
         e.preventDefault();
+        cancelTlTween(); // a manual scroll wins over an in-flight keyboard-nav reveal tween
         setTlScroll(Math.max(0, Math.min(maxScroll, tlScrollRef.current + e.deltaY)));
         return;
       }
@@ -900,6 +929,7 @@ export function useCalendarInteractions() {
       return;
     }
     lastPtRef.current = { x: px, y: py };
+    if (kbActiveRef.current) setKbActive(false); // the mouse is interacting → hand the visual focus back to it (kbDay is kept)
     recomputeHover(px, py);
   }, [recomputeHover]);
 
@@ -1075,6 +1105,143 @@ export function useCalendarInteractions() {
     setTlScroll(maxScroll <= 0 ? 0 : Math.max(0, Math.min(maxScroll, hourFrac * hourH - viewH / 2)));
   }, []);
 
+  // Keyboard event-nav (arrow keys): scroll the week/day timeline so `hourFrac` is in view, but
+  // ONLY when it currently sits outside the visible band (with a small margin) — so stepping between
+  // already-visible events doesn't jerk the timeline. Centres the hour when a scroll is needed.
+  const ensureHourVisible = useCallback((hourFrac: number) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const tlTop = TOP_PAD + 4 * TRACK_H + 18;
+    const { hourH, viewH, maxScroll } = hourMetrics(tlTop, el.clientHeight - 8, 2, 0);
+    if (hourH <= 0 || maxScroll <= 0) return; // whole day fits → nothing to scroll
+    const y = hourFrac * hourH;               // the hour's pixel position in content space
+    const top = tlScrollRef.current;
+    const margin = Math.min(viewH * 0.15, hourH);
+    if (y >= top + margin && y <= top + viewH - margin) return; // already comfortably visible
+    tweenTlScroll(Math.max(0, Math.min(maxScroll, y - viewH / 2)));
+  }, [tweenTlScroll]);
+
+  // Keyboard event-nav (Left/Right in week view): ensure the day (month, day) sits within the visible
+  // 7-day window, sliding it the minimal amount when the day falls off an edge (so crossing a week
+  // boundary shifts the focal area, but a day already on screen leaves it steady). Re-bases focus +
+  // the year scroll if the day belongs to an adjacent month (rare — Left/Right stays within a month).
+  const ensureDayVisibleInWeek = useCallback((month: number, day: number) => {
+    const base = weekStartDOM(month, 0);     // day-of-month of week-0's Sunday (≤1)
+    const k = day - base;                    // the day's 0-based offset from that Sunday
+    if (month === focusRef.current) {
+      const startK = Math.round(weekRef.current * 7); // current window's left-edge offset
+      if (k >= startK && k <= startK + 6) return;     // already visible → hold the window steady
+      const li = weeksInMonth(month) - 1;
+      const newStartK = k < startK ? k : k - 6;       // bring the day to the near edge
+      tweenWeek(Math.max(0, Math.min(li, newStartK / 7)), 220);
+      return;
+    }
+    const el = wrapRef.current;
+    if (el) {
+      const vpNow = { w: el.clientWidth, h: el.clientHeight };
+      const delta = yearFrame(month, vpNow, 0).bandY - yearFrame(focusRef.current, vpNow, 0).bandY;
+      const max = yearMaxScroll(vpNow);
+      setScrollY((s) => Math.max(0, Math.min(max, s + delta)));
+    }
+    focusRef.current = month; setFocus(month);
+    const wk = weekOfDate(month, day);
+    weekRef.current = wk; setWeek(wk);
+  }, [tweenWeek]);
+
+  // Keyboard zoom (Shift+= on a selected event): animate week → day view, landing on (month, day).
+  // Re-bases focus + the year scroll when the day is a spillover into an adjacent month (same as a
+  // week-view click into a day). The caller's selection is untouched, so the event stays selected.
+  const zoomToDay = useCallback((month: number, day: number) => {
+    if (month !== focusRef.current) {
+      const el = wrapRef.current;
+      if (el) {
+        const vpNow = { w: el.clientWidth, h: el.clientHeight };
+        const delta = yearFrame(month, vpNow, 0).bandY - yearFrame(focusRef.current, vpNow, 0).bandY;
+        const max = yearMaxScroll(vpNow);
+        setScrollY((s) => Math.max(0, Math.min(max, s + delta)));
+      }
+      focusRef.current = month; setFocus(month);
+    }
+    weekRef.current = weekOfDate(month, day); setWeek(weekRef.current);
+    dailyDomRef.current = day; setDailyDom(day);
+    tweenTo(3);
+  }, [tweenTo]);
+
+  // Keyboard zoom (Shift+- on a selected event): animate day → week view, keeping (month, day)'s week
+  // in the window so the event stays on screen. Selection is untouched.
+  const zoomToWeekOfDay = useCallback((month: number, day: number) => {
+    if (month !== focusRef.current) { focusRef.current = month; setFocus(month); }
+    weekRef.current = weekOfDate(month, day); setWeek(weekRef.current);
+    tweenTo(2);
+  }, [tweenTo]);
+
+  // Keyboard zoom-out (Shift+- on a selected event in week view): animate week → month and light up
+  // the event's day as the keyboard day-focus (re-basing focus onto that day's month if it spilled
+  // over). The caller drops the event selection; the day carries the "where you are" from here.
+  const zoomToMonthWithDay = useCallback((month: number, day: number, hour = 12) => {
+    if (month !== focusRef.current) {
+      const el = wrapRef.current;
+      if (el) {
+        const vpNow = { w: el.clientWidth, h: el.clientHeight };
+        const delta = yearFrame(month, vpNow, 0).bandY - yearFrame(focusRef.current, vpNow, 0).bandY;
+        const max = yearMaxScroll(vpNow);
+        setScrollY((s) => Math.max(0, Math.min(max, s + delta)));
+      }
+      focusRef.current = month; setFocus(month);
+    }
+    setKbDay({ month, day, hour }); setKbActive(true);
+    tweenTo(1);
+  }, [tweenTo]);
+
+  const clearKbDayFocus = useCallback(() => { setKbDay(null); setKbActive(false); }, []);
+  // Set (or re-show) the Region focus without zooming — used to move it and to restore it on Tab.
+  const setKbDayFocus = useCallback((month: number, day: number, hour = 12) => { setKbDay({ month, day, hour }); setKbActive(true); }, []);
+  // Hide the Region highlight but KEEP the internal focus (Tab → an event selection takes over the
+  // visual, yet Tab-back / zoom can still restore the Region).
+  const blurKbFocus = useCallback(() => setKbActive(false), []);
+  // Smoothly ease the yearly-view scroll to `target` px (used by keyboard Region month nav so the grid
+  // glides between months). A sub-pixel move sets directly.
+  const tweenScrollY = useCallback((target: number, dur = 300) => {
+    cancelScrollTween();
+    const start = scrollYRef.current;
+    if (Math.abs(target - start) < 0.5) { setScrollY(target); return; }
+    let t0 = 0;
+    const step = (ts: number) => {
+      if (!t0) t0 = ts;
+      const p = Math.min(1, (ts - t0) / dur);
+      setScrollY(start + (target - start) * easeInOut(p));
+      if (p < 1) scrollTweenRef.current = requestAnimationFrame(step);
+      else scrollTweenRef.current = null;
+    };
+    scrollTweenRef.current = requestAnimationFrame(step);
+  }, []);
+  // Scroll the yearly view so month `m` sits ~30% down (Region Up/Down in year view). `animate` eases
+  // the scroll; the instant form is for pre-positioning the grid before a zoom-out.
+  const scrollToMonth = useCallback((m: number, animate = false) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const vpNow = { w: el.clientWidth, h: el.clientHeight };
+    const off = yearFrame(m, vpNow, 0).bandY - TOP_PAD;
+    const max = yearMaxScroll(vpNow);
+    const target = Math.max(0, Math.min(max, off - (vpNow.h - TOP_PAD) * 0.3));
+    if (animate) tweenScrollY(target); else setScrollY(target);
+  }, [tweenScrollY]);
+  // Rebase focus onto `month` (with the matching year-scroll shift) and zoom to `level` — used to keep
+  // an all-day selection framed while zooming across the year boundary. Leaves selection/Region alone.
+  const rebaseFocusAndZoom = useCallback((month: number, level: number) => {
+    if (month !== focusRef.current) {
+      const el = wrapRef.current;
+      if (el) {
+        const vpNow = { w: el.clientWidth, h: el.clientHeight };
+        const delta = yearFrame(month, vpNow, 0).bandY - yearFrame(focusRef.current, vpNow, 0).bandY;
+        const max = yearMaxScroll(vpNow);
+        setScrollY((s) => Math.max(0, Math.min(max, s + delta)));
+      }
+      focusRef.current = month; setFocus(month);
+    }
+    tweenTo(level);
+  }, [tweenTo]);
+
   // Breadcrumb "Today" button: always an ANIMATED jump to today's daily view (never an instant
   // set). Zooms out to a pivot — month (nearby, same month) or year (far) so the day/week/month
   // swap isn't jarring — sets today's spot there, then zooms back into the day, centered on now.
@@ -1115,5 +1282,5 @@ export function useCalendarInteractions() {
     ? Math.max(0, Math.min(11, focus + monthAnim.dir))
     : focus;
 
-  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToToday, goToMonth, goToOccurrence, revealHour, tweenTo, onMove, onClick, clearHover };
+  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToToday, goToMonth, goToOccurrence, revealHour, ensureHourVisible, ensureDayVisibleInWeek, zoomToDay, zoomToWeekOfDay, zoomToMonthWithDay, rebaseFocusAndZoom, scrollToMonth, kbDay, kbActive, clearKbDayFocus, setKbDayFocus, blurKbFocus, tweenTo, onMove, onClick, clearHover };
 }

@@ -28,6 +28,7 @@ interface Props {
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
   selectedId: string | null;
+  focusedOcc: string | null; // the focused occurrence ("YYYY-MM-DD", null = base) → the one instance that gets the standout ring
   onSelect: (id: string | null, occ?: string | null) => void;
   tlScroll: number;
   editingId: string | null;
@@ -69,7 +70,7 @@ function buildLayout(events: TimedEvent[], year: number): Map<string, EventLayou
   return out;
 }
 
-export default function EventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, onEventHover, onOpenDetail, onContextMenu, selectedId, onSelect, tlScroll, editingId, onEditConsumed, detailMul = 1, dimPast = false, now = 0, monthAnim = null }: Props) {
+export default function EventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, onEventHover, onOpenDetail, onContextMenu, selectedId, focusedOcc, onSelect, tlScroll, editingId, onEditConsumed, detailMul = 1, dimPast = false, now = 0, monthAnim = null }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   // While resizing, keep the layout frozen so growing an event doesn't reorder it;
   // recompute (and briefly enable CSS transitions to animate the reflow) on release.
@@ -281,7 +282,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                 key={occKey(ev.id, o)}
                 data-ev-id={ev.id}
                 data-occ={occDate(o)}
-                className={`cc-item cc-tevent cc-ev-${ev.color} cc-ghost${ev.id === selectedId ? " selected" : ""}${short ? " cc-tevent-short" : ""}${tiny ? " cc-tevent-tiny" : ""}`}
+                className={`cc-item cc-tevent cc-ev-${ev.color} cc-ghost${ev.id === selectedId ? " selected" : ""}${ev.id === selectedId && focusedOcc === occDate(o) ? " cc-focused-occ" : ""}${short ? " cc-tevent-short" : ""}${tiny ? " cc-tevent-tiny" : ""}`}
                 style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, opacity: tl.reveal * dfade(o.month, o.day) * pdim(o.year, o.month, o.day, ev.endHour), pointerEvents: interactive ? "auto" : "none" }}
                 onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
@@ -314,6 +315,7 @@ export default function EventsLayer({ vp, z, focus, week, scrollY, year, events,
                 onOpenDetail={onOpenDetail}
                 onContextMenu={onContextMenu}
                 selected={ev.id === selectedId}
+                focused={ev.id === selectedId && focusedOcc == null}
                 onSelect={onSelect}
                 requestEdit={editingId === ev.id}
                 onEditConsumed={onEditConsumed}

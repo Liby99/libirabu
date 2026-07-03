@@ -12,7 +12,8 @@ import type { CommitSelection, CommitAction, PreviewItem, ConnectionRow, TriageE
 import {
   importPreviewIcs, importCommitIcs, syncConnection, importCommitApple, clearAllImported,
   fetchConnections, setConnectionEnabled, fetchTriage, resolveTriageItem,
-  fetchAutoSync, setAutoSync, type IcsPreviewResponse, type BridgeError,
+  fetchAutoSync, setAutoSync, syncAll, exportData, importData, type ImportDataResult,
+  type IcsPreviewResponse, type BridgeError,
 } from "../../model/api/importClient";
 
 type Phase = "idle" | "loading" | "review" | "committing" | "done";
@@ -52,6 +53,7 @@ export default function ConnectivityMenu() {
   const [removeChecked, setRemoveChecked] = useState<Set<string>>(new Set());
 
   const [autoSync, setAutoSyncState] = useState<boolean | null>(null); // background periodic sync toggle
+  const [syncingAll, setSyncingAll] = useState(false); // on-demand "Sync now" in flight
 
   // Triage box: pending tier-2 dedup decisions, resolved one at a time.
   const [triage, setTriage] = useState<TriageEntry[] | null>(null);
@@ -63,6 +65,14 @@ export default function ConnectivityMenu() {
   const [clearConfirm, setClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearedCount, setClearedCount] = useState<number | null>(null);
+
+  // Full backup restore (destructive) — its own isolated dialog.
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoreResult, setRestoreResult] = useState<ImportDataResult | null>(null);
+  const restoreInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const loadConnections = useCallback(async () => {
@@ -89,6 +99,16 @@ export default function ConnectivityMenu() {
     void loadTriage();
     fetchAutoSync().then((r) => setAutoSyncState(r.enabled)).catch(() => {});
   }, [menuOpen, connections, loadConnections, loadTriage]);
+
+  async function doSyncAll() {
+    setSyncingAll(true);
+    try {
+      const r = await syncAll();
+      if (r.bridgeError) { setBridgeError(r.bridgeError); return; }
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("calendar:changed"));
+      await loadConnections(); // refresh the "last sync" line
+    } catch { /* ignore — the status line just won't advance */ } finally { setSyncingAll(false); }
+  }
 
   async function toggleAutoSync() {
     const next = !(autoSync ?? true);
@@ -147,6 +167,17 @@ export default function ConnectivityMenu() {
       if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("calendar:changed"));
       await loadConnections(); // refresh the sync-state line (lastSyncedAt was reset)
     } catch { /* keep the dialog open on failure */ } finally { setClearing(false); }
+  }
+
+  function doExport() { setMenuOpen(false); exportData(); }
+  function openRestore() { setMenuOpen(false); setRestoreFile(null); setRestoreError(null); setRestoreResult(null); setRestoreOpen(true); }
+  async function doRestore() {
+    if (!restoreFile) return;
+    setRestoring(true); setRestoreError(null);
+    try {
+      setRestoreResult(await importData(restoreFile));
+    } catch (e) { setRestoreError(e instanceof Error ? e.message : "Import failed"); }
+    finally { setRestoring(false); }
   }
 
   async function doImport() {
@@ -318,7 +349,14 @@ export default function ConnectivityMenu() {
         <>
           <MenuBackdrop onClose={() => setMenuOpen(false)} />
           <div className="cc-menu" role="menu">
-            {syncState && <div className="cc-menu-status">{syncState}</div>}
+            {syncState && (
+              <div className="cc-menu-status cc-menu-status-row">
+                <span className="cc-menu-status-text">{syncState}</span>
+                {!bridgeError && enabledCount > 0 && (
+                  <button className="cc-menu-syncbtn" disabled={syncingAll} onClick={() => void doSyncAll()}>{syncingAll ? "Syncing…" : "Sync"}</button>
+                )}
+              </div>
+            )}
             <div className="cc-menu-sep" />
             <button className="cc-menu-item" onClick={() => openModal("calendars")}>Apple Calendars<span className="cc-menu-sc">{connections ? `${enabledCount} on ›` : "›"}</span></button>
             <button className="cc-menu-item" onClick={() => openModal("ics")}>Import .ics file<span className="cc-menu-sc">›</span></button>
@@ -328,6 +366,9 @@ export default function ConnectivityMenu() {
             <button className="cc-menu-item" role="menuitemcheckbox" aria-checked={autoSync ?? true} onClick={() => void toggleAutoSync()}>
               Automatic sync<span className="cc-menu-sc">{(autoSync ?? true) ? "On" : "Off"}</span>
             </button>
+            <div className="cc-menu-sep" />
+            <button className="cc-menu-item" onClick={doExport}>Export data<span className="cc-menu-sc">.zip ↓</span></button>
+            <button className="cc-menu-item" onClick={openRestore}>Import data<span className="cc-menu-sc">.zip ↑</span></button>
             <div className="cc-menu-sep" />
             <button className="cc-menu-item cc-menu-item-danger" onClick={() => { setMenuOpen(false); setClearedCount(null); setClearConfirm(true); }}>Clear all imported<span className="cc-menu-sc">reset</span></button>
           </div>
@@ -348,6 +389,34 @@ export default function ConnectivityMenu() {
         {clearedCount != null
           ? <p className="ui-dlg-msg">Removed {clearedCount} imported event{clearedCount === 1 ? "" : "s"}. Run a Sync to re-import from scratch.</p>
           : <p className="ui-dlg-msg">This deletes <strong>every</strong> imported event (Apple &amp; .ics), including hidden ones. Your own events and internalized copies are kept. The next Sync re-imports from scratch.</p>}
+      </Dialog>
+
+      <Dialog
+        open={restoreOpen}
+        onClose={() => { if (!restoring) setRestoreOpen(false); }}
+        title={restoreResult ? "Import complete" : "Import data — replace everything?"}
+        actions={restoreResult
+          ? <DialogButton variant="primary" onClick={() => window.location.reload()}>Reload app</DialogButton>
+          : <>
+              <DialogButton variant="ghost" disabled={restoring} onClick={() => setRestoreOpen(false)}>Cancel</DialogButton>
+              <DialogButton variant="danger" disabled={restoring || !restoreFile} onClick={doRestore}>{restoring ? "Importing…" : "Import & Replace"}</DialogButton>
+            </>}
+      >
+        {restoreResult ? (
+          <p className="ui-dlg-msg">Restored <strong>{restoreResult.restored}</strong> record{restoreResult.restored === 1 ? "" : "s"}{restoreResult.files ? ` and ${restoreResult.files} file${restoreResult.files === 1 ? "" : "s"}` : ""}. Reload the app to see your restored data.</p>
+        ) : (
+          <>
+            <p className="ui-dlg-msg">
+              This <strong>permanently erases everything</strong> currently in the app — all events, imported calendars, connections, conversations, settings and API keys — and replaces it with the contents of the backup. <strong>This cannot be undone.</strong> Export a backup first if you might want to come back.
+            </p>
+            <div className="cc-import-drop" onClick={() => restoreInput.current?.click()} style={{ marginTop: 12 }}>
+              {restoreFile ? <>Selected: <strong>{restoreFile.name}</strong></> : "Choose a backup .zip…"}
+              <input ref={restoreInput} type="file" accept=".zip,application/zip" hidden
+                onChange={(e) => { const f = e.target.files?.[0]; setRestoreFile(f ?? null); setRestoreError(null); e.target.value = ""; }} />
+            </div>
+            {restoreError && <div className="cc-import-error">{restoreError}</div>}
+          </>
+        )}
       </Dialog>
 
       <Dialog

@@ -48,9 +48,34 @@ export const importCommitApple = (connectionId: string, selections: CommitSelect
 /** Debug/reset: delete ALL imported events (incl. hidden) so the next sync re-imports fresh. */
 export const clearAllImported = () => post<{ deleted: number }>("/api/calendar/import/clear", {});
 
+// ── Full backup: export (download) / import (destructive restore) ──
+/** Trigger a browser download of the full backup .zip (server names it <app>-<user>-<date>.zip). */
+export function exportData(): void {
+  const a = document.createElement("a");
+  a.href = "/api/data/export";
+  a.download = ""; // filename comes from the server's Content-Disposition
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+export interface ImportDataResult { restored: number; files: number; exportedAt: string | null }
+/** Restore from a backup .zip — WIPES and replaces all data. */
+export async function importData(file: File): Promise<ImportDataResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/api/data/import", { method: "POST", body: fd });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({} as { message?: string }))).message || `Import failed (${res.status})`);
+  return res.json() as Promise<ImportDataResult>;
+}
+
 // ── Automatic (background) sync toggle ──
 export const fetchAutoSync = () => req<{ enabled: boolean }>("GET", "/api/calendar/auto-sync");
 export const setAutoSync = (enabled: boolean) => req<{ enabled: boolean }>("PUT", "/api/calendar/auto-sync", { enabled });
+
+// ── On-demand "Sync now" for all enabled Apple calendars ──
+export interface SyncAllResult { created: number; merged: number; toTriage: number; removedFlagged: number; bridgeError?: BridgeError }
+export const syncAll = () => post<SyncAllResult>("/api/calendar/sync-all", {});
 
 // ── Triage — pending tier-2 dedup decisions ──
 export const fetchTriage = () => req<{ items: TriageEntry[] }>("GET", "/api/calendar/triage");

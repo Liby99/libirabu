@@ -9,6 +9,7 @@ import {
   formatWallClock, convertWallClock,
 } from "@/lib/calendar/api";
 import { flattenManaged } from "@/lib/import/managedNote";
+import { currentConversationId } from "@/lib/assistant/turnContext";
 
 /**
  * Resolve a stored tz setting to a concrete IANA zone safe to hand to Intl. The client stores an
@@ -129,7 +130,7 @@ export async function updateEventForUser(userId: string, id: string, body: unkno
   const before = toApiEvent(existing);
 
   const parsed = eventUpdateSchema.safeParse(body);
-  if (!parsed.success) throw new EventValidationError(parsed.error.issues.map((i) => i.message).join("; "));
+  if (!parsed.success) throw new EventValidationError(parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "));
   const patch = parsed.data;
   const kind = existing.kind as EventKind;
 
@@ -242,7 +243,8 @@ interface OpPayload { eventId?: string; before: ApiEvent | null; after: ApiEvent
 
 async function logAiAction(userId: string, kind: "create" | "update" | "delete", before: ApiEvent | null, after: ApiEvent | null, occurrenceDate?: string): Promise<void> {
   const payload: OpPayload = { eventId: (after ?? before)?.id, before, after, occurrenceDate: occurrenceDate ?? null };
-  await prisma.actionLog.create({ data: { userId, actor: "AI", kind, status: "APPLIED", payload: payload as unknown as Prisma.InputJsonValue } });
+  const conversationId = currentConversationId(); // the turn this action belongs to (for grouping)
+  await prisma.actionLog.create({ data: { userId, conversationId, actor: "AI", kind, status: "APPLIED", payload: payload as unknown as Prisma.InputJsonValue } });
 }
 
 /** An ApiEvent snapshot → a create-route body (to restore it verbatim, preserving id + provenance). */
@@ -256,8 +258,12 @@ function apiEventToCreateBody(ev: ApiEvent) {
 
 export interface AiActionSummary { id: string; kind: string; status: string; createdAt: string; title: string; occurrenceDate: string | null }
 
-export async function listAiActions(userId: string): Promise<AiActionSummary[]> {
-  const rows = await prisma.actionLog.findMany({ where: { userId, actor: "AI" }, orderBy: { createdAt: "desc" }, take: 50 });
+export async function listAiActions(userId: string, conversationId?: string): Promise<AiActionSummary[]> {
+  const rows = await prisma.actionLog.findMany({
+    where: { userId, actor: "AI", ...(conversationId ? { conversationId } : {}) },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
   return rows.map((r) => {
     const p = r.payload as unknown as OpPayload;
     return { id: r.id, kind: r.kind, status: r.status, createdAt: r.createdAt.toISOString(), title: (p.after ?? p.before)?.title ?? "event", occurrenceDate: p.occurrenceDate ?? null };

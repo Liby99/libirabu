@@ -101,6 +101,8 @@
 
 .cc-dtodo-list { list-style: none; margin: 0; padding: 0; }
 .cc-dtodo { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; }
+/* keyboard-focused todo row (dashboard "Navigate" space) */
+.cc-dtodo-focused { background: rgba(127, 127, 127, 0.14); border-radius: 6px; box-shadow: inset 0 0 0 1.5px var(--accent-dark); padding-left: 6px; padding-right: 6px; margin: 0 -6px; }
 .cc-dtodo-check {
   appearance: none; -webkit-appearance: none; flex: none; box-sizing: border-box;
   width: 15px; height: 15px; margin-top: 2px;

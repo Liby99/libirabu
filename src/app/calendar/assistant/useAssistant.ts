@@ -134,7 +134,7 @@ export function useAssistant() {
       const res = await fetch("/api/assistant/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: body.message, view: readView(), history: body.history, attachments: body.attachments ?? [], ...(body.resumeId ? { resumeId: body.resumeId } : {}) }),
+        body: JSON.stringify({ message: body.message, view: readView(), history: body.history, attachments: body.attachments ?? [], ...(body.resumeId ? { resumeId: body.resumeId } : {}), ...(convIdRef.current ? { conversationId: convIdRef.current } : {}) }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
@@ -172,6 +172,9 @@ export function useAssistant() {
   const send = useCallback(async (text: string, attachments: UploadedAttachment[] = [], baseMessages?: Message[]) => {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
+    // Fix the conversation id BEFORE the turn so AI actions applied during it get stamped with the
+    // same id we'll persist the transcript under (lets change history group per conversation).
+    if (!convIdRef.current) convIdRef.current = crypto.randomUUID();
     // `baseMessages` lets Retry re-run a prompt against the transcript BEFORE the failed turn.
     const base = baseMessages ?? messagesRef.current;
     const history = historyOf(base);

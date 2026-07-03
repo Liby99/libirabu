@@ -25,6 +25,7 @@ interface Props {
   addEvent: (e: Omit<BandEvent, "id">) => BandEvent;
   updateEvent: (id: string, patch: Partial<BandEvent>) => void;
   selectedId: string | null;
+  focusedOcc: string | null; // the focused occurrence → the one bar that gets the standout ring
   onSelect: (id: string | null, occ?: string | null) => void;
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
@@ -37,7 +38,7 @@ interface Props {
 
 type Draft = { month: number; track: number; a: number; b: number };
 
-export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, selectedId, onSelect, onOpenDetail, onContextMenu, editingId, onEditConsumed, monthAnim, dimPast = false, now = 0 }: Props) {
+export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, events, addEvent, updateEvent, selectedId, focusedOcc, onSelect, onOpenDetail, onContextMenu, editingId, onEditConsumed, monthAnim, dimPast = false, now = 0 }: Props) {
   // dim-past multiplier: 0.4 once an all-day band's last day is fully behind us, else 1
   const bdim = (oy: number, om: number, endDay: number) => (dimPast && dayIsPast(oy, om, endDay, now) ? PAST_DIM : 1);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -239,7 +240,7 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
             <div
               data-ev-id={ev.id}
               data-occ={occDate(o)}
-              className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color} cc-ghost${gap != null ? " cc-band-clip" : ""}${ev.id === selectedId ? " selected" : ""}${cd ? " cc-band-collide" : ""}${cd && cd.maskLeft > 0 ? " cc-band-undercut" : ""}`}
+              className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color} cc-ghost${gap != null ? " cc-band-clip" : ""}${ev.id === selectedId ? " selected" : ""}${ev.id === selectedId && occDate(o) === focusedOcc ? " cc-focused-occ" : ""}${cd ? " cc-band-collide" : ""}${cd && cd.maskLeft > 0 ? " cc-band-undercut" : ""}`}
               style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(cd ? { zIndex: cd.z } : {}), ...(dim < 1 ? { opacity: dim } : {}), ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}), ...(cd && cd.maskLeft > 0 ? ({ "--band-mask-left": `${cd.maskLeft}px` } as React.CSSProperties) : {}) }}
               onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
               onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
@@ -263,6 +264,7 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
           raised={ev.id === hoveredId}
           onHover={setHoveredId}
           selected={ev.id === selectedId}
+          focused={ev.id === selectedId && focusedOcc == null}
           moving={ev.id === movingId}
           movedRef={movedRef}
           onMoveStart={onMoveStart}

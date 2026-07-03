@@ -10,11 +10,12 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser();
     if (auth instanceof NextResponse) return auth;
-    return NextResponse.json({ actions: await listAiActions(auth) });
+    const conversationId = new URL(req.url).searchParams.get("conversationId") ?? undefined;
+    return NextResponse.json({ actions: await listAiActions(auth, conversationId) });
   } catch (e) {
     return serverError(e);
   }

@@ -20,6 +20,7 @@ interface Props {
   onOpenDetail: (id: string) => void;
   onContextMenu: (id: string, x: number, y: number) => void;
   selected: boolean;
+  focused?: boolean; // the focused occurrence → standout ring (base is focused when no ghost occ is)
   onSelect: (id: string | null) => void;
   moving: boolean;
   movedRef: React.MutableRefObject<boolean>;
@@ -27,7 +28,7 @@ interface Props {
   onEditConsumed?: () => void; // clear the parent's one-shot edit request
 }
 
-export default function TimedEventView({ ev, rect, wide, reveal, interactive, onResizeStart, onMoveStart, onTitleCommit, onHover, onOpenDetail, onContextMenu, selected, onSelect, moving, movedRef, requestEdit, onEditConsumed }: Props) {
+export default function TimedEventView({ ev, rect, wide, reveal, interactive, onResizeStart, onMoveStart, onTitleCommit, onHover, onOpenDetail, onContextMenu, selected, focused, onSelect, moving, movedRef, requestEdit, onEditConsumed }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ev.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +67,7 @@ export default function TimedEventView({ ev, rect, wide, reveal, interactive, on
   return (
     <div
       data-ev-id={ev.id}
-      className={`cc-item cc-tevent cc-ev-${ev.color}${selected ? " selected" : ""}${moving ? " moving" : ""}${short ? " cc-tevent-short" : ""}${tiny ? " cc-tevent-tiny" : ""}${ev.hidden ? " cc-hidden" : ""}`}
+      className={`cc-item cc-tevent cc-ev-${ev.color}${selected ? " selected" : ""}${focused ? " cc-focused-occ" : ""}${moving ? " moving" : ""}${short ? " cc-tevent-short" : ""}${tiny ? " cc-tevent-tiny" : ""}${ev.hidden ? " cc-hidden" : ""}`}
       style={style}
       onMouseDown={(e) => onMoveStart(ev.id, e)}
       onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; onSelect(ev.id); }}

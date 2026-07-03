@@ -47,3 +47,20 @@ export async function deleteFile(storagePath: string): Promise<void> {
     /* ignore missing file */
   }
 }
+
+// ── Verbatim raw access (for backup/restore — bytes as stored on disk, encryption untouched) ──
+/** Read a stored file's raw bytes exactly as on disk (no decrypt). Returns null if missing. */
+export async function readRawFile(storagePath: string): Promise<Buffer | null> {
+  try {
+    return await fs.readFile(path.join(storeRoot(), storagePath));
+  } catch {
+    return null;
+  }
+}
+
+/** Write raw bytes verbatim to a store path (creating the store dir). Used on import restore. */
+export async function writeRawFile(storagePath: string, data: Uint8Array): Promise<void> {
+  const root = storeRoot();
+  await fs.mkdir(root, { recursive: true });
+  await fs.writeFile(path.join(root, storagePath), Buffer.from(data));
+}

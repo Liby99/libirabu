@@ -15,6 +15,7 @@ interface Props {
   raised: boolean;     // hovered → lift above neighbours so the full title can show
   onHover: (id: string | null) => void;
   selected: boolean;
+  focused?: boolean; // the focused occurrence → standout ring
   moving: boolean;
   movedRef: React.MutableRefObject<boolean>;
   onMoveStart: (id: string, e: React.MouseEvent) => void;
@@ -34,7 +35,7 @@ interface Props {
 }
 
 // All-day event bar — identical look to a timed event (two-layer + left bar), title only.
-export default function BandEventView({ ev, rect, vw, gap, raised, onHover, selected, moving, movedRef, onMoveStart, onResizeStart, onSelect, onTitleCommit, onOpenDetail, onContextMenu, requestEdit, onEditConsumed, dim = 1, collide }: Props) {
+export default function BandEventView({ ev, rect, vw, gap, raised, onHover, selected, focused, moving, movedRef, onMoveStart, onResizeStart, onSelect, onTitleCommit, onOpenDetail, onContextMenu, requestEdit, onEditConsumed, dim = 1, collide }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ev.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -110,7 +111,7 @@ export default function BandEventView({ ev, rect, vw, gap, raised, onHover, sele
       )}
     <div
       data-ev-id={ev.id}
-      className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color}${selected ? " selected" : ""}${moving ? " moving" : ""}${gap != null ? " cc-band-clip" : ""}${raised ? " cc-band-raised" : ""}${ev.hidden ? " cc-hidden" : ""}${collide ? " cc-band-collide" : ""}${collide && collide.maskLeft > 0 ? " cc-band-undercut" : ""}`}
+      className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color}${selected ? " selected" : ""}${focused ? " cc-focused-occ" : ""}${moving ? " moving" : ""}${gap != null ? " cc-band-clip" : ""}${raised ? " cc-band-raised" : ""}${ev.hidden ? " cc-hidden" : ""}${collide ? " cc-band-collide" : ""}${collide && collide.maskLeft > 0 ? " cc-band-undercut" : ""}`}
       style={style}
       onMouseEnter={() => onHover(ev.id)}
       onMouseLeave={() => onHover(null)}

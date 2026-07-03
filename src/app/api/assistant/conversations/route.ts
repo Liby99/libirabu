@@ -57,7 +57,10 @@ export async function POST(req: NextRequest) {
       ]);
       return NextResponse.json({ id: owned.id, title });
     }
-    const conv = await prisma.aIConversation.create({ data: { userId: auth, title } });
+    // Honor the client's id when it's free, so it matches the id AI actions were stamped with this
+    // turn (change-history grouping). Fall back to a generated id if it's already taken.
+    const free = id ? !(await prisma.aIConversation.findUnique({ where: { id }, select: { id: true } })) : false;
+    const conv = await prisma.aIConversation.create({ data: { ...(id && free ? { id } : {}), userId: auth, title } });
     await prisma.aIMessage.createMany({ data: rows(conv.id) });
     return NextResponse.json({ id: conv.id, title });
   } catch (e) {

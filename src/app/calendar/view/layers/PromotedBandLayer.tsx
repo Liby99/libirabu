@@ -46,6 +46,7 @@ interface Props {
   updateTimed: (id: string, patch: Partial<TimedEvent>) => void;
   updateDeadline: (id: string, patch: Partial<Deadline>) => void;
   selectedId: string | null;
+  focusedOcc: string | null; // the focused occurrence → the one promoted bar that gets the standout ring
   onSelect: (id: string | null, occ?: string | null) => void;
   onOpenDetail: (id: string, occ?: string | null) => void;
   onContextMenu: (id: string, x: number, y: number, occ?: string | null) => void;
@@ -56,7 +57,7 @@ interface Props {
 
 const isRecurring = (r: TimedEvent["repeat"]) => !!r && r.kind !== "none";
 
-export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, timed, deadlines, bandEvents, updateTimed, updateDeadline, selectedId, onSelect, onOpenDetail, onContextMenu, monthAnim, dimPast = false, now = 0 }: Props) {
+export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, timed, deadlines, bandEvents, updateTimed, updateDeadline, selectedId, focusedOcc, onSelect, onOpenDetail, onContextMenu, monthAnim, dimPast = false, now = 0 }: Props) {
   // dim-past multiplier: 0.4 for a promoted bar whose day is fully behind us, else 1 (day-level
   // — the 1-day ghost band carries no time, so today's bars stay un-dimmed)
   const pdim = (m: number, day: number) => (dimPast && dayIsPast(year, m, day, now) ? PAST_DIM : 1);
@@ -146,7 +147,7 @@ export default function PromotedBandLayer({ vp, z, focus, week, scrollY, year, t
             key={it.key}
             data-ev-id={it.id}
             data-occ={it.occ ?? undefined}
-            className={`cc-item cc-tevent cc-tevent-band cc-ghost cc-promoted cc-ev-${it.color}${gap != null ? " cc-band-clip" : ""}${it.id === selectedId ? " selected" : ""}${it.id === movingId ? " moving" : ""}`}
+            className={`cc-item cc-tevent cc-tevent-band cc-ghost cc-promoted cc-ev-${it.color}${gap != null ? " cc-band-clip" : ""}${it.id === selectedId ? " selected" : ""}${it.id === selectedId && (it.occ ?? null) === (focusedOcc ?? null) ? " cc-focused-occ" : ""}${it.id === movingId ? " moving" : ""}`}
             style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(dim < 1 ? { opacity: dim } : {}), ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}) }}
             onMouseDown={(e) => onMoveStart(it, e)}
             onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; onSelect(it.id, it.occ); }}

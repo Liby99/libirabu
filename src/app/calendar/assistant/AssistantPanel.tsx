@@ -258,18 +258,26 @@ export default function AssistantPanel({ messages, busy, send, onStop, onRetry, 
     setAttachments([]);
   };
 
-  // AI operation history (persistent, back-trackable; separate from ⌘Z).
-  const [showHistory, setShowHistory] = useState(false);
-  const [histItems, setHistItems] = useState<HistoryItem[]>([]);
-  const [histLoading, setHistLoading] = useState(false);
+  // AI change history — grouped PER conversation, expanded inline under each conversation row.
   const [reverting, setReverting] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [convHist, setConvHist] = useState<Record<string, HistoryItem[] | "loading">>({});
 
-  const loadHistory = async () => {
-    setHistLoading(true);
+  const loadConvHistory = async (convId: string) => {
+    setConvHist((h) => ({ ...h, [convId]: "loading" }));
     try {
-      const res = await fetch("/api/assistant/history");
-      setHistItems(res.ok ? ((await res.json()).actions as HistoryItem[]) : []);
-    } catch { setHistItems([]); } finally { setHistLoading(false); }
+      const res = await fetch(`/api/assistant/history?conversationId=${encodeURIComponent(convId)}`);
+      const items = res.ok ? ((await res.json()).actions as HistoryItem[]) : [];
+      setConvHist((h) => ({ ...h, [convId]: items }));
+    } catch { setConvHist((h) => ({ ...h, [convId]: [] })); }
+  };
+  const toggleConvHistory = (convId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(convId)) next.delete(convId);
+      else { next.add(convId); if (!(convId in convHist)) void loadConvHistory(convId); }
+      return next;
+    });
   };
   // Past conversations (persistent; resumable).
   const [showConvos, setShowConvos] = useState(false);
@@ -299,18 +307,17 @@ export default function AssistantPanel({ messages, busy, send, onStop, onRetry, 
     await loadMems();
   };
 
-  const toggleHistory = () => { setShowConvos(false); setShowSettings(false); setShowMemory(false); setShowHistory((v) => { const nv = !v; if (nv) loadHistory(); return nv; }); };
-  const toggleConvos = () => { setShowHistory(false); setShowSettings(false); setShowMemory(false); setShowConvos((v) => { const nv = !v; if (nv) loadConvos(); return nv; }); };
-  const toggleSettings = () => { setShowHistory(false); setShowConvos(false); setShowMemory(false); setShowSettings((v) => { const nv = !v; if (nv) loadSettings(); return nv; }); };
-  const toggleMemory = () => { setShowHistory(false); setShowConvos(false); setShowSettings(false); setShowMemory((v) => { const nv = !v; if (nv) loadMems(); return nv; }); };
+  const toggleConvos = () => { setShowSettings(false); setShowMemory(false); setShowConvos((v) => { const nv = !v; if (nv) loadConvos(); return nv; }); };
+  const toggleSettings = () => { setShowConvos(false); setShowMemory(false); setShowSettings((v) => { const nv = !v; if (nv) loadSettings(); return nv; }); };
+  const toggleMemory = () => { setShowConvos(false); setShowSettings(false); setShowMemory((v) => { const nv = !v; if (nv) loadMems(); return nv; }); };
   const openConvo = async (id: string) => { await onLoadConversation(id); setShowConvos(false); };
   const delConvo = async (id: string) => { await onDeleteConversation(id); await loadConvos(); };
-  const doRevert = async (id: string) => {
+  const doRevert = async (id: string, convId: string) => {
     setReverting(id);
     try {
       const res = await fetch("/api/assistant/history", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
       if (res.ok && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("calendar:changed"));
-      await loadHistory();
+      await loadConvHistory(convId);
     } finally { setReverting(null); }
   };
 
@@ -341,7 +348,6 @@ export default function AssistantPanel({ messages, busy, send, onStop, onRetry, 
           <button className={`ca-close${showMemory ? " ca-head-active" : ""}`} onClick={toggleMemory} title="Memory" aria-label="Memory"><Brain size={15} /></button>
           <button className={`ca-close${showSettings ? " ca-head-active" : ""}`} onClick={toggleSettings} title="Settings" aria-label="Settings"><Settings size={15} /></button>
           <button className={`ca-close${showConvos ? " ca-head-active" : ""}`} onClick={toggleConvos} title="Past conversations" aria-label="Past conversations"><MessagesSquare size={15} /></button>
-          <button className={`ca-close${showHistory ? " ca-head-active" : ""}`} onClick={toggleHistory} title="AI change history" aria-label="AI change history"><History size={15} /></button>
           <button className="ca-close" onClick={onClear} disabled={messages.length === 0} title="New chat" aria-label="New chat"><SquarePen size={15} /></button>
           <button className="ca-close" onClick={onClose} title="Close" aria-label="Close"><X size={15} /></button>
         </div>
@@ -372,45 +378,57 @@ export default function AssistantPanel({ messages, busy, send, onStop, onRetry, 
         <div className="ca-scroll ca-history">
           {convLoading && <div className="ca-empty">Loading…</div>}
           {!convLoading && convos.length === 0 && <div className="ca-empty">No past conversations yet. Your chats are saved here automatically.</div>}
-          {convos.map((c) => (
-            <div key={c.id} className="ca-hist-item">
-              <span className="ca-hist-icon"><MessagesSquare size={13} /></span>
-              <button className="ca-hist-text ca-conv-open" onClick={() => openConvo(c.id)} title="Open conversation">
-                <span className="ca-hist-summary">{c.title}</span>
-                <span className="ca-hist-time">{new Date(c.updatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
-              </button>
-              <button className="ca-hist-revert" onClick={() => delConvo(c.id)} title="Delete conversation" aria-label="Delete conversation"><Trash2 size={12} /></button>
-            </div>
-          ))}
-        </div>
-      ) : showHistory ? (
-        <div className="ca-scroll ca-history">
-          {histLoading && <div className="ca-empty">Loading…</div>}
-          {!histLoading && histItems.length === 0 && <div className="ca-empty">No AI changes yet. Events the assistant creates, edits, or deletes will appear here to review and back-track.</div>}
-          {histItems.map((it) => {
-            const Icon = HIST_ICON[it.kind] ?? CalendarDays;
-            const reverted = it.status === "REVERTED";
+          {convos.map((c) => {
+            const isOpen = expanded.has(c.id);
+            const acts = convHist[c.id];
             return (
-              <div key={it.id} className={`ca-hist-item${reverted ? " ca-hist-reverted" : ""}`}>
-                <span className="ca-hist-icon"><Icon size={13} /></span>
-                <span className="ca-hist-text">
-                  <span className="ca-hist-summary">{histVerb(it)} “{it.title}”</span>
-                  <span className="ca-hist-time">{new Date(it.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
-                </span>
-                {reverted ? (
-                  <span className="ca-hist-tag">reverted</span>
-                ) : (
-                  <button className="ca-hist-revert" onClick={() => doRevert(it.id)} disabled={reverting === it.id}>
-                    {reverting === it.id ? <Loader2 size={12} className="ca-spin" /> : <><Undo2 size={12} /> Revert</>}
+              <div key={c.id} className="ca-convo">
+                <div className="ca-hist-item">
+                  <span className="ca-hist-icon"><MessagesSquare size={13} /></span>
+                  <button className="ca-hist-text ca-conv-open" onClick={() => openConvo(c.id)} title="Open conversation">
+                    <span className="ca-hist-summary">{c.title}</span>
+                    <span className="ca-hist-time">{new Date(c.updatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
                   </button>
-                )}
+                  <button className={`ca-convo-histbtn${isOpen ? " open" : ""}`} onClick={() => toggleConvHistory(c.id)} title="Change history" aria-label="Change history" aria-expanded={isOpen}>
+                    <History size={12} /><ChevronDown size={11} className={`ca-convo-chev${isOpen ? " open" : ""}`} />
+                  </button>
+                  <button className="ca-hist-revert" onClick={() => delConvo(c.id)} title="Delete conversation" aria-label="Delete conversation"><Trash2 size={12} /></button>
+                </div>
+                <div className={`ca-convo-hist${isOpen ? " open" : ""}`}>
+                  <div className="ca-convo-hist-inner">
+                    {acts === undefined || acts === "loading" ? (
+                      <div className="ca-convo-hist-empty">Loading…</div>
+                    ) : acts.length === 0 ? (
+                      <div className="ca-convo-hist-empty">No calendar changes in this conversation.</div>
+                    ) : acts.map((it) => {
+                      const Icon = HIST_ICON[it.kind] ?? CalendarDays;
+                      const reverted = it.status === "REVERTED";
+                      return (
+                        <div key={it.id} className={`ca-hist-item ca-hist-sub${reverted ? " ca-hist-reverted" : ""}`}>
+                          <span className="ca-hist-icon"><Icon size={13} /></span>
+                          <span className="ca-hist-text">
+                            <span className="ca-hist-summary">{histVerb(it)} “{it.title}”</span>
+                            <span className="ca-hist-time">{new Date(it.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                          </span>
+                          {reverted ? (
+                            <span className="ca-hist-tag">reverted</span>
+                          ) : (
+                            <button className="ca-hist-revert" onClick={() => doRevert(it.id, c.id)} disabled={reverting === it.id}>
+                              {reverting === it.id ? <Loader2 size={12} className="ca-spin" /> : <><Undo2 size={12} /> Revert</>}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             );
           })}
         </div>
       ) : showMemory ? (
         <div className="ca-scroll ca-history">
-          <div className="ca-settings-hint">Durable facts the assistant remembers across chats (preferences, conventions, contacts). Forget anything that's wrong.</div>
+          <div className="ca-settings-hint">Durable facts the assistant remembers across chats (preferences, conventions, contacts). Forget anything that’s wrong.</div>
           {memLoading && <div className="ca-empty">Loading…</div>}
           {!memLoading && mems.length === 0 && <div className="ca-empty">Nothing remembered yet. When the assistant learns a durable preference or contact, it appears here to review or forget.</div>}
           {mems.map((mem) => (

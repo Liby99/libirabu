@@ -126,6 +126,15 @@
 .cc-menu-sc { color: var(--accent-grey); font-size: 0.72rem; }
 /* Non-interactive status line at the top of a menu (Connectivity's sync state). */
 .cc-menu-status { padding: 5px 10px 3px; font-size: 0.72rem; color: var(--accent-grey); white-space: nowrap; }
+/* status line with an inline "Sync" button on the right */
+.cc-menu-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cc-menu-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cc-menu-syncbtn {
+  flex: none; border: 1px solid var(--accent-grey); background: none; color: var(--accent-dark);
+  font-size: 0.68rem; padding: 2px 9px; border-radius: 6px; cursor: pointer;
+}
+.cc-menu-syncbtn:hover:not(:disabled) { background: var(--accent-bg); border-color: var(--highlight); color: var(--highlight); }
+.cc-menu-syncbtn:disabled { opacity: 0.55; cursor: default; }
 .cc-menu-sep { height: 1px; margin: 4px 6px; background: var(--accent-grey); opacity: 0.5; }
 .cc-menu-sub { position: relative; }
 /* flyout opens to the LEFT (the menu hugs the right edge of the bar); flush so the

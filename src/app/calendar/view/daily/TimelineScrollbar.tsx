@@ -18,6 +18,16 @@ interface Props {
 
 const MIN_THUMB = 26; // keep the thumb grabbable even when fully zoomed in
 
+// After a scrollbar drag, the browser fires a `click` on the nearest common ancestor of the
+// mousedown (thumb) and mouseup (wherever you released) targets — i.e. the canvas wrapper. That
+// click would be read as "clicked a day → open daily view". Swallow exactly that one trailing click
+// in the capture phase (before React's synthetic handler runs), with a short fallback cleanup.
+function suppressNextClick() {
+  const swallow = (e: MouseEvent) => { e.stopPropagation(); };
+  window.addEventListener("click", swallow, { capture: true, once: true });
+  setTimeout(() => window.removeEventListener("click", swallow, true), 400);
+}
+
 // Video-editor-style scrollbar living on the leftmost day's left border. The thumb
 // (a vertical line with hollow end circles) shows the visible window: its position is
 // the scroll, its length the visible fraction of the day. Dragging the body scrolls;
@@ -36,7 +46,7 @@ export default function TimelineScrollbar({ vp, tlTop, viewH, hourH, scroll, set
     setDragging(true);
     const y0 = e.clientY, scroll0 = scroll;
     const onMove = (me: MouseEvent) => setScroll(scroll0 + (me.clientY - y0) * totalH / viewH);
-    const onUp = () => { setDragging(false); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    const onUp = () => { setDragging(false); suppressNextClick(); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   };
@@ -59,7 +69,7 @@ export default function TimelineScrollbar({ vp, tlTop, viewH, hourH, scroll, set
       setHourH(newHourH);
       setScroll(Math.max(0, Math.min(newTotal - viewH, newScroll)));
     };
-    const onUp = () => { setDragging(false); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    const onUp = () => { setDragging(false); suppressNextClick(); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   };

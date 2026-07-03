@@ -20,17 +20,19 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { buildScene } from "../geometry/scene";
-import { setDaily } from "../geometry/frames";
-import DailyDashboard from "./daily/DailyDashboard";
+import { setDaily, frameFor } from "../geometry/frames";
+import DailyDashboard, { type DashHandle } from "./daily/DailyDashboard";
 import DailyResizeHandle from "./daily/DailyResizeHandle";
 import { fmtRange, snapHour, TimedEvent } from "../model/types/eventTypes";
 import { LABEL_W, TRACK_H, BAR_H, TOP_PAD } from "../geometry/constants";
-import { MONTH_LONG, weekStartDOM, resolveDate } from "../util/dates";
+import { MONTH_LONG, weekStartDOM, weekOfDate, resolveDate } from "../util/dates";
+import type { Hover } from "../geometry/types";
 import { tzDeltaHours, tzAbbrev } from "../util/timezones";
 import { timelineInfo, pointToSlot, eventTextLayout } from "../geometry/eventGeom";
 import EventBadges from "./events/EventBadges";
 import { bandSlotAtPoint } from "../geometry/bandGeom";
 import { daysInMonth } from "../model/api/mock";
+import { occurrenceDates, occDate, baseHidden } from "../model/occurrences";
 import { setEventHidden, internalizeEvent } from "../model/api/apiClient";
 import { BandEvent } from "../model/types/bandEventTypes";
 import { Deadline } from "../model/types/deadlineTypes";
@@ -75,7 +77,7 @@ function ordinal(n: number): string {
 }
 
 export default function CalendarCanvas() {
-  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToToday, goToMonth, goToOccurrence, revealHour, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade } =
+  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToToday, goToMonth, goToOccurrence, revealHour, ensureHourVisible, ensureDayVisibleInWeek, zoomToDay, zoomToWeekOfDay, zoomToMonthWithDay, rebaseFocusAndZoom, scrollToMonth, kbDay, kbActive, setKbDayFocus, blurKbFocus, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade } =
     useCalendarInteractions();
   const { trackNames, editTrack, mainTz, mainTzSetting, altTz, setAltTz, setMainTz } = useCalendarSettings(year);
   const history = useHistory();
@@ -127,6 +129,17 @@ export default function CalendarCanvas() {
   // (capture phase, before the deselect listener runs) so the click handler can read it.
   const hadSelectionAtDownRef = useRef(false);
   const [focusedOcc, setFocusedOcc] = useState<string | null>(null); // the clicked occurrence date "YYYY-MM-DD" (null = the base)
+  // Arrow-key navigation's "vertical focus location" — the hour anchor. Set when the mouse selects an
+  // event (to that event's time) and re-set on Up/Down; Left/Right keep it fixed and pick each new
+  // day's event closest to it. null until the first selection.
+  const navAnchorRef = useRef<number | null>(null);
+  // Daily-view "dashboard" keyboard space: drives the TODO list via an imperative handle. dashActive
+  // marks it as the current nav space (only in daily view).
+  const dashRef = useRef<DashHandle>(null);
+  const [dashActive, setDashActive] = useState(false);
+  // Yearly-view "track" space: which of a focused month's 4 track-name inputs is being edited (0–3), or
+  // null. A ref (no re-render) — the visual is the native input focus; the month stays highlighted.
+  const trackIdxRef = useRef<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [hideConfirmId, setHideConfirmId] = useState<string | null>(null); // "make invisible?" callout for imported events
   const [recurDelete, setRecurDelete] = useState<{ id: string; occ: string } | null>(null); // recurring delete → pick scope
@@ -147,8 +160,25 @@ export default function CalendarCanvas() {
   const pasteAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const yearWrapRef = useRef<HTMLDivElement>(null);
 
-  // Interactions carry which occurrence (date) was clicked, so per-occurrence actions work.
-  const selectEvent = (id: string | null, occ?: string | null) => { setSelectedId(id); setFocusedOcc(occ ?? null); };
+  // The vertical location (decimal hour) of a navigable item — a timed event's start or a deadline's
+  // hour. null for anything without a timeline position (all-day band events, unknown ids). Occurrence
+  // ghosts share their base's time, so the id alone is enough.
+  const vlocOf = (id: string): number | null => {
+    const t = events.find((x) => x.id === id);
+    if (t) return t.startHour;
+    const d = deadlines.find((x) => x.id === id);
+    if (d) return d.hour;
+    return null;
+  };
+  // Interactions carry which occurrence (date) was clicked, so per-occurrence actions work. A mouse
+  // selection also seeds the arrow-nav vertical anchor with the picked item's time.
+  const selectEvent = (id: string | null, occ?: string | null) => {
+    setSelectedId(id);
+    setFocusedOcc(occ ?? null);
+    if (dashActive) { setDashActive(false); dashRef.current?.blur(); } // a mouse selection leaves the dashboard nav space
+    trackIdxRef.current = null;
+    if (id != null) { const v = vlocOf(id); if (v != null) navAnchorRef.current = v; }
+  };
   // Open the drawer, first centering the clicked event in the space left of the drawer: the shell
   // shifts left so the event's center lands at the midpoint of the (X − drawerWidth) free area.
   // delta = eventCenter − (X − D)/2, capped at ≥ 0 (never shift right). The subtraction + cap live
@@ -487,6 +517,347 @@ export default function CalendarCanvas() {
     if (d) updateDeadline(selectedId, { hour: Math.max(0, Math.min(23.75, d.hour + delta)) });
   };
 
+  // ── Arrow-key navigation between events (weekly/daily view) ──
+  // A navigable instance: an event/deadline as it lands on one concrete day, with its vertical hour.
+  type NavItem = { id: string; occ: string | null; month: number; day: number; vloc: number };
+  // Every timed event + deadline instance (base and recurrence ghosts) that lands on (month, day),
+  // sorted top-to-bottom by time. Mirrors the render layers' base/ghost expansion so nav matches what's
+  // drawn. `occurrenceDates` is memoized, so calling this per keystroke (incl. day scans) stays cheap.
+  const itemsOnDay = (month: number, day: number): NavItem[] => {
+    const out: NavItem[] = [];
+    const collect = (id: string, base: { year: number; month: number; day: number }, repeat: Repeat | undefined, vloc: number) => {
+      if (base.year === year && base.month === month && base.day === day && !baseHidden(occDate(base), repeat)) {
+        out.push({ id, occ: null, month, day, vloc });
+      }
+      if (repeat && repeat.kind !== "none") {
+        for (const o of occurrenceDates(base, repeat, year)) {
+          if (o.month === month && o.day === day) out.push({ id, occ: occDate(o), month, day, vloc });
+        }
+      }
+    };
+    for (const ev of events) collect(ev.id, { year: ev.year, month: ev.month, day: ev.day }, ev.repeat, ev.startHour);
+    for (const d of deadlines) collect(d.id, { year: d.year, month: d.month, day: d.day }, d.repeat, d.hour);
+    out.sort((a, b) => a.vloc - b.vloc || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return out;
+  };
+  // The timed event / deadline instance overlapping the Region hour-cursor cell [hour, hour+1) on
+  // (month, day), nearest to the cursor — or null if the cursor isn't over one. (Enter in Region mode.)
+  const eventAtRegion = (month: number, day: number, hour: number): NavItem | null => {
+    const out: NavItem[] = [];
+    const collect = (id: string, base: { year: number; month: number; day: number }, repeat: Repeat | undefined, vloc: number, overlaps: boolean) => {
+      if (!overlaps) return;
+      if (base.year === year && base.month === month && base.day === day && !baseHidden(occDate(base), repeat)) out.push({ id, occ: null, month, day, vloc });
+      if (repeat && repeat.kind !== "none") for (const o of occurrenceDates(base, repeat, year)) if (o.month === month && o.day === day) out.push({ id, occ: occDate(o), month, day, vloc });
+    };
+    for (const ev of events) collect(ev.id, { year: ev.year, month: ev.month, day: ev.day }, ev.repeat, ev.startHour, ev.startHour < hour + 1 && ev.endHour > hour);
+    for (const d of deadlines) collect(d.id, { year: d.year, month: d.month, day: d.day }, d.repeat, d.hour, Math.floor(d.hour) === hour);
+    let best: NavItem | null = null;
+    for (const it of out) if (!best || Math.abs(it.vloc - hour) < Math.abs(best.vloc - hour)) best = it;
+    return best;
+  };
+  // The concrete day the current selection sits on — from the focused occurrence date, else the base.
+  const currentInstanceDay = (): { month: number; day: number } | null => {
+    if (selectedId == null) return null;
+    if (focusedOcc) { const p = focusedOcc.split("-"); return { month: Number(p[1]) - 1, day: Number(p[2]) }; }
+    const t = events.find((x) => x.id === selectedId);
+    if (t) return { month: t.month, day: t.day };
+    const d = deadlines.find((x) => x.id === selectedId);
+    if (d) return { month: d.month, day: d.day };
+    return null;
+  };
+  // Move the selection to a nav item, revealing it. Up/Down carry the anchor to the new time; Left/Right
+  // leave it fixed (so successive day-hops stay aligned to the original vertical position).
+  const selectInstance = (it: NavItem, updateAnchor: boolean) => {
+    setSelectedId(it.id);
+    setFocusedOcc(it.occ);
+    if (updateAnchor) navAnchorRef.current = it.vloc;
+    ensureHourVisible(it.vloc);
+  };
+  // Up/Down: step to the previous (earlier) / next (later) event on the SAME day; stop at the ends.
+  const navWithinDay = (dir: -1 | 1) => {
+    if (selectedId == null || vlocOf(selectedId) == null) return; // only from a timeline item (not all-day)
+    const cur = currentInstanceDay();
+    if (!cur) return;
+    const items = itemsOnDay(cur.month, cur.day);
+    const i = items.findIndex((it) => it.id === selectedId && (it.occ ?? null) === (focusedOcc ?? null));
+    if (i < 0) return;
+    const ni = i + dir;
+    if (ni < 0 || ni >= items.length) return; // already at the top/bottom of the day
+    selectInstance(items[ni], true);
+  };
+  // Left/Right (week view): jump to the nearest prior/later day that HAS an event and select the one
+  // closest to the vertical anchor. Skips empty days; stops at the month boundary (never crosses months).
+  const navAcrossDays = (dir: -1 | 1) => {
+    if (selectedId == null || vlocOf(selectedId) == null) return;
+    const cur = currentInstanceDay();
+    if (!cur) return;
+    const anchor = navAnchorRef.current ?? vlocOf(selectedId) ?? 0;
+    const dim = daysInMonth(cur.month);
+    for (let day = cur.day + dir; day >= 1 && day <= dim; day += dir) {
+      const items = itemsOnDay(cur.month, day);
+      if (items.length === 0) continue;
+      let best = items[0];
+      for (const it of items) if (Math.abs(it.vloc - anchor) < Math.abs(best.vloc - anchor)) best = it;
+      ensureDayVisibleInWeek(cur.month, day);
+      selectInstance(best, false);
+      return;
+    }
+  };
+  // Nearest timed item (by vertical hour) to a target hour — used by Tab → Timed and closest-event picks.
+  const nearestHour = (items: NavItem[], hour: number): NavItem | null => {
+    let best: NavItem | null = null;
+    for (const it of items) if (!best || Math.abs(it.vloc - hour) < Math.abs(best.vloc - hour)) best = it;
+    return best;
+  };
+
+  // ── Month-view all-day "gear": Tab from a day-focus selects the nearest lane bar; arrows do spatial
+  // grid navigation between bars; Shift+arrows move the bar itself. "Lane bars" are EVERYTHING drawn on
+  // the 4 track lanes — real band events, their recurrence ghosts, AND promoted timed/deadline ghosts.
+  // We read them straight from the DOM (class cc-tevent-band) so navigation matches exactly what's on
+  // screen and needs no per-layer geometry re-derivation.
+  type BandCell = { id: string; occ: string | null; left: number; right: number; top: number; cx: number; cy: number };
+  const bandCells = (): BandCell[] => {
+    const wrap = wrapRef.current;
+    if (!wrap) return [];
+    const out: BandCell[] = [];
+    wrap.querySelectorAll<HTMLElement>(".cc-tevent-band[data-ev-id]").forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) return; // clipped/hidden bar
+      out.push({ id: el.getAttribute("data-ev-id")!, occ: el.getAttribute("data-occ"), left: r.left, right: r.right, top: r.top, cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
+    });
+    return out;
+  };
+  // Is the current selection one of those lane bars? (Robust across event kinds — a promoted timed/
+  // deadline bar's id lives in `events`/`deadlines`, not `bandEvents`, so we ask the DOM instead.)
+  const isBandSelected = () => !!(selectedId != null && wrapRef.current?.querySelector(`.cc-tevent-band[data-ev-id="${selectedId}"]`));
+  // The concrete day a selection sits on (band bar, timed, or deadline) — the occurrence's start for a
+  // ghost, else the base's — used to restore a Region focus (Tab / zoom-out) where the element sits.
+  const selectionDay = (): { month: number; day: number } | null => {
+    if (focusedOcc) { const p = focusedOcc.split("-"); return { month: Number(p[1]) - 1, day: Number(p[2]) }; }
+    const b = bandEvents.find((x) => x.id === selectedId); if (b) return { month: b.month, day: b.startDay };
+    const t = events.find((x) => x.id === selectedId); if (t) return { month: t.month, day: t.day };
+    const d = deadlines.find((x) => x.id === selectedId); if (d) return { month: d.month, day: d.day };
+    return null;
+  };
+  // Arrows in band gear: directional spatial navigation across the lane grid. Every bar whose centre
+  // lies to the pressed side is a candidate; the winner minimises along-axis distance plus a soft penalty
+  // on the off-axis offset — so it steps to the most rational neighbour, crossing lanes/days freely.
+  const navBand = (key: string) => {
+    const cells = bandCells();
+    const cur = cells.find((c) => c.id === selectedId && (c.occ ?? null) === (focusedOcc ?? null)) ?? cells.find((c) => c.id === selectedId);
+    if (!cur || cells.length <= 1) return;
+    const horizontal = key === "ArrowLeft" || key === "ArrowRight";
+    const sign = key === "ArrowLeft" || key === "ArrowUp" ? -1 : 1;
+    let best: BandCell | null = null, bestScore = Infinity;
+    for (const c of cells) {
+      if (c === cur) continue;
+      const along = (horizontal ? c.cx - cur.cx : c.cy - cur.cy) * sign; // forward distance in the pressed direction
+      if (along <= 0.001) continue;                                      // must lie to that side
+      const off = horizontal ? Math.abs(c.cy - cur.cy) : Math.abs(c.cx - cur.cx);
+      const score = along + off * 2;                                     // direction dominates; off-axis is a soft penalty
+      if (score < bestScore) { bestScore = score; best = c; }
+    }
+    if (best) { setSelectedId(best.id); setFocusedOcc(best.occ); }
+  };
+  // Shift+arrows in band gear move the bar itself. Real band: Up/Down = lane (track 0–3), Left/Right =
+  // ±1 day (clamped to the month). Promoted timed/deadline bar: Up/Down = its promote lane, Left/Right =
+  // the underlying event's day. Always patches the base, so a recurring series moves together.
+  const moveSelectedBand = (key: string) => {
+    const vertical = key === "ArrowUp" || key === "ArrowDown";
+    const delta = key === "ArrowUp" || key === "ArrowLeft" ? -1 : 1;
+    const band = bandEvents.find((b) => b.id === selectedId);
+    if (band) {
+      if (vertical) { const track = Math.max(0, Math.min(3, band.track + delta)); if (track !== band.track) updateBandEvent(band.id, { track }); }
+      else { const len = band.endDay - band.startDay; const start = Math.max(1, Math.min(daysInMonth(band.month) - len, band.startDay + delta)); if (start !== band.startDay) updateBandEvent(band.id, { startDay: start, endDay: start + len }); }
+      return;
+    }
+    const t = events.find((e) => e.id === selectedId);
+    if (t) {
+      if (vertical) updateEvent(t.id, { promoteTrack: Math.max(0, Math.min(3, (t.promoteTrack ?? 0) + delta)) });
+      else { const day = Math.max(1, Math.min(daysInMonth(t.month), t.day + delta)); if (day !== t.day) updateEvent(t.id, { day }); }
+      return;
+    }
+    const d = deadlines.find((e) => e.id === selectedId);
+    if (d) {
+      if (vertical) updateDeadline(d.id, { promoteTrack: Math.max(0, Math.min(3, (d.promoteTrack ?? 0) + delta)) });
+      else { const day = Math.max(1, Math.min(daysInMonth(d.month), d.day + delta)); if (day !== d.day) updateDeadline(d.id, { day }); }
+    }
+  };
+  // Shift+arrows in the Timed space: Up/Down nudge the time (±15 min); Left/Right move the event's day.
+  const moveSelectedTimed = (key: string) => {
+    if (key === "ArrowUp" || key === "ArrowDown") { nudgeSelected(key === "ArrowUp" ? -0.25 : 0.25); return; }
+    const delta = key === "ArrowLeft" ? -1 : 1;
+    const t = events.find((x) => x.id === selectedId);
+    if (t) { const day = Math.max(1, Math.min(daysInMonth(t.month), t.day + delta)); if (day !== t.day) updateEvent(t.id, { day }); return; }
+    const d = deadlines.find((x) => x.id === selectedId);
+    if (d) { const day = Math.max(1, Math.min(daysInMonth(d.month), d.day + delta)); if (day !== d.day) updateDeadline(d.id, { day }); }
+  };
+
+  // ── Unified keyboard navigation across all views ───────────────────────────────────────────────
+  // Views year(0)/month(1)/week(2)/day(3); "spaces" region/allday/timed. Region granularity: a month in
+  // year, a day in month, a (day, hour) cell in week/day. Region uses kbDay {month, day, hour}; events use
+  // selectedId/focusedOcc. Tab cycles the spaces the view offers; Space drills a Region inward; Shift+=/−
+  // zoom while preserving the space + element; arrows navigate; Shift+arrows move the selected element.
+  const viewOf = (): "year" | "month" | "week" | "day" => (z < 0.5 ? "year" : z < 1.5 ? "month" : z < 2.5 ? "week" : "day");
+  const spaceOf = (): "region" | "allday" | "timed" | "dashboard" | "track" | "none" =>
+    dashActive && viewOf() === "day" ? "dashboard"
+    : viewOf() === "year" && trackIdxRef.current != null && (document.activeElement as HTMLElement | null)?.classList.contains("cc-track-input") ? "track"
+    : isBandSelected() ? "allday" : selectedId != null ? "timed" : kbDay != null ? "region" : "none";
+  // The representative {month, day, hour} of the current focus — the anchor for "closest element" on Tab.
+  const focusAnchor = (): { month: number; day: number; hour: number } => {
+    const sp = spaceOf();
+    if (sp === "allday") { const d = selectionDay(); return { month: d?.month ?? focus, day: d?.day ?? 1, hour: 12 }; }
+    if (sp === "timed") { const d = currentInstanceDay(); return { month: d?.month ?? focus, day: d?.day ?? 1, hour: (selectedId ? vlocOf(selectedId) : null) ?? 12 }; }
+    if ((sp === "region" || sp === "track") && kbDay) return { month: kbDay.month, day: kbDay.day, hour: kbDay.hour };
+    return { month: focus, day: viewOf() === "day" ? dailyDom : 1, hour: 12 };
+  };
+  // Nearest lane bar to an anchor (2D on-screen distance) — works in year view too (crosses months).
+  const nearestBandToAnchor = (a: { month: number; day: number }): { id: string; occ: string | null } | null => {
+    const wrap = wrapRef.current; if (!wrap) return null;
+    const cells = bandCells(); if (!cells.length) return null;
+    const wr = wrap.getBoundingClientRect();
+    const f = frameFor(a.month, z, focus, week, vp, scrollY);
+    const ax = wr.left + f.x0 + (a.day - 0.5) * f.dayW, ay = wr.top + f.bandY + 2 * f.trackH;
+    let best = cells[0], bestD = Infinity;
+    for (const c of cells) { const dx = c.cx - ax, dy = c.cy - ay, dd = dx * dx + dy * dy; if (dd < bestD) { bestD = dd; best = c; } }
+    return { id: best.id, occ: best.occ };
+  };
+  // Nearest timed/deadline instance to an anchor (day + hour), expanding outward within the month.
+  const nearestTimedToAnchor = (a: { month: number; day: number; hour: number }): NavItem | null => {
+    let t = nearestHour(itemsOnDay(a.month, a.day), a.hour);
+    if (t) return t;
+    const dim = daysInMonth(a.month);
+    for (let dist = 1; dist <= dim; dist++) {
+      const cand: NavItem[] = [];
+      if (a.day - dist >= 1) cand.push(...itemsOnDay(a.month, a.day - dist));
+      if (a.day + dist <= dim) cand.push(...itemsOnDay(a.month, a.day + dist));
+      t = nearestHour(cand, a.hour);
+      if (t) return t;
+    }
+    return null;
+  };
+  // Enter a space, selecting the closest element to the anchor. Returns false if the target space has no
+  // element to land on (so Tab can skip past an empty space).
+  // Focus one of the focused month's 4 track-name inputs (yearly "track" stop). The month stays
+  // highlighted (kbDay/kbActive kept); returns false only if there's no focused month to read tracks from.
+  const enterTrack = (i: number): boolean => {
+    if (!kbDay) return false;
+    const m = kbDay.month;
+    setSelectedId(null); setFocusedOcc(null);
+    trackIdxRef.current = i;
+    scrollToMonth(m); // make sure the month (and its inputs) are on screen
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`.cc-track-input[data-track-m="${m}"][data-track-i="${i}"]`) as HTMLInputElement | null;
+      el?.focus(); el?.select();
+    });
+    return true;
+  };
+  const enterSpace = (target: "region" | "allday" | "timed" | "dashboard", a: { month: number; day: number; hour: number }): boolean => {
+    if (target !== "dashboard" && dashActive) { setDashActive(false); dashRef.current?.blur(); } // leaving the dashboard
+    if (trackIdxRef.current != null) { trackIdxRef.current = null; const ae = document.activeElement as HTMLElement | null; if (ae?.classList.contains("cc-track-input")) ae.blur(); } // leaving track edit
+    if (target === "dashboard") {
+      if (!dashRef.current?.focusFirst()) return false; // no todos → let Tab skip past
+      setSelectedId(null); setFocusedOcc(null); blurKbFocus(); setDashActive(true);
+      return true;
+    }
+    if (target === "region") {
+      setSelectedId(null); setFocusedOcc(null);
+      const inHourView = viewOf() === "week" || viewOf() === "day";
+      const hour = inHourView && kbDay ? kbDay.hour : a.hour; // week/day: keep the Region's own last hour across a Tab round-trip
+      setKbDayFocus(a.month, a.day, hour);
+      if (inHourView) ensureHourVisible(hour);
+      return true;
+    }
+    if (target === "allday") { const b = nearestBandToAnchor(a); if (!b) return false; setSelectedId(b.id); setFocusedOcc(b.occ); blurKbFocus(); return true; }
+    const t = nearestTimedToAnchor(a); if (!t) return false;
+    setSelectedId(t.id); setFocusedOcc(t.occ); navAnchorRef.current = t.vloc; blurKbFocus(); ensureHourVisible(t.vloc); return true;
+  };
+  const RINGS: Record<string, ("region" | "allday" | "timed" | "dashboard")[]> = {
+    year: ["region", "allday"], month: ["region", "allday"], week: ["region", "allday", "timed"], day: ["timed", "allday", "region", "dashboard"],
+  };
+  // Tab (or Shift+Tab): advance to the prev/next space that has something to land on. Year view splices
+  // the focused month's 4 track-name stops between Region and All-day.
+  const doTab = (back = false) => {
+    const v = viewOf(), sp = spaceOf(), a = focusAnchor(), step = back ? -1 : 1;
+    if (v === "year") {
+      const seq: Array<() => boolean> = [
+        () => enterSpace("region", a),
+        () => enterTrack(0), () => enterTrack(1), () => enterTrack(2), () => enterTrack(3),
+        () => enterSpace("allday", a),
+      ];
+      let idx = sp === "region" ? 0 : sp === "track" ? 1 + (trackIdxRef.current ?? 0) : sp === "allday" ? 5 : -1;
+      for (let n = 0; n < seq.length; n++) { idx = (idx + step + seq.length) % seq.length; if (seq[idx]()) return; }
+      return;
+    }
+    const ring = RINGS[v];
+    let idx = ring.indexOf(sp as "region" | "allday" | "timed" | "dashboard");
+    for (let n = 0; n < ring.length; n++) { idx = (idx + step + ring.length) % ring.length; if (enterSpace(ring[idx], a)) return; }
+  };
+  // Drill a Region one level inward (Space, and Shift+= while in Region). Remembers the day/hour.
+  const regionDrill = (r: { month: number; day: number; hour: number }): boolean => {
+    const v = viewOf();
+    if (v === "year") zoomToMonthWithDay(r.month, r.day, r.hour);
+    else if (v === "month") { setKbDayFocus(r.month, r.day, r.hour); zoomToWeekOfDay(r.month, r.day); ensureDayVisibleInWeek(r.month, r.day); ensureHourVisible(r.hour); }
+    else if (v === "week") { zoomToDay(r.month, r.day); setKbDayFocus(r.month, r.day, r.hour); ensureHourVisible(r.hour); }
+    else return false; // day: innermost
+    return true;
+  };
+  // Region Up/Down/Left/Right: year → months (scrolls); month → days; week → hours (↕) + days (↔); day → hours.
+  const navRegion = (key: string) => {
+    if (!kbDay) return;
+    const v = viewOf();
+    if (v === "year") {
+      if (key === "ArrowUp" || key === "ArrowDown") { const m = Math.max(0, Math.min(11, kbDay.month + (key === "ArrowUp" ? -1 : 1))); if (m !== kbDay.month) { setKbDayFocus(m, Math.min(kbDay.day, daysInMonth(m)), kbDay.hour); scrollToMonth(m, true); } }
+    } else if (v === "month") {
+      if (key === "ArrowLeft" || key === "ArrowRight") { const d = Math.max(1, Math.min(daysInMonth(kbDay.month), kbDay.day + (key === "ArrowLeft" ? -1 : 1))); if (d !== kbDay.day) setKbDayFocus(kbDay.month, d, kbDay.hour); }
+    } else {
+      if (key === "ArrowUp" || key === "ArrowDown") { const h = Math.max(0, Math.min(23, kbDay.hour + (key === "ArrowUp" ? -1 : 1))); if (h !== kbDay.hour) { setKbDayFocus(kbDay.month, v === "day" ? dailyDom : kbDay.day, h); ensureHourVisible(h); } }
+      else if (v === "week" && (key === "ArrowLeft" || key === "ArrowRight")) { const d = Math.max(1, Math.min(daysInMonth(kbDay.month), kbDay.day + (key === "ArrowLeft" ? -1 : 1))); if (d !== kbDay.day) { setKbDayFocus(kbDay.month, d, kbDay.hour); ensureDayVisibleInWeek(kbDay.month, d); } }
+    }
+  };
+  // Shift+= : zoom IN one level, preserving the space + element.
+  const doZoomIn = () => {
+    const v = viewOf(), sp = spaceOf(), a = focusAnchor();
+    if (sp === "dashboard") return; // the dashboard owns the keyboard; no zoom
+    if (sp === "region") { regionDrill(a); return; }
+    if (sp === "allday") {
+      if (v === "year") rebaseFocusAndZoom(a.month, 1);
+      else if (v === "month") { ensureDayVisibleInWeek(a.month, a.day); tweenTo(2); }
+      else if (v === "week") zoomToDay(a.month, a.day); // band shows in the daily strip; stays selected
+      return;
+    }
+    if (sp === "timed") { const d = currentInstanceDay(); if (v === "week" && d) { zoomToDay(d.month, d.day); const vl = vlocOf(selectedId!); if (vl != null) ensureHourVisible(vl); } return; }
+    tweenTo(Math.min(3, Math.round(z) + 1)); // no focus → plain zoom
+  };
+  // Shift+- : zoom OUT one level, preserving the space + element (timed past week → day-Region).
+  const doZoomOut = () => {
+    const v = viewOf(), sp = spaceOf(), a = focusAnchor();
+    if (sp === "dashboard") return; // the dashboard owns the keyboard; no zoom
+    if (sp === "allday") { const to = Math.max(0, Math.round(z) - 1); if (to === 0) scrollToMonth(a.month); tweenTo(to); return; }
+    if (sp === "timed") {
+      const d = currentInstanceDay(); const h = (selectedId ? vlocOf(selectedId) : null) ?? 12;
+      if (v === "day" && d) { zoomToWeekOfDay(d.month, d.day); ensureHourVisible(h); }
+      else if (v === "week" && d) { setSelectedId(null); setFocusedOcc(null); zoomToMonthWithDay(d.month, d.day, h); } // not drawn in month → convert to Region
+      return;
+    }
+    // region / none
+    if (v === "day") { const h = kbDay?.hour ?? a.hour; setKbDayFocus(focus, dailyDom, h); tweenTo(2); ensureHourVisible(h); }
+    else if (v === "week") tweenTo(1);
+    else if (v === "month") { scrollToMonth(kbDay?.month ?? focus); tweenTo(0); } // reveal the region month in the year grid
+  };
+  // Shift+N in an hour-cursor Region (week/day): create a 1-hour event at the cursor, select it, and open
+  // its drawer — the drawer shell auto-focuses + selects the title so you can name it straight away.
+  const createEventAtRegion = () => {
+    if (!kbDay) return;
+    const v = viewOf();
+    if (v !== "week" && v !== "day") return;
+    const day = v === "day" ? dailyDom : kbDay.day;
+    const start = Math.max(0, Math.min(23, Math.round(kbDay.hour)));
+    const created = addEvent({ year, month: kbDay.month, day, startHour: start, endHour: Math.min(24, start + 1), title: "Event", color: "default" });
+    setSelectedId(created.id); setFocusedOcc(null); blurKbFocus();
+    openDrawer(created.id, null);
+  };
+
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
   keyHandlerRef.current = (e: KeyboardEvent) => {
     // A modal dialog (delete / hide / recurring-delete / cross-year confirm, or Help) is open →
@@ -514,7 +885,57 @@ export default function CalendarCanvas() {
         if (k === "v" && clip) { e.preventDefault(); doPaste(); return; }
       }
     }
-    // Selected-event shortcuts: Enter = inline rename, Space = open drawer, Up/Down = ±15 min.
+    // Unified keyboard navigation: Tab cycles the view's spaces; Space drills a Region inward; Shift+=/−
+    // zoom preserving the space + element; arrows navigate within the space; Shift+arrows move the element.
+    {
+      const a = e.target as HTMLElement | null;
+      const editable = !!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable);
+      const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+      // A focused track-name input (yearly "track" stop) types normally, but Tab/Shift+Tab keep cycling
+      // the ring and Escape returns to the month.
+      if (a?.classList.contains("cc-track-input")) {
+        const ti = Number(a.getAttribute("data-track-i")); // sync (e.g. the input was focused by mouse)
+        if (!Number.isNaN(ti)) trackIdxRef.current = ti;
+        if (e.key === "Tab") { e.preventDefault(); doTab(e.shiftKey); return; }
+        if (e.key === "Escape") { e.preventDefault(); enterSpace("region", focusAnchor()); return; }
+        return; // everything else edits the name
+      }
+      if (!editable) {
+        const sp = spaceOf();
+        if (e.key === "Tab") { e.preventDefault(); doTab(e.shiftKey); return; }
+        // Dashboard space (daily): Up/Down move through todos, Space checks/unchecks the focused one.
+        if (sp === "dashboard") {
+          if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); dashRef.current?.move(e.key === "ArrowUp" ? -1 : 1); return; }
+          if (plain && !e.shiftKey && (e.key === " " || e.key === "Spacebar")) { e.preventDefault(); dashRef.current?.toggle(); return; }
+        }
+        // Enter over an event in an hour-cursor Region (week/day): select it → switch to Timed mode.
+        if (plain && !e.shiftKey && e.key === "Enter" && sp === "region" && kbDay && (viewOf() === "week" || viewOf() === "day")) {
+          const hit = eventAtRegion(kbDay.month, viewOf() === "day" ? dailyDom : kbDay.day, Math.round(kbDay.hour));
+          if (hit) { e.preventDefault(); setSelectedId(hit.id); setFocusedOcc(hit.occ); navAnchorRef.current = hit.vloc; blurKbFocus(); ensureHourVisible(hit.vloc); return; }
+        }
+        // Shift+N: new event at the week/day hour cursor → drawer with the title focused.
+        if (plain && e.shiftKey && (e.key === "n" || e.key === "N") && sp === "region" && (viewOf() === "week" || viewOf() === "day")) { e.preventDefault(); createEventAtRegion(); return; }
+        if (plain && !e.shiftKey && (e.key === " " || e.key === "Spacebar") && sp === "region") { e.preventDefault(); regionDrill(focusAnchor()); return; }
+        if (plain && e.shiftKey && (e.key === "+" || e.key === "=")) { e.preventDefault(); doZoomIn(); return; }
+        if (plain && e.shiftKey && (e.key === "_" || e.key === "-")) { e.preventDefault(); doZoomOut(); return; }
+        if (e.key.startsWith("Arrow")) {
+          if (e.shiftKey && plain) {
+            if (sp === "allday") { e.preventDefault(); moveSelectedBand(e.key); return; }
+            if (sp === "timed") { e.preventDefault(); moveSelectedTimed(e.key); return; }
+          } else if (plain) {
+            if (sp === "region") { e.preventDefault(); navRegion(e.key); return; }
+            if (sp === "allday") { e.preventDefault(); navBand(e.key); return; }
+            if (sp === "timed") {
+              e.preventDefault();
+              if (e.key === "ArrowUp" || e.key === "ArrowDown") navWithinDay(e.key === "ArrowUp" ? -1 : 1);
+              else if (viewOf() === "week") navAcrossDays(e.key === "ArrowLeft" ? -1 : 1);
+              return;
+            }
+          }
+        }
+      }
+    }
+    // Selected-event shortcuts left to the event spaces: Enter = inline rename, Space = open drawer.
     if (selectedId != null) {
       const tgt = e.target as HTMLElement | null;
       const editable = !!tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable);
@@ -527,7 +948,6 @@ export default function CalendarCanvas() {
           return;
         }
         if (e.key === " " || e.key === "Spacebar") { e.preventDefault(); openDrawer(selectedId, focusedOcc); return; }
-        if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); nudgeSelected(e.key === "ArrowUp" ? -0.25 : 0.25); return; }
       }
     }
     if (selectedId == null || (e.key !== "Delete" && e.key !== "Backspace")) return;
@@ -632,7 +1052,17 @@ export default function CalendarCanvas() {
   // stay put), so a boundary push gives feedback without the gutter sliding off.
   const dayOverPan = monthEdge ? -monthEdge.dir * 30 * monthEdge.t : 0;
   setDaily(dailyDom, dailyFrac, dayAnim, dayOverPan); // sync the daily-view module state before buildScene / the layers read frameFor
-  const scene = buildScene(z, focus, week, vp, scrollY, hover, now, year, altDelta, altLabel, tlScroll, monthAnim, detailMul);
+  // An active keyboard Region focus stands in for the mouse hover so it highlights identically per view:
+  // year → the month band, month → the day column, week/day → the hour cell. The mouse reclaims the
+  // visual the moment it moves (kbActive→false). Only when nothing else (an event) is selected.
+  const NO_HOVER: Hover = { month: null, dom: null, week: null, hour: null, hourFrac: null, nameMonth: null, nearLeft: null };
+  let effHover: Hover = hover;
+  if (kbActive && kbDay && selectedId == null) {
+    if (z < 0.5) effHover = { ...NO_HOVER, month: kbDay.month };
+    else if (z < 1.5) effHover = { ...NO_HOVER, month: kbDay.month, dom: kbDay.day, week: weekOfDate(kbDay.month, kbDay.day) };
+    else effHover = { ...NO_HOVER, month: kbDay.month, dom: z < 2.5 ? kbDay.day : dailyDom, hour: kbDay.hour }; // week/day: hour cell
+  }
+  const scene = buildScene(z, focus, week, vp, scrollY, effHover, now, year, altDelta, altLabel, tlScroll, monthAnim, detailMul);
   const tl = timelineInfo(z, focus, week, vp, scrollY, tlScroll);
   const showScrollbar = z >= 1.5 && tl.zoomable; // week + day view; hidden only once all 24h fit at MAX hour height
   const level = z < 0.5 ? 0 : z < 1.5 ? 1 : z < 2.5 ? 2 : 3;
@@ -750,13 +1180,14 @@ export default function CalendarCanvas() {
 
       <div className="cc-layer" style={yearFade < 1 ? { opacity: yearFade } : undefined}>
         {scene.items.map((it) => <ItemView key={it.key} it={it} />)}
-        <BandEventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visBand} addEvent={addBandEvent} updateEvent={updateBandEvent} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} editingId={editingId} onEditConsumed={() => setEditingId(null)} monthAnim={monthAnim} dimPast={dimPast} now={now} />
-        <PromotedBandLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} timed={visEvents} deadlines={visDeadlines} bandEvents={visBand} updateTimed={updateEvent} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} monthAnim={monthAnim} dimPast={dimPast} now={now} />
-        <EventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visEvents} addEvent={addEvent} updateEvent={updateEvent} onEventHover={setOverEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} selectedId={selectedId} onSelect={selectEvent} tlScroll={tlScroll} editingId={editingId} onEditConsumed={() => setEditingId(null)} detailMul={detailMul} monthAnim={monthAnim} dimPast={dimPast} now={now} />
+        <BandEventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visBand} addEvent={addBandEvent} updateEvent={updateBandEvent} selectedId={selectedId} focusedOcc={focusedOcc} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} editingId={editingId} onEditConsumed={() => setEditingId(null)} monthAnim={monthAnim} dimPast={dimPast} now={now} />
+        <PromotedBandLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} timed={visEvents} deadlines={visDeadlines} bandEvents={visBand} updateTimed={updateEvent} updateDeadline={updateDeadline} selectedId={selectedId} focusedOcc={focusedOcc} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} monthAnim={monthAnim} dimPast={dimPast} now={now} />
+        <EventsLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} year={year} events={visEvents} addEvent={addEvent} updateEvent={updateEvent} onEventHover={setOverEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} selectedId={selectedId} focusedOcc={focusedOcc} onSelect={selectEvent} tlScroll={tlScroll} editingId={editingId} onEditConsumed={() => setEditingId(null)} detailMul={detailMul} monthAnim={monthAnim} dimPast={dimPast} now={now} />
         <DeadlinesLayer vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} tlScroll={tlScroll} year={year} mainTz={mainTz} hover={hover} deadlines={visDeadlines} addDeadline={addDeadline} updateDeadline={updateDeadline} selectedId={selectedId} onSelect={selectEvent} onOpenDetail={openDrawer} onContextMenu={openMenu} detailMul={detailMul} monthAnim={monthAnim} dimPast={dimPast} now={now} onLabelHover={setOverEvent} />
         <TrackEditor trackNames={trackNames} editTrack={editTrack} vp={vp} z={z} focus={focus} week={week} scrollY={scrollY} monthAnim={monthAnim} />
         {dailyP > 0.001 && (
           <DailyDashboard
+            ref={dashRef}
             left={dashLeft}
             top={tl.tlTop - 18 - 4 * TRACK_H - 1} /* align the dashboard's top bar with the track band's top border */
             bandH={4 * TRACK_H}
@@ -899,7 +1330,7 @@ export default function CalendarCanvas() {
               return (
                 <div
                   key={i}
-                  className={`cc-item cc-tevent ${b.shape === "band" ? "cc-tevent-band " : ""}cc-ev-${evColor}${b.occ === focusedOcc ? " selected" : ""}${clip ? " cc-band-clip" : ""}${timed && short ? " cc-tevent-short" : ""}${timed && tiny ? " cc-tevent-tiny" : ""} cc-spot-dup`}
+                  className={`cc-item cc-tevent ${b.shape === "band" ? "cc-tevent-band " : ""}cc-ev-${evColor}${b.occ === focusedOcc ? " selected cc-focused-occ" : ""}${clip ? " cc-band-clip" : ""}${timed && short ? " cc-tevent-short" : ""}${timed && tiny ? " cc-tevent-tiny" : ""} cc-spot-dup`}
                   style={{ left: b.left, top: b.top, width: b.width, height: b.height, zIndex: 91, pointerEvents: b.occ === focusedOcc ? "auto" : "none", ...(clip ? ({ "--band-gap": b.bandGap } as React.CSSProperties) : {}) }}
                   onMouseDown={(e) => e.stopPropagation()}
                 >

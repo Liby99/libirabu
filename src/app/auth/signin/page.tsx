@@ -3,6 +3,10 @@
 import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
+import CalendarBackdrop from "../CalendarBackdrop";
+// Frosted-card + button styling (.ui-dlg-card / .ui-btn / .ui-btn--ghost) reused from the
+// app's Dialog primitive so the login modal matches the rest of the site.
+import "../../components/ui/dialog.css";
 
 function SignInForm() {
   const router = useRouter();
@@ -48,10 +52,13 @@ function SignInForm() {
 
   return (
     <div className="auth-wrap">
-      <form className="auth-card" onSubmit={onSubmit}>
-        <h1 className="auth-title">libirabu</h1>
+      <CalendarBackdrop />
+      <form className="ui-dlg-card auth-dlg" onSubmit={onSubmit}>
+        <h1 className="auth-wordmark">libirabu</h1>
         <p className="auth-sub">
-          {mode === "signin" ? "Sign in to your dashboard" : "Create your account"}
+          {mode === "signin"
+            ? "Sign in to your dashboard"
+            : "Create your account"}
         </p>
 
         <label className="auth-label">Email</label>
@@ -76,7 +83,7 @@ function SignInForm() {
 
         {error && <div className="auth-error">{error}</div>}
 
-        <button className="auth-btn" type="submit" disabled={busy}>
+        <button className="ui-btn ui-btn--ghost auth-submit" type="submit" disabled={busy}>
           {busy ? "…" : mode === "signin" ? "Sign in" : "Register"}
         </button>
 

@@ -661,15 +661,17 @@ model AIMessage {
 }
 
 model ActionLog {
-  id        String   @id @default(cuid())
-  userId    String
-  actor     String // USER|AI
-  kind      String // create_task|update_project_status|create_expense|…
-  payload   Json
-  status    String   @default("PROPOSED") // PROPOSED|CONFIRMED|APPLIED|REVERTED
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String? // AIConversation.id the action was applied in (scalar link; resolved in code)
+  actor          String // USER|AI
+  kind           String // create_task|update_project_status|create_expense|…
+  payload        Json
+  status         String   @default("PROPOSED") // PROPOSED|CONFIRMED|APPLIED|REVERTED
+  createdAt      DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@index([userId, conversationId])
 }
 
 // The assistant's own persistent memory (design §16.2): learned user conventions (colors/tags),

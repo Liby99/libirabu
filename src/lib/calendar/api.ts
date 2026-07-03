@@ -140,7 +140,7 @@ const DATE_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/;
 
 // One occurrence's sparse field override. All keys optional; only the overridden fields are stored.
 const occurrenceOverrideSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
+  title: z.string().max(200).optional(), // may be "" — a title is allowed to be blank while editing
   color: z.string().min(1).max(40).optional(),
   start: z.string().min(1).optional(),
   end: z.string().min(1).optional(),
@@ -154,7 +154,7 @@ const occurrenceOverridesSchema = z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$
 export const eventCreateSchema = z.object({
   id: z.string().min(1).max(64).optional(), // client-supplied id allowed (else server cuid)
   kind: z.enum(EVENT_KINDS),
-  title: z.string().min(1).max(200),
+  title: z.string().max(200), // may be "" — a blank title is allowed (renders as untitled)
   notes: z.string().max(4000).nullish(),
   occurrenceNotes: z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.string().max(4000)).optional(), // per-occurrence notes
   occurrenceOverrides: occurrenceOverridesSchema.optional(), // per-occurrence field overrides
@@ -174,7 +174,7 @@ export type EventCreate = z.infer<typeof eventCreateSchema>;
 
 // Patch: any subset of mutable fields. `kind` is immutable (re-create to change it).
 export const eventUpdateSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
+  title: z.string().max(200).optional(), // may be "" — a blank title is allowed (renders as untitled)
   notes: z.string().max(4000).nullish(),
   occurrenceNotes: z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.string().max(4000)).optional(), // per-occurrence notes
   occurrenceOverrides: occurrenceOverridesSchema.optional(), // per-occurrence field overrides

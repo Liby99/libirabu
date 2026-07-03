@@ -122,6 +122,12 @@
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.24);
   z-index: 20;
 }
+/* The ONE focused occurrence among a highlighted recurrence set (data-occ === focusedOcc): a solid
+   rounded ring outside the dotted border, so the "current" event stands out from its siblings. */
+.cc-tevent.cc-focused-occ {
+  box-shadow: 0 0 0 1.5px var(--ev-color), 0 3px 12px rgba(0, 0, 0, 0.24);
+  z-index: 21;
+}
 /* Moving: lifted above everything while dragging across the grid. */
 .cc-tevent.moving {
   cursor: grabbing;

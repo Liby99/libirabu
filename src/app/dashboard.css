@@ -78,7 +78,9 @@ body.cc-drawer-open .app-shell {
 /* ── Account settings modal (sidebar + content, rendered in a <Dialog> card) ── */
 .ui-dlg-card.acct-card { width: 620px; max-width: 92vw; padding: 0; overflow: hidden; }
 .acct-card .ui-dlg-body { margin: 0; padding: 0; } /* the sidebar layout owns its own spacing */
-.acct-layout { display: flex; min-height: 420px; max-height: 80vh; }
+/* Fixed height so switching sections (Account / Security / API Keys / Theme) doesn't
+   resize the modal; taller sections scroll inside .acct-content. Capped to the viewport. */
+.acct-layout { display: flex; height: 520px; max-height: 80vh; }
 .acct-side {
   flex: none; width: 168px; display: flex; flex-direction: column; gap: 2px;
   padding: 20px 12px; border-right: 1px solid var(--accent-grey);
@@ -332,44 +334,88 @@ body.cc-drawer-open .app-shell {
 .week-allday { padding-left: 16px; padding-right: 16px; }
 .week-allday-cell { flex: 1; display: flex; flex-direction: column; gap: 3px; padding: 0 2px; min-height: 4px; }
 
-/* ── Auth ──────────────────────────────────────────────────── */
-.auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--background); }
-.auth-card {
-  width: 320px;
+/* ── Auth ──────────────────────────────────────────────────────
+   The sign-in page floats a frosted card (reusing .ui-dlg-card from the Dialog primitive)
+   over a decorative, non-interactive calendar grid (CalendarBackdrop → .auth-backdrop). */
+.auth-wrap {
+  position: relative;              /* new stacking context above the fixed backdrop */
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;                   /* keep the card off the edges on small screens */
+  background: transparent;         /* the backdrop provides the surface */
+}
+/* The live calendar grid, painted behind everything: inert + dimmed so the form stays legible.
+   position/inset/pointer-events are also set inline on the element; opacity + fade live here. */
+.auth-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;            /* never interactive */
+  overflow: hidden;
+  opacity: 0.5;                    /* faint — a texture, not the focus */
+  /* Vignette: grid shows softly through the middle (the frosted card blurs whatever sits
+     behind it) and fades to nothing at every edge — hiding the calendar's peripheral
+     label/gutter chrome so the backdrop reads as clean texture, not a cropped screenshot. */
+  -webkit-mask-image: radial-gradient(ellipse 78% 82% at 50% 50%, #000 22%, transparent 90%);
+  mask-image: radial-gradient(ellipse 78% 82% at 50% 50%, #000 22%, transparent 90%);
+}
+
+/* The card: frosted/borderless look comes from .ui-dlg-card; this only sizes + lays it out. */
+.auth-dlg {
+  width: 340px;
+  max-width: calc(100vw - 32px);
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 28px;
-  border: 1px solid var(--accent-grey);
-  border-radius: 12px;
-  background: var(--popup-bg);
+  padding: 30px 28px;
+  align-items: stretch;
+  text-align: center;
 }
-.auth-title { font-size: 1.4rem; font-weight: 700; color: var(--accent-dark); }
-.auth-sub { color: var(--accent-grey); font-size: 0.85rem; margin-bottom: 8px; }
-.auth-label { font-size: 0.75rem; color: var(--accent-dark); margin-top: 6px; }
+.auth-wordmark {
+  font-family: var(--font-handwriting);
+  font-size: 2rem;
+  line-height: 1.1;
+  color: var(--accent-dark);
+}
+.auth-sub { color: var(--accent-grey); font-size: 0.85rem; margin-bottom: 12px; }
+.auth-label { font-size: 0.75rem; color: var(--accent-dark); margin-top: 8px; text-align: left; }
 .auth-input {
+  box-sizing: border-box;
+  height: 40px;                    /* match .auth-submit exactly */
   border: 1px solid var(--accent-grey);
   border-radius: 6px;
-  padding: 7px 9px;
-  background: var(--background);
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--background) 70%, transparent);
   color: var(--foreground);
   font-size: 0.9rem;
   width: 100%;
 }
-.auth-input:focus { outline: 1px solid var(--highlight); }
-.auth-error { color: var(--danger); font-size: 0.8rem; margin-top: 4px; }
-.auth-btn {
-  margin-top: 12px;
-  background: var(--accent-dark);
-  color: var(--on-accent);
-  border: none;
-  border-radius: 6px;
-  padding: 9px;
-  cursor: pointer;
-  font-weight: 600;
+.auth-input:focus { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.auth-error {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  font-size: 0.8rem;
+  text-align: left;
 }
-.auth-btn:disabled { opacity: 0.6; }
-.auth-toggle { background: none; border: none; color: var(--highlight); cursor: pointer; font-size: 0.8rem; margin-top: 10px; }
+/* .auth-submit rides on .ui-btn.ui-btn--ghost (hollow, bordered) — just spacing/sizing here. */
+.auth-submit { box-sizing: border-box; height: 40px; margin-top: 16px; width: 100%; padding: 0; }
+.auth-toggle {
+  background: none;
+  border: none;
+  color: var(--highlight);
+  cursor: pointer;
+  font-size: 0.8rem;
+  margin-top: 12px;
+}
+@media (max-width: 480px) {
+  .auth-dlg { width: 100%; }
+}
 
 /* ── Modal ─────────────────────────────────────────────────── */
 .modal-backdrop {

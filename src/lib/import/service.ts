@@ -317,20 +317,24 @@ async function autoSyncConnection(userId: string, connectionId: string): Promise
   return { connectionId, calName: conn.calName, created: res.created, merged: res.merged, toTriage: preview.groups.decide.length, removedFlagged: removed.length };
 }
 
-/** Auto-sync every enabled Apple connection for one user — unless they've turned Automatic Sync off.
- *  Per-connection failures are isolated. */
-export async function autoSyncAll(userId: string): Promise<AutoSyncSummary> {
-  const empty: AutoSyncSummary = { userId, connections: [], created: 0, merged: 0, toTriage: 0, removedFlagged: 0 };
-  const pref = await prisma.calendarPrefs.findUnique({ where: { userId }, select: { autoSync: true } });
-  if (pref && !pref.autoSync) return empty; // user opted out (no row → default on)
+/** Sync every enabled Apple connection for one user (auto-apply new + tier-1, park tier-2 in Triage).
+ *  Per-connection failures are isolated. Used by the on-demand "Sync" button — no pref gate. */
+export async function syncAllConnections(userId: string): Promise<AutoSyncSummary> {
   const conns = await prisma.calendarConnection.findMany({ where: { userId, provider: "apple", enabled: true }, select: { id: true } });
   const results: AutoSyncConnResult[] = [];
   for (const c of conns) {
     try { const r = await autoSyncConnection(userId, c.id); if (r) results.push(r); }
-    catch (e) { console.warn(`[autosync] connection ${c.id} failed:`, e instanceof Error ? e.message : e); }
+    catch (e) { console.warn(`[sync-all] connection ${c.id} failed:`, e instanceof Error ? e.message : e); }
   }
   const sum = (k: "created" | "merged" | "toTriage" | "removedFlagged") => results.reduce((a, r) => a + r[k], 0);
   return { userId, connections: results, created: sum("created"), merged: sum("merged"), toTriage: sum("toTriage"), removedFlagged: sum("removedFlagged") };
+}
+
+/** The scheduler's entry point: same as syncAllConnections, but skipped when Automatic Sync is off. */
+export async function autoSyncAll(userId: string): Promise<AutoSyncSummary> {
+  const pref = await prisma.calendarPrefs.findUnique({ where: { userId }, select: { autoSync: true } });
+  if (pref && !pref.autoSync) return { userId, connections: [], created: 0, merged: 0, toTriage: 0, removedFlagged: 0 };
+  return syncAllConnections(userId);
 }
 
 /** Whether the user has Automatic Sync on (default on when no prefs row exists yet). */
