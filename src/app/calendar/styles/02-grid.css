@@ -148,7 +148,7 @@
   border-radius: 5px;
   line-height: 1.05;
   background: color-mix(in srgb, var(--background) 82%, transparent);
-  border: 2px solid color-mix(in srgb, var(--cc-now) 60%, transparent);
+  border: 2px solid color-mix(in srgb, var(--now) 60%, transparent);
   pointer-events: none;
   transition: opacity 0.16s ease;
 }
@@ -194,4 +194,10 @@
 .cc-daylabel { display: flex; align-items: center; color: var(--accent-grey); pointer-events: none; }
 .cc-daylabel.cc-center { justify-content: center; }
 .cc-daylabel.cc-left { justify-content: flex-start; }
+/* TODAY: the day-number and weekday labels become a small red capsule with white text. */
+.cc-daylabel-today {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.55em; height: 1.5em; padding: 0 0.4em; box-sizing: border-box;
+  border-radius: 999px; background: var(--cc-now, #ff3b6b); color: #fff; font-weight: 700;
+}
 

@@ -468,8 +468,14 @@ guarantee holds); tier-1 UID matches are pre-decided, tier-2 go to the decision 
   `NormalizedEvent`); the Connectivity menu's calendars section (grouped by `EKSource`) + per-calendar
   "Sync now"; TCC permission flow; Electron entitlement + binary bundling. Apple events flow through the
   P1 pipeline unchanged.
-- **P3 — Dedup tier 2 + AI suggestion.** Fuzzy matching in `diff.ts`; `aiDedup.ts` (`getLLM`,
-  batched, auditor-style JSON parse); the "Needs your decision" modal.
+- **P3 — Dedup tier 2 + AI suggestion. ✅ Done.** Fuzzy matching in `fuzzy.ts` (Dice-bigram title
+  similarity ≥ 0.68 AND same-day/±2h time window; hidden rows excluded) routed to the `decide` bucket
+  in `diff.ts`; `aiDedup.ts` (`getLLM`, batched, auditor-style JSON parse, sandboxed — metadata-only,
+  fails open to "no hint"). Ambiguous matches are **persisted to a Triage store** (`TriageItem` model)
+  during a sync and resolved later (Merge / Import-new / Skip) in the **Connectivity → Triage** box —
+  they are NOT resolved inline (the sync review just reports "N sent to Triage"). Merge targets are
+  server-validated against the pipeline's own candidates. The **Inbox** menu stub was removed (its
+  role is covered by the inline sync review). Endpoint: `GET/POST /api/calendar/triage`.
 - **P4 — Incremental re-sync.** Rolling-window re-fetch using `lastModified`/`rev` to skip unchanged;
   managed-block replace-in-place on re-sync (§7.3); `lastSyncedAt` display polish; deleted-upstream
   handling.
@@ -513,8 +519,21 @@ only requirement is that the host is a Mac signed into the relevant Calendar acc
 
 ### 12.1 Two host modes (same code)
 
-- **Local-Mac mode (now):** `next dev`/Electron on the user's Mac. The controlling process holds the
-  Calendars TCC permission (terminal in dev; the app bundle in Electron). On-demand "Sync now" + `.ics`.
+**Packaging status (2026-07-02): the user's MacBook Pro IS the persistent server** (client/server
+separation deferred). The menu-bar `Libirabu.app` no longer runs `next dev` — it execs
+`scripts/serve.sh`, which on every launch: ensures Postgres (docker) is up → `prisma generate` →
+`prisma migrate deploy` → `next build` if there's no build yet → `next start` (production) on :8100.
+Regenerating the client each boot is what makes a schema change "just work" after a restart (kills the
+stale-client 500 class). Postgres stays host-managed (docker on 5433) — no DB bundling. Reboot
+survival: `scripts/install-login-item.sh` (`npm run serve:login-item`) installs a LaunchAgent that
+`open`s the app at login **via LaunchServices** (so it stays the TCC-responsible process; a raw
+launchd exec of node would not inherit the Calendar grant). Docker Desktop must also be set to start
+at login. Node is still the fnm-realpath baked by `build-app.sh`. Caveat: `next start` is a real
+build, so code changes need a rebuild (quit + relaunch, or `npm run build`); and the production
+server + `npm run dev` can't share :8100, so quit the server while actively coding.
+
+- **Local-Mac mode (now):** the native menu-bar app runs the production server (above). The app bundle
+  (LaunchServices-launched) holds the Calendars TCC permission. On-demand "Sync now" + `.ics`.
 - **Mac-Mini-server mode (target):** an always-on Mac Mini runs the Next.js server + Postgres + the
   `eventkit-bridge` + a periodic sync agent. Because the Mini is logged into the same iCloud/Google
   account, its Calendar.app aggregates the same calendars. All clients read the one DB via the API.
@@ -539,18 +558,29 @@ only requirement is that the host is a Mac signed into the relevant Calendar acc
   the same DB, so "everything synced" is automatic.
 - **Auth:** existing NextAuth, plus network-level isolation from Tailscale.
 
-### 12.3 Background sync needs an async preview (refines the always-preview rule)
+### 12.3 Background sync (✅ done — P5)
 
-An unattended cron can't show a modal. Resolution that **preserves the always-review intent**:
+An unattended pull can't show a modal, so it applies the SAFE, reversible tiers and parks the rest —
+the user's chosen policy (2026-07-02):
 
-- **Background/launchd sync** auto-commits **tier-1 (UID) merges** (safe) and **parks tier-2 + new
-  events in a "pending imports" inbox** (a queue table / `ActionLog`-style rows) for later review.
-- **Manual `.ics` drops and on-demand "Sync now"** keep the **synchronous** preview screen.
-- A **"Pending imports" badge** in the Connectivity menu surfaces the queue; the user clears it from
-  any client (laptop or iOS) with the same New / Decide / Duplicate UI, just time-shifted.
+- **Auto-apply** brand-**new** events (create) and **tier-1 (UID)** matches (merge/refresh). Both are
+  additive + reversible (imported events are immutable overlays, soft-deletable, re-syncable).
+- **Tier-2 ambiguous** → **Triage** (unchanged) for later review.
+- **Removed-upstream** → **counted/flagged only, never auto-deleted** (deletion is the one
+  irreversible-feeling action; it stays a manual confirm in the on-demand preview).
+- **Manual `.ics` drops and on-demand "Sync now"** keep the full synchronous preview screen.
 
-This is a **Later** concern (lands with the Mac-Mini/background-sync work), but the schema reserves
-the seam now (the preview/commit split already separates "compute decisions" from "apply").
+**Implementation:** an **in-process scheduler** (`src/lib/import/autoSync.ts`), started once from
+`src/instrumentation.ts` (gated to the production server via `NODE_ENV`/`NEXT_RUNTIME`, since only the
+LaunchServices-launched app is TCC-responsible; `AUTO_SYNC=1/0` overrides, `AUTO_SYNC_INTERVAL_MS`
+tunes the ~20-min default). Each tick calls `autoSyncAll(userId)` → `autoSyncConnection` (fetch →
+`previewOf(withAi)` → `persistTriage` → auto-commit new + tier-1 → bump `lastSyncedAt`), isolated
+per connection, non-overlapping. The latest tally lives in memory behind `GET /api/calendar/
+sync-status`; the calendar polls it (`useBackgroundSync`) every 60 s and fires `calendar:changed`
+when a tick lands new/updated events, so background changes surface in the open view instead of
+silently. A per-user **"Automatic sync" toggle** in the Connectivity menu (persisted on
+`CalendarPrefs.autoSync`, default on) gates it — the scheduler reads the pref each tick, so flipping
+it takes effect next cycle without a restart (`GET/PUT /api/calendar/auto-sync`).
 
 ### 12.4 Headless Mac Mini caveats
 

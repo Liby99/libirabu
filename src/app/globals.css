@@ -17,6 +17,19 @@
   --highlight-bg: rgba(236, 216, 199, 0.2);
   --popup-bg: rgba(255, 255, 255, 1.0);
 
+  /* ── Semantic / status (theme tokens — every theme provides these) ── */
+  --danger: #b0334a;         /* destructive text / icon (delete, errors) */
+  --danger-border: #c0556a;  /* destructive outline / border */
+  --success: #3f9a54;        /* confirmation ("Saved") */
+  --warning: #d98a00;        /* caution / warn tags */
+  --info: #2f8a8a;           /* informational accent (follow-ups) */
+  --on-accent: #ffffff;      /* text/icon over a filled --accent-dark / --highlight surface */
+  /* ── Brand (AI assistant) ── */
+  --brand: #5b8def;
+  --brand-2: #9b6bff;        /* FAB gradient partner */
+  /* ── Calendar signature ── */
+  --now: #ff3b6b;            /* current-time line + today tint */
+
   --mirror-ref-bg: rgb(248, 246, 244);
   --event-default: rgba(76, 45, 20, 0.102);
   --event-default-hover: rgba(76, 45, 20, 0.15);
@@ -55,6 +68,16 @@
   --accent-bg-dark: rgba(255, 214, 224, 0.18);
   --highlight: #ffd6e0;
   --highlight-bg: rgba(255, 214, 224, 0.15);
+  /* semantic / brand / signature — lightened so they read on the dark background */
+  --danger: #ef7a89;
+  --danger-border: #c85d70;
+  --success: #6fce86;
+  --warning: #f0b64a;
+  --info: #5fbcbc;
+  --on-accent: #101a2b;      /* dark text on the light --accent-dark button in dark mode */
+  --brand: #7c9df2;
+  --brand-2: #b08bff;
+  --now: #ff5c82;
   --mirror-ref-bg: #18223a;
   --event-default: rgba(255, 214, 224, 0.10);
   --event-default-hover: rgba(255, 214, 224, 0.18);
@@ -83,9 +106,80 @@
   --popup-bg: #18223a;
 }
 
-/* Dark mode theme */
+/* ── Matrix — green-on-black terminal (a dark-variant theme) ── */
+[data-theme="matrix"] {
+  --background: #030a05;
+  --foreground: #5cbf7d;     /* muted phosphor green — readable, not neon */
+  --accent-dark: #79d097;    /* headings / buttons: a touch brighter, still soft */
+  --accent-grey: rgba(92, 191, 125, 0.30);
+  --accent-bg: rgba(92, 191, 125, 0.06);
+  --accent-bg-hover: rgba(92, 191, 125, 0.10);
+  --accent-bg-active: rgba(92, 191, 125, 0.15);
+  --accent-bg-dark: rgba(92, 191, 125, 0.19);
+  --highlight: #8ad9a4;
+  --highlight-bg: rgba(92, 191, 125, 0.13);
+  --popup-bg: #06130a;
+  --mirror-ref-bg: #08190e;
+  /* semantic / brand / signature */
+  --danger: #ff5c6c;
+  --danger-border: #ff5c6c;
+  --success: #52c072;
+  --warning: #e8c14a;
+  --info: #4fc6ac;
+  --on-accent: #04140a;      /* near-black text on the green buttons */
+  --brand: #52c072;
+  --brand-2: #2f9e58;
+  --now: #e0a63c;            /* amber terminal accent — reads against the green */
+  /* event palette — muted phosphor variants on black */
+  --event-default: rgba(92, 191, 125, 0.10);
+  --event-default-hover: rgba(92, 191, 125, 0.17);
+  --event-default-border: rgba(92, 191, 125, 0.5);
+  --event-default-border-dark: rgba(92, 191, 125, 0.8);
+  --event-red: rgba(255, 92, 108, 0.15);
+  --event-red-hover: rgba(255, 92, 108, 0.25);
+  --event-red-border: #ff5c6c;
+  --event-red-border-dark: #ff8a95;
+  --event-yellow: rgba(232, 193, 74, 0.15);
+  --event-yellow-hover: rgba(232, 193, 74, 0.25);
+  --event-yellow-border: #e8c14a;
+  --event-yellow-border-dark: #f0d178;
+  --event-green: rgba(82, 192, 114, 0.15);
+  --event-green-hover: rgba(82, 192, 114, 0.25);
+  --event-green-border: #52c072;
+  --event-green-border-dark: #74d492;
+  --event-blue: rgba(79, 198, 172, 0.15);
+  --event-blue-hover: rgba(79, 198, 172, 0.25);
+  --event-blue-border: #4fc6ac;
+  --event-blue-border-dark: #78d6c2;
+  --event-purple: rgba(180, 130, 230, 0.15);
+  --event-purple-hover: rgba(180, 130, 230, 0.25);
+  --event-purple-border: #b482e6;
+  --event-purple-border-dark: #caa6f0;
+}
+
+/* ── Unicorn — near-white with Gundam-Unicorn psychoframe red (a light-variant theme).
+   A tint of the light base: only the accents change; body text, danger/success, and the event
+   palette inherit :root (they stay legible on white). ── */
+[data-theme="unicorn"] {
+  --background: #fffcfd;         /* very, very light — a whisper of pink-white */
+  --foreground: #2a0a13;         /* deep maroon-black body text */
+  --accent-dark: #c20e3a;        /* unicorn crimson — prominent UI + button fills (readable on white) */
+  --accent-grey: rgba(194, 14, 58, 0.30);
+  --accent-bg: rgba(194, 14, 58, 0.05);
+  --accent-bg-hover: rgba(194, 14, 58, 0.09);
+  --accent-bg-active: rgba(194, 14, 58, 0.13);
+  --accent-bg-dark: rgba(194, 14, 58, 0.15);
+  --highlight: #ff2350;          /* glowing psychoframe red — selections / links / active */
+  --highlight-bg: rgba(255, 35, 80, 0.10);
+  --brand: #ff2350;
+  --brand-2: #c20e3a;
+}
+
+/* Auto dark for the pre-JS / no-JS case only. Once the app runs, JS always sets a concrete
+   data-theme id (resolving mode + selection + OS), and that must win — hence :not([data-theme])
+   here (matches only when the attribute is absent) so it never fights a chosen theme. */
 @media screen and (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme]) {
     --background: #101a2b;
     --foreground: #dcb8b8;
     --accent-dark: #d4b4b4;

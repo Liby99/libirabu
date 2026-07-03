@@ -6,6 +6,8 @@
     "dev": "next dev -p 8100",
     "build": "prisma generate && next build",
     "start": "next start -p 8100",
+    "serve": "bash scripts/serve.sh",
+    "serve:login-item": "bash scripts/install-login-item.sh",
     "lint": "eslint .",
     "electron": "electron electron.js",
     "electron:app": "open -n node_modules/electron/dist/Electron.app --args \"$PWD/electron.js\"",

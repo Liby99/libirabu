@@ -53,10 +53,11 @@ model Session {
 
 model User {
   id            String         @id @default(cuid())
-  name          String?
+  name          String? // display name / username
   email         String         @unique
   emailVerified DateTime?
-  image         String?
+  image         String? // avatar — a small client-resized data URL
+  website       String? // optional personal website URL
   password      String
   accounts      Account[]
   sessions      Session[]
@@ -247,12 +248,29 @@ model TriageItem {
   @@index([userId])
 }
 
+// Per-user API credentials for the AI assistant + its web search — configured in Account → API Keys
+// and used INSTEAD of the .env keys (env is only a fallback). One row per service. Secrets are
+// AES-256-GCM encrypted at rest (src/lib/crypto.ts); only the last 4 chars are ever shown back.
+model UserApiKey {
+  userId    String
+  service   String // "bedrock" | "jhu-gateway" | "openai" | "anthropic" | "tavily"
+  valueEnc  Bytes? // encrypted secret (nullable so a bedrock row can hold just a region)
+  last4     String? // for masked display
+  region    String? // AWS region (bedrock only)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, service])
+  @@index([userId])
+}
+
 // Per-user calendar preferences (singleton row, keyed by userId).
 model CalendarPrefs {
   userId     String   @id
   mainTz     String   @default("America/New_York") // the timeline's hours
   altTz      String? // optional secondary axis timezone (IANA id) or null
   trackNames Json // string[12][4]: editable lane names per month
+  autoSync   Boolean  @default(true) // background periodic Apple sync (Connectivity → Automatic sync)
   updatedAt  DateTime @updatedAt
 }
 

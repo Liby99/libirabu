@@ -11,7 +11,8 @@ import { Dialog, DialogButton } from "@/app/components/ui/Dialog";
 import type { CommitSelection, CommitAction, PreviewItem, ConnectionRow, TriageEntry } from "@/lib/import/types";
 import {
   importPreviewIcs, importCommitIcs, syncConnection, importCommitApple, clearAllImported,
-  fetchConnections, setConnectionEnabled, fetchTriage, resolveTriageItem, type IcsPreviewResponse, type BridgeError,
+  fetchConnections, setConnectionEnabled, fetchTriage, resolveTriageItem,
+  fetchAutoSync, setAutoSync, type IcsPreviewResponse, type BridgeError,
 } from "../../model/api/importClient";
 
 type Phase = "idle" | "loading" | "review" | "committing" | "done";
@@ -50,6 +51,8 @@ export default function ConnectivityMenu() {
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [removeChecked, setRemoveChecked] = useState<Set<string>>(new Set());
 
+  const [autoSync, setAutoSyncState] = useState<boolean | null>(null); // background periodic sync toggle
+
   // Triage box: pending tier-2 dedup decisions, resolved one at a time.
   const [triage, setTriage] = useState<TriageEntry[] | null>(null);
   const [triageN, setTriageN] = useState(0); // count for the menu badge
@@ -84,7 +87,14 @@ export default function ConnectivityMenu() {
     if (!menuOpen) return;
     if (connections === null) void loadConnections();
     void loadTriage();
+    fetchAutoSync().then((r) => setAutoSyncState(r.enabled)).catch(() => {});
   }, [menuOpen, connections, loadConnections, loadTriage]);
+
+  async function toggleAutoSync() {
+    const next = !(autoSync ?? true);
+    setAutoSyncState(next); // optimistic
+    try { await setAutoSync(next); } catch { setAutoSyncState(!next); }
+  }
 
   const resetPreview = () => { setSource(null); setPreview(null); setPhase("idle"); setExcluded(new Set()); setRemoveChecked(new Set()); setError(null); setResult(null); };
   const openModal = (m: Modal) => { setMenuOpen(false); resetPreview(); setModal(m); if (m === "calendars" && connections === null) void loadConnections(); if (m === "triage") { setTriage(null); void loadTriage(); } };
@@ -314,6 +324,10 @@ export default function ConnectivityMenu() {
             <button className="cc-menu-item" onClick={() => openModal("ics")}>Import .ics file<span className="cc-menu-sc">›</span></button>
             <div className="cc-menu-sep" />
             <button className="cc-menu-item" onClick={() => openModal("triage")}>Triage<span className="cc-menu-sc">{triageN > 0 ? `${triageN} ›` : "›"}</span></button>
+            <div className="cc-menu-sep" />
+            <button className="cc-menu-item" role="menuitemcheckbox" aria-checked={autoSync ?? true} onClick={() => void toggleAutoSync()}>
+              Automatic sync<span className="cc-menu-sc">{(autoSync ?? true) ? "On" : "Off"}</span>
+            </button>
             <div className="cc-menu-sep" />
             <button className="cc-menu-item cc-menu-item-danger" onClick={() => { setMenuOpen(false); setClearedCount(null); setClearConfirm(true); }}>Clear all imported<span className="cc-menu-sc">reset</span></button>
           </div>

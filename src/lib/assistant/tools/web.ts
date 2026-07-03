@@ -2,6 +2,7 @@
 // (fetch + readable-text extraction). Both degrade gracefully when unavailable.
 
 import type { AssistantTool } from "../types";
+import { tavilyKey } from "@/lib/apiKeys";
 
 const MAX_TEXT = 8000; // chars of extracted page text returned to the model
 
@@ -24,12 +25,12 @@ const webSearch: AssistantTool = {
     },
   },
   async run(args) {
-    const key = process.env.TAVILY_API_KEY;
+    const key = tavilyKey(); // user's key (Account → API Keys) first, else env
     const query = String(args.query ?? "").trim();
     if (!query) throw new Error("query is required");
     if (!key) {
       // Graceful degradation — no search provider configured yet (design §16.1).
-      return { available: false, note: "Web search is not configured (set TAVILY_API_KEY)." };
+      return { available: false, note: "Web search is not configured (add a Tavily key in Account → API Keys)." };
     }
     const max = Number.isInteger(args.max_results) ? (args.max_results as number) : 5;
     const res = await fetch("https://api.tavily.com/search", {

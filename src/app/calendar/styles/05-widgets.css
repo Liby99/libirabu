@@ -174,7 +174,7 @@
   border: none; background: none; cursor: pointer; color: var(--accent-grey);
   display: flex; padding: 7px; border-radius: 7px; transition: color 0.12s, background-color 0.12s;
 }
-.cc-dw-trash:hover { color: #c0392b; background: color-mix(in srgb, #c0392b 9%, transparent); }
+.cc-dw-trash:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); }
 /* recurrence: clickable ghost copies, repeat "until this event", menu delete options */
 .cc-tevent.cc-ghost { cursor: pointer; }
 .cc-ddl.cc-ghost .cc-ddl-label { cursor: pointer; }

@@ -35,6 +35,9 @@ export type ServerEvent =
   // deadline → the week; `openDrawer` opens the event's drawer (edits); `occ` targets an occurrence.
   | { t: "navigate"; id: string; year: number; month: number; day: number; hour?: number; zoom: "month" | "week"; openDrawer?: boolean; occ?: string | null }
   | { t: "error"; message: string }
+  // The turn stopped because it hit the per-turn step ceiling (not a natural finish). The client
+  // surfaces an "Extend and Continue" affordance to resume the task with a fresh step budget.
+  | { t: "stopped"; reason: "max_steps"; resumeId?: string }
   | { t: "done" };
 
 /** Context handed to every tool's run(). */

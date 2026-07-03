@@ -1026,8 +1026,8 @@ export function useCalendarInteractions() {
       tweenTo(0, 600, () => { setSub(); window.setTimeout(() => tweenTo(T, 500 + 230 * T), 180); }); // out to year → in
     }
 
-    // Week view keeps the old "Now" behaviour: centre the timeline on the current time.
-    if (T === 2) {
+    // Week AND day views centre the timeline on the current time (day = "focus on now").
+    if (T >= 2) {
       const el = wrapRef.current;
       if (el) {
         const tlTop = TOP_PAD + 4 * TRACK_H + 18;
@@ -1075,6 +1075,39 @@ export function useCalendarInteractions() {
     setTlScroll(maxScroll <= 0 ? 0 : Math.max(0, Math.min(maxScroll, hourFrac * hourH - viewH / 2)));
   }, []);
 
+  // Breadcrumb "Today" button: always an ANIMATED jump to today's daily view (never an instant
+  // set). Zooms out to a pivot — month (nearby, same month) or year (far) so the day/week/month
+  // swap isn't jarring — sets today's spot there, then zooms back into the day, centered on now.
+  const goToToday = useCallback(() => {
+    const d = new Date();
+    const cy = d.getFullYear(), cm = d.getMonth(), cd = d.getDate();
+    const cw = Math.floor((new Date(cy, cm, 1).getDay() + cd - 1) / 7); // today's week-row
+    const lvl = zRef.current;
+    const sameMonth = yearRef.current === cy && focusRef.current === cm;
+    const pivot = sameMonth ? 1 : 0; // zoom out only this far before swapping to today
+    const place = () => {
+      if (yearRef.current !== cy) { setYearState(cy); setScrollY(0); }
+      setFocus(cm);
+      weekRef.current = cw; setWeek(cw);
+      dailyDomRef.current = cd; setDailyDom(cd);
+      // Centre the day timeline on the current time (z≥2 metrics are exact for the daily view).
+      const el = wrapRef.current;
+      if (el) {
+        const tlTop = TOP_PAD + 4 * TRACK_H + 18;
+        const { hourH, viewH, maxScroll } = hourMetrics(tlTop, el.clientHeight - 8, 2, 0);
+        const nowFrac = d.getHours() + d.getMinutes() / 60;
+        setTlScroll(maxScroll <= 0 ? 0 : Math.max(0, Math.min(maxScroll, nowFrac * hourH - viewH / 2)));
+      }
+    };
+    const zoomIn = () => tweenTo(3, 520 + 200 * (3 - pivot));
+    if (lvl <= pivot + 0.01) {
+      place();                                   // already at/above the pivot → single zoom-in
+      window.setTimeout(zoomIn, 20);
+    } else {
+      tweenTo(pivot, 300 + 220 * (lvl - pivot), () => { place(); window.setTimeout(zoomIn, 160); }); // out → swap → in
+    }
+  }, [tweenTo]);
+
   // The month the breadcrumb should show: flips to the page-turn target as soon as the gesture
   // passes the commit threshold (during drag AND snap), so the label updates the moment the new
   // month is committed-to — not after the animation settles. Reverts if the drag is pulled back.
@@ -1082,5 +1115,5 @@ export function useCalendarInteractions() {
     ? Math.max(0, Math.min(11, focus + monthAnim.dir))
     : focus;
 
-  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToMonth, goToOccurrence, revealHour, tweenTo, onMove, onClick, clearHover };
+  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToToday, goToMonth, goToOccurrence, revealHour, tweenTo, onMove, onClick, clearHover };
 }

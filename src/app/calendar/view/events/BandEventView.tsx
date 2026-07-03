@@ -26,10 +26,15 @@ interface Props {
   requestEdit?: boolean;       // parent asks to start inline rename (Enter on the selection)
   onEditConsumed?: () => void; // clear the parent's one-shot edit request
   dim?: number;                // opacity multiplier (< 1 when "dim past events" applies)
+  // Same-start / same-track stack info (see BandEventsLayer). Present only when this bar shares
+  // its start day + lane with another. z: stacking base (shorter → higher, so it sits on top);
+  // maskLeft: px of this (longer) bar covered by the shorter bar above → mask + shift its title;
+  // error: this bar fully overlaps another of identical length → show a red badge.
+  collide?: { z: number; maskLeft: number; error: boolean };
 }
 
 // All-day event bar — identical look to a timed event (two-layer + left bar), title only.
-export default function BandEventView({ ev, rect, vw, gap, raised, onHover, selected, moving, movedRef, onMoveStart, onResizeStart, onSelect, onTitleCommit, onOpenDetail, onContextMenu, requestEdit, onEditConsumed, dim = 1 }: Props) {
+export default function BandEventView({ ev, rect, vw, gap, raised, onHover, selected, moving, movedRef, onMoveStart, onResizeStart, onSelect, onTitleCommit, onOpenDetail, onContextMenu, requestEdit, onEditConsumed, dim = 1, collide }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(ev.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,9 +85,11 @@ export default function BandEventView({ ev, rect, vw, gap, raised, onHover, sele
     ...(dim < 1 ? { opacity: dim } : {}),
     // A later start date stacks on top of an earlier one (timeline order). Inline so it
     // beats .cc-tevent:hover. Selected/moving/hovered pop to the front (hovered so the
-    // full title can show over the next event).
-    zIndex: moving ? 1001 : selected ? 1000 : raised ? 950 : 10 + ev.startDay,
+    // full title can show over the next event). In a same-start stack, `collide.z` puts the
+    // shorter bar on top instead.
+    zIndex: moving ? 1001 : selected ? 1000 : raised ? 950 : collide ? collide.z : 10 + ev.startDay,
     ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}),
+    ...(collide && collide.maskLeft > 0 ? ({ "--band-mask-left": `${collide.maskLeft}px` } as React.CSSProperties) : {}),
   };
 
   return (
@@ -92,9 +99,18 @@ export default function BandEventView({ ev, rect, vw, gap, raised, onHover, sele
       {raised && maskW > 0 && (
         <div className={`cc-band-mask cc-ev-${ev.color}`} style={{ left: rect.x + rect.w, top: rect.y, width: maskW, height: rect.h, zIndex: 949 }} />
       )}
+      {/* Same-start stack: frosted mask over the region this longer bar shares with the shorter
+          bar on top — sits between them (collide.z is this bar; the shorter is collide.z+2). */}
+      {collide && collide.maskLeft > 0 && !raised && (
+        <div className="cc-band-undercut-mask" style={{ left: rect.x, top: rect.y, width: collide.maskLeft, height: rect.h, zIndex: collide.z + 1 }} />
+      )}
+      {/* Same start AND same length as another bar on this lane → they fully overlap; flag it. */}
+      {collide?.error && (
+        <div className="cc-band-error-badge" title="Two events share the same dates on this track — give one a different date or track." style={{ left: rect.x + rect.w - 17, top: rect.y + (rect.h - 15) / 2, zIndex: collide.z + 3 }}>!</div>
+      )}
     <div
       data-ev-id={ev.id}
-      className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color}${selected ? " selected" : ""}${moving ? " moving" : ""}${gap != null ? " cc-band-clip" : ""}${raised ? " cc-band-raised" : ""}${ev.hidden ? " cc-hidden" : ""}`}
+      className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color}${selected ? " selected" : ""}${moving ? " moving" : ""}${gap != null ? " cc-band-clip" : ""}${raised ? " cc-band-raised" : ""}${ev.hidden ? " cc-hidden" : ""}${collide ? " cc-band-collide" : ""}${collide && collide.maskLeft > 0 ? " cc-band-undercut" : ""}`}
       style={style}
       onMouseEnter={() => onHover(ev.id)}
       onMouseLeave={() => onHover(null)}

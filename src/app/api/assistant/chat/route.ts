@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, badRequest, serverError } from "@/app/api/calendar/_helpers";
 import { runAgent } from "@/lib/assistant/agent";
+import { runWithUserKeys } from "@/lib/apiKeys";
 import type { ChatMessage } from "@/lib/llm";
 
 export const runtime = "nodejs";
@@ -32,6 +33,7 @@ const bodySchema = z.object({
   view: viewSchema,
   history: z.array(historyMsgSchema).max(100).optional(),
   attachments: z.array(attachmentSchema).max(10).optional(),
+  resumeId: z.string().max(200).optional(), // continue a step-capped turn with its stashed scratchpad
 });
 
 export async function POST(req: NextRequest) {
@@ -42,16 +44,20 @@ export async function POST(req: NextRequest) {
 
     const parsed = bodySchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return badRequest("invalid request", parsed.error.issues);
-    const { message, view, history, attachments } = parsed.data;
+    const { message, view, history, attachments, resumeId } = parsed.data;
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const send = (obj: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
         try {
-          for await (const ev of runAgent({ userId, message, view, history: history as ChatMessage[] | undefined, attachments, signal: req.signal })) {
-            send(ev);
-          }
+          // Resolve this user's API keys once and keep them in scope for the whole turn, so the LLM
+          // provider + web-search tool use the user's configured keys (falling back to env).
+          await runWithUserKeys(userId, async () => {
+            for await (const ev of runAgent({ userId, message, view, history: history as ChatMessage[] | undefined, attachments, resumeId, signal: req.signal })) {
+              send(ev);
+            }
+          });
         } catch (e) {
           send({ t: "error", message: e instanceof Error ? e.message : "Unexpected error." });
         } finally {

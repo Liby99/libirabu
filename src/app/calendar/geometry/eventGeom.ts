@@ -19,16 +19,23 @@ export function setWeekHourH(h: number) { _weekHourH = clampHourH(h); }
 export function getWeekHourH() { return _weekHourH; }
 
 // Hour height + scroll for a timeline window. month (z≤1) fits the viewport; week (z≥2)
-// uses the slider height when the day would overflow, else fills (so a tall window shows
-// the whole day with no scroll / no slider).
+// uses the slider height. The day never renders shorter than the viewport (fitH is the
+// floor → a tall window defaults to a full-height timeline), and the user can zoom IN
+// from there up to MAX_HOUR_H (taller hours → scroll). Only when the viewport is tall
+// enough to hold all 24h at MAX_HOUR_H is there no zoom room left (`zoomable` false → the
+// scrollbar hides).
 export function hourMetrics(tlTop: number, tlBottom: number, z: number, tlScroll: number) {
   const viewH = Math.max(0, tlBottom - tlTop);
   const fitH = viewH > 0 ? viewH / 24 : 0;
-  // tall enough to fit at the minimum hour height → just fill the viewport (no scroll)
-  const weekH = fitH >= MIN_HOUR_H ? fitH : clampHourH(_weekHourH);
+  // Fill the viewport at minimum (never leave a gap); allow zooming in up to MAX_HOUR_H,
+  // but keep the floor above MAX for an ultra-tall viewport that already exceeds it.
+  const weekMin = Math.max(MIN_HOUR_H, fitH);
+  const weekMax = Math.max(weekMin, MAX_HOUR_H);
+  const weekH = Math.min(weekMax, Math.max(weekMin, _weekHourH));
   const hourH = fitH + (weekH - fitH) * Math.min(1, Math.max(0, z - 1));
   const maxScroll = Math.max(0, 24 * hourH - viewH);
-  return { viewH, hourH, maxScroll, scroll: Math.min(Math.max(0, tlScroll), maxScroll) };
+  const zoomable = fitH < MAX_HOUR_H; // false once all 24h fit even at MAX height → hide the scrollbar
+  return { viewH, hourH, maxScroll, zoomable, scroll: Math.min(Math.max(0, tlScroll), maxScroll) };
 }
 
 // During a month↕month page-turn the OUTGOING month's detail fades out early (detailMul, p→0 by
@@ -49,6 +56,7 @@ export interface TimelineInfo {
   hourH: number;
   scroll: number;    // applied vertical scroll (clamped to maxScroll)
   maxScroll: number; // 0 unless the day is taller than the viewport (week, short window)
+  zoomable: boolean; // there's still room to zoom in (viewport can't hold all 24h at MAX height)
   reveal: number;    // 0 until ~month view, then 1 — matches buildDetail
   wide: boolean;     // week view (full event bodies)
 }
@@ -81,6 +89,7 @@ export function timelineInfo(z: number, focus: number, week: number, vp: Vp, scr
     hourH: m.hourH,
     scroll: m.scroll,
     maxScroll: m.maxScroll,
+    zoomable: m.zoomable,
     reveal: (z < 0.82 ? 0 : Math.min(1, Math.max(0, (z - 0.82) / 0.18))) * detailMul,
     wide: f.dayW > 60,
   };

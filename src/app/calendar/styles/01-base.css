@@ -19,8 +19,8 @@
   --cc-grid-top: var(--accent-grey); /* dotted lane separators */
   --cc-line: var(--accent-dark);     /* dotted/dashed grid lines */
   --cc-sep: color-mix(in srgb, var(--accent-dark) 55%, transparent); /* solid separators (dimmed) */
-  --cc-now: #ff3b6b;                                      /* bright pink-red current-time line + dots */
-  --cc-today: color-mix(in srgb, #ff3b6b 7%, transparent); /* faint tint marking today's day column */
+  --cc-now: var(--now);                                      /* bright pink-red current-time line + dots */
+  --cc-today: color-mix(in srgb, var(--now) 7%, transparent); /* faint tint marking today's day column */
   --cc-weekend: color-mix(in srgb, var(--accent-dark) 4%, transparent); /* very tiny Sat/Sun wash */
   --cc-cursor: color-mix(in srgb, var(--accent-dark) 20%, white); /* white tinted toward the accent (mouse time cursor) */
 }
@@ -192,7 +192,7 @@ body.cc-col-resizing { cursor: ew-resize; user-select: none; }
 }
 .cc-month-edge.ready .cc-month-edge-prog { stroke: var(--cc-now); }
 .cc-month-edge.ready .cc-month-edge-arrow { opacity: 1; }
-.cc-month-edge.ready .cc-month-edge-circle { box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-now) 50%, transparent), 0 2px 8px rgba(0, 0, 0, 0.18); }
+.cc-month-edge.ready .cc-month-edge-circle { box-shadow: 0 0 0 2px color-mix(in srgb, var(--now) 50%, transparent), 0 2px 8px rgba(0, 0, 0, 0.18); }
 .cc-gutter { /* solid strip that occludes lane content sliding under it (week view) */
   position: absolute;
   left: 0; top: 0; bottom: 0;

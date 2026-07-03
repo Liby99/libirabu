@@ -1,19 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 
+// Login is email + password only (credentials). No third-party providers.
 const authOptions = {
   // Prisma 7's generated client type differs nominally from the @prisma/client
   // type that @next-auth/prisma-adapter is typed against, though the runtime
   // model methods are identical. Cast to the adapter's expected client type.
   adapter: PrismaAdapter(prisma as unknown as Parameters<typeof PrismaAdapter>[0]),
   providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    }),
     CredentialsProvider({
       name: "credentials",
       credentials: {

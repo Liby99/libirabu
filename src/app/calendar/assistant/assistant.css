@@ -11,7 +11,7 @@
   border-radius: 50%;
   cursor: grab;
   color: #fff;
-  background: linear-gradient(140deg, #5b8def, #9b6bff);
+  background: linear-gradient(140deg, var(--brand), var(--brand-2));
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22), 0 1px 3px rgba(0, 0, 0, 0.18);
   transition: transform 0.12s ease, box-shadow 0.12s ease;
   user-select: none;
@@ -25,7 +25,7 @@
   position: absolute;
   inset: -3px;
   border-radius: 50%;
-  border: 2px solid color-mix(in srgb, #5b8def 60%, transparent);
+  border: 2px solid color-mix(in srgb, var(--brand) 60%, transparent);
   border-top-color: transparent;
   animation: ca-spin 0.9s linear infinite;
 }
@@ -165,7 +165,7 @@
   display: flex; align-items: center; justify-content: center; flex: none;
   width: 16px; height: 16px; border-radius: 50%;
   border: 1.5px solid color-mix(in srgb, var(--accent-grey, #888) 45%, transparent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .ca-model-active .ca-model-radio { background: var(--highlight, #5b8def); border-color: var(--highlight, #5b8def); }
 .ca-model-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
@@ -202,7 +202,7 @@
 .ca-md p:last-child { margin-bottom: 0; }
 .ca-md ul, .ca-md ol { margin: 0.3em 0; padding-left: 1.2em; }
 .ca-md li { margin: 0.15em 0; }
-.ca-md a { color: #5b8def; text-decoration: underline; }
+.ca-md a { color: var(--brand); text-decoration: underline; }
 .ca-md code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 0.92em; background: var(--accent-bg-dark, rgba(0, 0, 0, 0.08)); padding: 0.05em 0.3em; border-radius: 4px; }
 .ca-md h1, .ca-md h2, .ca-md h3 { font-size: 0.84rem; margin: 0.4em 0 0.2em; }
 .ca-md table { border-collapse: collapse; font-size: 0.72rem; }
@@ -337,7 +337,7 @@
 .ca-send.ca-stop { background: var(--event-red-border-dark, #c0392b); color: #fff; }
 
 /* Retry control under the last assistant turn (resurrect a dropped/errored turn). */
-.ca-retry-row { display: flex; justify-content: flex-start; }
+.ca-retry-row { display: flex; justify-content: flex-start; gap: 6px; }
 .ca-retry {
   display: inline-flex; align-items: center; gap: 4px;
   font: inherit; font-size: 0.72rem; padding: 3px 9px; border-radius: 8px; cursor: pointer;
@@ -345,6 +345,13 @@
   border: 1px solid color-mix(in srgb, var(--accent-grey, #888) 30%, transparent);
 }
 .ca-retry:hover { color: var(--foreground, #1c1c1e); border-color: var(--accent-grey, #888); }
+/* Extend and Continue: the primary affordance when a turn hit the step ceiling → accent-filled. */
+.ca-extend {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: inherit; font-size: 0.72rem; font-weight: 600; padding: 3px 10px; border-radius: 8px; cursor: pointer;
+  background: var(--highlight, #2f6bff); color: #fff; border: 1px solid transparent;
+}
+.ca-extend:hover { filter: brightness(1.08); }
 
 @keyframes ca-spin { to { transform: rotate(360deg); } }
 @keyframes ca-blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }

@@ -5,6 +5,7 @@ import type {
   LLMProvider,
   ToolCall,
 } from "./types";
+import { jhuCredentials } from "@/lib/apiKeys";
 
 // JHU WSE AI Gateway provider (OpenAI-compatible "compat" route). Server-side only.
 //
@@ -21,10 +22,10 @@ import type {
 const DEFAULT_MODEL = process.env.JHU_GATEWAY_MODEL ?? "anthropic/claude-sonnet-4.6";
 
 function endpoint(): { url: string; key: string } {
-  const base = process.env.JHU_GATEWAY_URL;
-  const key = process.env.JHU_GATEWAY_KEY;
+  // Prefer the user's configured key (Account → API Keys); fall back to env. Base URL is env-only.
+  const { url: base, key } = jhuCredentials();
   if (!base) throw new Error("JHU_GATEWAY_URL is not set");
-  if (!key) throw new Error("JHU_GATEWAY_KEY is not set");
+  if (!key) throw new Error("JHU gateway key is not configured — add it in Account → API Keys");
   return { url: `${base.replace(/\/$/, "")}/compat/chat/completions`, key };
 }
 

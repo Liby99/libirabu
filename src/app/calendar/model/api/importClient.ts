@@ -48,6 +48,10 @@ export const importCommitApple = (connectionId: string, selections: CommitSelect
 /** Debug/reset: delete ALL imported events (incl. hidden) so the next sync re-imports fresh. */
 export const clearAllImported = () => post<{ deleted: number }>("/api/calendar/import/clear", {});
 
+// ── Automatic (background) sync toggle ──
+export const fetchAutoSync = () => req<{ enabled: boolean }>("GET", "/api/calendar/auto-sync");
+export const setAutoSync = (enabled: boolean) => req<{ enabled: boolean }>("PUT", "/api/calendar/auto-sync", { enabled });
+
 // ── Triage — pending tier-2 dedup decisions ──
 export const fetchTriage = () => req<{ items: TriageEntry[] }>("GET", "/api/calendar/triage");
 export const resolveTriageItem = (id: string, action: CommitAction, targetId?: string) =>

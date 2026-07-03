@@ -24,6 +24,8 @@ body.cc-drawer-open .app-shell {
   padding: 8px 0;
   border-right: 1px solid var(--accent-grey);
   background: var(--background);
+  position: relative;
+  z-index: 50; /* so the account pop-up paints above the main panel (a later DOM sibling) */
 }
 .activity-bar-item {                 /* shared by nav links + sign-out button */
   width: 40px;
@@ -40,7 +42,195 @@ body.cc-drawer-open .app-shell {
 }
 .activity-bar-item:hover { background: var(--accent-bg); }
 .activity-bar-item.active { background: var(--accent-bg-dark); color: var(--foreground); }
-.activity-bar-spacer { flex: 1; }    /* pushes sign-out to the bottom */
+.activity-bar-spacer { flex: 1; }    /* pushes the account button to the bottom */
+
+/* ── Account button + its pop-up menu (bottom of the activity bar) ── */
+.activity-bar-account { position: relative; }
+.activity-bar-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.activity-bar-avatar-fallback {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-bg-dark); color: var(--foreground);
+  font-size: 0.82rem; font-weight: 600;
+}
+/* invisible click-away layer under the open menu */
+.activity-bar-menu-backdrop { position: fixed; inset: 0; z-index: 40; background: transparent; }
+/* Frosted, borderless popup — matches the top-bar menus (.cc-menu). */
+.activity-bar-menu {
+  position: absolute; left: calc(100% + 8px); bottom: 0; z-index: 41;
+  display: flex; flex-direction: column;
+  min-width: 168px; padding: 4px;
+  background: color-mix(in srgb, var(--popup-bg, #fff) 65%, transparent);
+  -webkit-backdrop-filter: blur(9px) saturate(1.15);
+  backdrop-filter: blur(9px) saturate(1.15);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+.activity-bar-menu-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 10px; border: none; border-radius: 6px;
+  background: none; color: var(--accent-dark);
+  font-size: 0.8rem; text-align: left; cursor: pointer;
+}
+.activity-bar-menu-item:hover { background: var(--accent-bg); }
+.activity-bar-menu-sep { height: 1px; margin: 4px 6px; background: var(--accent-grey); opacity: 0.5; }
+
+/* ── Account settings modal (sidebar + content, rendered in a <Dialog> card) ── */
+.ui-dlg-card.acct-card { width: 620px; max-width: 92vw; padding: 0; overflow: hidden; }
+.acct-card .ui-dlg-body { margin: 0; padding: 0; } /* the sidebar layout owns its own spacing */
+.acct-layout { display: flex; min-height: 420px; max-height: 80vh; }
+.acct-side {
+  flex: none; width: 168px; display: flex; flex-direction: column; gap: 2px;
+  padding: 20px 12px; border-right: 1px solid var(--accent-grey);
+  background: color-mix(in srgb, var(--accent-grey) 8%, transparent);
+}
+.acct-side-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 11px; border: none; border-radius: 8px;
+  background: none; color: var(--accent-dark);
+  font-size: 0.84rem; text-align: left; cursor: pointer;
+}
+.acct-side-item:hover { background: var(--accent-bg); }
+.acct-side-item.sel { background: var(--accent-bg-dark); color: var(--highlight); font-weight: 600; }
+.acct-content { flex: 1; min-width: 0; padding: 24px 26px; display: flex; flex-direction: column; overflow-y: auto; }
+.acct-h { margin: 0 0 4px; font-size: 1rem; font-weight: 700; color: var(--accent-dark); }
+.acct-sub { margin: 0 0 16px; font-size: 0.8rem; line-height: 1.5; color: var(--accent-grey); }
+
+.acct-avatar-row { display: flex; align-items: center; gap: 16px; margin: 12px 0 20px; }
+.acct-avatar {
+  width: 72px; height: 72px; border-radius: 50%; overflow: hidden; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-bg-dark);
+}
+.acct-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.acct-avatar-fallback { font-size: 1.8rem; font-weight: 600; color: var(--foreground); }
+.acct-avatar-actions { display: flex; gap: 8px; }
+.acct-btn-sm {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border: 1px solid var(--accent-grey); border-radius: 7px;
+  background: var(--background); color: var(--accent-dark);
+  font-size: 0.76rem; cursor: pointer;
+}
+.acct-btn-sm:hover { background: var(--accent-bg); }
+.acct-btn-sm.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--accent-grey)); }
+
+.acct-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+.acct-label { font-size: 0.74rem; font-weight: 600; color: var(--accent-grey); }
+.acct-input {
+  padding: 7px 10px; border: 1px solid var(--accent-grey); border-radius: 8px;
+  background: var(--background); color: var(--foreground);
+  font-size: 0.86rem; outline: none;
+}
+.acct-input:focus { border-color: var(--highlight); }
+.acct-input:disabled { color: var(--accent-grey); background: color-mix(in srgb, var(--accent-grey) 10%, transparent); cursor: not-allowed; }
+
+.acct-error { color: var(--danger); font-size: 0.8rem; margin: 2px 0 8px; }
+.acct-ok { color: var(--success); font-size: 0.82rem; }
+.acct-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: auto; padding-top: 16px; }
+
+/* API Keys tab — plain rows divided by separators (no boxes) */
+.acct-group-head {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--accent-grey); margin: 18px 0 4px;
+}
+.acct-group-head:first-of-type { margin-top: 6px; }
+.acct-key { padding: 12px 0; }
+.acct-key + .acct-key { border-top: 1px solid color-mix(in srgb, var(--accent-grey) 30%, transparent); }
+.acct-key-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.acct-key-name { font-size: 0.86rem; font-weight: 600; color: var(--accent-dark); }
+.acct-key-mask { font-size: 0.76rem; color: var(--accent-dark); font-variant-numeric: tabular-nums; }
+.acct-key-unset { font-size: 0.74rem; color: var(--accent-grey); font-style: italic; }
+.acct-key-hint { font-size: 0.74rem; color: var(--accent-grey); margin: 2px 0 8px; }
+.acct-key-controls { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+/* Input + Save + Remove share ONE height derived from line-height (not vertical padding), so their
+   boxes line up exactly. 24px line + 1px borders top/bottom = 26px tall — deliberately compact. */
+.acct-key-controls .acct-input,
+.acct-key-controls .ui-btn,
+.acct-key-controls .acct-btn-sm {
+  flex: none;
+  height: auto;
+  line-height: 30px;
+  padding-top: 0;
+  padding-bottom: 0;
+  box-sizing: border-box;
+}
+.acct-key-controls .acct-btn-sm { align-items: center; } /* icon+text stay vertically centred */
+.acct-key-controls .acct-input { flex: 1; min-width: 0; }
+.acct-region { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+
+/* Custom frosted dropdown — mirrors the assistant's model selector (.ca-dropdown). */
+.acct-dd { position: relative; }
+.acct-dd-btn {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font: inherit; font-size: 0.86rem; cursor: pointer; text-align: left;
+  line-height: 30px; padding: 0 10px; box-sizing: border-box; /* same 32px height as the key controls */
+  border-radius: 8px; color: var(--foreground);
+  background: var(--background); border: 1px solid var(--accent-grey);
+}
+.acct-dd-btn:hover { border-color: color-mix(in srgb, var(--highlight) 50%, var(--accent-grey)); }
+.acct-dd-cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-dd-cur.placeholder { color: var(--accent-grey); }
+.acct-dd-chev { flex: none; opacity: 0.55; transition: transform 0.15s ease; }
+.acct-dd-chev.open { transform: rotate(180deg); }
+.acct-dd-menu {
+  position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 5;
+  display: flex; flex-direction: column; padding: 4px; border-radius: 10px;
+  max-height: 240px; overflow-y: auto;
+  background: color-mix(in srgb, var(--popup-bg, #fff) 80%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15); backdrop-filter: blur(10px) saturate(1.15);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+.acct-dd-opt {
+  text-align: left; font: inherit; font-size: 0.84rem; cursor: pointer;
+  padding: 6px 9px; border: none; background: none; border-radius: 6px; color: var(--foreground);
+}
+.acct-dd-opt:hover { background: color-mix(in srgb, var(--accent-grey) 13%, transparent); }
+.acct-dd-opt.sel { color: var(--highlight); font-weight: 600; background: color-mix(in srgb, var(--highlight) 10%, transparent); }
+
+/* ── Theme settings ─────────────────────────────────────────────────────────── */
+/* Light / Dark / Auto mode selector (a segmented row). */
+.acct-seg { display: flex; gap: 6px; margin-bottom: 22px; }
+.acct-seg-btn {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 8px; border: 1px solid var(--accent-grey); border-radius: 8px;
+  background: none; color: var(--accent-dark); font: inherit; font-size: 0.82rem; cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+.acct-seg-btn:hover { background: var(--accent-bg); }
+.acct-seg-btn.sel { border-color: var(--highlight); background: var(--accent-bg-dark); color: var(--highlight); font-weight: 600; }
+
+/* Light Theme / Dark Theme tabs. */
+.acct-theme-tabs {
+  display: flex; gap: 4px; margin-bottom: 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-grey) 40%, transparent);
+}
+.acct-theme-tab {
+  padding: 8px 12px; margin-bottom: -1px; border: none; border-bottom: 2px solid transparent;
+  background: none; color: var(--accent-grey); font: inherit; font-size: 0.82rem; cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.acct-theme-tab:hover { color: var(--accent-dark); }
+.acct-theme-tab.sel { color: var(--accent-dark); font-weight: 600; border-bottom-color: var(--highlight); }
+
+/* The (single, for now) theme option under the active tab. */
+.acct-theme-panel { display: flex; flex-direction: column; gap: 10px; }
+.acct-theme-swatch {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 10px 12px; border: 1px solid var(--accent-grey); border-radius: 10px;
+  background: none; color: var(--accent-dark); font: inherit; text-align: left; cursor: pointer;
+}
+.acct-theme-swatch.sel { border-color: var(--highlight); background: var(--accent-bg); }
+.acct-theme-swatch-preview {
+  flex: none; width: 44px; height: 30px; border-radius: 6px; border: 1px solid var(--accent-grey);
+}
+.acct-theme-swatch[data-theme-id="light"] .acct-theme-swatch-preview { background: linear-gradient(135deg, #fefcfb 55%, #e7c7b5); }
+.acct-theme-swatch[data-theme-id="unicorn"] .acct-theme-swatch-preview { background: linear-gradient(135deg, #fffcfd 52%, #ff2350); }
+.acct-theme-swatch[data-theme-id="dark"] .acct-theme-swatch-preview { background: linear-gradient(135deg, #101a2b 55%, #ffd6e0); }
+.acct-theme-swatch[data-theme-id="matrix"] .acct-theme-swatch-preview { background: linear-gradient(135deg, #030a05 45%, #52c072); }
+.acct-theme-swatch-label { flex: 1; font-size: 0.86rem; font-weight: 600; }
+.acct-theme-swatch-check { flex: none; color: var(--highlight); }
+.acct-theme-swatch:not(.sel) .acct-theme-swatch-check { display: none; }
+.acct-theme-note { margin: 2px 0 0; font-size: 0.76rem; color: var(--accent-grey); }
 
 .app-body { flex: 1; min-width: 0; height: 100vh; overflow: hidden; }
 /* Override the global `main` rule (max-width/margin/padding): the scroll
@@ -167,11 +357,11 @@ body.cc-drawer-open .app-shell {
   width: 100%;
 }
 .auth-input:focus { outline: 1px solid var(--highlight); }
-.auth-error { color: #b0334a; font-size: 0.8rem; margin-top: 4px; }
+.auth-error { color: var(--danger); font-size: 0.8rem; margin-top: 4px; }
 .auth-btn {
   margin-top: 12px;
   background: var(--accent-dark);
-  color: #fff;
+  color: var(--on-accent);
   border: none;
   border-radius: 6px;
   padding: 9px;
@@ -203,9 +393,9 @@ body.cc-drawer-open .app-shell {
 .modal-row { display: flex; gap: 12px; }
 .modal-check { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; margin: 8px 0; color: var(--accent-dark); }
 .modal-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
-.btn-primary { background: var(--accent-dark); color: #fff; border: none; border-radius: 6px; padding: 7px 14px; cursor: pointer; font-weight: 600; }
+.btn-primary { background: var(--accent-dark); color: var(--on-accent); border: none; border-radius: 6px; padding: 7px 14px; cursor: pointer; font-weight: 600; }
 .btn-ghost { background: transparent; border: 1px solid var(--accent-grey); color: var(--accent-dark); border-radius: 6px; padding: 7px 14px; cursor: pointer; }
-.btn-danger { background: transparent; border: 1px solid #c0556a; color: #b0334a; border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+.btn-danger { background: transparent; border: 1px solid var(--danger-border); color: var(--danger); border-radius: 6px; padding: 7px 14px; cursor: pointer; }
 .btn-primary:disabled, .btn-ghost:disabled, .btn-danger:disabled { opacity: 0.6; }
 
 /* ── Phase 2: pages (projects / tasks / people) ────────────── */
@@ -284,7 +474,7 @@ body.cc-drawer-open .app-shell {
   border: none; background: transparent; color: var(--accent-grey);
   cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 4px;
 }
-.x-btn:hover { color: #b0334a; }
+.x-btn:hover { color: var(--danger); }
 
 /* tasks board */
 .board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 12px; }

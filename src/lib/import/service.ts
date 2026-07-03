@@ -17,6 +17,7 @@ import { diffEvents, type ExistingEventRow } from "./diff";
 import { renderManagedNote, composeNote, replaceManaged } from "./managedNote";
 import { suggestDedup } from "./aiDedup";
 import { normTitle } from "./fuzzy";
+import { runWithUserKeys } from "@/lib/apiKeys";
 import type { NormalizedEvent, PreviewGroups, PreviewItem, CommitSelection, CommitResult, CommitAction, MatchCandidate, DedupSuggestion, ConnectionRow, RemovedItem, TriageEntry, ImportSource } from "./types";
 
 export interface ImportPreview {
@@ -55,7 +56,7 @@ async function existingRows(userId: string): Promise<ExistingEventRow[]> {
 async function previewOf(userId: string, events: NormalizedEvent[], allDay: NormalizedEvent[], parsed: number, withAi = false): Promise<ImportPreview> {
   const groups = diffEvents(events, await existingRows(userId));
   if (withAi && groups.decide.length) {
-    const hints = await suggestDedup(groups.decide);
+    const hints = await runWithUserKeys(userId, () => suggestDedup(groups.decide));
     for (const it of groups.decide) {
       const s = hints.get(it.tempId);
       if (!s) continue;
@@ -287,6 +288,70 @@ export async function commitApple(userId: string, connectionId: string, selectio
 
   await prisma.calendarConnection.update({ where: { id: connectionId }, data: { lastSyncedAt: new Date() } });
   return { ...res, removed };
+}
+
+// ── Background auto-sync (§12.3) ─────────────────────────────────────────────────────────────
+// A periodic, no-human-in-the-loop pull. To stay safe it applies ONLY the unambiguous tiers:
+// new events (create) and tier-1 UID matches (merge/refresh) — both additive and reversible.
+// Tier-2 ambiguities are parked in Triage as usual; removed-upstream events are only COUNTED
+// (flagged), never auto-deleted. The scheduler lives in ./autoSync.ts.
+
+export interface AutoSyncConnResult { connectionId: string; calName: string; created: number; merged: number; toTriage: number; removedFlagged: number }
+export interface AutoSyncSummary { userId: string; connections: AutoSyncConnResult[]; created: number; merged: number; toTriage: number; removedFlagged: number }
+
+async function autoSyncConnection(userId: string, connectionId: string): Promise<AutoSyncConnResult | null> {
+  const conn = await prisma.calendarConnection.findFirst({ where: { id: connectionId, userId, provider: "apple", enabled: true } });
+  if (!conn) return null;
+  const n = await appleNormalized(userId, connectionId);
+  const preview = await previewOf(userId, n.events, n.allDay, n.parsed, true);
+  await persistTriage(userId, "apple", connectionId, preview.groups.decide);
+
+  // Auto-apply ONLY the safe tiers: new (create) + tier-1 duplicates (merge). Never tier-2, never delete.
+  const sels: CommitSelection[] = [
+    ...preview.groups.new.map((it) => ({ tempId: it.tempId, action: "create" as const })),
+    ...preview.groups.duplicate.map((it) => ({ tempId: it.tempId, action: "merge" as const, targetId: it.match?.targetId })),
+  ];
+  const res = sels.length ? await applySelections(userId, preview.groups, sels) : { created: 0, merged: 0, skipped: 0, failed: 0 };
+  const removed = await detectRemoved(userId, n.connectionId, n.from, n.to, n.fetchedUids);
+  await prisma.calendarConnection.update({ where: { id: connectionId }, data: { lastSyncedAt: new Date() } });
+  return { connectionId, calName: conn.calName, created: res.created, merged: res.merged, toTriage: preview.groups.decide.length, removedFlagged: removed.length };
+}
+
+/** Auto-sync every enabled Apple connection for one user — unless they've turned Automatic Sync off.
+ *  Per-connection failures are isolated. */
+export async function autoSyncAll(userId: string): Promise<AutoSyncSummary> {
+  const empty: AutoSyncSummary = { userId, connections: [], created: 0, merged: 0, toTriage: 0, removedFlagged: 0 };
+  const pref = await prisma.calendarPrefs.findUnique({ where: { userId }, select: { autoSync: true } });
+  if (pref && !pref.autoSync) return empty; // user opted out (no row → default on)
+  const conns = await prisma.calendarConnection.findMany({ where: { userId, provider: "apple", enabled: true }, select: { id: true } });
+  const results: AutoSyncConnResult[] = [];
+  for (const c of conns) {
+    try { const r = await autoSyncConnection(userId, c.id); if (r) results.push(r); }
+    catch (e) { console.warn(`[autosync] connection ${c.id} failed:`, e instanceof Error ? e.message : e); }
+  }
+  const sum = (k: "created" | "merged" | "toTriage" | "removedFlagged") => results.reduce((a, r) => a + r[k], 0);
+  return { userId, connections: results, created: sum("created"), merged: sum("merged"), toTriage: sum("toTriage"), removedFlagged: sum("removedFlagged") };
+}
+
+/** Whether the user has Automatic Sync on (default on when no prefs row exists yet). */
+export async function getAutoSyncPref(userId: string): Promise<boolean> {
+  const pref = await prisma.calendarPrefs.findUnique({ where: { userId }, select: { autoSync: true } });
+  return pref?.autoSync ?? true;
+}
+
+/** Turn Automatic Sync on/off. Creates a minimal prefs row if needed (empty track-name map). */
+export async function setAutoSyncPref(userId: string, enabled: boolean): Promise<void> {
+  await prisma.calendarPrefs.upsert({
+    where: { userId },
+    create: { userId, autoSync: enabled, trackNames: {} },
+    update: { autoSync: enabled },
+  });
+}
+
+/** Distinct user ids that have at least one enabled Apple connection (drives the scheduler). */
+export async function usersWithEnabledConnections(): Promise<string[]> {
+  const rows = await prisma.calendarConnection.findMany({ where: { provider: "apple", enabled: true }, select: { userId: true }, distinct: ["userId"] });
+  return rows.map((r) => r.userId);
 }
 
 // ── Connections (Apple calendar enumeration + persistence) ─────────────────────────────────────

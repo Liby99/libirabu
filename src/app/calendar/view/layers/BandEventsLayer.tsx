@@ -2,7 +2,7 @@
 
 // All-day band layer: renders + handles drag/resize/create for band events across a month's 4 tracks.
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import EventBadges from "../events/EventBadges";
 import { Vp } from "../../geometry/types";
 import { LABEL_W, PAST_DIM } from "../../geometry/constants";
@@ -168,26 +168,48 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
         .filter((x): x is { ev: BandEvent; o: { year: number; month: number; day: number }; rect: BandRect } => x.rect != null);
     });
 
-  // Per (month, track) lane, the px distance from each bar's left to the NEXT bar's left —
-  // counting real events AND recurrence ghosts together — so every title (real or ghost)
-  // clips before the following bar instead of overlapping it. Keyed per bar.
+  // Two per-lane title treatments, computed over real events AND recurrence ghosts together
+  // (keyed per bar):
+  //  • gapByKey — px from a bar's left to the NEXT bar (one that STARTS LATER) on the lane, so
+  //    a title clips before the following bar instead of overflowing into it.
+  //  • collideByKey — bars that share the SAME start day on a lane stack on top of one another.
+  //    The shorter sits on top (higher z) with its title clipped to its own width; each longer
+  //    bar beneath gets a left mask (width = the next-shorter bar) hiding its covered title.
+  //    Two bars of identical length fully overlap → an error we flag with a red badge.
+  type Bar = { key: string; month: number; track: number; start: number; len: number; x: number; w: number };
+  const bars: Bar[] = [
+    ...rects.map((r) => ({ key: r.ev.id, month: r.ev.month, track: r.ev.track, start: r.ev.startDay, len: r.ev.endDay - r.ev.startDay, x: r.rect.x, w: r.rect.w })),
+    ...ghosts.map((g) => {
+      const end = Math.min(g.o.day + (g.ev.endDay - g.ev.startDay), daysInMonth(g.o.month));
+      return { key: occKey(g.ev.id, g.o), month: g.o.month, track: g.ev.track, start: g.o.day, len: end - g.o.day, x: g.rect.x, w: g.rect.w };
+    }),
+  ];
   const gapByKey = new Map<string, number>();
+  const collideByKey = new Map<string, { z: number; maskLeft: number; error: boolean }>();
   {
-    type Bar = { key: string; month: number; track: number; start: number; x: number };
-    const bars: Bar[] = [
-      ...rects.map((r) => ({ key: r.ev.id, month: r.ev.month, track: r.ev.track, start: r.ev.startDay, x: r.rect.x })),
-      ...ghosts.map((g) => ({ key: occKey(g.ev.id, g.o), month: g.o.month, track: g.ev.track, start: g.o.day, x: g.rect.x })),
-    ];
-    const groups = new Map<string, Bar[]>();
+    const lanes = new Map<string, Bar[]>();
     for (const b of bars) {
       const k = `${b.month}-${b.track}`;
-      const arr = groups.get(k); if (arr) arr.push(b); else groups.set(k, [b]);
+      const arr = lanes.get(k); if (arr) arr.push(b); else lanes.set(k, [b]);
     }
-    for (const arr of groups.values()) {
-      arr.sort((a, b) => a.start - b.start);
-      for (let i = 0; i < arr.length - 1; i++) {
-        const d = arr[i + 1].x - arr[i].x;
-        if (d > 0) gapByKey.set(arr[i].key, d);
+    for (const lane of lanes.values()) {
+      // clip each title before the next bar that starts later
+      const byStart = [...lane].sort((a, b) => a.start - b.start);
+      for (let i = 0; i < byStart.length - 1; i++) {
+        const d = byStart[i + 1].x - byStart[i].x;
+        if (d > 0) gapByKey.set(byStart[i].key, d);
+      }
+      // same-start stacks: longest at the bottom, each covered by the next-shorter above it
+      const byDay = new Map<number, Bar[]>();
+      for (const b of lane) { const g = byDay.get(b.start); if (g) g.push(b); else byDay.set(b.start, [b]); }
+      for (const stack of byDay.values()) {
+        if (stack.length < 2) continue;
+        stack.sort((a, b) => b.len - a.len); // longest first (bottom)
+        for (let i = 0; i < stack.length; i++) {
+          const above = stack[i + 1]; // the next-shorter bar, directly on top of this one
+          const sameLen = (i > 0 && stack[i - 1].len === stack[i].len) || (!!above && above.len === stack[i].len);
+          collideByKey.set(stack[i].key, { z: 10 + stack[i].start + i * 2, maskLeft: above ? above.w : 0, error: sameLen });
+        }
       }
     }
   }
@@ -201,23 +223,32 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
         onClick={(e) => { if (createdRef.current) e.stopPropagation(); }} // let plain clicks navigate/deselect
       />
       {ghosts.map(({ ev, o, rect }) => {
-        const gap = gapByKey.get(occKey(ev.id, o)); // clip the title before the next bar on the lane
+        const key = occKey(ev.id, o);
+        const gap = gapByKey.get(key); // clip the title before the next bar on the lane
+        const cd = collideByKey.get(key); // same-start stack: z / left-mask / error
         const endDay = Math.min(o.day + (ev.endDay - ev.startDay), daysInMonth(o.month));
         const dim = bdim(o.year, o.month, endDay);
         return (
-          <div
-            key={occKey(ev.id, o)}
-            data-ev-id={ev.id}
-            data-occ={occDate(o)}
-            className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color} cc-ghost${gap != null ? " cc-band-clip" : ""}${ev.id === selectedId ? " selected" : ""}`}
-            style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(dim < 1 ? { opacity: dim } : {}), ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}) }}
-            onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
-            onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
-            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(ev.id, r.left + r.width / 2, r.top, occDate(o)); }}
-          >
-            <div className="cc-tevent-inner"><div className="cc-tevent-title">{ev.title}</div></div>
-            <EventBadges ai={ev.createdByAI} imported={ev.imported} recurring />
-          </div>
+          <Fragment key={key}>
+            {cd && cd.maskLeft > 0 && (
+              <div className="cc-band-undercut-mask" style={{ left: rect.x, top: rect.y, width: cd.maskLeft, height: rect.h, zIndex: cd.z + 1 }} />
+            )}
+            {cd?.error && (
+              <div className="cc-band-error-badge" title="Two events share the same dates on this track — give one a different date or track." style={{ left: rect.x + rect.w - 17, top: rect.y + (rect.h - 15) / 2, zIndex: cd.z + 3 }}>!</div>
+            )}
+            <div
+              data-ev-id={ev.id}
+              data-occ={occDate(o)}
+              className={`cc-item cc-tevent cc-tevent-band cc-ev-${ev.color} cc-ghost${gap != null ? " cc-band-clip" : ""}${ev.id === selectedId ? " selected" : ""}${cd ? " cc-band-collide" : ""}${cd && cd.maskLeft > 0 ? " cc-band-undercut" : ""}`}
+              style={{ transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h, pointerEvents: "auto", ...(cd ? { zIndex: cd.z } : {}), ...(dim < 1 ? { opacity: dim } : {}), ...(gap != null ? ({ "--band-gap": `${Math.max(12, gap - 10)}px` } as React.CSSProperties) : {}), ...(cd && cd.maskLeft > 0 ? ({ "--band-mask-left": `${cd.maskLeft}px` } as React.CSSProperties) : {}) }}
+              onClick={(e) => { e.stopPropagation(); onSelect(ev.id, occDate(o)); }}
+              onDoubleClick={(e) => { e.stopPropagation(); onOpenDetail(ev.id, occDate(o)); }}
+              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onContextMenu(ev.id, r.left + r.width / 2, r.top, occDate(o)); }}
+            >
+              <div className="cc-tevent-inner"><div className="cc-tevent-title">{ev.title}</div></div>
+              <EventBadges ai={ev.createdByAI} imported={ev.imported} recurring />
+            </div>
+          </Fragment>
         );
       })}
       {rects.map(({ ev, rect }) => (
@@ -227,6 +258,7 @@ export default function BandEventsLayer({ vp, z, focus, week, scrollY, year, eve
           rect={rect}
           vw={vp.w}
           gap={gapByKey.get(ev.id)}
+          collide={collideByKey.get(ev.id)}
           dim={bdim(ev.year, ev.month, ev.endDay)}
           raised={ev.id === hoveredId}
           onHover={setHoveredId}

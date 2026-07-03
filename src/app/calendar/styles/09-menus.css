@@ -77,6 +77,9 @@
 .cc-action-sm { padding: 2px 7px; font-size: 0.68rem; border-radius: 5px; }
 /* borderless (menubar-style) — transparent border keeps the box height aligned with peers */
 .cc-action-plain { border-color: transparent; }
+/* Today button: sits just right of the breadcrumb. A direct child of .cc-bar (pointer-events:
+   none), so re-enable clicks here; margin-left gives it breathing room from the crumbs. */
+.cc-today-btn { flex: none; margin-left: 8px; pointer-events: auto; border: none; }
 
 /* Edit menu (macOS / Google-Docs-style command dropdown) */
 .cc-menu {
@@ -118,8 +121,8 @@
 .cc-menu-item:disabled { opacity: 0.38; cursor: default; }
 .cc-menu-item:disabled:hover { background: none; }
 .cc-menu-item.sel { color: var(--highlight); font-weight: 700; }
-.cc-menu-item-danger { color: #b0334a; }
-.cc-menu-item-danger:hover { background: color-mix(in srgb, #c0556a 12%, transparent); }
+.cc-menu-item-danger { color: var(--danger); }
+.cc-menu-item-danger:hover { background: color-mix(in srgb, var(--danger-border) 12%, transparent); }
 .cc-menu-sc { color: var(--accent-grey); font-size: 0.72rem; }
 /* Non-interactive status line at the top of a menu (Connectivity's sync state). */
 .cc-menu-status { padding: 5px 10px 3px; font-size: 0.72rem; color: var(--accent-grey); white-space: nowrap; }

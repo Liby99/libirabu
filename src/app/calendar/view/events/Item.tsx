@@ -82,14 +82,18 @@ const ItemView = memo(function ItemView({ it }: { it: Item }) {
 
   // monthLabel / dayLabel
   const cls = it.kind === "monthLabel" ? "cc-monthlabel" : `cc-daylabel ${it.align === "center" ? "cc-center" : "cc-left"}`;
-  return <div className={`cc-item ${cls}`} style={{ ...style, fontSize: it.fontSize } as React.CSSProperties}>{it.text}</div>;
+  return (
+    <div className={`cc-item ${cls}`} style={{ ...style, fontSize: it.fontSize } as React.CSSProperties}>
+      {it.today ? <span className="cc-daylabel-today">{it.text}</span> : it.text}
+    </div>
+  );
 }, (p, n) => {
   // Skip re-render when this item's values are unchanged (e.g. a render triggered
   // only by editing a track name shouldn't re-render every calendar item).
   const a = p.it, b = n.it;
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && a.opacity === b.opacity &&
     a.z === b.z && a.color === b.color && a.text === b.text && a.fontSize === b.fontSize &&
-    a.lineStyle === b.lineStyle && a.cols === b.cols && a.align === b.align && a.kind === b.kind && a.inner === b.inner;
+    a.lineStyle === b.lineStyle && a.cols === b.cols && a.align === b.align && a.kind === b.kind && a.inner === b.inner && a.today === b.today;
 });
 
 export default ItemView;

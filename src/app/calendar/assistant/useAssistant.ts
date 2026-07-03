@@ -17,7 +17,8 @@ export interface ActionBlock {
 }
 export interface TextBlock { type: "text"; text: string }
 export interface ThinkingBlock { type: "thinking"; content: string } // reasoning-model "thinking" (collapsed)
-export type Block = TextBlock | ThinkingBlock | ActionBlock;
+export interface LimitBlock { type: "limit" } // marks a turn that hit the step ceiling → shows "Extend and Continue"
+export type Block = TextBlock | ThinkingBlock | ActionBlock | LimitBlock;
 
 export interface UploadedAttachment { filename: string; text: string; bytes?: number }
 
@@ -67,6 +68,7 @@ export function useAssistant() {
   messagesRef.current = messages;
   const abortRef = useRef<AbortController | null>(null);
   const convIdRef = useRef<string | null>(null); // id of the conversation being persisted/resumed
+  const pendingResumeRef = useRef<string | null>(null); // scratchpad id from a step-capped turn; consumed by the next turn
   const prevBusyRef = useRef(false);
 
   // Mutate the last (assistant) message in place as events stream in.
@@ -113,6 +115,11 @@ export function useAssistant() {
       } else if (ev.t === "navigate") {
         // Follow the agent to the event it just touched (and open its drawer for edits).
         if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("calendar:navigate", { detail: ev }));
+      } else if (ev.t === "stopped") {
+        // Hit the per-turn step ceiling → remember the scratchpad id so the NEXT turn (button or a
+        // typed "continue") resumes with full memory, and drop a marker so the UI offers the button.
+        pendingResumeRef.current = (ev.resumeId as string) ?? null;
+        patchAssistant((blocks) => [...blocks, { type: "limit" }]);
       } else if (ev.t === "error") {
         patchAssistant((blocks) => [...blocks, { type: "text", text: `⚠️ ${String(ev.message)}` }]);
       }
@@ -120,14 +127,14 @@ export function useAssistant() {
 
   // Stream one agent turn into the LAST (assistant) message. The caller is responsible for having
   // added that placeholder and set busy; this handles the fetch, SSE parse, and teardown.
-  const streamTurn = useCallback(async (body: { message: string; history: ReturnType<typeof historyOf>; attachments?: { filename: string; text: string }[] }) => {
+  const streamTurn = useCallback(async (body: { message: string; history: ReturnType<typeof historyOf>; attachments?: { filename: string; text: string }[]; resumeId?: string }) => {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
       const res = await fetch("/api/assistant/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: body.message, view: readView(), history: body.history, attachments: body.attachments ?? [] }),
+        body: JSON.stringify({ message: body.message, view: readView(), history: body.history, attachments: body.attachments ?? [], ...(body.resumeId ? { resumeId: body.resumeId } : {}) }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
@@ -168,9 +175,13 @@ export function useAssistant() {
     // `baseMessages` lets Retry re-run a prompt against the transcript BEFORE the failed turn.
     const base = baseMessages ?? messagesRef.current;
     const history = historyOf(base);
+    // If the previous turn hit the step ceiling, carry its scratchpad id so the agent resumes
+    // with full memory — this is what makes a typed "continue" actually continue.
+    const resumeId = pendingResumeRef.current ?? undefined;
+    pendingResumeRef.current = null;
     setMessages([...base, { role: "user", text: trimmed, attachments: attachments.map((a) => ({ filename: a.filename })) }, { role: "assistant", blocks: [] }]);
     setBusy(true);
-    await streamTurn({ message: trimmed, history, attachments: attachments.map((a) => ({ filename: a.filename, text: a.text })) });
+    await streamTurn({ message: trimmed, history, attachments: attachments.map((a) => ({ filename: a.filename, text: a.text })), resumeId });
   }, [busy, streamTurn]);
 
   // Stop the in-flight turn: aborting the fetch tears down the SSE stream and (via the request's
@@ -188,6 +199,7 @@ export function useAssistant() {
   // Re-sends against the transcript before that prompt, replacing the failed assistant turn.
   const retry = useCallback(() => {
     if (busy) return;
+    pendingResumeRef.current = null; // Retry redoes the turn from scratch — don't replay the stalled scratchpad
     const msgs = messagesRef.current;
     let i = -1;
     for (let k = msgs.length - 1; k >= 0; k--) { if (msgs[k].role === "user") { i = k; break; } }
@@ -195,6 +207,31 @@ export function useAssistant() {
     const u = msgs[i] as { role: "user"; text: string };
     send(u.text, [], msgs.slice(0, i));
   }, [busy, send]);
+
+  // "Extend and Continue": the last turn hit the step ceiling. Resume the SAME task (no new user
+  // bubble) with a fresh step budget — the agent's writes already applied, so it picks up where it
+  // left off from the transcript, exactly like the allow-override resume. Repeatable each time it stops.
+  const extend = useCallback(() => {
+    if (busy) return;
+    const base = messagesRef.current;
+    const last = base[base.length - 1];
+    if (!last || last.role !== "assistant") return;
+    // Strip the "limit" marker off the stopped turn, then append a fresh assistant placeholder.
+    const cleaned = base.map((m, idx) =>
+      idx === base.length - 1 && m.role === "assistant"
+        ? { role: "assistant" as const, blocks: m.blocks.filter((b) => b.type !== "limit") }
+        : m,
+    );
+    const resumeId = pendingResumeRef.current ?? undefined;
+    pendingResumeRef.current = null;
+    setMessages([...cleaned, { role: "assistant", blocks: [] }]);
+    setBusy(true);
+    void streamTurn({
+      message: "Continue the previous task from where you stopped. Steps already completed have been applied — do NOT repeat them. Carry out the remaining steps and finish; if nothing is left, briefly confirm what's done.",
+      history: historyOf(cleaned),
+      resumeId,
+    });
+  }, [busy, streamTurn]);
 
   // ── Persistent conversations (AIConversation/AIMessage) ──
   // Save the full transcript after each turn completes (busy → false). We keep an action's `detail`
@@ -207,7 +244,7 @@ export function useAssistant() {
     const payload = msgs.map((m) =>
       m.role === "user"
         ? { role: "user", text: m.text, attachments: m.attachments ?? [] }
-        : { role: "assistant", blocks: m.blocks.filter((b) => b.type !== "thinking").map((b) => (b.type === "action" ? { type: "action", id: b.id, kind: b.kind, status: b.status, summary: b.summary, ...(keepDetail(b.detail) ? { detail: b.detail } : {}) } : b)) },
+        : { role: "assistant", blocks: m.blocks.filter((b) => b.type !== "thinking" && b.type !== "limit").map((b) => (b.type === "action" ? { type: "action", id: b.id, kind: b.kind, status: b.status, summary: b.summary, ...(keepDetail(b.detail) ? { detail: b.detail } : {}) } : b)) },
     );
     try {
       const res = await fetch("/api/assistant/conversations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: convIdRef.current, messages: payload }) });
@@ -220,7 +257,7 @@ export function useAssistant() {
     prevBusyRef.current = busy;
   }, [busy, saveConversation]);
 
-  const newConversation = useCallback(() => { setMessages([]); convIdRef.current = null; }, []);
+  const newConversation = useCallback(() => { setMessages([]); convIdRef.current = null; pendingResumeRef.current = null; }, []);
 
   const listConversations = useCallback(async (): Promise<ConversationMeta[]> => {
     try { const res = await fetch("/api/assistant/conversations"); return res.ok ? (await res.json()).conversations : []; } catch { return []; }
@@ -239,6 +276,7 @@ export function useAssistant() {
       );
       setMessages(msgs);
       convIdRef.current = id;
+      pendingResumeRef.current = null; // a reloaded conversation's server scratchpad is gone (TTL) — fall back to history
     } catch { /* ignore */ }
   }, []);
 
@@ -335,5 +373,5 @@ export function useAssistant() {
     });
   }, [busy, updateBlock, streamTurn]);
 
-  return { messages, busy, send, stop, retry, clear, resolveDelete, allowAction, listConversations, loadConversation, deleteConversation, getSettings, setModel };
+  return { messages, busy, send, stop, retry, extend, clear, resolveDelete, allowAction, listConversations, loadConversation, deleteConversation, getSettings, setModel };
 }

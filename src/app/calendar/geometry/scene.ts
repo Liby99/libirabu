@@ -10,11 +10,15 @@ import { TRACKS, daysInMonth, YEAR, setCalendarYear } from "../model/api/mock";
 import { hourMetrics, incomingDetailReveal } from "./eventGeom";
 
 const LINE = "#4c2d14"; // gridline color (dimmed via item opacity; theme via CSS var)
+// Today's calendar date (year/month/day), set each frame from `now` — used to give today's day &
+// weekday labels the red capsule. -1 until the first buildScene call.
+let TD_Y = -1, TD_M = -1, TD_D = -1;
 const HL_SOFT = 0.05;   // L1 coarse highlight (month band / week span / day column)
 const HL_STRONG = 0.11; // L2 fine highlight (day column / hour cell)
 
 export function buildScene(z: number, focus: number, week: number, vp: Vp, scrollY: number, hover: Hover, now: number, year: number, altDeltaHours: number | null, altLabel: string | null, tlScroll: number, monthAnim: MonthAnim | null = null, detailMul = 1): Scene {
   setCalendarYear(year); // sync the live YEAR binding before any date math this frame
+  { const d = new Date(now); TD_Y = d.getFullYear(); TD_M = d.getMonth(); TD_D = d.getDate(); }
   const items: Item[] = [];
   // Hover highlight is skipped during a page-turn (no hovering mid-swipe). The "today"/now-line
   // markers, though, cross-fade like the detail (below) so they don't pop in after the turn settles.
@@ -231,8 +235,10 @@ function buildQuarterHeaders(items: Item[], z: number, focus: number, week: numb
     // anchor to the quarter's first month's LIVE band so it travels during the zoom
     const hy = frameFor(q * 3, z, focus, week, vp, scrollY).bandY - Q_HEADER_H;
     if (hy < -Q_HEADER_H || hy > vp.h) continue;
+    const todayQuarter = YEAR === TD_Y && q === Math.floor(TD_M / 3); // today's day-number sits in this quarter's header
     for (let d = 1; d <= 31; d++) {
-      items.push({ key: `qh-${q}-${d}`, kind: "dayLabel", x: LABEL_W + (d - 1) * dayW, y: hy + 5, w: dayW, h: 14, opacity: yearVis * 0.7, text: String(d), fontSize: 10, align: "center", z: 4 });
+      const isToday = todayQuarter && d === TD_D; // capsule-highlight today's column header (like the day/week views)
+      items.push({ key: `qh-${q}-${d}`, kind: "dayLabel", x: LABEL_W + (d - 1) * dayW, y: hy + 5, w: dayW, h: 14, opacity: yearVis * 0.7, text: String(d), fontSize: 10, align: "center", z: 4, today: isToday });
     }
     // top border: gutter + grid segments with the RIGHT_PAD gap, above the gutter strip
     const topY = hy + Q_HEADER_H - 1;
@@ -349,8 +355,9 @@ function buildDetail(items: Item[], z: number, focus: number, week: number, vp: 
       }
     }
     const dateText = r.month === focus ? String(r.day) : `${MONTH_NAMES[r.month]} ${r.day}`;
-    items.push({ key: `date-${dom}`, kind: "dayLabel", x, y: f.bandY - 20, w: colW, h: 16, opacity: op, text: dateText, fontSize: wide ? 13 : 10, align: "center", z: 4 });
-    items.push({ key: `wd-${dom}`, kind: "dayLabel", x, y: bandBottom + 2, w: colW, h: 14, opacity: op * 0.9, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4 });
+    const isToday = YEAR === TD_Y && r.month === TD_M && r.day === TD_D; // capsule-highlight today's labels
+    items.push({ key: `date-${dom}`, kind: "dayLabel", x, y: f.bandY - 20, w: colW, h: 16, opacity: op, text: dateText, fontSize: wide ? 13 : 10, align: "center", z: 4, today: isToday });
+    items.push({ key: `wd-${dom}`, kind: "dayLabel", x, y: bandBottom + 2, w: colW, h: 14, opacity: op * 0.9, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: "center", z: 4, today: isToday });
     if (!hasTL) return;
     const isWeekStart = (((firstDOW(focus) + dom - 1) % 7) + 7) % 7 === 0;
     if (!isWeekStart) {

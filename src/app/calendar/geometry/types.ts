@@ -33,6 +33,7 @@ export interface Item {
   lineStyle?: "dashed" | "dotted"; // gridline style; absent = solid separator
   inner?: boolean; // row: an inner lane (t>0) → gets the dotted top separator
   instant?: boolean; // now/nowlabel: drop the opacity transition so the daily-view fade tracks the swipe per-frame
+  today?: boolean; // dayLabel: today's date/weekday → render as a red capsule with white text
 }
 
 export interface Scene { items: Item[] }

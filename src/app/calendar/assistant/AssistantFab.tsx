@@ -60,7 +60,7 @@ export default function AssistantFab() {
   const anchorRef = useRef<Anchor>({ fx: 1, fy: 1 }); // current snapped anchor (default: bottom-right)
   const draggingRef = useRef(false);
   const animRef = useRef<number | null>(null);
-  const { messages, busy, send, stop, retry, clear, resolveDelete, allowAction, listConversations, loadConversation, deleteConversation, getSettings, setModel } = useAssistant();
+  const { messages, busy, send, stop, retry, extend, clear, resolveDelete, allowAction, listConversations, loadConversation, deleteConversation, getSettings, setModel } = useAssistant();
 
   const cancelAnim = useCallback(() => {
     if (animRef.current != null) { cancelAnimationFrame(animRef.current); animRef.current = null; }
@@ -189,7 +189,7 @@ export default function AssistantFab() {
       </button>
       {open && (
         <div style={panelStyle} className="ca-panel-wrap">
-          <AssistantPanel messages={messages} busy={busy} send={send} onStop={stop} onRetry={retry} onClear={clear} onClose={() => setOpen(false)} onResolveDelete={resolveDelete} onAllow={allowAction} onListConversations={listConversations} onLoadConversation={loadConversation} onDeleteConversation={deleteConversation} onGetSettings={getSettings} onSetModel={setModel} />
+          <AssistantPanel messages={messages} busy={busy} send={send} onStop={stop} onRetry={retry} onExtend={extend} onClear={clear} onClose={() => setOpen(false)} onResolveDelete={resolveDelete} onAllow={allowAction} onListConversations={listConversations} onLoadConversation={loadConversation} onDeleteConversation={deleteConversation} onGetSettings={getSettings} onSetModel={setModel} />
         </div>
       )}
     </>,

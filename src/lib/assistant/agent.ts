@@ -10,7 +10,8 @@ import { audit } from "./auditor";
 import { buildAuditContext } from "./auditContext";
 import type { ServerEvent, ViewContext } from "./types";
 
-const MAX_STEPS = 10;
+const MAX_STEPS = 30; // ReAct rounds per turn. A big-context model (Claude) can sustain long tool chains;
+                      // when this is hit the UI offers "Extend and Continue" to resume with a fresh budget.
 const PACE_MS = 750; // brief pause after navigating to an action, so the user can watch it happen
 
 // A short, abortable delay (so Stop doesn't leave the turn hanging on a pause).
@@ -40,6 +41,34 @@ export interface AgentInput {
   history?: ChatMessage[];
   attachments?: { filename: string; text: string }[];
   signal?: AbortSignal; // aborts when the user hits Stop (client closes the SSE)
+  resumeId?: string; // continue a turn that hit the step ceiling: replay its stashed scratchpad
+}
+
+// ── Resume store ────────────────────────────────────────────────────────────
+// When a turn hits MAX_STEPS we stash its full message scratchpad (every tool call AND
+// result), keyed by a short id handed back to the client. The next "continue" replays it so
+// the agent resumes with complete memory of what it read/did — text-only history drops all of
+// that. In-memory + single-process (a local research app); entries expire so it can't grow
+// unbounded, and a browser reload just falls back to text history.
+type ResumeEntry = { messages: ChatMessage[]; at: number };
+const _g = globalThis as unknown as { __asstResume?: Map<string, ResumeEntry> };
+const resumeStore: Map<string, ResumeEntry> = _g.__asstResume ?? (_g.__asstResume = new Map());
+const RESUME_TTL_MS = 60 * 60 * 1000; // forget a stalled continuation after an hour
+const RESUME_MAX = 12;                 // cap the store (evict oldest first)
+function putResume(messages: ChatMessage[]): string {
+  const now = Date.now();
+  for (const [k, v] of resumeStore) if (now - v.at > RESUME_TTL_MS) resumeStore.delete(k);
+  while (resumeStore.size >= RESUME_MAX) { const oldest = resumeStore.keys().next().value; if (oldest === undefined) break; resumeStore.delete(oldest); }
+  const id = `r_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  resumeStore.set(id, { messages, at: now });
+  return id;
+}
+function takeResume(id?: string): ChatMessage[] | undefined {
+  if (!id) return undefined;
+  const e = resumeStore.get(id);
+  if (!e) return undefined;
+  resumeStore.delete(id); // single-use: the continuation re-stashes a fresh snapshot if it stops again
+  return e.messages;
 }
 
 function buildSystem(view: ViewContext, memory: Record<string, unknown>): string {
@@ -106,12 +135,19 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<ServerEvent> 
       }]
     : [];
 
-  const messages: ChatMessage[] = [
-    { role: "system", content: buildSystem(view, memory) },
-    ...(input.history ?? []),
-    ...attachmentMsgs,
-    { role: "user", content: message },
-  ];
+  // Continuing a turn that hit the step ceiling: replay its stashed scratchpad (the full tool
+  // calls + results) so the agent keeps its memory of what it already read/did — text history
+  // alone loses that. The system prompt is rebuilt fresh (today's date / view / memory), and the
+  // scratchpad already contains the earlier history + attachments, so we don't re-add them.
+  const prior = takeResume(input.resumeId);
+  const messages: ChatMessage[] = prior
+    ? [{ role: "system", content: buildSystem(view, memory) }, ...prior, { role: "user", content: message }]
+    : [
+        { role: "system", content: buildSystem(view, memory) },
+        ...(input.history ?? []),
+        ...attachmentMsgs,
+        { role: "user", content: message },
+      ];
 
   for (let step = 0; step < MAX_STEPS; step++) {
     if (input.signal?.aborted) return; // user hit Stop between steps
@@ -218,6 +254,8 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<ServerEvent> 
     }
   }
 
-  yield { t: "text", delta: "⚠️ I stopped after several steps without finishing — this task may be too large for one turn. Tap **Retry**, or break it into smaller requests." };
+  const resumeId = putResume(messages.slice(1)); // stash the scratchpad (drop system; rebuilt on resume)
+  yield { t: "text", delta: `⚠️ I paused after ${MAX_STEPS} steps without finishing — this task is large. Tap **Extend and Continue** to let me keep going (I'll remember what I've done so far), or break it into smaller requests.` };
+  yield { t: "stopped", reason: "max_steps", resumeId }; // UI shows an "Extend and Continue" affordance
   yield { t: "done" };
 }

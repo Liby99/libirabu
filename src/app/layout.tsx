@@ -70,8 +70,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        {/* Resolve + apply the saved theme before first paint (no flash): pick the variant from
+            the mode (auto → OS), then the selected theme id for that variant. */}
+        <script dangerouslySetInnerHTML={{ __html: `try{var m=localStorage.getItem('theme-mode');m=(m==='light'||m==='dark')?m:'auto';var v=m==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):m;var id=localStorage.getItem(v==='dark'?'theme-dark':'theme-light')||v;document.documentElement.dataset.theme=id;}catch(e){}` }} />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />

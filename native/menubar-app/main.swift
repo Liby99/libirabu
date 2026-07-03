@@ -61,14 +61,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let logHandle = FileHandle(forWritingAtPath: logp)
 
         // LaunchServices gives a minimal PATH; add node's dir so any `node` lookups downstream resolve.
+        // LaunchServices gives a minimal PATH; add node + common docker dirs so scripts/serve.sh
+        // (which runs docker, prisma, next) resolves its tools. serve.sh also hardens PATH itself.
         var env = env0
         env["PORT"] = "8100"
+        env["LIBIRABU_NODE"] = node
         let nodeDir = (node as NSString).deletingLastPathComponent
-        env["PATH"] = nodeDir + ":" + (env0["PATH"] ?? "/usr/bin:/bin")
+        env["PATH"] = nodeDir + ":/opt/homebrew/bin:/usr/local/bin:" + NSHomeDirectory() + "/.docker/bin:" + (env0["PATH"] ?? "/usr/bin:/bin")
 
+        // Run the production launcher (ensure DB → migrate → build-if-needed → next start), NOT dev.
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: node)
-        p.arguments = [dir + "/node_modules/next/dist/bin/next", "dev", "-p", "8100"]
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = [dir + "/scripts/serve.sh"]
         p.currentDirectoryURL = URL(fileURLWithPath: dir)
         p.environment = env
         if let h = logHandle { p.standardOutput = h; p.standardError = h }

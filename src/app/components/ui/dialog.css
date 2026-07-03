@@ -101,8 +101,8 @@
 .ui-btn--ghost:hover:not(:disabled) { background: var(--accent-bg); }
 
 /* destructive — outline red (matches the app's .btn-danger language) */
-.ui-btn--danger { background: transparent; color: #b0334a; border-color: #c0556a; }
-.ui-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, #c0556a 12%, transparent); }
+.ui-btn--danger { background: transparent; color: var(--danger); border-color: var(--danger-border); }
+.ui-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-border) 12%, transparent); }
 
 @keyframes ui-dlg-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ui-dlg-pop { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }

@@ -41,6 +41,7 @@ import { useHistory } from "../model/history";
 import { useEvents } from "../model/hooks/useEvents";
 import { useBandEvents } from "../model/hooks/useBandEvents";
 import { useDeadlines } from "../model/hooks/useDeadlines";
+import { useBackgroundSync } from "../model/hooks/useBackgroundSync";
 import ItemView from "./events/Item";
 import TrackEditor from "./editors/TrackEditor";
 import EventsLayer from "./layers/EventsLayer";
@@ -74,7 +75,7 @@ function ordinal(n: number): string {
 }
 
 export default function CalendarCanvas() {
-  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToMonth, goToOccurrence, revealHour, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade } =
+  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToToday, goToMonth, goToOccurrence, revealHour, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade } =
     useCalendarInteractions();
   const { trackNames, editTrack, mainTz, mainTzSetting, altTz, setAltTz, setMainTz } = useCalendarSettings(year);
   const history = useHistory();
@@ -82,6 +83,7 @@ export default function CalendarCanvas() {
   const { events, addEvent, updateEvent, removeEvent } = useEvents(year, history, showHidden);
   const { events: bandEvents, addEvent: addBandEvent, updateEvent: updateBandEvent, removeEvent: removeBandEvent } = useBandEvents(year, history, showHidden);
   const { deadlines, addDeadline, updateDeadline, removeDeadline } = useDeadlines(year, history, showHidden);
+  useBackgroundSync(); // refetch when the periodic background sync lands new/changed events
 
   // Each year loads its own events; entries referencing other years would be stale.
   // Depend on the stable `clear` only — `history` identity flips when canUndo/canRedo
@@ -632,11 +634,15 @@ export default function CalendarCanvas() {
   setDaily(dailyDom, dailyFrac, dayAnim, dayOverPan); // sync the daily-view module state before buildScene / the layers read frameFor
   const scene = buildScene(z, focus, week, vp, scrollY, hover, now, year, altDelta, altLabel, tlScroll, monthAnim, detailMul);
   const tl = timelineInfo(z, focus, week, vp, scrollY, tlScroll);
-  const showScrollbar = z >= 1.5 && tl.maxScroll > 0; // week + day view, day taller than the viewport
+  const showScrollbar = z >= 1.5 && tl.zoomable; // week + day view; hidden only once all 24h fit at MAX hour height
   const level = z < 0.5 ? 0 : z < 1.5 ? 1 : z < 2.5 ? 2 : 3;
   // Daily view: progress 0→1 over z 2→3, and the chosen day's calendar date (for the breadcrumb + dashboard).
   const dailyP = Math.min(1, Math.max(0, z - 2));
   const dailyDate = resolveDate(focus, dailyDom);
+  // "Today" button: shown unless we're already in today's daily view. `now` ticks each minute.
+  const todayD = new Date(now);
+  const inTodayDaily = level === 3 && year === currentYear && dailyDate != null
+    && dailyDate.month === todayD.getMonth() && dailyDate.day === todayD.getDate();
   // The daily-dashboard's left edge = the day column's RESTING right edge. `tl.x0` carries the
   // day-paging pan, so add it back out — the dashboard stays put while the day content slides under it.
   const dashLeft = tl.x0 + dailyDom * tl.colW + (dayAnim ? dayAnim.dir * dayAnim.p * tl.colW : 0);
@@ -705,6 +711,9 @@ export default function CalendarCanvas() {
             </>
           )}
         </div>
+        {!inTodayDaily && (
+          <button className="cc-action cc-action-accent cc-action-sm cc-today-btn" title="Jump to today" onClick={(e) => { e.stopPropagation(); goToToday(); }}>Today</button>
+        )}
         <span className="cc-hint">{hint}</span>
         <div className="cc-bar-actions" onClick={(e) => e.stopPropagation()}>
           {year !== currentYear && (

@@ -3,13 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Search, Globe, CalendarDays, CalendarPlus, Pencil, Trash2, Eye, Loader2, Check, X, ArrowUp, Ban, Compass, Brain, Paperclip, FileText, History, Undo2, CircleStop, RotateCcw, MessagesSquare, SquarePen, Settings, ChevronDown } from "lucide-react";
+import { Search, Globe, CalendarDays, CalendarPlus, Pencil, Trash2, Eye, Loader2, Check, X, ArrowUp, Ban, Compass, Brain, Paperclip, FileText, History, Undo2, CircleStop, RotateCcw, FastForward, MessagesSquare, SquarePen, Settings, ChevronDown } from "lucide-react";
 
 interface HistoryItem { id: string; kind: string; status: string; createdAt: string; title: string; occurrenceDate: string | null }
 const histVerb = (it: HistoryItem) =>
   it.kind === "create" ? "Created" : it.kind === "update" ? "Edited" : it.occurrenceDate ? "Skipped an occurrence of" : "Deleted";
 const HIST_ICON: Record<string, React.ComponentType<{ size?: number }>> = { create: CalendarPlus, update: Pencil, delete: Trash2 };
-import type { ActionBlock, Message, UploadedAttachment, ConversationMeta, AssistantSettings } from "./useAssistant";
+import type { ActionBlock, Block, Message, UploadedAttachment, ConversationMeta, AssistantSettings } from "./useAssistant";
 import { VENDORS } from "@/lib/assistant/models";
 
 const ACTION_ICON: Record<string, React.ComponentType<{ size?: number }>> = {
@@ -189,12 +189,13 @@ function ThinkingBubble({ content }: { content: string }) {
   );
 }
 
-export default function AssistantPanel({ messages, busy, send, onStop, onRetry, onClear, onClose, onResolveDelete, onAllow, onListConversations, onLoadConversation, onDeleteConversation, onGetSettings, onSetModel }: {
+export default function AssistantPanel({ messages, busy, send, onStop, onRetry, onExtend, onClear, onClose, onResolveDelete, onAllow, onListConversations, onLoadConversation, onDeleteConversation, onGetSettings, onSetModel }: {
   messages: Message[];
   busy: boolean;
   send: (t: string, attachments?: UploadedAttachment[]) => void;
   onStop: () => void;
   onRetry: () => void;
+  onExtend: () => void;
   onClear: () => void;
   onClose: () => void;
   onResolveDelete: (id: string, confirmed: boolean) => void;
@@ -454,7 +455,7 @@ export default function AssistantPanel({ messages, busy, send, onStop, onRetry, 
                     <ActionCard key={b.id || j} b={b} onResolve={onResolveDelete} onAllow={onAllow} />
                   ) : b.type === "thinking" ? (
                     <ThinkingBubble key={j} content={b.content} />
-                  ) : (
+                  ) : b.type === "limit" ? null : (
                     <div key={j} className="ca-bubble ca-bubble-asst ca-md">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{b.text}</ReactMarkdown>
                     </div>
@@ -470,11 +471,20 @@ export default function AssistantPanel({ messages, busy, send, onStop, onRetry, 
             </div>
           ),
         )}
-        {!busy && messages.length > 0 && messages[messages.length - 1].role === "assistant" && (
-          <div className="ca-retry-row">
-            <button className="ca-retry" onClick={onRetry} title="Re-run the last request"><RotateCcw size={12} /> Retry</button>
-          </div>
-        )}
+        {!busy && messages.length > 0 && messages[messages.length - 1].role === "assistant" && (() => {
+          const last = messages[messages.length - 1] as { role: "assistant"; blocks: Block[] };
+          const hitLimit = last.blocks.some((b) => b.type === "limit");
+          return (
+            <div className="ca-retry-row">
+              {hitLimit && (
+                <button className="ca-extend" onClick={onExtend} title="Let the assistant keep working with a fresh step budget">
+                  <FastForward size={12} /> Extend and Continue
+                </button>
+              )}
+              <button className="ca-retry" onClick={onRetry} title="Re-run the last request"><RotateCcw size={12} /> Retry</button>
+            </div>
+          );
+        })()}
       </div>
 
       {(attachments.length > 0 || uploading || uploadError) && (
