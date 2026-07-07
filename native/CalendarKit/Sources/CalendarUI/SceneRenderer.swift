@@ -171,11 +171,16 @@ enum SceneRenderer {
             p.move(to: CGPoint(x: barX, y: y)); p.addLine(to: CGPoint(x: input.vp.w - 18, y: y))
             layer.stroke(p, with: .color(theme.sep.opacity(0.58)), lineWidth: 1)
         }
-        // day title
+        // day title — bottom-aligned in the band region, just above the lower bar
+        // (matches .cc-dd-titlezone { align-items: flex-end }).
         if let r = resolveDate(input.focus, input.daily.dom) {
-            let title = "\(WD3[dayOfWeek(input.year, r.month, r.day)])  \(MONTH_LONG[r.month]) \(r.day)"
-            drawText(title, CGRect(x: barX, y: Layout.topPad + 6, width: input.vp.w - barX - 18, height: 26),
-                     size: 18, align: .left, color: theme.text, weight: .medium, into: &layer)
+            let lowerBarY = Layout.topPad + Layout.monthH
+            let w = input.vp.w - barX - 18
+            let name = WD3[dayOfWeek(input.year, r.month, r.day)].uppercased()
+            drawText(name, CGRect(x: barX, y: lowerBarY - 46, width: w, height: 14),
+                     size: 11, align: .left, color: theme.textMuted, tracking: 1, into: &layer)
+            drawText("\(MONTH_LONG[r.month]) \(r.day)", CGRect(x: barX, y: lowerBarY - 33, width: w, height: 26),
+                     size: 19, align: .left, color: theme.text, weight: .medium, into: &layer)
         }
     }
 
@@ -198,6 +203,12 @@ enum SceneRenderer {
                 drawText(name, CGRect(x: left + 6, y: y, width: width - 8, height: f.trackH),
                          size: 12, align: .left, color: theme.text, into: &layer, clipToRect: true)
             }
+            // solid bottom border across the gutter (month-name cell + track cells) —
+            // the grid's month divider doesn't extend into the gutter.
+            var bottom = Path()
+            let by = f.bandY + 4 * f.trackH
+            bottom.move(to: CGPoint(x: 0, y: by)); bottom.addLine(to: CGPoint(x: Layout.labelW - Layout.rightPad, y: by))
+            layer.stroke(bottom, with: .color(theme.sep), lineWidth: 1)
         }
     }
 

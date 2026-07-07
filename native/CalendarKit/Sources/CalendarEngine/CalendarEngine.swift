@@ -35,7 +35,7 @@ public final class CalendarEngine {
     private var nowTimer: Timer?
 
     private let ZOOM_DUR: TimeInterval = 0.52
-    private let PINCH_SENS: CGFloat = 2.6
+    private let PINCH_SENS: CGFloat = 1.6
 
     public init() {
         let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
@@ -179,6 +179,12 @@ public final class CalendarEngine {
             hv.dom = domInFocus(p.x, g)
             hv.week = weekAtPointInMonth(p.x, g)
         default:
+            // In daily view the right panel is the dashboard — no background time cursor there.
+            if z > 2 {
+                let f = frameFor(focus, g)
+                let dashLeft = f.x0 + CGFloat(daily.dom) * f.dayW
+                if p.x >= dashLeft { hover = .none; return }
+            }
             let c = cellInWeek(p.x, p.y, g)
             hv.dom = c.dom; hv.hour = c.hour; hv.hourFrac = c.hourFrac; hv.nearLeft = c.nearLeft
         }
