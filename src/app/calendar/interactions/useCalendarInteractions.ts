@@ -1169,6 +1169,10 @@ export function useCalendarInteractions() {
 
   // Keyboard zoom (Shift+- on a selected event): animate day → week view, keeping (month, day)'s week
   // in the window so the event stays on screen. Selection is untouched.
+  // Keyboard day paging (daily-view Region Left/Right): slide to the prev/next day, animated and
+  // clamped to the month (snapDayPage won't commit past day 1 / the last day of the month).
+  const keyPageDay = useCallback((dir: 1 | -1) => { snapDayPage(dir, 0, true, 300); }, [snapDayPage]);
+
   const zoomToWeekOfDay = useCallback((month: number, day: number) => {
     if (month !== focusRef.current) { focusRef.current = month; setFocus(month); }
     weekRef.current = weekOfDate(month, day); setWeek(weekRef.current);
@@ -1282,5 +1286,5 @@ export function useCalendarInteractions() {
     ? Math.max(0, Math.min(11, focus + monthAnim.dir))
     : focus;
 
-  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToToday, goToMonth, goToOccurrence, revealHour, ensureHourVisible, ensureDayVisibleInWeek, zoomToDay, zoomToWeekOfDay, zoomToMonthWithDay, rebaseFocusAndZoom, scrollToMonth, kbDay, kbActive, clearKbDayFocus, setKbDayFocus, blurKbFocus, tweenTo, onMove, onClick, clearHover };
+  return { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, weekHourH, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade, selectYear, goToCurrentYear, goToCurrentWeek, goToNow, goToToday, goToMonth, goToOccurrence, revealHour, ensureHourVisible, ensureDayVisibleInWeek, zoomToDay, zoomToWeekOfDay, zoomToMonthWithDay, rebaseFocusAndZoom, scrollToMonth, keyPageDay, kbDay, kbActive, clearKbDayFocus, setKbDayFocus, blurKbFocus, tweenTo, onMove, onClick, clearHover };
 }

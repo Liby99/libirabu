@@ -251,3 +251,9 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
 /* "Make editable copy" action in the imported-event source row (§7). */
 .cc-dw-source-btn { border: none; background: none; padding: 0; margin: 0; font: inherit; color: var(--highlight); cursor: pointer; text-decoration: underline; white-space: nowrap; }
 .cc-dw-source-btn:hover { opacity: 0.8; }
+/* Read-only state pill sitting beside the "Make editable copy" action. */
+.cc-dw-ro-tag {
+  padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+  font-size: 0.68rem; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--accent-dark); background: var(--accent-bg-dark);
+}

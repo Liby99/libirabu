@@ -135,12 +135,15 @@ export default function EventDrawerShell({ name, onName, color, onColor, onColor
 
         {imported && (
           <div className="cc-dw-source">
-            <span>Synced · title &amp; time are read-only</span>
+            <span>Synced · title &amp; time locked</span>
             {externalUrl && (
               <a href={externalUrl} target="_blank" rel="noopener noreferrer">Open at source ↗</a>
             )}
             {onInternalize && (
-              <button className="cc-dw-source-btn" onClick={onInternalize} title="Make a fully-editable copy you own; the synced original is hidden">Make editable copy</button>
+              <>
+                <span className="cc-dw-ro-tag" title="This event is synced from the source — its fields can't be edited here">Read only</span>
+                <button className="cc-dw-source-btn" onClick={onInternalize} title="Make a fully-editable copy you own; the synced original is hidden">Make editable copy</button>
+              </>
             )}
           </div>
         )}

@@ -20,7 +20,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { buildScene } from "../geometry/scene";
-import { setDaily, frameFor } from "../geometry/frames";
+import { setDaily, frameFor, yearFrame } from "../geometry/frames";
 import DailyDashboard, { type DashHandle } from "./daily/DailyDashboard";
 import DailyResizeHandle from "./daily/DailyResizeHandle";
 import { fmtRange, snapHour, TimedEvent } from "../model/types/eventTypes";
@@ -77,7 +77,7 @@ function ordinal(n: number): string {
 }
 
 export default function CalendarCanvas() {
-  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToToday, goToMonth, goToOccurrence, revealHour, ensureHourVisible, ensureDayVisibleInWeek, zoomToDay, zoomToWeekOfDay, zoomToMonthWithDay, rebaseFocusAndZoom, scrollToMonth, kbDay, kbActive, setKbDayFocus, blurKbFocus, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade } =
+  const { wrapRef, vp, z, focus, displayFocus, week, scrollY, tlScroll, setTlScroll, setWeekHourH, hoverMonth, hoverWeek, hover, now, year, currentYear, selectYear, goToCurrentYear, goToNow, goToToday, goToMonth, goToOccurrence, revealHour, ensureHourVisible, ensureDayVisibleInWeek, zoomToDay, zoomToWeekOfDay, zoomToMonthWithDay, rebaseFocusAndZoom, scrollToMonth, keyPageDay, kbDay, kbActive, setKbDayFocus, blurKbFocus, tweenTo, onMove, onClick, clearHover, monthAnim, detailMul, dailyDom, dayAnim, monthEdge, dailyFrac, setDailyFrac, yearFade } =
     useCalendarInteractions();
   const { trackNames, editTrack, mainTz, mainTzSetting, altTz, setAltTz, setMainTz } = useCalendarSettings(year);
   const history = useHistory();
@@ -695,24 +695,64 @@ export default function CalendarCanvas() {
     const d = deadlines.find((x) => x.id === selectedId); if (d) return { month: d.month, day: d.day };
     return null;
   };
-  // Arrows in band gear: directional spatial navigation across the lane grid. Every bar whose centre
-  // lies to the pressed side is a candidate; the winner minimises along-axis distance plus a soft penalty
-  // on the off-axis offset — so it steps to the most rational neighbour, crossing lanes/days freely.
+  // Directional spatial pick: among `cells`, the one on the pressed side of `cur` minimising along-axis
+  // distance plus a soft off-axis penalty — steps to the most rational neighbour, crossing lanes/days freely.
+  const pickSpatial = <T extends { cx: number; cy: number }>(cells: T[], cur: T, key: string): T | null => {
+    const horizontal = key === "ArrowLeft" || key === "ArrowRight";
+    const sign = key === "ArrowLeft" || key === "ArrowUp" ? -1 : 1;
+    let best: T | null = null, bestScore = Infinity;
+    for (const c of cells) {
+      if (c === cur) continue;
+      const along = (horizontal ? c.cx - cur.cx : c.cy - cur.cy) * sign;
+      if (along <= 0.001) continue;
+      const off = horizontal ? Math.abs(c.cy - cur.cy) : Math.abs(c.cx - cur.cx);
+      const score = along + off * 2;
+      if (score < bestScore) { bestScore = score; best = c; }
+    }
+    return best;
+  };
+  // Yearly view: EVERY band-like item's absolute (scroll-0) position across all 12 months — real bands,
+  // recurrence ghosts, and promoted timed/deadline bars — so navigation reaches items scrolled off-screen
+  // (which aren't in the DOM). `at` uses the year layout: months stacked in quarters, day columns 1–31.
+  type YBand = { id: string; occ: string | null; month: number; cx: number; cy: number };
+  const yearBandItems = (): YBand[] => {
+    const out: YBand[] = [];
+    const dayW = (vp.w - LABEL_W) / 31;
+    const at = (id: string, occ: string | null, month: number, track: number, sd: number, ed: number) =>
+      out.push({ id, occ, month, cx: LABEL_W + ((sd + ed) / 2 - 0.5) * dayW, cy: yearFrame(month, vp, 0).bandY + (track + 0.5) * TRACK_H });
+    for (const ev of bandEvents) {
+      const span = ev.endDay - ev.startDay;
+      if (ev.year === year && !baseHidden(occDate({ year: ev.year, month: ev.month, day: ev.startDay }), ev.repeat)) at(ev.id, null, ev.month, ev.track, ev.startDay, ev.endDay);
+      if (ev.repeat && ev.repeat.kind !== "none") for (const o of occurrenceDates({ year: ev.year, month: ev.month, day: ev.startDay }, ev.repeat, year)) at(ev.id, occDate(o), o.month, ev.track, o.day, Math.min(o.day + span, daysInMonth(o.month)));
+    }
+    const promoted = (id: string, base: { year: number; month: number; day: number }, repeat: Repeat | undefined, track: number | null | undefined) => {
+      if (track == null) return;
+      if (base.year === year && !baseHidden(occDate(base), repeat)) at(id, null, base.month, track, base.day, base.day);
+      if (repeat && repeat.kind !== "none") for (const o of occurrenceDates(base, repeat, year)) at(id, occDate(o), o.month, track, o.day, o.day);
+    };
+    for (const e of events) promoted(e.id, { year: e.year, month: e.month, day: e.day }, e.repeat, e.promoteTrack);
+    for (const d of deadlines) promoted(d.id, { year: d.year, month: d.month, day: d.day }, d.repeat, d.promoteTrack);
+    return out;
+  };
+  // Arrows in band gear. Non-year views nav the on-screen DOM bars; year view nav's the full geometric set
+  // and scrolls an off-screen target into view — so you can move to bands anywhere in the year.
   const navBand = (key: string) => {
+    if (viewOf() === "year") {
+      const cells = yearBandItems();
+      const cur = cells.find((c) => c.id === selectedId && (c.occ ?? null) === (focusedOcc ?? null)) ?? cells.find((c) => c.id === selectedId);
+      if (!cur || cells.length <= 1) return;
+      const best = pickSpatial(cells, cur, key);
+      if (best) {
+        setSelectedId(best.id); setFocusedOcc(best.occ); selSpaceRef.current = "allday";
+        const onScreenY = best.cy - scrollY; // absolute cy → on-screen; scroll if it's outside the viewport
+        if (onScreenY < TOP_PAD || onScreenY > vp.h - 8) scrollToMonth(best.month, true);
+      }
+      return;
+    }
     const cells = bandCells();
     const cur = cells.find((c) => c.id === selectedId && (c.occ ?? null) === (focusedOcc ?? null)) ?? cells.find((c) => c.id === selectedId);
     if (!cur || cells.length <= 1) return;
-    const horizontal = key === "ArrowLeft" || key === "ArrowRight";
-    const sign = key === "ArrowLeft" || key === "ArrowUp" ? -1 : 1;
-    let best: BandCell | null = null, bestScore = Infinity;
-    for (const c of cells) {
-      if (c === cur) continue;
-      const along = (horizontal ? c.cx - cur.cx : c.cy - cur.cy) * sign; // forward distance in the pressed direction
-      if (along <= 0.001) continue;                                      // must lie to that side
-      const off = horizontal ? Math.abs(c.cy - cur.cy) : Math.abs(c.cx - cur.cx);
-      const score = along + off * 2;                                     // direction dominates; off-axis is a soft penalty
-      if (score < bestScore) { bestScore = score; best = c; }
-    }
+    const best = pickSpatial(cells, cur, key);
     if (best) { setSelectedId(best.id); setFocusedOcc(best.occ); selSpaceRef.current = "allday"; }
   };
   // Shift+arrows in band gear move the bar itself. Real band: Up/Down = lane (track 0–3), Left/Right =
@@ -885,6 +925,7 @@ export default function CalendarCanvas() {
     } else {
       if (key === "ArrowUp" || key === "ArrowDown") { const h = Math.max(0, Math.min(23, kbDay.hour + (key === "ArrowUp" ? -1 : 1))); if (h !== kbDay.hour) { setKbDayFocus(kbDay.month, v === "day" ? dailyDom : kbDay.day, h); ensureHourVisible(h); } }
       else if (v === "week" && (key === "ArrowLeft" || key === "ArrowRight")) { const d = Math.max(1, Math.min(daysInMonth(kbDay.month), kbDay.day + (key === "ArrowLeft" ? -1 : 1))); if (d !== kbDay.day) { setKbDayFocus(kbDay.month, d, kbDay.hour); ensureDayVisibleInWeek(kbDay.month, d); } }
+      else if (v === "day" && (key === "ArrowLeft" || key === "ArrowRight")) keyPageDay(key === "ArrowLeft" ? -1 : 1); // page prev/next day, clamped to the month
     }
   };
   // Shift+= : zoom IN one level, preserving the space + element.
