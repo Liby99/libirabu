@@ -23,8 +23,12 @@ public final class CalendarEngine {
     public var weekHourH: CGFloat = 60
     public private(set) var viewport: Viewport = Viewport(w: 1, h: 1)
     public private(set) var seedEvents: [TimedEvent] = []
+    public let trackNames = TRACKS.map { $0.name }
 
     private var tween: Tween?
+    private var weekTween: Tween?
+    private var snapWork: DispatchWorkItem?
+    private var wheelAccumX: CGFloat = 0
     // pinch state
     private var magStartZ: CGFloat = 0
     private var magAccum: CGFloat = 0
@@ -57,6 +61,10 @@ public final class CalendarEngine {
             z = t.value(at: date)
             if t.isComplete(at: date) { z = t.to; tween = nil }
         }
+        if let wt = weekTween {
+            week = wt.value(at: date)
+            if wt.isComplete(at: date) { week = wt.to; weekTween = nil }
+        }
         return snapshot()
     }
 
@@ -70,6 +78,19 @@ public final class CalendarEngine {
 
     private func cancelTween() {
         if let t = tween { z = t.value(at: Date()); tween = nil }
+        if let wt = weekTween { week = wt.value(at: Date()); weekTween = nil }
+        snapWork?.cancel()
+    }
+
+    private func scheduleWeekSnap(_ maxWeek: CGFloat) {
+        snapWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let target = clamp((self.week * 7).rounded() / 7, 0, maxWeek)
+            self.weekTween = Tween(from: self.week, to: target, start: Date(), duration: 0.2, ease: easeInOut)
+        }
+        snapWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: work)
     }
 
     public func tweenZ(to target: CGFloat, dur: TimeInterval? = nil) {
@@ -86,11 +107,16 @@ public final class CalendarEngine {
             let tl = timelineInfo(snapshot())
             tlScroll = min(max(0, tlScroll - dy), tl.maxScroll)
         } else if b == 2 {
-            week = clamp(week + dx / (viewport.w - Layout.labelW), 0, CGFloat(max(0, weeksInMonth(year, focus) - 1)))
+            weekTween = nil
+            let maxWeek = CGFloat(max(0, weeksInMonth(year, focus) - 1))
+            week = clamp(week - dx / (viewport.w - Layout.labelW), 0, maxWeek)  // swipe-left → later days
+            scheduleWeekSnap(maxWeek)
         } else if b == 3 {
-            // day view: horizontal wheel pages days within the focus month
-            let next = min(daysInMonth(focus), max(1, daily.dom + (dx > 0 ? 1 : -1)))
-            if next != daily.dom { daily.dom = next }
+            wheelAccumX += dx
+            if abs(wheelAccumX) > 55 {
+                daily.dom = min(daysInMonth(focus), max(1, daily.dom + (wheelAccumX < 0 ? 1 : -1)))  // swipe-left → next day
+                wheelAccumX = 0
+            }
         }
     }
 

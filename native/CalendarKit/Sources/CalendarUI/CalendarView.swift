@@ -19,7 +19,7 @@ public struct CalendarView: View {
                 let input = engine.sceneInput(at: tl.date, viewport: vp)
                 Canvas { ctx, size in
                     var c = ctx
-                    SceneRenderer.draw(input: input, events: engine.seedEvents, in: &c, size: size, theme: theme)
+                    SceneRenderer.draw(input: input, events: engine.seedEvents, tracks: engine.trackNames, in: &c, size: size, theme: theme)
                 }
             }
             .background(theme.bg)
