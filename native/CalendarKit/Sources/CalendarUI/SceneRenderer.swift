@@ -15,7 +15,7 @@ import CalendarGeometry
 enum SceneRenderer {
     // Draws the background scene + chrome. Events are a separate SwiftUI overlay
     // (EventsOverlay) so they get a real material backdrop blur.
-    static func draw(input: SceneInput, tracks: [String], deadlines: [Deadline], in ctx: inout GraphicsContext, size: CGSize, theme: Theme) {
+    static func draw(input: SceneInput, tracks: [String], deadlines: [Deadline], selected: String?, in ctx: inout GraphicsContext, size: CGSize, theme: Theme) {
         let items = buildScene(input).items.sorted { $0.z < $1.z }
 
         func drawBand(_ lo: Int, _ hi: Int) {
@@ -29,7 +29,7 @@ enum SceneRenderer {
         drawBand(Int.min, 5)
         drawGutter(input, &ctx, theme)
         drawBand(5, 14)
-        drawDeadlines(input, deadlines, &ctx, theme)
+        drawDeadlines(input, deadlines, selected, &ctx, theme)
         drawTrackNames(input, tracks, &ctx, theme)
         drawDashboard(input, &ctx, theme)
         drawBand(14, Int.max)
@@ -37,7 +37,7 @@ enum SceneRenderer {
 
     // Deadlines: a colored horizontal rule across the day column at the deadline's
     // hour, with end dots + a title/time pill. Clipped to the visible day area.
-    private static func drawDeadlines(_ input: SceneInput, _ deadlines: [Deadline], _ ctx: inout GraphicsContext, _ theme: Theme) {
+    private static func drawDeadlines(_ input: SceneInput, _ deadlines: [Deadline], _ selected: String?, _ ctx: inout GraphicsContext, _ theme: Theme) {
         let tl = timelineInfo(input)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return }
         let f = frameFor(input.focus, input)
@@ -51,9 +51,10 @@ enum SceneRenderer {
             var layer = clip
             layer.opacity = Double(fade)
             let color = theme.eventBorder(d.color)
+            let sel = d.id == selected
             var line = Path()
             line.move(to: CGPoint(x: pos.x, y: pos.y)); line.addLine(to: CGPoint(x: pos.x + pos.w, y: pos.y))
-            layer.stroke(line, with: .color(color), lineWidth: 1.5)
+            layer.stroke(line, with: .color(color), lineWidth: sel ? 2.5 : 1.5)
             for cx in [pos.x, pos.x + pos.w] {
                 let dot = Path(ellipseIn: CGRect(x: cx - 3, y: pos.y - 3, width: 6, height: 6))
                 layer.fill(dot, with: .color(theme.bg)); layer.stroke(dot, with: .color(color), lineWidth: 1.5)

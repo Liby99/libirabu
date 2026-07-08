@@ -40,13 +40,19 @@ public final class CalendarEngine {
     // pointer / editing state
     private var drag: Drag?
     private var createCounter = 0
-    // undo / redo (whole-array snapshots, coalesced per gesture / typing burst)
-    private var undoStack: [[TimedEvent]] = []
-    private var redoStack: [[TimedEvent]] = []
-    private var pendingUndo: [TimedEvent]?
+    // undo / redo (whole-state snapshots, coalesced per gesture / typing burst)
+    private struct EditState: Equatable { var events: [TimedEvent]; var bands: [BandEvent]; var deadlines: [Deadline] }
+    private var editState: EditState { EditState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines) }
+    private var undoStack: [EditState] = []
+    private var redoStack: [EditState] = []
+    private var pendingUndo: EditState?
     private var undoWork: DispatchWorkItem?
 
-    private enum PointerKind { case navigate, move, resizeTop, resizeBottom, create }
+    private enum PointerKind {
+        case navigate, move, resizeTop, resizeBottom, create           // timed
+        case bandMove, bandResizeL, bandResizeR, bandCreate            // all-day bands
+        case ddlMove                                                   // deadlines
+    }
     private struct Drag {
         var kind: PointerKind
         var startPoint: CGPoint
@@ -55,6 +61,11 @@ public final class CalendarEngine {
         var anchorHour: CGFloat? = nil
         var createMonth: Int? = nil
         var createDay: Int? = nil
+        var origBand: BandEvent? = nil
+        var bandMonth: Int? = nil
+        var bandTrack: Int? = nil
+        var bandAnchorDay: Int? = nil
+        var origDdl: Deadline? = nil
         var activated = false
     }
 
@@ -180,14 +191,33 @@ public final class CalendarEngine {
         commitTxn()   // flush any pending (e.g. drawer typing) before a new gesture
         cancelTween()
         let g = snapshot()
+        // 1. all-day bands (on the lanes) — month view onward
+        if z >= 1, let hit = bandAt(p, g) {
+            selectedId = hit.id
+            drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id, origBand: seedBands.first { $0.id == hit.id })
+            return
+        }
+        // 2. timed events (on the timeline)
         if z >= 1.5, let hit = eventAt(p, g) {
             selectedId = hit.id
             drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id, orig: seedEvents.first { $0.id == hit.id })
             return
         }
+        // 3. deadlines (on the timeline)
+        if z >= 1.5, let id = deadlineAt(p, g) {
+            selectedId = id
+            drag = Drag(kind: .ddlMove, startPoint: p, eventId: id, origDdl: seedDeadlines.first { $0.id == id })
+            return
+        }
+        // 4. empty timeline → primed timed-create (drag) / navigate (click)
         if z >= 1.5, let spot = createSpot(at: p, g) {
-            // primed for create, but a plain click here still navigates (drill in).
             drag = Drag(kind: .create, startPoint: p, anchorHour: spot.anchor, createMonth: spot.month, createDay: spot.day)
+            selectedId = nil
+            return
+        }
+        // 5. empty lane → primed band-create (drag) / navigate (click)
+        if z >= 1, let slot = bandSlotAtPoint(p.x, p.y, g) {
+            drag = Drag(kind: .bandCreate, startPoint: p, bandMonth: slot.month, bandTrack: slot.track, bandAnchorDay: slot.day)
             selectedId = nil
             return
         }
@@ -202,25 +232,33 @@ public final class CalendarEngine {
             d.activated = true
             drag = d
         }
-        let tl = timelineInfo(snapshot())
+        let g = snapshot()
+        let tl = timelineInfo(g)
         switch d.kind {
         case .navigate: break
         case .move: applyMove(d, p, tl)
         case .resizeTop: applyResize(d, p, tl, top: true)
         case .resizeBottom: applyResize(d, p, tl, top: false)
         case .create: applyCreate(p, tl)
+        case .bandMove: applyBandMove(d, p, g)
+        case .bandResizeL: applyBandResize(d, p, g, left: true)
+        case .bandResizeR: applyBandResize(d, p, g, left: false)
+        case .bandCreate: applyBandCreate(p, g)
+        case .ddlMove: applyDdlMove(d, p, g)
         }
     }
 
     public func onPointerUp(at p: CGPoint) {
         defer { commitTxn(); drag = nil }   // one undo entry per drag
         guard let d = drag else { return }
-        // plain click (no drag) on nav target or an empty (create-primed) cell → navigate
-        if !d.activated && (d.kind == .navigate || (d.kind == .create && d.eventId == nil)) {
+        // plain click (no drag) on a nav target or an empty (create-primed) cell → navigate
+        if !d.activated && (d.kind == .navigate
+            || (d.kind == .create && d.eventId == nil)
+            || (d.kind == .bandCreate && d.eventId == nil)) {
             navigate(at: p)
             return
         }
-        // discard a too-small created event
+        // discard a too-small created timed event
         if d.kind == .create, let id = d.eventId, let e = seedEvents.first(where: { $0.id == id }), e.endHour - e.startHour < 0.25 {
             seedEvents.removeAll { $0.id == id }
             if selectedId == id { selectedId = nil }
@@ -231,17 +269,19 @@ public final class CalendarEngine {
         guard let id = selectedId else { return }
         beginTxn()
         seedEvents.removeAll { $0.id == id }
+        seedBands.removeAll { $0.id == id }
+        seedDeadlines.removeAll { $0.id == id }
         selectedId = nil
         commitTxn()
     }
 
     // ── Undo / redo ───────────────────────────────────────────────────────────────
-    private func beginTxn() { if pendingUndo == nil { pendingUndo = seedEvents } }
+    private func beginTxn() { if pendingUndo == nil { pendingUndo = editState } }
     private func commitTxn() {
         undoWork?.cancel(); undoWork = nil
         guard let snap = pendingUndo else { return }
         pendingUndo = nil
-        guard snap != seedEvents else { return }     // no-op edit → no entry
+        guard snap != editState else { return }     // no-op edit → no entry
         undoStack.append(snap)
         if undoStack.count > 100 { undoStack.removeFirst() }
         redoStack.removeAll()
@@ -252,20 +292,19 @@ public final class CalendarEngine {
         undoWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
     }
+    private func restore(_ s: EditState) { seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines; selectedId = nil }
     public var canUndo: Bool { !undoStack.isEmpty || pendingUndo != nil }
     public var canRedo: Bool { !redoStack.isEmpty }
     public func undo() {
         commitTxn()
         guard let snap = undoStack.popLast() else { return }
-        redoStack.append(seedEvents)
-        seedEvents = snap
-        selectedId = nil
+        redoStack.append(editState)
+        restore(snap)
     }
     public func redo() {
         guard let snap = redoStack.popLast() else { return }
-        undoStack.append(seedEvents)
-        seedEvents = snap
-        selectedId = nil
+        undoStack.append(editState)
+        restore(snap)
     }
 
     // ── Drawer support ──────────────────────────────────────────────────────────
@@ -374,6 +413,84 @@ public final class CalendarEngine {
         seedEvents[idx] = ev
     }
 
+    // ── Band + deadline editing ─────────────────────────────────────────────────
+    private func bandDay(_ px: CGFloat, _ month: Int, _ g: SceneInput) -> Int {
+        let f = frameFor(month, g)
+        return f.dayW > 0 ? Int((px - f.x0) / f.dayW) + 1 : 1
+    }
+
+    private func bandAt(_ p: CGPoint, _ g: SceneInput) -> (id: String, zone: PointerKind)? {
+        var found: (String, PointerKind)?
+        for b in seedBands {
+            guard let r = bandEventRect(b, g, anim: g.monthAnim) else { continue }
+            let rect = CGRect(x: r.x, y: r.y, width: r.w, height: r.h)
+            if rect.contains(p) {
+                let zone: PointerKind = (p.x - rect.minX < 6 && !r.clipStart) ? .bandResizeL
+                    : (rect.maxX - p.x < 6 && !r.clipEnd ? .bandResizeR : .bandMove)
+                found = (b.id, zone)   // keep last → topmost
+            }
+        }
+        return found
+    }
+
+    private func applyBandMove(_ d: Drag, _ p: CGPoint, _ g: SceneInput) {
+        guard let orig = d.origBand, let idx = seedBands.firstIndex(where: { $0.id == d.eventId }) else { return }
+        beginTxn()
+        let len = orig.endDay - orig.startDay
+        let delta = bandDay(p.x, orig.month, g) - bandDay(d.startPoint.x, orig.month, g)
+        let ns = max(1, min(daysInMonth(orig.month) - len, orig.startDay + delta))
+        var b = seedBands[idx]
+        b.startDay = ns; b.endDay = ns + len
+        if let slot = bandSlotAtPoint(p.x, p.y, g), slot.month == orig.month { b.track = slot.track }
+        seedBands[idx] = b
+    }
+
+    private func applyBandResize(_ d: Drag, _ p: CGPoint, _ g: SceneInput, left: Bool) {
+        guard let orig = d.origBand, let idx = seedBands.firstIndex(where: { $0.id == d.eventId }) else { return }
+        beginTxn()
+        let day = max(1, min(daysInMonth(orig.month), bandDay(p.x, orig.month, g)))
+        var b = seedBands[idx]
+        if left { b.startDay = min(b.endDay, day) } else { b.endDay = max(b.startDay, day) }
+        seedBands[idx] = b
+    }
+
+    private func applyBandCreate(_ p: CGPoint, _ g: SceneInput) {
+        guard var d = drag else { return }
+        beginTxn()
+        if d.eventId == nil {
+            guard let mo = d.bandMonth, let tr = d.bandTrack, let a = d.bandAnchorDay else { return }
+            createCounter += 1
+            let id = "newb-\(createCounter)"
+            seedBands.append(BandEvent(id: id, year: year, month: mo, track: tr, startDay: a, endDay: a, title: "New event", color: "blue"))
+            d.eventId = id; drag = d; selectedId = id
+        }
+        guard let id = d.eventId, let idx = seedBands.firstIndex(where: { $0.id == id }), let mo = d.bandMonth, let a = d.bandAnchorDay else { return }
+        let cur = max(1, min(daysInMonth(mo), bandDay(p.x, mo, g)))
+        var b = seedBands[idx]
+        b.startDay = min(a, cur); b.endDay = max(a, cur)
+        seedBands[idx] = b
+    }
+
+    private func deadlineAt(_ p: CGPoint, _ g: SceneInput) -> String? {
+        var hit: String?
+        for d in seedDeadlines {
+            guard let pos = deadlinePos(d, g) else { continue }
+            if p.x >= pos.x && p.x <= pos.x + pos.w && abs(p.y - pos.y) < 8 { hit = d.id }
+        }
+        return hit
+    }
+
+    private func applyDdlMove(_ d: Drag, _ p: CGPoint, _ g: SceneInput) {
+        guard let idx = seedDeadlines.firstIndex(where: { $0.id == d.eventId }) else { return }
+        beginTxn()
+        let tl = timelineInfo(g)
+        let (domOpt, hf) = pointToSlot(p.x, p.y, tl)
+        var dd = seedDeadlines[idx]
+        dd.hour = snap(hf, 15)
+        if let dom = domOpt, let r = resolveDate(focus, dom) { dd.month = r.month; dd.day = r.day }
+        seedDeadlines[idx] = dd
+    }
+
     public func onEscape() {
         cancelTween()
         tweenZ(to: CGFloat(max(0, level(z) - 1)))
@@ -408,10 +525,14 @@ public final class CalendarEngine {
 
     public enum CursorHint { case normal, grab, create }
     public func cursorHint(at p: CGPoint) -> CursorHint {
-        guard z >= 1.5 else { return .normal }
         let g = snapshot()
-        if eventAt(p, g) != nil { return .grab }
-        if createSpot(at: p, g) != nil { return .create }
+        if z >= 1, bandAt(p, g) != nil { return .grab }
+        if z >= 1.5 {
+            if eventAt(p, g) != nil { return .grab }
+            if deadlineAt(p, g) != nil { return .grab }
+            if createSpot(at: p, g) != nil { return .create }
+        }
+        if z >= 1, bandSlotAtPoint(p.x, p.y, g) != nil { return .create }
         return .normal
     }
 
