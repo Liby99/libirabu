@@ -71,7 +71,7 @@ public func relDomOf(_ focus: Int, _ month: Int, _ day: Int) -> Int? {
 
 public let EVENT_COLORS = ["default", "blue", "indigo", "cyan", "green", "darkgreen", "yellow", "orange", "red", "purple"]
 
-public struct TimedEvent: Sendable, Identifiable, Equatable {
+public struct TimedEvent: Sendable, Identifiable, Equatable, Codable {
     public var id: String
     public var month: Int
     public var day: Int

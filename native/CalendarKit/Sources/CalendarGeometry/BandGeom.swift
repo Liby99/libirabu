@@ -4,7 +4,7 @@
 import CoreGraphics
 
 // ── All-day band events ──────────────────────────────────────────────────────────
-public struct BandEvent: Sendable, Identifiable, Equatable {
+public struct BandEvent: Sendable, Identifiable, Equatable, Codable {
     public var id: String
     public var year: Int
     public var month: Int       // 0–11
@@ -64,7 +64,7 @@ public func bandSlotAtPoint(_ px: CGFloat, _ py: CGFloat, _ g: SceneInput) -> (m
 }
 
 // ── Deadlines ──────────────────────────────────────────────────────────────────────
-public struct Deadline: Sendable, Identifiable, Equatable {
+public struct Deadline: Sendable, Identifiable, Equatable, Codable {
     public var id: String
     public var year: Int
     public var month: Int

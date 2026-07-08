@@ -47,6 +47,8 @@ public final class CalendarEngine {
     private var redoStack: [EditState] = []
     private var pendingUndo: EditState?
     private var undoWork: DispatchWorkItem?
+    private let store = ItemStore()
+    private var persistWork: DispatchWorkItem?
 
     private enum PointerKind {
         case navigate, move, resizeTop, resizeBottom, create           // timed
@@ -80,9 +82,24 @@ public final class CalendarEngine {
         seedEvents = Self.makeSeeds(month: focus, day: c.day ?? 15)
         seedBands = Self.makeSeedBands(year: year, month: focus)
         seedDeadlines = Self.makeSeedDeadlines(year: year, month: focus, day: c.day ?? 15)
+        // self is now fully initialized — restore persisted edits over the seeds.
+        if let s = store.load() {
+            seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines
+        } else {
+            persistNow()   // seed the store on first launch
+        }
         nowTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.now = Date() }
         }
+    }
+
+    // ── Persistence ─────────────────────────────────────────────────────────────
+    private func persistNow() { store.save(PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines)) }
+    private func schedulePersist() {
+        persistWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.persistNow() }
+        persistWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     // ── Frame snapshot ──────────────────────────────────────────────────────────
@@ -285,6 +302,7 @@ public final class CalendarEngine {
         undoStack.append(snap)
         if undoStack.count > 100 { undoStack.removeFirst() }
         redoStack.removeAll()
+        schedulePersist()
     }
     private func scheduleCommit() {                    // coalesce a typing burst
         undoWork?.cancel()
@@ -292,7 +310,7 @@ public final class CalendarEngine {
         undoWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
     }
-    private func restore(_ s: EditState) { seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines; selectedId = nil }
+    private func restore(_ s: EditState) { seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines; selectedId = nil; schedulePersist() }
     public var canUndo: Bool { !undoStack.isEmpty || pendingUndo != nil }
     public var canRedo: Bool { !redoStack.isEmpty }
     public func undo() {
