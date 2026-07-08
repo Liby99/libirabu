@@ -19,7 +19,7 @@ public struct CalendarView: View {
                 let input = engine.sceneInput(at: tl.date, viewport: vp)
                 Canvas { ctx, size in
                     var c = ctx
-                    SceneRenderer.draw(input: input, events: engine.seedEvents, tracks: engine.trackNames, in: &c, size: size, theme: theme)
+                    SceneRenderer.draw(input: input, events: engine.seedEvents, tracks: engine.trackNames, selected: engine.selectedId, in: &c, size: size, theme: theme)
                 }
             }
             .background(theme.bg)
@@ -79,13 +79,18 @@ final class CatcherView: NSView {
     }
     override func mouseDown(with e: NSEvent) {
         window?.makeFirstResponder(self)
-        engine?.onClick(at: point(e))
+        engine?.onPointerDown(at: point(e))
     }
+    override func mouseDragged(with e: NSEvent) { engine?.onPointerDrag(at: point(e)) }
+    override func mouseUp(with e: NSEvent) { engine?.onPointerUp(at: point(e)) }
     override func mouseMoved(with e: NSEvent) { engine?.onHover(at: point(e)) }
     override func mouseExited(with e: NSEvent) { engine?.onHoverExit() }
     override func keyDown(with e: NSEvent) {
-        if e.keyCode == 53 { engine?.onEscape() }  // Esc
-        else { super.keyDown(with: e) }
+        switch e.keyCode {
+        case 53: engine?.onEscape()             // Esc
+        case 51, 117: engine?.deleteSelected()  // Delete / Forward-Delete
+        default: super.keyDown(with: e)
+        }
     }
 }
 #endif

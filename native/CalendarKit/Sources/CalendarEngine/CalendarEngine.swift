@@ -25,6 +25,8 @@ public final class CalendarEngine {
     public private(set) var seedEvents: [TimedEvent] = []
     public let trackNames = TRACKS.map { $0.name }
 
+    public private(set) var selectedId: String?
+
     private var tween: Tween?
     private var weekTween: Tween?
     private var snapWork: DispatchWorkItem?
@@ -33,6 +35,21 @@ public final class CalendarEngine {
     private var magStartZ: CGFloat = 0
     private var magAccum: CGFloat = 0
     private var nowTimer: Timer?
+    // pointer / editing state
+    private var drag: Drag?
+    private var createCounter = 0
+
+    private enum PointerKind { case navigate, move, resizeTop, resizeBottom, create }
+    private struct Drag {
+        var kind: PointerKind
+        var startPoint: CGPoint
+        var eventId: String? = nil
+        var orig: TimedEvent? = nil
+        var anchorHour: CGFloat? = nil
+        var createMonth: Int? = nil
+        var createDay: Int? = nil
+        var activated = false
+    }
 
     private let ZOOM_DUR: TimeInterval = 0.52
     private let PINCH_SENS: CGFloat = 1.6
@@ -147,8 +164,66 @@ public final class CalendarEngine {
         }
     }
 
-    public func onClick(at p: CGPoint) {
+    // ── Pointer: unified down / drag / up ────────────────────────────────────────
+    // A plain click (down+up, no movement) navigates (drills in). A drag creates,
+    // moves, or resizes an event depending on what's under the cursor at down.
+    public func onPointerDown(at p: CGPoint) {
         cancelTween()
+        let g = snapshot()
+        if z >= 1.5, let hit = eventAt(p, g) {
+            selectedId = hit.id
+            drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id, orig: seedEvents.first { $0.id == hit.id })
+            return
+        }
+        if z >= 1.5, let spot = createSpot(at: p, g) {
+            // primed for create, but a plain click here still navigates (drill in).
+            drag = Drag(kind: .create, startPoint: p, anchorHour: spot.anchor, createMonth: spot.month, createDay: spot.day)
+            selectedId = nil
+            return
+        }
+        selectedId = nil
+        drag = Drag(kind: .navigate, startPoint: p)
+    }
+
+    public func onPointerDrag(at p: CGPoint) {
+        guard var d = drag else { return }
+        if !d.activated {
+            if hypot(p.x - d.startPoint.x, p.y - d.startPoint.y) < 3 { return }
+            d.activated = true
+            drag = d
+        }
+        let tl = timelineInfo(snapshot())
+        switch d.kind {
+        case .navigate: break
+        case .move: applyMove(d, p, tl)
+        case .resizeTop: applyResize(d, p, tl, top: true)
+        case .resizeBottom: applyResize(d, p, tl, top: false)
+        case .create: applyCreate(p, tl)
+        }
+    }
+
+    public func onPointerUp(at p: CGPoint) {
+        defer { drag = nil }
+        guard let d = drag else { return }
+        // plain click (no drag) on nav target or an empty (create-primed) cell → navigate
+        if !d.activated && (d.kind == .navigate || (d.kind == .create && d.eventId == nil)) {
+            navigate(at: p)
+            return
+        }
+        // discard a too-small created event
+        if d.kind == .create, let id = d.eventId, let e = seedEvents.first(where: { $0.id == id }), e.endHour - e.startHour < 0.25 {
+            seedEvents.removeAll { $0.id == id }
+            if selectedId == id { selectedId = nil }
+        }
+    }
+
+    public func deleteSelected() {
+        guard let id = selectedId else { return }
+        seedEvents.removeAll { $0.id == id }
+        selectedId = nil
+    }
+
+    private func navigate(at p: CGPoint) {
         let g = snapshot()
         switch level(z) {
         case 0:
@@ -159,6 +234,76 @@ public final class CalendarEngine {
             if let d = dayAtPointInWeek(p.x, g) { focus = d.month; week = CGFloat(d.week); daily.dom = d.day; tweenZ(to: 3) }
         default: break
         }
+    }
+
+    // ── Editing helpers ───────────────────────────────────────────────────────────
+    private func snap(_ h: CGFloat, _ stepMin: CGFloat) -> CGFloat {
+        let step = stepMin / 60
+        return max(0, min(24, (h / step).rounded() * step))
+    }
+
+    /// Topmost event under the cursor + which zone (body vs top/bottom resize edge).
+    private func eventAt(_ p: CGPoint, _ g: SceneInput) -> (id: String, zone: PointerKind)? {
+        let tl = timelineInfo(g)
+        guard tl.reveal > 0.05, tl.hourH > 0 else { return nil }
+        if z > 2 && p.x >= tl.x0 + CGFloat(daily.dom) * tl.colW { return nil }  // under dashboard
+        var found: (String, PointerKind)?
+        for e in seedEvents {
+            if dailyFade(relDomOf(focus, e.month, e.day) ?? -999, g) <= 0.02 { continue }
+            let sameDay = seedEvents.filter { $0.month == e.month && $0.day == e.day }
+            guard let r = eventRect(e, focus, tl, g.vp, layoutDay(sameDay)[e.id]) else { continue }
+            let rect = CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
+            if rect.contains(p) {
+                let zone: PointerKind = (p.y - rect.minY < 5) ? .resizeTop : (rect.maxY - p.y < 5 ? .resizeBottom : .move)
+                found = (e.id, zone)   // keep last → topmost drawn
+            }
+        }
+        return found
+    }
+
+    private func createSpot(at p: CGPoint, _ g: SceneInput) -> (month: Int, day: Int, anchor: CGFloat)? {
+        let tl = timelineInfo(g)
+        guard tl.reveal > 0.05, tl.hourH > 0, p.y >= tl.tlTop, p.y <= tl.tlBottom else { return nil }
+        if z > 2 && p.x >= tl.x0 + CGFloat(daily.dom) * tl.colW { return nil }
+        let (domOpt, hf) = pointToSlot(p.x, p.y, tl)
+        guard let dom = domOpt, let r = resolveDate(focus, dom) else { return nil }
+        return (r.month, r.day, snap(hf, 30))
+    }
+
+    private func applyMove(_ d: Drag, _ p: CGPoint, _ tl: TimelineInfo) {
+        guard let orig = d.orig, let idx = seedEvents.firstIndex(where: { $0.id == d.eventId }) else { return }
+        let dur = orig.endHour - orig.startHour
+        let ns = max(0, min(24 - dur, snap(orig.startHour + (p.y - d.startPoint.y) / tl.hourH, 15)))
+        var ev = seedEvents[idx]
+        ev.startHour = ns; ev.endHour = ns + dur
+        if let dom = pointToSlot(p.x, p.y, tl).dom, let r = resolveDate(focus, dom) { ev.month = r.month; ev.day = r.day }
+        seedEvents[idx] = ev
+    }
+
+    private func applyResize(_ d: Drag, _ p: CGPoint, _ tl: TimelineInfo, top: Bool) {
+        guard let idx = seedEvents.firstIndex(where: { $0.id == d.eventId }) else { return }
+        let hf = pointToSlot(p.x, p.y, tl).hourFrac
+        var ev = seedEvents[idx]
+        if top { ev.startHour = min(ev.endHour - 0.25, snap(hf, 15)) }
+        else { ev.endHour = max(ev.startHour + 0.25, snap(hf, 15)) }
+        seedEvents[idx] = ev
+    }
+
+    private func applyCreate(_ p: CGPoint, _ tl: TimelineInfo) {
+        guard var d = drag else { return }
+        if d.eventId == nil {
+            guard let mo = d.createMonth, let dy = d.createDay, let a = d.anchorHour else { return }
+            createCounter += 1
+            let id = "new-\(createCounter)"
+            seedEvents.append(TimedEvent(id: id, month: mo, day: dy, startHour: a, endHour: min(24, a + 0.25), title: "New event", color: "blue"))
+            d.eventId = id; drag = d; selectedId = id
+        }
+        guard let id = d.eventId, let idx = seedEvents.firstIndex(where: { $0.id == id }), let a = d.anchorHour else { return }
+        let cur = snap(pointToSlot(p.x, p.y, tl).hourFrac, 15)
+        var ev = seedEvents[idx]
+        ev.startHour = min(a, cur); ev.endHour = max(a, cur)
+        if ev.endHour - ev.startHour < 0.25 { ev.endHour = min(24, ev.startHour + 0.25) }
+        seedEvents[idx] = ev
     }
 
     public func onEscape() {

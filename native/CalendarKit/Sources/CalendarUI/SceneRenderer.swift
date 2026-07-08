@@ -14,7 +14,7 @@ import CalendarGeometry
 import CalendarEngine
 
 enum SceneRenderer {
-    static func draw(input: SceneInput, events: [TimedEvent], tracks: [String], in ctx: inout GraphicsContext, size: CGSize, theme: Theme) {
+    static func draw(input: SceneInput, events: [TimedEvent], tracks: [String], selected: String?, in ctx: inout GraphicsContext, size: CGSize, theme: Theme) {
         let items = buildScene(input).items.sorted { $0.z < $1.z }
 
         func drawBand(_ lo: Int, _ hi: Int) {
@@ -28,7 +28,7 @@ enum SceneRenderer {
         drawBand(Int.min, 5)
         drawGutter(input, &ctx, theme)
         drawBand(5, 14)
-        drawEvents(input: input, events: events, in: &ctx, theme: theme)
+        drawEvents(input: input, events: events, selected: selected, in: &ctx, theme: theme)
         drawTrackNames(input, tracks, &ctx, theme)
         drawDashboard(input, &ctx, theme)
         drawBand(14, Int.max)
@@ -213,7 +213,7 @@ enum SceneRenderer {
     }
 
     // ── Events ────────────────────────────────────────────────────────────────────
-    private static func drawEvents(input: SceneInput, events: [TimedEvent], in ctx: inout GraphicsContext, theme: Theme) {
+    private static func drawEvents(input: SceneInput, events: [TimedEvent], selected: String?, in ctx: inout GraphicsContext, theme: Theme) {
         let tl = timelineInfo(input)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return }
         var byDay: [Int: [TimedEvent]] = [:]
@@ -232,7 +232,11 @@ enum SceneRenderer {
                 if rect.maxY < tl.tlTop || rect.minY > tl.tlBottom { continue }
                 var layer = clip
                 layer.opacity = Double(fade)
-                layer.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(theme.eventFill(e.color)))
+                let shape = Path(roundedRect: rect, cornerRadius: 4)
+                layer.fill(shape, with: .color(theme.eventFill(e.color)))
+                if e.id == selected {
+                    layer.stroke(shape, with: .color(theme.text), lineWidth: 2)
+                }
                 if rect.height > 14 {
                     drawText(e.title, rect.insetBy(dx: 5, dy: 3), size: 10, align: .left, color: theme.eventText, weight: .medium, into: &layer, clipToRect: true)
                 }
