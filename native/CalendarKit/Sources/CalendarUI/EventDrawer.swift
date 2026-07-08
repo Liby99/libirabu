@@ -1,7 +1,8 @@
-// Detail drawer — a right-side glass panel to edit the double-clicked item. Handles
-// all three kinds (timed event, all-day band, deadline), showing the fields each
-// needs. Lives outside the per-frame TimelineView (so its TextField keeps focus);
-// edits commit straight to the engine, which the Canvas reflects each frame.
+// Detail drawer — right-side glass panel, resizable, sliding in from the right.
+// Top section mirrors the web's EventDrawerShell: a borderless handwriting title as
+// the header row, a small close-X in the corner, a dashed-separated label-less
+// "when" row, then the color swatch row, then a divider. Handles all three item
+// kinds (timed event, all-day band, deadline).
 
 import SwiftUI
 import CalendarGeometry
@@ -19,6 +20,7 @@ private enum ItemKind2 { case timed, band, deadline }
 struct EventDrawer: View {
     let engine: CalendarEngine
     let id: String
+    @Binding var width: CGFloat
     let theme: Theme
     let onClose: () -> Void
 
@@ -26,93 +28,173 @@ struct EventDrawer: View {
     @State private var title = ""
     @State private var color = "blue"
     @State private var month = 0
-    // timed
     @State private var start: CGFloat = 9
     @State private var end: CGFloat = 10
-    // band
     @State private var startDay = 1
     @State private var endDay = 1
     @State private var track = 0
-    // deadline
     @State private var day = 1
     @State private var hour: CGFloat = 12
+    @State private var resizeStart: CGFloat?
+
+    private let base = Calendar.current.startOfDay(for: Date())
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(heading).font(.title3.weight(.semibold))
-                Spacer()
-                Button(action: onClose) { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-            }
-
-            TextField("Title", text: $title)
-                .textFieldStyle(.roundedBorder)
-                .font(.custom("Comic Sans MS", size: 15))
+        VStack(alignment: .leading, spacing: 0) {
+            // Title as the header row (borderless handwriting).
+            TextField("Untitled", text: $title)
+                .textFieldStyle(.plain)
+                .font(.custom("Comic Sans MS", size: 19).weight(.bold))
+                .foregroundStyle(theme.text)
+                .padding(.trailing, 26)
+                .padding(.bottom, 8)
                 .onChange(of: title) { _, v in commitTitle(v) }
 
-            VStack(alignment: .leading, spacing: 7) {
-                label("Color")
-                HStack(spacing: 9) {
-                    ForEach(EVENT_COLORS, id: \.self) { key in
-                        Circle()
-                            .fill(theme.eventBorder(key))
-                            .frame(width: 18, height: 18)
-                            .overlay(Circle().strokeBorder(theme.text, lineWidth: key == color ? 2 : 0))
-                            .contentShape(Circle())
-                            .onTapGesture { color = key; commitColor(key) }
-                    }
+            // "When" row — label-less, dashed separator above (like .cc-dw-row).
+            whenRow
+                .frame(minHeight: 30)
+                .padding(.vertical, 6)
+                .overlay(alignment: .top) { dashed }
+
+            // Color swatches — no separator, snug under the when row.
+            HStack(spacing: 9) {
+                ForEach(EVENT_COLORS, id: \.self) { key in
+                    Circle()
+                        .fill(theme.eventBorder(key))
+                        .frame(width: 17, height: 17)
+                        .overlay(Circle().strokeBorder(theme.text, lineWidth: key == color ? 2 : 0))
+                        .contentShape(Circle())
+                        .onTapGesture { color = key; commitColor(key) }
                 }
             }
+            .padding(.top, 8)
+            .padding(.bottom, 10)
 
-            switch kind {
-            case .timed:
-                section("Time") {
-                    timeRow("Start", $start) {
-                        engine.update(id) { $0.startHour = start; if $0.endHour <= start { $0.endHour = min(24, start + 0.5); end = $0.endHour } }
-                    }
-                    timeRow("End", $end) { end = max(start + 0.25, end); engine.update(id) { $0.endHour = end } }
-                }
-            case .band:
-                let dim = daysInMonth(month)
-                section("Days") {
-                    intRow("Start", $startDay, 1...dim) { startDay = min(startDay, endDay); engine.updateBand(id) { $0.startDay = startDay } }
-                    intRow("End", $endDay, 1...dim) { endDay = max(startDay, endDay); engine.updateBand(id) { $0.endDay = endDay } }
-                }
-                section("Lane") {
+            Rectangle().fill(theme.text.opacity(0.18)).frame(height: 1)   // .cc-dw-divider
+
+            if kind == .band {
+                configRow("Lane") {
                     Picker("", selection: $track) {
                         ForEach(0..<4, id: \.self) { Text("T\($0 + 1)").tag($0) }
                     }
                     .pickerStyle(.segmented).labelsHidden()
                     .onChange(of: track) { _, v in engine.updateBand(id) { $0.track = v } }
                 }
-            case .deadline:
-                let dim = daysInMonth(month)
-                section("When") {
-                    intRow("Day", $day, 1...dim) { engine.updateDeadline(id) { $0.day = day } }
-                    timeRow("Time", $hour) { engine.updateDeadline(id) { $0.hour = hour } }
-                }
             }
 
-            Spacer()
+            Spacer(minLength: 0)
 
             Button(role: .destructive) { engine.remove(id); onClose() } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Delete", systemImage: "trash").font(.callout)
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.eventBorder("red"))
+            .padding(.bottom, 14)
         }
-        .padding(20)
-        .frame(width: 320)
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .frame(width: width, alignment: .leading)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(.regularMaterial)
-        .overlay(alignment: .leading) { Rectangle().fill(.separator).frame(width: 1) }
+        .overlay(alignment: .topTrailing) {
+            Button(action: onClose) { Image(systemName: "xmark").font(.system(size: 12, weight: .bold)) }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+                .padding(10)
+        }
+        .overlay(alignment: .leading) { resizeHandle }
+        .overlay(alignment: .leading) { Rectangle().fill(theme.text.opacity(0.25)).frame(width: 1) }
         .onAppear(perform: load)
         .id(id)
     }
 
-    private var heading: String {
-        switch kind { case .timed: return "Event"; case .band: return "All-day"; case .deadline: return "Deadline" }
+    // ── When row per kind ─────────────────────────────────────────────────────────
+    @ViewBuilder private var whenRow: some View {
+        switch kind {
+        case .timed:
+            HStack(spacing: 8) {
+                DatePicker("", selection: hourBinding($start) { s in engine.update(id) { $0.startHour = s; if $0.endHour <= s { $0.endHour = min(24, s + 0.5); end = $0.endHour } } }, displayedComponents: .hourAndMinute).labelsHidden()
+                Text("–").foregroundStyle(.secondary)
+                DatePicker("", selection: hourBinding($end) { e in engine.update(id) { $0.endHour = max(start + 0.25, e) } }, displayedComponents: .hourAndMinute).labelsHidden()
+                Spacer(minLength: 0)
+            }
+        case .band:
+            HStack(spacing: 6) {
+                dayStepper($startDay) { startDay = min(startDay, endDay); engine.updateBand(id) { $0.startDay = startDay } }
+                Text("–").foregroundStyle(.secondary)
+                dayStepper($endDay) { endDay = max(startDay, endDay); engine.updateBand(id) { $0.endDay = endDay } }
+                Spacer(minLength: 0)
+            }
+        case .deadline:
+            HStack(spacing: 8) {
+                dayStepper($day) { engine.updateDeadline(id) { $0.day = day } }
+                DatePicker("", selection: hourBinding($hour) { h in engine.updateDeadline(id) { $0.hour = h } }, displayedComponents: .hourAndMinute).labelsHidden()
+                Spacer(minLength: 0)
+            }
+        }
     }
 
+    private func dayStepper(_ value: Binding<Int>, _ commit: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text("\(MONTH_NAMES[month]) \(value.wrappedValue)").font(.callout.monospacedDigit())
+            Stepper("", value: value, in: 1...daysInMonth(month)).labelsHidden()
+                .onChange(of: value.wrappedValue) { _, _ in commit() }
+        }
+    }
+
+    @ViewBuilder private func configRow<Content: View>(_ name: String, @ViewBuilder _ content: () -> Content) -> some View {
+        HStack {
+            Text(name.uppercased()).font(.caption2).tracking(0.8).foregroundStyle(.secondary)
+            Spacer()
+            content().frame(width: 150)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private var dashed: some View {
+        GeometryReader { g in
+            Path { p in p.move(to: .zero); p.addLine(to: CGPoint(x: g.size.width, y: 0)) }
+                .stroke(theme.text.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
+        .frame(height: 1)
+    }
+
+    private var resizeHandle: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: 7)
+            .contentShape(Rectangle())
+            .onHover { $0 ? NSCursor.resizeLeftRight.set() : NSCursor.arrow.set() }
+            .gesture(
+                DragGesture()
+                    .onChanged { v in
+                        let s = resizeStart ?? width
+                        if resizeStart == nil { resizeStart = width }
+                        width = min(760, max(300, s - v.translation.width))
+                    }
+                    .onEnded { _ in resizeStart = nil }
+            )
+    }
+
+    // ── Hour ↔ Date binding for the compact time pickers ─────────────────────────
+    private func hourBinding(_ h: Binding<CGFloat>, commit: @escaping (CGFloat) -> Void) -> Binding<Date> {
+        Binding(
+            get: {
+                let hh = min(23, Int(h.wrappedValue))
+                let mm = Int((h.wrappedValue - floor(h.wrappedValue)) * 60)
+                return Calendar.current.date(bySettingHour: hh, minute: mm, second: 0, of: base) ?? base
+            },
+            set: { d in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+                let nv = CGFloat(c.hour ?? 0) + CGFloat(c.minute ?? 0) / 60
+                h.wrappedValue = nv
+                commit(nv)
+            }
+        )
+    }
+
+    // ── Load + commit ─────────────────────────────────────────────────────────────
     private func load() {
         if let e = engine.event(id) {
             kind = .timed; title = e.title; color = e.color; month = e.month; start = e.startHour; end = e.endHour
@@ -120,11 +202,8 @@ struct EventDrawer: View {
             kind = .band; title = b.title; color = b.color; month = b.month; startDay = b.startDay; endDay = b.endDay; track = b.track
         } else if let d = engine.deadline(id) {
             kind = .deadline; title = d.title; color = d.color; month = d.month; day = d.day; hour = d.hour
-        } else {
-            onClose()
-        }
+        } else { onClose() }
     }
-
     private func commitTitle(_ v: String) {
         switch kind {
         case .timed: engine.update(id) { $0.title = v }
@@ -138,34 +217,5 @@ struct EventDrawer: View {
         case .band: engine.updateBand(id) { $0.color = v }
         case .deadline: engine.updateDeadline(id) { $0.color = v }
         }
-    }
-
-    // ── Small view helpers ──────────────────────────────────────────────────────
-    private func label(_ s: String) -> some View {
-        Text(s.uppercased()).font(.caption2).tracking(0.8).foregroundStyle(.secondary)
-    }
-    @ViewBuilder private func section<Content: View>(_ name: String, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) { label(name); content() }
-    }
-    @ViewBuilder private func timeRow(_ name: String, _ value: Binding<CGFloat>, _ commit: @escaping () -> Void) -> some View {
-        HStack {
-            Text(name).font(.callout).frame(width: 48, alignment: .leading)
-            Text(hhmm(value.wrappedValue)).font(.callout.monospacedDigit())
-            Spacer()
-            Stepper("", value: value, in: 0...24, step: 0.25).labelsHidden()
-                .onChange(of: value.wrappedValue) { _, _ in commit() }
-        }
-    }
-    @ViewBuilder private func intRow(_ name: String, _ value: Binding<Int>, _ range: ClosedRange<Int>, _ commit: @escaping () -> Void) -> some View {
-        HStack {
-            Text(name).font(.callout).frame(width: 48, alignment: .leading)
-            Text("\(value.wrappedValue)").font(.callout.monospacedDigit())
-            Spacer()
-            Stepper("", value: value, in: range).labelsHidden()
-                .onChange(of: value.wrappedValue) { _, _ in commit() }
-        }
-    }
-    private func hhmm(_ h: CGFloat) -> String {
-        let t = Int((h * 60).rounded()); return String(format: "%02d:%02d", (t / 60) % 24, t % 60)
     }
 }

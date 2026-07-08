@@ -8,6 +8,7 @@ import CalendarEngine
 public struct CalendarView: View {
     @State private var engine = CalendarEngine()
     @State private var ui = CalendarUIState()
+    @State private var drawerWidth: CGFloat = 360
     @Environment(\.colorScheme) private var scheme
 
     public init() {}
@@ -35,21 +36,24 @@ public struct CalendarView: View {
             }
             .background(theme.bg)
             .overlay(InputCatcher(engine: engine, onOpenEvent: { ui.openEventId = $0 }))
-            // 4. drawer scrim (blocks the canvas + closes on outside-click) + the panel
+            // 4a. scrim — blocks the canvas + closes on outside-click (fades)
             .overlay {
-                if let id = ui.openEventId {
-                    ZStack(alignment: .trailing) {
-                        Rectangle()
-                            .fill(.black.opacity(0.2))
-                            .contentShape(Rectangle())
-                            .onTapGesture { ui.openEventId = nil }
-                            .transition(.opacity)
-                        EventDrawer(engine: engine, id: id, theme: theme, onClose: { ui.openEventId = nil })
-                            .transition(.move(edge: .trailing))
-                    }
+                if ui.openEventId != nil {
+                    Rectangle()
+                        .fill(.black.opacity(0.2))
+                        .contentShape(Rectangle())
+                        .onTapGesture { ui.openEventId = nil }
+                        .transition(.opacity)
                 }
             }
-            .animation(.easeOut(duration: 0.22), value: ui.openEventId)
+            // 4b. the drawer panel — slides in from the trailing edge
+            .overlay(alignment: .trailing) {
+                if let id = ui.openEventId {
+                    EventDrawer(engine: engine, id: id, width: $drawerWidth, theme: theme, onClose: { ui.openEventId = nil })
+                        .transition(.move(edge: .trailing))
+                }
+            }
+            .animation(.easeOut(duration: 0.26), value: ui.openEventId)
             .onAppear { engine.setViewport(geo.size) }
             .onChange(of: geo.size) { _, s in engine.setViewport(s) }
         }
