@@ -15,7 +15,7 @@ import CalendarGeometry
 enum SceneRenderer {
     // Draws the background scene + chrome. Events are a separate SwiftUI overlay
     // (EventsOverlay) so they get a real material backdrop blur.
-    static func draw(input: SceneInput, tracks: [String], in ctx: inout GraphicsContext, size: CGSize, theme: Theme) {
+    static func draw(input: SceneInput, tracks: [String], deadlines: [Deadline], in ctx: inout GraphicsContext, size: CGSize, theme: Theme) {
         let items = buildScene(input).items.sorted { $0.z < $1.z }
 
         func drawBand(_ lo: Int, _ hi: Int) {
@@ -29,9 +29,48 @@ enum SceneRenderer {
         drawBand(Int.min, 5)
         drawGutter(input, &ctx, theme)
         drawBand(5, 14)
+        drawDeadlines(input, deadlines, &ctx, theme)
         drawTrackNames(input, tracks, &ctx, theme)
         drawDashboard(input, &ctx, theme)
         drawBand(14, Int.max)
+    }
+
+    // Deadlines: a colored horizontal rule across the day column at the deadline's
+    // hour, with end dots + a title/time pill. Clipped to the visible day area.
+    private static func drawDeadlines(_ input: SceneInput, _ deadlines: [Deadline], _ ctx: inout GraphicsContext, _ theme: Theme) {
+        let tl = timelineInfo(input)
+        guard tl.reveal > 0.05, tl.hourH > 0 else { return }
+        let f = frameFor(input.focus, input)
+        let clipRight = input.z > 2 ? f.x0 + CGFloat(input.daily.dom) * f.dayW : input.vp.w
+        var clip = ctx
+        clip.clip(to: Path(CGRect(x: Layout.labelW, y: tl.tlTop, width: max(0, clipRight - Layout.labelW), height: tl.tlBottom - tl.tlTop)))
+        for d in deadlines {
+            guard let pos = deadlinePos(d, input) else { continue }
+            let fade = dailyFade(relDomOf(input.focus, d.month, d.day) ?? -999, input) * tl.reveal
+            if fade <= 0.02 { continue }
+            var layer = clip
+            layer.opacity = Double(fade)
+            let color = theme.eventBorder(d.color)
+            var line = Path()
+            line.move(to: CGPoint(x: pos.x, y: pos.y)); line.addLine(to: CGPoint(x: pos.x + pos.w, y: pos.y))
+            layer.stroke(line, with: .color(color), lineWidth: 1.5)
+            for cx in [pos.x, pos.x + pos.w] {
+                let dot = Path(ellipseIn: CGRect(x: cx - 3, y: pos.y - 3, width: 6, height: 6))
+                layer.fill(dot, with: .color(theme.bg)); layer.stroke(dot, with: .color(color), lineWidth: 1.5)
+            }
+            let t = Int((d.hour * 60).rounded())
+            let label = "\(d.title)  \(String(format: "%02d:%02d", (t / 60) % 24, t % 60))"
+            let resolved = layer.resolve(Text(label).font(.system(size: 9, weight: .semibold)).foregroundStyle(color))
+            let sz = resolved.measure(in: CGSize(width: 240, height: 20))
+            let pill = CGRect(x: pos.x + 4, y: pos.y - 17, width: min(sz.width + 10, pos.w - 6), height: 15)
+            if pill.width > 12 {
+                layer.fill(Path(roundedRect: pill, cornerRadius: 4), with: .color(theme.bg.opacity(0.85)))
+                layer.stroke(Path(roundedRect: pill, cornerRadius: 4), with: .color(color.opacity(0.7)), lineWidth: 1)
+                var textLayer = layer
+                textLayer.clip(to: Path(pill))
+                textLayer.draw(resolved, at: CGPoint(x: pill.minX + 5, y: pill.midY), anchor: .leading)
+            }
+        }
     }
 
     // ── Per-item ────────────────────────────────────────────────────────────────

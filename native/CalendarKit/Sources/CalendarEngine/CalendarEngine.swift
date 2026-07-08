@@ -23,6 +23,8 @@ public final class CalendarEngine {
     public var weekHourH: CGFloat = 60
     public private(set) var viewport: Viewport = Viewport(w: 1, h: 1)
     public private(set) var seedEvents: [TimedEvent] = []
+    public private(set) var seedBands: [BandEvent] = []
+    public private(set) var seedDeadlines: [Deadline] = []
     public let trackNames = TRACKS.map { $0.name }
 
     public private(set) var selectedId: String?
@@ -65,6 +67,8 @@ public final class CalendarEngine {
         focus = (c.month ?? 1) - 1
         daily = DailyState(dom: c.day ?? 1, frac: 0.45)
         seedEvents = Self.makeSeeds(month: focus, day: c.day ?? 15)
+        seedBands = Self.makeSeedBands(year: year, month: focus)
+        seedDeadlines = Self.makeSeedDeadlines(year: year, month: focus, day: c.day ?? 15)
         nowTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.now = Date() }
         }
@@ -421,6 +425,24 @@ public final class CalendarEngine {
             TimedEvent(id: "s4", month: month, day: d0, startHour: 14, endHour: 15, title: "Lecture", color: "red"),
             TimedEvent(id: "s5", month: month, day: min(daysInMonth(month), d0 + 1), startHour: 10, endHour: 11.5, title: "Research sync", color: "blue"),
             TimedEvent(id: "s6", month: month, day: min(daysInMonth(month), d0 + 1), startHour: 16, endHour: 18, title: "Seminar", color: "purple"),
+        ]
+    }
+
+    private static func makeSeedBands(year: Int, month: Int) -> [BandEvent] {
+        let dim = daysInMonth(month)
+        func clampD(_ d: Int) -> Int { max(1, min(dim, d)) }
+        return [
+            BandEvent(id: "b1", year: year, month: month, track: 0, startDay: clampD(3), endDay: clampD(7), title: "Intro to AI", color: "red"),
+            BandEvent(id: "b2", year: year, month: month, track: 1, startDay: clampD(10), endDay: clampD(14), title: "NSF grant", color: "blue"),
+            BandEvent(id: "b3", year: year, month: month, track: 3, startDay: clampD(18), endDay: clampD(21), title: "Conf travel", color: "green"),
+        ]
+    }
+
+    private static func makeSeedDeadlines(year: Int, month: Int, day: Int) -> [Deadline] {
+        let d0 = max(1, min(daysInMonth(month), day))
+        return [
+            Deadline(id: "d1", year: year, month: month, day: d0, hour: 17, title: "Paper due", color: "red"),
+            Deadline(id: "d2", year: year, month: month, day: min(daysInMonth(month), d0 + 2), hour: 12.5, title: "Reviews", color: "purple"),
         ]
     }
 }

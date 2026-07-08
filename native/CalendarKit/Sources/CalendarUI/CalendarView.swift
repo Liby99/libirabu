@@ -21,9 +21,9 @@ public struct CalendarView: View {
                 ZStack {
                     Canvas { ctx, size in
                         var c = ctx
-                        SceneRenderer.draw(input: input, tracks: engine.trackNames, in: &c, size: size, theme: theme)
+                        SceneRenderer.draw(input: input, tracks: engine.trackNames, deadlines: engine.seedDeadlines, in: &c, size: size, theme: theme)
                     }
-                    EventsOverlay(input: input, events: engine.seedEvents, selected: engine.selectedId, theme: theme)
+                    EventsOverlay(input: input, events: engine.seedEvents, bands: engine.seedBands, selected: engine.selectedId, theme: theme)
                 }
             }
             .background(theme.bg)
