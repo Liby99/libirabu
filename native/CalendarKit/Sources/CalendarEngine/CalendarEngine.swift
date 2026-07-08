@@ -223,6 +223,22 @@ public final class CalendarEngine {
         selectedId = nil
     }
 
+    // ── Drawer support ──────────────────────────────────────────────────────────
+    /// Event id under the point (week/day view only) — for double-click to open.
+    public func eventId(at p: CGPoint) -> String? {
+        guard z >= 1.5 else { return nil }
+        return eventAt(p, snapshot())?.id
+    }
+    public func event(_ id: String) -> TimedEvent? { seedEvents.first { $0.id == id } }
+    public func update(_ id: String, _ mutate: (inout TimedEvent) -> Void) {
+        guard let i = seedEvents.firstIndex(where: { $0.id == id }) else { return }
+        mutate(&seedEvents[i])
+    }
+    public func remove(_ id: String) {
+        seedEvents.removeAll { $0.id == id }
+        if selectedId == id { selectedId = nil }
+    }
+
     private func navigate(at p: CGPoint) {
         let g = snapshot()
         switch level(z) {

@@ -7,6 +7,7 @@ import CalendarEngine
 
 public struct CalendarView: View {
     @State private var engine = CalendarEngine()
+    @State private var ui = CalendarUIState()
     @Environment(\.colorScheme) private var scheme
 
     public init() {}
@@ -26,7 +27,14 @@ public struct CalendarView: View {
                 }
             }
             .background(theme.bg)
-            .overlay(InputCatcher(engine: engine))
+            .overlay(InputCatcher(engine: engine, onOpenEvent: { ui.openEventId = $0 }))
+            .overlay(alignment: .trailing) {
+                if let id = ui.openEventId {
+                    EventDrawer(engine: engine, id: id, theme: theme, onClose: { ui.openEventId = nil })
+                        .transition(.move(edge: .trailing))
+                }
+            }
+            .animation(.easeOut(duration: 0.25), value: ui.openEventId)
             .onAppear { engine.setViewport(geo.size) }
             .onChange(of: geo.size) { _, s in engine.setViewport(s) }
         }
@@ -41,17 +49,20 @@ import AppKit
 /// engine. isFlipped so its coordinates match the SwiftUI/Canvas top-left origin.
 struct InputCatcher: NSViewRepresentable {
     let engine: CalendarEngine
+    var onOpenEvent: (String) -> Void = { _ in }
 
     func makeNSView(context: Context) -> CatcherView {
         let v = CatcherView()
         v.engine = engine
+        v.onOpenEvent = onOpenEvent
         return v
     }
-    func updateNSView(_ v: CatcherView, context: Context) { v.engine = engine }
+    func updateNSView(_ v: CatcherView, context: Context) { v.engine = engine; v.onOpenEvent = onOpenEvent }
 }
 
 final class CatcherView: NSView {
     weak var engine: CalendarEngine?
+    var onOpenEvent: ((String) -> Void)?
     private var trackingAreaRef: NSTrackingArea?
 
     override var isFlipped: Bool { true }
@@ -82,6 +93,10 @@ final class CatcherView: NSView {
     }
     override func mouseDown(with e: NSEvent) {
         window?.makeFirstResponder(self)
+        if e.clickCount == 2 {   // double-click an event → open its drawer
+            if let id = engine?.eventId(at: point(e)) { onOpenEvent?(id) }
+            return
+        }
         engine?.onPointerDown(at: point(e))
     }
     override func mouseDragged(with e: NSEvent) { engine?.onPointerDrag(at: point(e)) }

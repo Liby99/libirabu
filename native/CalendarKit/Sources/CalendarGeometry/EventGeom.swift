@@ -69,6 +69,8 @@ public func relDomOf(_ focus: Int, _ month: Int, _ day: Int) -> Int? {
 
 // ── A minimal timed event for seed/display + its overlap layout ──────────────────
 
+public let EVENT_COLORS = ["default", "blue", "indigo", "cyan", "green", "darkgreen", "yellow", "orange", "red", "purple"]
+
 public struct TimedEvent: Sendable, Identifiable {
     public var id: String
     public var month: Int
