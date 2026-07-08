@@ -209,9 +209,10 @@ public final class CalendarEngine {
         commitTxn()   // flush any pending (e.g. drawer typing) before a new gesture
         cancelTween()
         let g = snapshot()
-        // Deselect-first: with a selection, any down that isn't on the selected item
-        // just clears it and consumes the click (no interaction with other elements).
-        if let sel = selectedId, itemId(at: p) != sel {
+        // Deselect-first: with a selection, a click on EMPTY space just clears it and
+        // consumes the click. Clicking another event (timed/band/deadline) is the
+        // exception — it falls through and selects that event directly.
+        if selectedId != nil, itemId(at: p) == nil {
             selectedId = nil
             drag = Drag(kind: .deselect, startPoint: p)
             return
