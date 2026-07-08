@@ -54,6 +54,7 @@ public final class CalendarEngine {
         case navigate, move, resizeTop, resizeBottom, create           // timed
         case bandMove, bandResizeL, bandResizeR, bandCreate            // all-day bands
         case ddlMove                                                   // deadlines
+        case deselect                                                  // click-away
     }
     private struct Drag {
         var kind: PointerKind
@@ -208,6 +209,13 @@ public final class CalendarEngine {
         commitTxn()   // flush any pending (e.g. drawer typing) before a new gesture
         cancelTween()
         let g = snapshot()
+        // Deselect-first: with a selection, any down that isn't on the selected item
+        // just clears it and consumes the click (no interaction with other elements).
+        if let sel = selectedId, itemId(at: p) != sel {
+            selectedId = nil
+            drag = Drag(kind: .deselect, startPoint: p)
+            return
+        }
         // 1. all-day bands (on the lanes) — month view onward
         if z >= 1, let hit = bandAt(p, g) {
             selectedId = hit.id
@@ -252,7 +260,7 @@ public final class CalendarEngine {
         let g = snapshot()
         let tl = timelineInfo(g)
         switch d.kind {
-        case .navigate: break
+        case .navigate, .deselect: break
         case .move: applyMove(d, p, tl)
         case .resizeTop: applyResize(d, p, tl, top: true)
         case .resizeBottom: applyResize(d, p, tl, top: false)

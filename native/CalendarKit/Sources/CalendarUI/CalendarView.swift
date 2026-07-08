@@ -19,22 +19,37 @@ public struct CalendarView: View {
             TimelineView(.animation) { tl in
                 let input = engine.sceneInput(at: tl.date, viewport: vp)
                 ZStack {
+                    // 1. base scene (below events)
                     Canvas { ctx, size in
                         var c = ctx
-                        SceneRenderer.draw(input: input, tracks: engine.trackNames, deadlines: engine.seedDeadlines, selected: engine.selectedId, in: &c, size: size, theme: theme)
+                        SceneRenderer.drawBase(input: input, tracks: engine.trackNames, in: &c, theme: theme)
                     }
+                    // 2. events (bands + timed), frosted-glass stickers
                     EventsOverlay(input: input, events: engine.seedEvents, bands: engine.seedBands, selected: engine.selectedId, theme: theme)
+                    // 3. foreground: deadlines + now-line + cursor, then the dashboard mask
+                    Canvas { ctx, size in
+                        var c = ctx
+                        SceneRenderer.drawForeground(input: input, deadlines: engine.seedDeadlines, selected: engine.selectedId, in: &c, theme: theme)
+                    }
                 }
             }
             .background(theme.bg)
             .overlay(InputCatcher(engine: engine, onOpenEvent: { ui.openEventId = $0 }))
-            .overlay(alignment: .trailing) {
+            // 4. drawer scrim (blocks the canvas + closes on outside-click) + the panel
+            .overlay {
                 if let id = ui.openEventId {
-                    EventDrawer(engine: engine, id: id, theme: theme, onClose: { ui.openEventId = nil })
-                        .transition(.move(edge: .trailing))
+                    ZStack(alignment: .trailing) {
+                        Rectangle()
+                            .fill(.black.opacity(0.2))
+                            .contentShape(Rectangle())
+                            .onTapGesture { ui.openEventId = nil }
+                            .transition(.opacity)
+                        EventDrawer(engine: engine, id: id, theme: theme, onClose: { ui.openEventId = nil })
+                            .transition(.move(edge: .trailing))
+                    }
                 }
             }
-            .animation(.easeOut(duration: 0.25), value: ui.openEventId)
+            .animation(.easeOut(duration: 0.22), value: ui.openEventId)
             .onAppear { engine.setViewport(geo.size) }
             .onChange(of: geo.size) { _, s in engine.setViewport(s) }
         }

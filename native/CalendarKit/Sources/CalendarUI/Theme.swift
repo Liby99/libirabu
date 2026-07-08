@@ -30,7 +30,7 @@ struct Theme {
     var highlight: Color { Color(hex: accent, opacity: 1) }                     // cc-hl base (item opacity is tiny)
     var cursor: Color { dark ? Color(hex: 0xcdd6ff) : Color(hex: 0xd8cfc8) }
     var nowLine: Color { Color(hex: 0xff3b6b) }
-    var todayTint: Color { Color(hex: 0xff3b6b, opacity: 0.5) }                 // item opacity scales it further
+    var todayTint: Color { Color(hex: 0xff3b6b, opacity: 0.07) }                // --cc-today: now at 7%
 
     // Event stickers are the ONLY color: a translucent tint fill + an opaque
     // border/accent, exact values from globals.css (--event-*).

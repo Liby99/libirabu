@@ -15,24 +15,35 @@ import CalendarGeometry
 enum SceneRenderer {
     // Draws the background scene + chrome. Events are a separate SwiftUI overlay
     // (EventsOverlay) so they get a real material backdrop blur.
-    static func draw(input: SceneInput, tracks: [String], deadlines: [Deadline], selected: String?, in ctx: inout GraphicsContext, size: CGSize, theme: Theme) {
-        let items = buildScene(input).items.sorted { $0.z < $1.z }
+    // These float ABOVE the events overlay (the now-line and mouse cursor draw over events).
+    private static func isForeground(_ k: ItemKind) -> Bool {
+        switch k { case .now, .nowLabel, .cursor, .timeTag: return true; default: return false }
+    }
 
+    /// Base layer (below events): grid, washes, today tint, labels, tracks, gutter.
+    static func drawBase(input: SceneInput, tracks: [String], in ctx: inout GraphicsContext, theme: Theme) {
+        let items = buildScene(input).items.sorted { $0.z < $1.z }
         func drawBand(_ lo: Int, _ hi: Int) {
-            for it in items where it.z >= lo && it.z < hi && it.opacity > 0.001 {
-                var layer = ctx
-                layer.opacity = Double(it.opacity)
-                drawItem(it, into: &layer, theme: theme)
+            for it in items where it.z >= lo && it.z < hi && it.opacity > 0.001 && !isForeground(it.kind) {
+                var layer = ctx; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
             }
         }
-
         drawBand(Int.min, 5)
         drawGutter(input, &ctx, theme)
         drawBand(5, 14)
-        drawDeadlines(input, deadlines, selected, &ctx, theme)
         drawTrackNames(input, tracks, &ctx, theme)
-        drawDashboard(input, &ctx, theme)
         drawBand(14, Int.max)
+    }
+
+    /// Foreground layer (above events): deadlines + now-line + mouse cursor, then the
+    /// daily dashboard mask on top (hides the other days on the right).
+    static func drawForeground(input: SceneInput, deadlines: [Deadline], selected: String?, in ctx: inout GraphicsContext, theme: Theme) {
+        let items = buildScene(input).items.sorted { $0.z < $1.z }
+        drawDeadlines(input, deadlines, selected, &ctx, theme)
+        for it in items where isForeground(it.kind) && it.opacity > 0.001 {
+            var layer = ctx; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
+        }
+        drawDashboard(input, &ctx, theme)
     }
 
     // Deadlines: a colored horizontal rule across the day column at the deadline's
