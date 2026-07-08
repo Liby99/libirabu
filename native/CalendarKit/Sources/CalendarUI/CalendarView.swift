@@ -99,10 +99,18 @@ final class CatcherView: NSView, NSMenuItemValidation {
         }
         engine?.onPointerDown(at: point(e))
     }
-    override func mouseDragged(with e: NSEvent) { engine?.onPointerDrag(at: point(e)) }
+    override func mouseDragged(with e: NSEvent) { engine?.onPointerDrag(at: point(e)); NSCursor.closedHand.set() }
     override func mouseUp(with e: NSEvent) { engine?.onPointerUp(at: point(e)) }
-    override func mouseMoved(with e: NSEvent) { engine?.onHover(at: point(e)) }
-    override func mouseExited(with e: NSEvent) { engine?.onHoverExit() }
+    override func mouseMoved(with e: NSEvent) {
+        let p = point(e)
+        engine?.onHover(at: p)
+        switch engine?.cursorHint(at: p) {
+        case .grab: NSCursor.openHand.set()
+        case .create: NSCursor.crosshair.set()
+        default: NSCursor.arrow.set()
+        }
+    }
+    override func mouseExited(with e: NSEvent) { engine?.onHoverExit(); NSCursor.arrow.set() }
     override func keyDown(with e: NSEvent) {
         switch e.keyCode {
         case 53: engine?.onEscape()             // Esc

@@ -402,6 +402,15 @@ public final class CalendarEngine {
 
     public func onHoverExit() { hover = .none }
 
+    public enum CursorHint { case normal, grab, create }
+    public func cursorHint(at p: CGPoint) -> CursorHint {
+        guard z >= 1.5 else { return .normal }
+        let g = snapshot()
+        if eventAt(p, g) != nil { return .grab }
+        if createSpot(at: p, g) != nil { return .create }
+        return .normal
+    }
+
     // ── Seed data (display only, until the sync layer lands) ─────────────────────
     private static func makeSeeds(month: Int, day: Int) -> [TimedEvent] {
         let d0 = max(1, min(daysInMonth(month) - 2, day))
