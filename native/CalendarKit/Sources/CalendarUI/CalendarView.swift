@@ -17,9 +17,12 @@ public struct CalendarView: View {
             let vp = Viewport(w: geo.size.width, h: geo.size.height)
             TimelineView(.animation) { tl in
                 let input = engine.sceneInput(at: tl.date, viewport: vp)
-                Canvas { ctx, size in
-                    var c = ctx
-                    SceneRenderer.draw(input: input, events: engine.seedEvents, tracks: engine.trackNames, selected: engine.selectedId, in: &c, size: size, theme: theme)
+                ZStack {
+                    Canvas { ctx, size in
+                        var c = ctx
+                        SceneRenderer.draw(input: input, tracks: engine.trackNames, in: &c, size: size, theme: theme)
+                    }
+                    EventsOverlay(input: input, events: engine.seedEvents, selected: engine.selectedId, theme: theme)
                 }
             }
             .background(theme.bg)
