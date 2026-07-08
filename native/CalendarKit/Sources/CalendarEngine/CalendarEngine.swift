@@ -308,21 +308,35 @@ public final class CalendarEngine {
     }
 
     // ── Drawer support ──────────────────────────────────────────────────────────
-    /// Event id under the point (week/day view only) — for double-click to open.
-    public func eventId(at p: CGPoint) -> String? {
-        guard z >= 1.5 else { return nil }
-        return eventAt(p, snapshot())?.id
+    /// Any item (band / timed / deadline) under the point — for double-click to open.
+    public func itemId(at p: CGPoint) -> String? {
+        let g = snapshot()
+        if z >= 1, let h = bandAt(p, g) { return h.id }
+        if z >= 1.5, let h = eventAt(p, g) { return h.id }
+        if z >= 1.5, let id = deadlineAt(p, g) { return id }
+        return nil
     }
     public func event(_ id: String) -> TimedEvent? { seedEvents.first { $0.id == id } }
+    public func band(_ id: String) -> BandEvent? { seedBands.first { $0.id == id } }
+    public func deadline(_ id: String) -> Deadline? { seedDeadlines.first { $0.id == id } }
+
     public func update(_ id: String, _ mutate: (inout TimedEvent) -> Void) {
         guard let i = seedEvents.firstIndex(where: { $0.id == id }) else { return }
-        beginTxn()
-        mutate(&seedEvents[i])
-        scheduleCommit()
+        beginTxn(); mutate(&seedEvents[i]); scheduleCommit()
+    }
+    public func updateBand(_ id: String, _ mutate: (inout BandEvent) -> Void) {
+        guard let i = seedBands.firstIndex(where: { $0.id == id }) else { return }
+        beginTxn(); mutate(&seedBands[i]); scheduleCommit()
+    }
+    public func updateDeadline(_ id: String, _ mutate: (inout Deadline) -> Void) {
+        guard let i = seedDeadlines.firstIndex(where: { $0.id == id }) else { return }
+        beginTxn(); mutate(&seedDeadlines[i]); scheduleCommit()
     }
     public func remove(_ id: String) {
         beginTxn()
         seedEvents.removeAll { $0.id == id }
+        seedBands.removeAll { $0.id == id }
+        seedDeadlines.removeAll { $0.id == id }
         if selectedId == id { selectedId = nil }
         commitTxn()
     }

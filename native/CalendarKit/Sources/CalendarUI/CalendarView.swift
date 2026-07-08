@@ -93,8 +93,8 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
     override func mouseDown(with e: NSEvent) {
         window?.makeFirstResponder(self)
-        if e.clickCount == 2 {   // double-click an event → open its drawer
-            if let id = engine?.eventId(at: point(e)) { onOpenEvent?(id) }
+        if e.clickCount == 2 {   // double-click any item → open its drawer
+            if let id = engine?.itemId(at: point(e)) { onOpenEvent?(id) }
             return
         }
         engine?.onPointerDown(at: point(e))
