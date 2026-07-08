@@ -38,6 +38,11 @@ public final class CalendarEngine {
     // pointer / editing state
     private var drag: Drag?
     private var createCounter = 0
+    // undo / redo (whole-array snapshots, coalesced per gesture / typing burst)
+    private var undoStack: [[TimedEvent]] = []
+    private var redoStack: [[TimedEvent]] = []
+    private var pendingUndo: [TimedEvent]?
+    private var undoWork: DispatchWorkItem?
 
     private enum PointerKind { case navigate, move, resizeTop, resizeBottom, create }
     private struct Drag {
@@ -168,6 +173,7 @@ public final class CalendarEngine {
     // A plain click (down+up, no movement) navigates (drills in). A drag creates,
     // moves, or resizes an event depending on what's under the cursor at down.
     public func onPointerDown(at p: CGPoint) {
+        commitTxn()   // flush any pending (e.g. drawer typing) before a new gesture
         cancelTween()
         let g = snapshot()
         if z >= 1.5, let hit = eventAt(p, g) {
@@ -203,7 +209,7 @@ public final class CalendarEngine {
     }
 
     public func onPointerUp(at p: CGPoint) {
-        defer { drag = nil }
+        defer { commitTxn(); drag = nil }   // one undo entry per drag
         guard let d = drag else { return }
         // plain click (no drag) on nav target or an empty (create-primed) cell → navigate
         if !d.activated && (d.kind == .navigate || (d.kind == .create && d.eventId == nil)) {
@@ -219,7 +225,42 @@ public final class CalendarEngine {
 
     public func deleteSelected() {
         guard let id = selectedId else { return }
+        beginTxn()
         seedEvents.removeAll { $0.id == id }
+        selectedId = nil
+        commitTxn()
+    }
+
+    // ── Undo / redo ───────────────────────────────────────────────────────────────
+    private func beginTxn() { if pendingUndo == nil { pendingUndo = seedEvents } }
+    private func commitTxn() {
+        undoWork?.cancel(); undoWork = nil
+        guard let snap = pendingUndo else { return }
+        pendingUndo = nil
+        guard snap != seedEvents else { return }     // no-op edit → no entry
+        undoStack.append(snap)
+        if undoStack.count > 100 { undoStack.removeFirst() }
+        redoStack.removeAll()
+    }
+    private func scheduleCommit() {                    // coalesce a typing burst
+        undoWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.commitTxn() }
+        undoWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+    public var canUndo: Bool { !undoStack.isEmpty || pendingUndo != nil }
+    public var canRedo: Bool { !redoStack.isEmpty }
+    public func undo() {
+        commitTxn()
+        guard let snap = undoStack.popLast() else { return }
+        redoStack.append(seedEvents)
+        seedEvents = snap
+        selectedId = nil
+    }
+    public func redo() {
+        guard let snap = redoStack.popLast() else { return }
+        undoStack.append(seedEvents)
+        seedEvents = snap
         selectedId = nil
     }
 
@@ -232,11 +273,15 @@ public final class CalendarEngine {
     public func event(_ id: String) -> TimedEvent? { seedEvents.first { $0.id == id } }
     public func update(_ id: String, _ mutate: (inout TimedEvent) -> Void) {
         guard let i = seedEvents.firstIndex(where: { $0.id == id }) else { return }
+        beginTxn()
         mutate(&seedEvents[i])
+        scheduleCommit()
     }
     public func remove(_ id: String) {
+        beginTxn()
         seedEvents.removeAll { $0.id == id }
         if selectedId == id { selectedId = nil }
+        commitTxn()
     }
 
     private func navigate(at p: CGPoint) {
@@ -288,6 +333,7 @@ public final class CalendarEngine {
 
     private func applyMove(_ d: Drag, _ p: CGPoint, _ tl: TimelineInfo) {
         guard let orig = d.orig, let idx = seedEvents.firstIndex(where: { $0.id == d.eventId }) else { return }
+        beginTxn()
         let dur = orig.endHour - orig.startHour
         let ns = max(0, min(24 - dur, snap(orig.startHour + (p.y - d.startPoint.y) / tl.hourH, 15)))
         var ev = seedEvents[idx]
@@ -298,6 +344,7 @@ public final class CalendarEngine {
 
     private func applyResize(_ d: Drag, _ p: CGPoint, _ tl: TimelineInfo, top: Bool) {
         guard let idx = seedEvents.firstIndex(where: { $0.id == d.eventId }) else { return }
+        beginTxn()
         let hf = pointToSlot(p.x, p.y, tl).hourFrac
         var ev = seedEvents[idx]
         if top { ev.startHour = min(ev.endHour - 0.25, snap(hf, 15)) }
@@ -307,6 +354,7 @@ public final class CalendarEngine {
 
     private func applyCreate(_ p: CGPoint, _ tl: TimelineInfo) {
         guard var d = drag else { return }
+        beginTxn()   // snapshot pre-create so undo removes the new event
         if d.eventId == nil {
             guard let mo = d.createMonth, let dy = d.createDay, let a = d.anchorHour else { return }
             createCounter += 1

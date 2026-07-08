@@ -60,7 +60,7 @@ struct InputCatcher: NSViewRepresentable {
     func updateNSView(_ v: CatcherView, context: Context) { v.engine = engine; v.onOpenEvent = onOpenEvent }
 }
 
-final class CatcherView: NSView {
+final class CatcherView: NSView, NSMenuItemValidation {
     weak var engine: CalendarEngine?
     var onOpenEvent: ((String) -> Void)?
     private var trackingAreaRef: NSTrackingArea?
@@ -108,6 +108,17 @@ final class CatcherView: NSView {
         case 53: engine?.onEscape()             // Esc
         case 51, 117: engine?.deleteSelected()  // Delete / Forward-Delete
         default: super.keyDown(with: e)
+        }
+    }
+
+    // Edit-menu Undo/Redo (nil-targeted → reach here via the responder chain).
+    @objc func performUndo(_ sender: Any?) { engine?.undo() }
+    @objc func performRedo(_ sender: Any?) { engine?.redo() }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(performUndo(_:)): return engine?.canUndo ?? false
+        case #selector(performRedo(_:)): return engine?.canRedo ?? false
+        default: return true
         }
     }
 }
