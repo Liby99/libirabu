@@ -31,24 +31,44 @@ struct Theme {
     var cursor: Color { dark ? Color(hex: 0xcdd6ff) : Color(hex: 0xd8cfc8) }
     var nowLine: Color { Color(hex: 0xff3b6b) }
     var todayTint: Color { Color(hex: 0xff3b6b, opacity: 0.5) }                 // item opacity scales it further
-    var eventText: Color { dark ? Color(hex: 0x0d1017) : .white }
 
-    /// Event sticker color — the only place color appears.
-    func eventColor(_ key: String?) -> Color {
+    // Event stickers are the ONLY color: a translucent tint fill + an opaque
+    // border/accent, exact values from globals.css (--event-*).
+    func eventFill(_ key: String?) -> Color { ev(key).fill }
+    func eventBorder(_ key: String?) -> Color { ev(key).border }
+
+    private func ev(_ key: String?) -> (fill: Color, border: Color) {
+        func c(_ r: Double, _ g: Double, _ b: Double, _ a: Double = 1) -> Color {
+            Color(.sRGB, red: r / 255, green: g / 255, blue: b / 255, opacity: a)
+        }
+        // extra palette is literal (theme-consistent) in both modes
         switch key {
-        case "blue": return Color(hex: 0x3a6df0)
-        case "indigo": return Color(hex: 0x4f46e5)
-        case "cyan": return Color(hex: 0x0891b2)
-        case "green": return Color(hex: 0x1f9d55)
-        case "darkgreen": return Color(hex: 0x15803d)
-        case "yellow": return Color(hex: 0xca8a04)
-        case "orange": return Color(hex: 0xea7317)
-        case "red": return Color(hex: 0xd1443f)
-        case "purple": return Color(hex: 0x7c5cff)
-        default: return dark ? Color(white: 0.6) : Color(hex: 0x8a7a6a)
+        case "orange": return (c(236, 152, 70, 0.2), c(236, 152, 70))
+        case "cyan": return (c(104, 196, 206, 0.2), c(104, 196, 206))
+        case "darkgreen": return (c(104, 146, 86, 0.22), c(104, 146, 86))
+        case "indigo": return (c(124, 150, 226, 0.2), c(124, 150, 226))
+        default: break
+        }
+        if dark {
+            switch key {
+            case "red": return (c(255, 128, 128, 0.18), c(255, 179, 179))
+            case "yellow": return (c(255, 236, 179, 0.18), c(255, 224, 130))
+            case "green": return (c(200, 255, 200, 0.18), c(178, 255, 178))
+            case "blue": return (c(128, 170, 255, 0.18), c(179, 207, 255))
+            case "purple": return (c(200, 128, 255, 0.18), c(218, 179, 255))
+            default: return (c(255, 214, 224, 0.10), c(255, 214, 224, 0.4))
+            }
+        } else {
+            switch key {
+            case "red": return (c(253, 169, 124, 0.2), c(253, 169, 124))
+            case "yellow": return (c(239, 208, 134, 0.2), c(239, 208, 134))
+            case "green": return (c(187, 206, 130, 0.2), c(187, 206, 130))
+            case "blue": return (c(136, 195, 181, 0.2), c(136, 195, 181))
+            case "purple": return (c(219, 165, 171, 0.2), c(219, 165, 171))
+            default: return (c(76, 45, 20, 0.102), c(76, 45, 20, 0.4))
+            }
         }
     }
-    func eventFill(_ key: String?) -> Color { eventColor(key).opacity(dark ? 0.9 : 0.92) }
 }
 
 extension Color {

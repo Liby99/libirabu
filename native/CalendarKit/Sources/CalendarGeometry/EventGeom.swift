@@ -144,6 +144,22 @@ public func eventRect(_ ev: TimedEvent, _ focus: Int, _ tl: TimelineInfo, _ vp: 
     )
 }
 
+/// Height-driven text scheme for an hourly event block (ported from eventTextLayout).
+public struct EventText: Sendable { public var tiny: Bool; public var short: Bool; public var titleLines: Int }
+public func eventTextLayout(_ h: CGFloat) -> EventText {
+    let tiny = h < 26            // ~15 min
+    let short = h < 40           // ~≤30 min: hide the time
+    let lineH: CGFloat = tiny ? 11 : 14
+    let avail = h - (tiny ? 2 : 10) - (short ? 0 : 13)
+    return EventText(tiny: tiny, short: short, titleLines: max(1, Int(avail / lineH)))
+}
+
+/// "HH:MM – HH:MM" for an event's decimal-hour range (ported from fmtRange).
+public func fmtHourRange(_ s: CGFloat, _ e: CGFloat) -> String {
+    func hhmm(_ h: CGFloat) -> String { let t = Int((h * 60).rounded()); return String(format: "%02d:%02d", (t / 60) % 24, t % 60) }
+    return "\(hhmm(s)) – \(hhmm(e))"
+}
+
 /// Pointer → focus-relative day column + fractional hour, accounting for scroll.
 public func pointToSlot(_ px: CGFloat, _ py: CGFloat, _ tl: TimelineInfo) -> (dom: Int?, hourFrac: CGFloat) {
     let dom = (px >= Layout.labelW && tl.colW > 0) ? Int((px - tl.x0) / tl.colW) + 1 : nil

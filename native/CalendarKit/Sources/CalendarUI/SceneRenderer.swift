@@ -230,19 +230,48 @@ enum SceneRenderer {
                 guard let r = eventRect(e, input.focus, tl, input.vp, layout[e.id]) else { continue }
                 let rect = CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
                 if rect.maxY < tl.tlTop || rect.minY > tl.tlBottom { continue }
-                var layer = clip
-                layer.opacity = Double(fade)
-                let shape = Path(roundedRect: rect, cornerRadius: 4)
-                layer.fill(shape, with: .color(theme.eventFill(e.color)))
-                if e.id == selected {
-                    layer.stroke(shape, with: .color(theme.text), lineWidth: 2)
-                }
-                if rect.height > 14 {
-                    drawText(e.title, rect.insetBy(dx: 5, dy: 3), size: 10, align: .left, color: theme.eventText, weight: .medium, into: &layer, clipToRect: true)
-                }
+                drawEvent(e, rect: rect, selected: e.id == selected, fade: fade, base: clip, theme: theme)
             }
         }
     }
+
+    // Two-layer sticker (matches .cc-tevent): rounded 7px translucent fill; an inner
+    // box inset 4px with a colored left accent bar; handwriting title in the text
+    // color; a small time range beneath. Selected → dotted ring + 3px bar + shadow.
+    private static func drawEvent(_ e: TimedEvent, rect: CGRect, selected: Bool, fade: CGFloat, base clipCtx: GraphicsContext, theme: Theme) {
+        var layer = clipCtx
+        layer.opacity = Double(fade)
+        let fill = theme.eventFill(e.color)
+        let border = theme.eventBorder(e.color)
+        let shape = Path(roundedRect: rect, cornerRadius: 7)
+
+        var fillLayer = layer
+        if selected { fillLayer.addFilter(.shadow(color: .black.opacity(0.28), radius: 6, y: 3)) }
+        fillLayer.fill(shape, with: .color(fill))
+        if selected { layer.stroke(shape, with: .color(border), style: StrokeStyle(lineWidth: 1, dash: [2, 2])) }
+
+        let inner = rect.insetBy(dx: 4, dy: 4)
+        guard inner.width > 3, inner.height > 3 else { return }
+        let barW: CGFloat = selected ? 3 : 1
+        layer.fill(Path(CGRect(x: inner.minX, y: inner.minY, width: barW, height: inner.height)), with: .color(border))
+
+        let lay = eventTextLayout(rect.height)
+        let textX = inner.minX + barW + 4
+        let textW = inner.maxX - textX - 2
+        guard textW > 4 else { return }
+        let showTime = !(lay.short || lay.tiny)
+        let timeH: CGFloat = showTime ? 12 : 0
+        let titleRect = CGRect(x: textX, y: inner.minY, width: textW, height: max(11, inner.height - timeH))
+        var titleLayer = layer
+        titleLayer.clip(to: Path(titleRect))
+        titleLayer.draw(Text(e.title).font(handFont(lay.tiny ? 10 : 13)).foregroundStyle(theme.text), in: titleRect)
+        if showTime {
+            drawText(fmtHourRange(e.startHour, e.endHour), CGRect(x: textX, y: inner.maxY - timeH, width: textW, height: timeH),
+                     size: 8.5, align: .left, color: theme.text.opacity(0.72), into: &layer)
+        }
+    }
+
+    private static func handFont(_ size: CGFloat) -> Font { .custom("Comic Sans MS", size: size) }
 
     // ── Text + stroke helpers ──────────────────────────────────────────────────────
     private static func strokeStyle(_ s: LineStyle?) -> StrokeStyle {
