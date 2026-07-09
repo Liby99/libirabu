@@ -34,6 +34,10 @@ public struct CalendarView: View {
                     }
                 }
             }
+            // The visual layers are purely presentational — never let them intercept
+            // mouse events (the Canvas layers are hit-testable and re-render every
+            // frame, which otherwise steals clicks/drags from the input catcher).
+            .allowsHitTesting(false)
             .background(theme.bg)
             .overlay(InputCatcher(engine: engine, onOpenEvent: { ui.openEventId = $0 }))
             // 4a. scrim — blocks the canvas + closes on outside-click (fades)
@@ -86,6 +90,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // No subviews compete; be the event target for any point within our bounds.
+        bounds.contains(convert(point, from: superview)) ? self : nil
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
