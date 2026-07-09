@@ -9,12 +9,11 @@ import PackageDescription
 //   CalendarUI        ← Canvas renderer + SwiftUI views         (→ Geometry, Engine)
 //   CalendarMac       ← macOS app bootstrap (executable)        (→ UI)
 //
-// Milestone target is macOS 14 so it builds/runs on the widest toolchain; the
-// shipping plan bumps this to macOS 26 for Liquid Glass etc. Language mode is held
-// at v5 for the milestone to avoid strict-concurrency churn — tighten to .v6 later.
+// Targets macOS 26 for Liquid Glass (.glassEffect) — the native glass the events
+// use. Language mode is held at v5 for now to avoid strict-concurrency churn.
 let package = Package(
     name: "CalendarKit",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("26.0")],
     products: [
         .library(name: "CalendarGeometry", targets: ["CalendarGeometry"]),
         .library(name: "CalendarEngine", targets: ["CalendarEngine"]),
