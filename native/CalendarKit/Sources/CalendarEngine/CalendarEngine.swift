@@ -54,7 +54,6 @@ public final class CalendarEngine {
         case navigate, move, resizeTop, resizeBottom, create           // timed
         case bandMove, bandResizeL, bandResizeR, bandCreate            // all-day bands
         case ddlMove                                                   // deadlines
-        case deselect                                                  // click-away
     }
     private struct Drag {
         var kind: PointerKind
@@ -69,6 +68,7 @@ public final class CalendarEngine {
         var bandTrack: Int? = nil
         var bandAnchorDay: Int? = nil
         var origDdl: Deadline? = nil
+        var priorSelection: String? = nil   // selection at down → deselect-vs-navigate on a plain click
         var activated = false
     }
 
@@ -209,14 +209,7 @@ public final class CalendarEngine {
         commitTxn()   // flush any pending (e.g. drawer typing) before a new gesture
         cancelTween()
         let g = snapshot()
-        // Deselect-first: with a selection, a click on EMPTY space just clears it and
-        // consumes the click. Clicking another event (timed/band/deadline) is the
-        // exception — it falls through and selects that event directly.
-        if selectedId != nil, itemId(at: p) == nil {
-            selectedId = nil
-            drag = Drag(kind: .deselect, startPoint: p)
-            return
-        }
+        let prior = selectedId   // decide deselect-vs-navigate on a plain click (see onPointerUp)
         // 1. all-day bands (on the lanes) — month view onward
         if z >= 1, let hit = bandAt(p, g) {
             selectedId = hit.id
@@ -235,20 +228,19 @@ public final class CalendarEngine {
             drag = Drag(kind: .ddlMove, startPoint: p, eventId: id, origDdl: seedDeadlines.first { $0.id == id })
             return
         }
-        // 4. empty timeline → primed timed-create (drag) / navigate (click)
+        // 4. empty timeline → a DRAG creates; a plain click deselects (if something was
+        //    selected) or navigates. Selection is cleared on up (not now) so the drag
+        //    can still create.
         if z >= 1.5, let spot = createSpot(at: p, g) {
-            drag = Drag(kind: .create, startPoint: p, anchorHour: spot.anchor, createMonth: spot.month, createDay: spot.day)
-            selectedId = nil
+            drag = Drag(kind: .create, startPoint: p, anchorHour: spot.anchor, createMonth: spot.month, createDay: spot.day, priorSelection: prior)
             return
         }
-        // 5. empty lane → primed band-create (drag) / navigate (click)
+        // 5. empty lane → band create (drag) / deselect / navigate
         if z >= 1, let slot = bandSlotAtPoint(p.x, p.y, g) {
-            drag = Drag(kind: .bandCreate, startPoint: p, bandMonth: slot.month, bandTrack: slot.track, bandAnchorDay: slot.day)
-            selectedId = nil
+            drag = Drag(kind: .bandCreate, startPoint: p, bandMonth: slot.month, bandTrack: slot.track, bandAnchorDay: slot.day, priorSelection: prior)
             return
         }
-        selectedId = nil
-        drag = Drag(kind: .navigate, startPoint: p)
+        drag = Drag(kind: .navigate, startPoint: p, priorSelection: prior)
     }
 
     public func onPointerDrag(at p: CGPoint) {
@@ -261,7 +253,7 @@ public final class CalendarEngine {
         let g = snapshot()
         let tl = timelineInfo(g)
         switch d.kind {
-        case .navigate, .deselect: break
+        case .navigate: break
         case .move: applyMove(d, p, tl)
         case .resizeTop: applyResize(d, p, tl, top: true)
         case .resizeBottom: applyResize(d, p, tl, top: false)
@@ -277,11 +269,15 @@ public final class CalendarEngine {
     public func onPointerUp(at p: CGPoint) {
         defer { commitTxn(); drag = nil }   // one undo entry per drag
         guard let d = drag else { return }
-        // plain click (no drag) on a nav target or an empty (create-primed) cell → navigate
-        if !d.activated && (d.kind == .navigate
-            || (d.kind == .create && d.eventId == nil)
-            || (d.kind == .bandCreate && d.eventId == nil)) {
-            navigate(at: p)
+        // Plain click (no drag) in empty space (create/band-create primed, or navigate):
+        // deselect if something was selected, otherwise navigate (drill in).
+        if !d.activated {
+            switch d.kind {
+            case .create, .bandCreate, .navigate:
+                if d.priorSelection != nil { selectedId = nil } else { navigate(at: p) }
+            default:
+                break
+            }
             return
         }
         // discard a too-small created timed event
