@@ -1,0 +1,37 @@
+name: CalendarApp
+options:
+  bundleIdPrefix: dev.libirabu
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "26.0"
+
+# The app depends on the local CalendarKit Swift package (the calendar itself lives
+# there); this target is just the shell that hosts CalendarView in a real .app
+# bundle, so Xcode's debugger + View Debugger work fully.
+packages:
+  CalendarKit:
+    path: ../CalendarKit
+
+targets:
+  CalendarApp:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    dependencies:
+      - package: CalendarKit
+        product: CalendarUI
+    settings:
+      base:
+        PRODUCT_NAME: Calendar
+        PRODUCT_BUNDLE_IDENTIFIER: dev.libirabu.calendar
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Calendar
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        SWIFT_VERSION: "5.0"
+        MACOSX_DEPLOYMENT_TARGET: "26.0"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO

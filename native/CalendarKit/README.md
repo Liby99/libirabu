@@ -34,10 +34,18 @@ concurrency-safe.
 
 ## Run
 
+Primary (debuggable) — the Xcode app in `../CalendarApp` wraps this package:
+
 ```sh
-swift run CalendarMac          # debug
-swift build -c release && ./.build/release/CalendarMac
-swift test                     # geometry parity tests
+cd ../CalendarApp && open CalendarApp.xcodeproj   # then ⌘R; use LLDB + Debug View Hierarchy
+xcodegen generate                                 # regenerate the project from project.yml
+```
+
+Command-line (no Xcode):
+
+```sh
+swift build -c release && ./scripts/run-mac.sh    # wraps the CalendarMac executable in a .app
+swift test                                        # geometry parity tests
 ```
 
 ## Not yet ported (next milestones)
