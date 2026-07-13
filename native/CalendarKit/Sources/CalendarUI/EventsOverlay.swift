@@ -179,18 +179,21 @@ private struct BandSticker: View {
                  : (hovered ? BandStyle.tintHovered : BandStyle.tintIdle)
         let glass: Glass = (active || BandStyle.idleFrosted) ? .regular.tint(color.opacity(tint))
                                                              : .clear.tint(color.opacity(tint))
+        // Text leading = bar inset + bar width + a FIXED gap, so thickening the bar on
+        // select slides the title right (animated) instead of eating into the gap.
+        let barWidth = selected ? BandStyle.accentWidthSelected : BandStyle.accentWidth
         Text(ev.title)
             .font(.custom("Comic Sans MS", size: BandStyle.titleSize))
             .foregroundStyle(theme.text)
             .lineLimit(1)
-            .padding(.leading, BandStyle.titleLeading)
+            .padding(.leading, BandStyle.accentInset + barWidth + BandStyle.barTextGap)
             .padding(.trailing, BandStyle.titleTrailing)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .glassEffect(glass, in: RoundedRectangle(cornerRadius: r))
             .overlay(alignment: .leading) {
                 Capsule()
                     .fill(border)
-                    .frame(width: selected ? BandStyle.accentWidthSelected : BandStyle.accentWidth)
+                    .frame(width: barWidth)
                     .padding(.vertical, BandStyle.accentInset)
                     .padding(.leading, BandStyle.accentInset)
             }
