@@ -172,6 +172,10 @@ private struct BandSticker: View {
 
     var body: some View {
         let border = theme.eventBorder(ev.color)
+        // Tint with the SATURATED fill color (not the pale pastel border) so the band
+        // reads as a real color rather than washed-out. eventFill carries a low base
+        // alpha, so .opacity() here multiplies it up to a visible level.
+        let fill = theme.eventFill(ev.color)
         let radius: CGFloat = 9
         let active = hovered || selected || drawerOpen   // frosted when engaged, else clear
         Text(ev.title)
@@ -181,7 +185,7 @@ private struct BandSticker: View {
             .padding(.leading, 14)
             .padding(.trailing, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .glassEffect(active ? .regular.tint(border.opacity(0.34)) : .clear.tint(border.opacity(0.24)),
+            .glassEffect(active ? .regular.tint(fill.opacity(2.6)) : .clear.tint(fill.opacity(2.2)),
                          in: RoundedRectangle(cornerRadius: radius))
             // Left accent bar: rounded, inset 6px from left/top/bottom; thicker when selected.
             .overlay(alignment: .leading) {
