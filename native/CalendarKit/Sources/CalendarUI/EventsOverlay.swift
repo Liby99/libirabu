@@ -4,6 +4,7 @@
 // backdrop-filter). Visual only; gestures are handled by the AppKit input bridge.
 
 import SwiftUI
+import AppKit
 import CalendarGeometry
 
 struct EventsOverlay: View {
@@ -81,26 +82,42 @@ struct EventsOverlay: View {
             let f = frameFor(b.month, input, anim: input.monthAnim)
             placed.append((b, CGRect(x: r.x, y: r.y, width: r.w, height: r.h), Double(f.opacity)))
         }
-        // Per-lane (month+track) gap-clip: a title runs freely into empty cells but truncates
-        // ~10px before the next-starting bar. No later bar → unbounded overflow.
-        var titleMax: [String: CGFloat] = [:]
+        // Per-lane (month+track): (a) gap = px to the next later-starting bar (title clips
+        // before it); (b) same-start stacks — longest at the bottom, each covered by the
+        // next-shorter above; identical lengths flag an error. Ported from BandEventsLayer.
+        var gapBy: [String: CGFloat] = [:]
+        var collideBy: [String: (z: Double, maskLeft: CGFloat, err: Bool)] = [:]
         var byLane: [String: [Int]] = [:]
         for (i, p) in placed.enumerated() { byLane["\(p.ev.month)-\(p.ev.track)", default: []].append(i) }
         for (_, idxs) in byLane {
-            let sorted = idxs.sorted { placed[$0].ev.startDay < placed[$1].ev.startDay }
-            for j in sorted.indices where j + 1 < sorted.count {
-                let gap = placed[sorted[j + 1]].rect.minX - placed[sorted[j]].rect.minX
-                titleMax[placed[sorted[j]].ev.id] = max(12, gap - 10)
+            let byStart = idxs.sorted { placed[$0].ev.startDay < placed[$1].ev.startDay }
+            for k in 0 ..< max(0, byStart.count - 1) {
+                let d = placed[byStart[k + 1]].rect.minX - placed[byStart[k]].rect.minX
+                if d > 0 { gapBy[placed[byStart[k]].ev.id] = d }
+            }
+            var byDay: [Int: [Int]] = [:]
+            for i in idxs { byDay[placed[i].ev.startDay, default: []].append(i) }
+            for (start, stackIdxs) in byDay where stackIdxs.count >= 2 {
+                func len(_ i: Int) -> Int { placed[i].ev.endDay - placed[i].ev.startDay }
+                let stack = stackIdxs.sorted { len($0) > len($1) }   // longest first (bottom)
+                for si in stack.indices {
+                    let curLen = len(stack[si])
+                    let hasAbove = si + 1 < stack.count
+                    let aboveW: CGFloat = hasAbove ? placed[stack[si + 1]].rect.width : 0
+                    let sameLen = (hasAbove && len(stack[si + 1]) == curLen) || (si > 0 && len(stack[si - 1]) == curLen)
+                    collideBy[placed[stack[si]].ev.id] = (Double(10 + start + si * 2), aboveW, sameLen)
+                }
             }
         }
         return placed.map { p in
             let id = p.ev.id
-            let active = id == hovered || id == selected || id == drawerId
-            let z: Double = id == drawerId ? 1001 : (id == selected ? 1000 : (id == hovered ? 950 : Double(10 + p.ev.startDay)))
+            let cd = collideBy[id]
+            let z: Double = id == drawerId ? 1001 : (id == selected ? 1000 : (id == hovered ? 950 : (cd?.z ?? Double(10 + p.ev.startDay))))
             return Item2(id: id, rect: p.rect, fade: p.fade, z: z, view: AnyView(
                 BandSticker(ev: p.ev, hovered: id == hovered, selected: id == selected,
                             drawerOpen: id == drawerId, editing: id == editingId,
-                            titleMax: active ? nil : titleMax[id], theme: theme)))
+                            gap: gapBy[id], maskLeft: cd?.maskLeft ?? 0, collide: cd != nil,
+                            error: cd?.err ?? false, box: p.rect.size, theme: theme)))
         }
     }
 
@@ -184,12 +201,16 @@ private struct BandSticker: View {
     let selected: Bool
     let drawerOpen: Bool
     let editing: Bool
-    let titleMax: CGFloat?   // width cap before the next bar; nil = overflow full width
+    let gap: CGFloat?        // px to the next later-starting bar on the lane (title clips before it)
+    let maskLeft: CGFloat    // px of this bar covered by the shorter one above (same-start stack)
+    let collide: Bool        // part of a same-start stack
+    let error: Bool          // identical-length overlap → error badge
+    let box: CGSize          // the band box size (for scrim/mask geometry)
     let theme: Theme
 
     var body: some View {
         let border = theme.eventBorder(ev.color)
-        let color = theme.eventColor(ev.color)   // saturated hue at full opacity
+        let color = theme.eventColor(ev.color)
         let r = BandStyle.cornerRadius
         let active = hovered || selected || drawerOpen
         let tint = (selected || drawerOpen) ? BandStyle.tintSelected
@@ -197,52 +218,74 @@ private struct BandSticker: View {
         let glass: Glass = (active || BandStyle.idleFrosted) ? .regular.tint(color.opacity(tint))
                                                              : .clear.tint(color.opacity(tint))
         let barWidth = selected ? BandStyle.accentWidthSelected : BandStyle.accentWidth
-        let titleLeading = BandStyle.accentInset + barWidth + BandStyle.barTextGap
-        // The glass box fills the band rect; the title is a separate overlay that can
-        // overflow to the right (into empty cells), truncating before the next bar.
+        let lead = BandStyle.accentInset + barWidth + BandStyle.barTextGap
+        let inner = max(0, box.width - lead - BandStyle.titleTrailing)
+
+        // Title layout. Hover un-truncates to full overflow. Same-start undercut shifts the
+        // title past the covering bar and clips; a collide top-bar clips to its box; else
+        // clip to the gap; else unbounded.
+        let shift: CGFloat = hovered ? 0 : (collide ? maskLeft : 0)
+        let clip: CGFloat? = hovered ? nil
+            : (collide ? max(0, inner - shift) : gap.map { max(12, $0 - 10) })
+
+        // Spill scrim (hover only): the part of the full title past the box's right edge, but
+        // only when it actually overruns the next bar. Height = full box height.
+        let titleEnd = lead + Self.titleWidth(ev.title)
+        let maskW: CGFloat = (hovered && gap != nil && gap! < titleEnd) ? max(0, titleEnd + 9 - box.width) : 0
+
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .glassEffect(glass, in: RoundedRectangle(cornerRadius: r))
-            .overlay(alignment: .leading) {
-                Capsule()
-                    .fill(border)
-                    .frame(width: barWidth)
-                    .padding(.vertical, BandStyle.accentInset)
-                    .padding(.leading, BandStyle.accentInset)
+            .overlay(alignment: .leading) {   // accent bar
+                Capsule().fill(border).frame(width: barWidth)
+                    .padding(.vertical, BandStyle.accentInset).padding(.leading, BandStyle.accentInset)
             }
-            .overlay {
+            .overlay(alignment: .leading) {   // undercut mask: hide the covered left region
+                if !hovered && collide && maskLeft > 0 {
+                    UnevenRoundedRectangle(topLeadingRadius: r, bottomLeadingRadius: r)
+                        .fill(.regularMaterial)
+                        .frame(width: maskLeft, height: box.height)
+                }
+            }
+            .overlay(alignment: .leading) {   // spill scrim (behind the title)
+                if maskW > 0 {
+                    UnevenRoundedRectangle(bottomTrailingRadius: 5, topTrailingRadius: 5)
+                        .fill(.regularMaterial)
+                        .frame(width: maskW, height: box.height)
+                        .offset(x: box.width)
+                }
+            }
+            .overlay(alignment: .leading) {   // title (can overflow right)
+                if !editing { titleView(clip: clip).padding(.leading, lead + shift) }
+            }
+            .overlay {                          // selection / drawer border
                 if drawerOpen {
                     RoundedRectangle(cornerRadius: r).strokeBorder(border, lineWidth: BandStyle.drawerBorderWidth)
                 } else if selected {
                     RoundedRectangle(cornerRadius: r).strokeBorder(border, style: StrokeStyle(lineWidth: BandStyle.selectedBorderWidth, dash: BandStyle.selectedDash))
                 }
             }
-            .overlay(alignment: .leading) {
-                if !editing { titleView.padding(.leading, titleLeading) }
+            .overlay(alignment: .trailing) {   // error badge (same-start identical length)
+                if error {
+                    Text("!").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                        .frame(width: 15, height: 15).background(Circle().fill(.red)).padding(.trailing, 2)
+                }
             }
             .animation(.easeInOut(duration: BandStyle.animation), value: [hovered, selected, drawerOpen])
     }
 
-    // The title: capped to titleMax (ellipsis) when there's a next bar; full-width
-    // (overflows the box) otherwise or when active. A frosted plate on hover keeps the
-    // spilled text legible over whatever's behind it.
-    @ViewBuilder private var titleView: some View {
+    @ViewBuilder private func titleView(clip: CGFloat?) -> some View {
         let t = Text(ev.title)
             .font(.custom("Comic Sans MS", size: BandStyle.titleSize))
             .foregroundStyle(theme.text)
             .lineLimit(1)
-        Group {
-            if let max = titleMax { t.truncationMode(.tail).frame(width: max, alignment: .leading) }
-            else { t.fixedSize() }
-        }
-        .padding(.trailing, BandStyle.titleTrailing)
-        .background {
-            if hovered {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(.regularMaterial)
-                    .padding(.vertical, 1).padding(.horizontal, -3)
-            }
-        }
+        if let clip { t.truncationMode(.tail).frame(width: clip, alignment: .leading) }
+        else { t.fixedSize() }
+    }
+
+    static func titleWidth(_ s: String) -> CGFloat {
+        let f = NSFont(name: "Comic Sans MS", size: BandStyle.titleSize) ?? NSFont.systemFont(ofSize: BandStyle.titleSize)
+        return (s as NSString).size(withAttributes: [.font: f]).width
     }
 }
 
