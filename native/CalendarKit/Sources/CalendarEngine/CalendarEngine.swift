@@ -136,6 +136,9 @@ public final class CalendarEngine {
     /// Selectable years: 2024 … systemYear+3, matching the web (CalendarCanvas.tsx).
     public var yearOptions: [Int] { Array(2024...(systemYear + 3)) }
 
+    /// Zoom back out to the yearly view (breadcrumb "Year" crumb from a deeper level).
+    public func zoomToYear() { tweenZ(to: 0) }
+
     /// Jump to another calendar year. Resets vertical scroll to the top, like the web's selectYear.
     public func selectYear(_ y: Int) {
         guard y != year else { return }

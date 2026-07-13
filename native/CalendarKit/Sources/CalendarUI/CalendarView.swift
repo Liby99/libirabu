@@ -109,27 +109,26 @@ private struct Breadcrumb: View {
     @State private var yearMenuOpen = false
 
     var body: some View {
-        let showCaret = yearHover || yearMenuOpen
+        let atYear = chrome.level == 0
+        // The caret (and the year picker) exist only at the yearly view. Deeper in, the
+        // "Year" crumb is a plain navigation button that zooms back out to the year.
+        let showCaret = atYear && (yearHover || yearMenuOpen)
         HStack(spacing: 5) {
             // A plain Button + popover (not Menu) so there's no system disclosure arrow —
-            // the only caret is our own, hidden by default and revealed on hover.
-            Button { yearMenuOpen.toggle() } label: {
+            // the only caret is our own.
+            Button { if atYear { yearMenuOpen.toggle() } else { engine.zoomToYear() } } label: {
                 HStack(spacing: 0) {
-                    // The text keeps its natural width and stays put; the caret rides in a
-                    // clear spacer whose width animates 0→17, so the crumb grows rightward
-                    // smoothly (no whole-button fixedSize snap, which caused the jump).
-                    crumb("Year \(chrome.year)", active: chrome.level == 0).fixedSize()
-                    Color.clear
-                        .frame(width: showCaret ? 17 : 0)
-                        .overlay(alignment: .leading) {
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .semibold))
-                                .foregroundStyle(.tertiary)
-                                .padding(.leading, 5)
-                                .opacity(showCaret ? 1 : 0)
-                                .fixedSize()
-                        }
-                        .clipped()
+                    crumb("Year \(chrome.year)", active: atYear).fixedSize()
+                    if atYear {
+                        // Width is ALWAYS reserved (text + chevron), so the crumb never
+                        // resizes — only the chevron's opacity animates in/out on hover.
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .padding(.leading, 5)
+                            .frame(width: 17, alignment: .leading)
+                            .opacity(showCaret ? 1 : 0)
+                    }
                 }
             }
             .buttonStyle(.plain)
