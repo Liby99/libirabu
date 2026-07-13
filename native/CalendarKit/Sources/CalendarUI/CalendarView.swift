@@ -127,7 +127,7 @@ private struct TrackNameEditor: View {
             .font(.custom("Comic Sans MS", size: 13))
             .foregroundStyle(theme.text)
             .focused($focused)
-            .padding(.leading, 6)
+            .padding(.leading, 10)
             .frame(width: r.width, height: max(18, r.height - 6), alignment: .leading)
             .position(x: r.midX + Layout.padLeft, y: r.midY)
             .onAppear {

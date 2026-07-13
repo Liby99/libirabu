@@ -326,8 +326,9 @@ enum SceneRenderer {
                 }
                 if hide?.0 == m, hide?.1 == i { continue }   // slot is being edited inline
                 let name = i < names.count ? names[i] : ""
-                // Match the event-name font (Comic Sans MS 13) for a consistent look.
-                drawText(name, CGRect(x: left + 6, y: y, width: width - 8, height: f.trackH),
+                // Match the event-name font (Comic Sans MS 13) for a consistent look; the
+                // left inset matches the inline editor's leading padding (no jump on edit).
+                drawText(name, CGRect(x: left + 10, y: y, width: width - 14, height: f.trackH),
                          size: 13, align: .left, color: theme.text, font: .custom("Comic Sans MS", size: 13),
                          into: &layer, clipToRect: true)
             }
