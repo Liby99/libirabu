@@ -393,11 +393,15 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
     override func mouseDown(with e: NSEvent) {
         let p = point(e)
-        // While an inline field (track name / band title) is open, a click just commits/
-        // dismisses it (blur the field) and is swallowed — no navigate/select underneath.
-        if engine?.trackEditing == true || engine?.bandEditing == true {
+        // Track-name edit: a click just commits/dismisses it (swallowed — no zoom).
+        if engine?.trackEditing == true {
             window?.makeFirstResponder(self)
             return
+        }
+        // Band-title edit: commit/dismiss it (blur), then let THIS click act normally —
+        // selecting another event, or deselecting on blank (fall through below).
+        if engine?.bandEditing == true {
+            window?.makeFirstResponder(self)
         }
         // Year view: clicking a track-name gutter slot opens the inline editor.
         if e.clickCount == 1, let hit = engine?.trackNameHit(at: p) {
