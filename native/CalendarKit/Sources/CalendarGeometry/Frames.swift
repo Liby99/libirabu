@@ -12,7 +12,7 @@ import CoreGraphics
 private func quarterBlock() -> CGFloat { Layout.qHeaderH + 3 * Layout.monthH }
 public func yearContentH() -> CGFloat { 4 * quarterBlock() + 3 * Layout.qGap }
 public func yearMaxScroll(_ vp: Viewport) -> CGFloat {
-    max(0, yearContentH() - (vp.h - Layout.topPad - Layout.bottomPad))
+    max(0, yearContentH() - (vp.h - Layout.yearTop - Layout.bottomPad))
 }
 
 /// GridCal-style year layout: 4 quarters separated by Q_GAP; months flush within a quarter.
@@ -21,7 +21,9 @@ public func yearFrame(_ m: Int, _ vp: Viewport, _ scrollY: CGFloat) -> Frame {
     let q = m / 3
     let within = m % 3
     let quarterTop = CGFloat(q) * (quarterBlock() + Layout.qGap)
-    let bandY = Layout.topPad - scrollY + quarterTop + Layout.qHeaderH + CGFloat(within) * Layout.monthH
+    // Year view uses its own small top inset (yearTop); the accordion below still lands
+    // the focused month band at topPad when zooming in.
+    let bandY = Layout.yearTop - scrollY + quarterTop + Layout.qHeaderH + CGFloat(within) * Layout.monthH
     return Frame(x0: Layout.labelW, dayW: dayW, bandY: bandY, trackH: Layout.trackH, opacity: 1)
 }
 

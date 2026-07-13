@@ -79,8 +79,10 @@ enum SceneRenderer {
     // with a caption that flips to "Release to switch" once past the flip threshold.
     private static func drawYearPull(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         guard input.z < 0.5, let p = input.yearPull, p.over > 4 else { return }
-        let reveal = min(1, p.over / 55)
-        let cx = (Layout.labelW + input.vp.w) / 2
+        let reveal = min(1, p.over / 40)
+        // Center on the whole window, not the content area: geometry x=0 sits padLeft
+        // from the window's left edge, so the window center is (vp.w - padLeft)/2.
+        let cx = (input.vp.w - Layout.padLeft) / 2
         let cy = p.atTop ? p.over * 0.5 : input.vp.h - p.over * 0.5
         var layer = ctx
         layer.opacity = Double(reveal)

@@ -42,7 +42,7 @@ public final class CalendarEngine {
     private var liveScrolling = false        // fingers-down phase of a trackpad gesture
     private var lastOverscroll: (over: CGFloat, atTop: Bool) = (0, false)
     private var yearPull: YearPull?          // pull-to-change-year hint (nil when not pulling)
-    private let FLIP_OVER: CGFloat = 55      // on-screen overscroll (px) that arms a year flip
+    private let FLIP_OVER: CGFloat = 38      // on-screen overscroll (px) that arms a year flip
     // pinch state
     private var magStartZ: CGFloat = 0
     private var magAccum: CGFloat = 0
