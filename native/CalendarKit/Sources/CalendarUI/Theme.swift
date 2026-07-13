@@ -65,6 +65,11 @@ struct Theme {
     // border/accent, exact values from globals.css (--event-*).
     func eventFill(_ key: String?) -> Color { ev(key).fill }
     func eventBorder(_ key: String?) -> Color { ev(key).border }
+    /// The saturated fill hue at full opacity, so callers can set their own alpha.
+    func eventColor(_ key: String?) -> Color {
+        guard let c = NSColor(ev(key).fill).usingColorSpace(.sRGB) else { return ev(key).fill }
+        return Color(.sRGB, red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent), opacity: 1)
+    }
 
     private func ev(_ key: String?) -> (fill: Color, border: Color) {
         func c(_ r: Double, _ g: Double, _ b: Double, _ a: Double = 1) -> Color {

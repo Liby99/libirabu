@@ -137,14 +137,14 @@ private struct EventSticker: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(ev.title)
                     .font(.custom("Comic Sans MS", size: lay.tiny ? 10 : 13))
-                    .foregroundStyle(border)
+                    .foregroundStyle(theme.text)
                     .lineLimit(lay.titleLines)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                 if !(lay.short || lay.tiny) {
                     Text(fmtHourRange(ev.startHour, ev.endHour))
                         .font(.system(size: 8.5))
-                        .foregroundStyle(border.opacity(0.72))
+                        .foregroundStyle(theme.text.opacity(0.72))
                 }
                 Spacer(minLength: 0)
             }
@@ -172,37 +172,36 @@ private struct BandSticker: View {
 
     var body: some View {
         let border = theme.eventBorder(ev.color)
-        // Tint with the SATURATED fill color (not the pale pastel border) so the band
-        // reads as a real color rather than washed-out. eventFill carries a low base
-        // alpha, so .opacity() here multiplies it up to a visible level.
-        let fill = theme.eventFill(ev.color)
-        let radius: CGFloat = 9
-        let active = hovered || selected || drawerOpen   // frosted when engaged, else clear
+        let color = theme.eventColor(ev.color)   // saturated hue at full opacity
+        let r = BandStyle.cornerRadius
+        let active = hovered || selected || drawerOpen
+        let tint = (selected || drawerOpen) ? BandStyle.tintSelected
+                 : (hovered ? BandStyle.tintHovered : BandStyle.tintIdle)
+        let glass: Glass = (active || BandStyle.idleFrosted) ? .regular.tint(color.opacity(tint))
+                                                             : .clear.tint(color.opacity(tint))
         Text(ev.title)
-            .font(.custom("Comic Sans MS", size: 12))
-            .foregroundStyle(border)
+            .font(.custom("Comic Sans MS", size: BandStyle.titleSize))
+            .foregroundStyle(theme.text)
             .lineLimit(1)
-            .padding(.leading, 14)
-            .padding(.trailing, 6)
+            .padding(.leading, BandStyle.titleLeading)
+            .padding(.trailing, BandStyle.titleTrailing)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .glassEffect(active ? .regular.tint(fill.opacity(2.6)) : .clear.tint(fill.opacity(2.2)),
-                         in: RoundedRectangle(cornerRadius: radius))
-            // Left accent bar: rounded, inset 6px from left/top/bottom; thicker when selected.
+            .glassEffect(glass, in: RoundedRectangle(cornerRadius: r))
             .overlay(alignment: .leading) {
                 Capsule()
                     .fill(border)
-                    .frame(width: selected ? 3 : 2)
-                    .padding(.vertical, 6)
-                    .padding(.leading, 6)
+                    .frame(width: selected ? BandStyle.accentWidthSelected : BandStyle.accentWidth)
+                    .padding(.vertical, BandStyle.accentInset)
+                    .padding(.leading, BandStyle.accentInset)
             }
             .overlay {
                 if drawerOpen {
-                    RoundedRectangle(cornerRadius: radius).strokeBorder(border, lineWidth: 2)
+                    RoundedRectangle(cornerRadius: r).strokeBorder(border, lineWidth: BandStyle.drawerBorderWidth)
                 } else if selected {
-                    RoundedRectangle(cornerRadius: radius).strokeBorder(border, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                    RoundedRectangle(cornerRadius: r).strokeBorder(border, style: StrokeStyle(lineWidth: BandStyle.selectedBorderWidth, dash: BandStyle.selectedDash))
                 }
             }
-            .animation(.easeInOut(duration: 0.18), value: [hovered, selected, drawerOpen])
+            .animation(.easeInOut(duration: BandStyle.animation), value: [hovered, selected, drawerOpen])
     }
 }
 
