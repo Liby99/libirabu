@@ -55,7 +55,15 @@ public struct CalendarView: View {
             // No opaque background: the window is translucent (see CalendarApp),
             // so the desktop tint shows through.
             .allowsHitTesting(false)
-            .overlay(InputCatcher(engine: engine, onOpenEvent: { ui.openEventId = $0 }))
+            .overlay(InputCatcher(engine: engine, onOpenEvent: { ui.openEventId = $0 },
+                                  onEditTrack: { te in engine.trackEditing = true; ui.editingTrack = te }))
+            // inline track-name editor
+            .overlay {
+                if let te = ui.editingTrack {
+                    TrackNameEditor(engine: engine, target: te, theme: theme,
+                                    onDone: { ui.editingTrack = nil; engine.trackEditing = false })
+                }
+            }
             // 4a. scrim — blocks the canvas + closes on outside-click (fades)
             .overlay {
                 if ui.openEventId != nil {
@@ -98,6 +106,39 @@ public struct CalendarView: View {
         }
         // Let the translucent window material show through the toolbar (native tint).
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+    }
+}
+
+/// Inline editor for a track (lane) name, placed over the clicked gutter slot. Updates
+/// the shared name live across all months; commits/dismisses on Return, Esc, or blur.
+private struct TrackNameEditor: View {
+    let engine: CalendarEngine
+    let target: TrackEdit
+    let theme: Theme
+    var onDone: () -> Void
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let r = target.rect
+        TextField("Track", text: $text)
+            .textFieldStyle(.plain)
+            .font(.custom("Comic Sans MS", size: 13))
+            .foregroundStyle(theme.text)
+            .focused($focused)
+            .padding(.horizontal, 6)
+            .frame(width: r.width, height: max(18, r.height - 6), alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 4).fill(theme.bg))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.nowLine, lineWidth: 1.5))
+            .position(x: r.midX + Layout.padLeft, y: r.midY)
+            .onAppear {
+                text = target.track < engine.trackNames.count ? engine.trackNames[target.track] : ""
+                focused = true
+            }
+            .onChange(of: text) { _, v in engine.setTrackName(target.track, v) }
+            .onChange(of: focused) { _, f in if !f { onDone() } }
+            .onSubmit { onDone() }
+            .onExitCommand { onDone() }
     }
 }
 
@@ -177,15 +218,17 @@ import AppKit
 struct InputCatcher: NSViewRepresentable {
     let engine: CalendarEngine
     var onOpenEvent: (String) -> Void = { _ in }
+    var onEditTrack: (TrackEdit) -> Void = { _ in }
 
     func makeNSView(context: Context) -> CatcherView {
         let v = CatcherView()
         v.engine = engine
         v.onOpenEvent = onOpenEvent
+        v.onEditTrack = onEditTrack
         v.installYearScrollDriver()
         return v
     }
-    func updateNSView(_ v: CatcherView, context: Context) { v.engine = engine; v.onOpenEvent = onOpenEvent }
+    func updateNSView(_ v: CatcherView, context: Context) { v.engine = engine; v.onOpenEvent = onOpenEvent; v.onEditTrack = onEditTrack }
 }
 
 /// Flipped so its scroll origin (0 = top, increasing downward) matches our scrollY.
@@ -207,6 +250,7 @@ final class DriverScrollView: NSScrollView {
 final class CatcherView: NSView, NSMenuItemValidation {
     weak var engine: CalendarEngine?
     var onOpenEvent: ((String) -> Void)?
+    var onEditTrack: ((TrackEdit) -> Void)?
     private var trackingAreaRef: NSTrackingArea?
     // Invisible NSScrollView used purely as a physics driver: AppKit computes the elastic
     // bounce + momentum, and we mirror its offset into the engine (year-view scroll).
@@ -289,7 +333,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         // physics; its offset is mirrored back via clipBoundsChanged. Deeper levels use
         // the manual timeline/week/day handling.
         guard let engine else { return }
-        if engine.isFlipping { return }            // don't fight the flip transition
+        if engine.isFlipping || engine.trackEditing { return }   // don't fight flip / inline edit
         if engine.isYearLevel {
             yearScroll.scrollWheel(with: e)   // DriverScrollView does the physics + begin/end
         } else {
@@ -302,12 +346,18 @@ final class CatcherView: NSView, NSMenuItemValidation {
         engine?.onMagnify(delta: e.magnification, at: point(e), began: began, ended: ended)
     }
     override func mouseDown(with e: NSEvent) {
-        window?.makeFirstResponder(self)
-        if e.clickCount == 2 {   // double-click any item → open its drawer
-            if let id = engine?.itemId(at: point(e)) { onOpenEvent?(id) }
+        let p = point(e)
+        // Year view: clicking a track-name gutter slot opens the inline editor.
+        if e.clickCount == 1, let hit = engine?.trackNameHit(at: p) {
+            onEditTrack?(TrackEdit(track: hit.track, rect: hit.rect))
             return
         }
-        engine?.onPointerDown(at: point(e))
+        window?.makeFirstResponder(self)
+        if e.clickCount == 2 {   // double-click any item → open its drawer
+            if let id = engine?.itemId(at: p) { onOpenEvent?(id) }
+            return
+        }
+        engine?.onPointerDown(at: p)
     }
     override func mouseDragged(with e: NSEvent) { engine?.onPointerDrag(at: point(e)); NSCursor.closedHand.set() }
     override func mouseUp(with e: NSEvent) { engine?.onPointerUp(at: point(e)) }

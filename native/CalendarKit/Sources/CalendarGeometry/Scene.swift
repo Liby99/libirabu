@@ -215,7 +215,7 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
         let dim = daysInMonth(g.year, m)
         let fullW = 31 * f.dayW
 
-        items.append(Item(key: "ml-\(m)", kind: .monthLabel, x: 0, y: f.bandY, w: Layout.mnameW, h: f.trackH * 4, opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 15, align: .center, z: 8, gutter: true))
+        items.append(Item(key: "ml-\(m)", kind: .monthLabel, x: 0, y: f.bandY, w: Layout.mnameW, h: f.trackH * 4, opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 13, align: .center, z: 8, gutter: true))
 
         let isFocusBand = m == g.focus || (g.monthAnim != nil && m == g.focus + g.monthAnim!.dir)
         if detailReveal > 0.02 && isFocusBand {

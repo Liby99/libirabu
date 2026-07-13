@@ -12,8 +12,12 @@ import CalendarEngine
 @Observable
 public final class CalendarUIState {
     public var openEventId: String?
+    public var editingTrack: TrackEdit?   // inline track-name editor target
     public init() {}
 }
+
+/// Target for the inline track-name editor: which track, and where (geometry-space rect).
+public struct TrackEdit: Equatable { public var track: Int; public var rect: CGRect }
 
 private enum ItemKind2 { case timed, band, deadline }
 

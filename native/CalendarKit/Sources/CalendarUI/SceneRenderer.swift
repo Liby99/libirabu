@@ -322,8 +322,10 @@ enum SceneRenderer {
                     layer.stroke(sep, with: .color(theme.cellGrid), style: StrokeStyle(lineWidth: 1, dash: [1, 2]))
                 }
                 let name = i < tracks.count ? tracks[i] : ""
+                // Match the event-name font (Comic Sans MS 13) for a consistent look.
                 drawText(name, CGRect(x: left + 6, y: y, width: width - 8, height: f.trackH),
-                         size: 13, align: .left, color: theme.text, into: &layer, clipToRect: true)
+                         size: 13, align: .left, color: theme.text, font: .custom("Comic Sans MS", size: 13),
+                         into: &layer, clipToRect: true)
             }
             // solid bottom border across the gutter (month-name cell + track cells) —
             // the grid's month divider doesn't extend into the gutter. Internal borders
@@ -368,9 +370,10 @@ enum SceneRenderer {
         drawText(it.text ?? "", CGRect(x: rect.minX + 4, y: rect.minY + 12, width: rect.width - 8, height: rect.height - 14), size: size, align: align, color: color, weight: .bold, into: &ctx)
     }
 
-    private static func drawText(_ s: String, _ rect: CGRect, size: CGFloat, align: TextAlign, color: Color, weight: Font.Weight = .regular, tracking: CGFloat = 0, into ctx: inout GraphicsContext, clipToRect: Bool = false) {
+    private static func drawText(_ s: String, _ rect: CGRect, size: CGFloat, align: TextAlign, color: Color, weight: Font.Weight = .regular, tracking: CGFloat = 0, font: Font? = nil, into ctx: inout GraphicsContext, clipToRect: Bool = false) {
         if s.isEmpty { return }
-        let resolved = ctx.resolve(Text(s).font(.system(size: size, weight: weight)).tracking(tracking).foregroundStyle(color))
+        let f = font ?? .system(size: size, weight: weight)
+        let resolved = ctx.resolve(Text(s).font(f).tracking(tracking).foregroundStyle(color))
         let pt: CGPoint
         let anchor: UnitPoint
         switch align {

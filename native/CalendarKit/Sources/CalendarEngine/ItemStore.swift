@@ -9,6 +9,7 @@ public struct PersistedState: Codable, Sendable {
     public var events: [TimedEvent]
     public var bands: [BandEvent]
     public var deadlines: [Deadline]
+    public var trackNames: [String]?   // optional for backward compat with older saves
 }
 
 struct ItemStore {

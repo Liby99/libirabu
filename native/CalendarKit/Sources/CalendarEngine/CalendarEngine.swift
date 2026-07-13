@@ -26,7 +26,8 @@ public final class CalendarEngine {
     public private(set) var seedEvents: [TimedEvent] = []
     public private(set) var seedBands: [BandEvent] = []
     public private(set) var seedDeadlines: [Deadline] = []
-    public let trackNames = TRACKS.map { $0.name }
+    public private(set) var trackNames = TRACKS.map { $0.name }
+    public var trackEditing = false        // an inline track-name field is open (freezes scroll)
     public let chrome = CalendarChrome()   // breadcrumb state for the toolbar
 
     public private(set) var selectedId: String?
@@ -106,6 +107,7 @@ public final class CalendarEngine {
         // self is now fully initialized — restore persisted edits over the seeds.
         if let s = store.load() {
             seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines
+            if let names = s.trackNames, names.count == trackNames.count { trackNames = names }
         } else {
             persistNow()   // seed the store on first launch
         }
@@ -116,7 +118,32 @@ public final class CalendarEngine {
     }
 
     // ── Persistence ─────────────────────────────────────────────────────────────
-    private func persistNow() { store.save(PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines)) }
+    private func persistNow() { store.save(PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, trackNames: trackNames)) }
+
+    // ── Track names (editable lane labels, shared across all months) ──────────────
+    public func setTrackName(_ i: Int, _ name: String) {
+        guard i >= 0, i < trackNames.count, trackNames[i] != name else { return }
+        trackNames[i] = name
+        schedulePersist()
+    }
+
+    /// Which track-name gutter slot is under the cursor (year view only), with its
+    /// geometry-space rect — used to place the inline editor.
+    public func trackNameHit(at p: CGPoint) -> (track: Int, rect: CGRect)? {
+        guard isYearLevel, p.x >= Layout.mnameW, p.x <= Layout.labelW - Layout.rightPad else { return nil }
+        let g = snapshot()
+        for m in 0..<12 {
+            let f = frameFor(m, g)
+            if f.opacity < 0.05 { continue }
+            for i in 0..<4 {
+                let y = f.bandY + CGFloat(i) * f.trackH
+                if p.y >= y, p.y < y + f.trackH {
+                    return (i, CGRect(x: Layout.mnameW, y: y, width: Layout.labelW - Layout.mnameW - Layout.rightPad, height: f.trackH))
+                }
+            }
+        }
+        return nil
+    }
     private func schedulePersist() {
         persistWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.persistNow() }
