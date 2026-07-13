@@ -256,6 +256,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
     // bounce + momentum, and we mirror its offset into the engine (year-view scroll).
     private let yearScroll = DriverScrollView()
     private let docView = FlippedDocView()
+    private var syncing = false   // true while WE move/resize the driver — ignore its notifications
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -291,13 +292,15 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
 
     private func setDriverOffset(_ y: CGFloat) {
+        let prev = syncing; syncing = true
         let cv = yearScroll.contentView
         cv.scroll(to: NSPoint(x: 0, y: y))
         yearScroll.reflectScrolledClipView(cv)
+        syncing = prev
     }
 
     @objc private func clipBoundsChanged() {
-        guard let engine, engine.isYearLevel, !engine.isFlipping else { return }
+        guard let engine, engine.isYearLevel, !engine.isFlipping, !syncing else { return }
         engine.setYearScroll(yearScroll.contentView.bounds.origin.y)
     }
 
@@ -313,13 +316,15 @@ final class CatcherView: NSView, NSMenuItemValidation {
 
     override func layout() {
         super.layout()
+        syncing = true   // suppress the mirror while resizing the clip/document view
         engine?.setViewport(bounds.size)
         // Size the driver so its scrollable range == the engine's yearMaxScroll:
         // docHeight − clipHeight = maxScroll  ⇒  docHeight = clipHeight + maxScroll.
         yearScroll.frame = bounds
         let maxY = yearMaxScroll(Viewport(w: bounds.width, h: bounds.height))
         docView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height + maxY)
-        setDriverOffset(engine?.scrollY ?? 0)   // keep the driver aligned with engine state
+        syncing = false
+        setDriverOffset(engine?.scrollY ?? 0)   // apply AFTER the doc is sized (engine.scrollY = centered)
     }
 
     private func point(_ e: NSEvent) -> CGPoint {

@@ -178,9 +178,9 @@ public final class CalendarEngine {
     public func setViewport(_ size: CGSize) {
         viewport = Viewport(w: size.width - Layout.padLeft - Layout.padRight, h: size.height)
         if !didInitialScroll, viewport.h > 1 {
-            didInitialScroll = true          // once: center today's month (clamped to top/bottom)
+            didInitialScroll = true          // once: center today's month (clamped to top/bottom).
             scrollY = clamp(centerScroll(for: focus), 0, yearMaxScroll(viewport))
-            onSetYearScroll?(scrollY)
+            // The driver is synced by CatcherView.layout after it sizes the document view.
         } else {
             scrollY = clamp(scrollY, 0, yearMaxScroll(viewport))
         }
