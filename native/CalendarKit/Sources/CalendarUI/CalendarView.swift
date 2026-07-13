@@ -47,6 +47,7 @@ public struct CalendarView: View {
                         SceneRenderer.drawAbove(input: input, tracks: engine.trackNames, in: &c, theme: theme)
                     }
                 }
+                .opacity(input.flipFade)   // whole-calendar fade during a year flip
             }
             // The visual layers are purely presentational — never let them intercept
             // mouse events (the Canvas layers are hit-testable and re-render every
@@ -243,7 +244,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
 
     @objc private func clipBoundsChanged() {
-        guard let engine, engine.isYearLevel else { return }
+        guard let engine, engine.isYearLevel, !engine.isFlipping else { return }
         engine.setYearScroll(yearScroll.contentView.bounds.origin.y)
     }
     @objc private func liveScrollBegan() { engine?.beginYearScrollGesture() }
@@ -280,6 +281,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         // Year view: hand the event to the NSScrollView driver so AppKit does the elastic
         // physics; its offset is mirrored back via clipBoundsChanged. Deeper levels use
         // the manual timeline/week/day handling.
+        if engine?.isFlipping == true { return }   // don't fight the flip transition
         if engine?.isYearLevel == true {
             yearScroll.scrollWheel(with: e)
         } else {

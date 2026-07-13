@@ -146,16 +146,17 @@ public struct SceneInput: Sendable {
     public var altLabel: String?
     public var dimPast: Bool
     public var yearPull: YearPull?
+    public var flipFade: CGFloat        // whole-calendar opacity for the year-flip transition
 
     public init(z: CGFloat, focus: Int, week: CGFloat, vp: Viewport, scrollY: CGFloat,
                 tlScroll: CGFloat, now: Date, year: Int, hover: Hover = .none,
                 weekHourH: CGFloat = 60, daily: DailyState = DailyState(), monthAnim: PageAnim? = nil,
                 detailMul: CGFloat = 1, altDeltaHours: CGFloat? = nil, altLabel: String? = nil,
-                dimPast: Bool = false, yearPull: YearPull? = nil) {
+                dimPast: Bool = false, yearPull: YearPull? = nil, flipFade: CGFloat = 1) {
         self.z = z; self.focus = focus; self.week = week; self.vp = vp; self.scrollY = scrollY
         self.tlScroll = tlScroll; self.now = now; self.year = year; self.hover = hover
         self.weekHourH = weekHourH; self.daily = daily; self.monthAnim = monthAnim
         self.detailMul = detailMul; self.altDeltaHours = altDeltaHours; self.altLabel = altLabel
-        self.dimPast = dimPast; self.yearPull = yearPull
+        self.dimPast = dimPast; self.yearPull = yearPull; self.flipFade = flipFade
     }
 }

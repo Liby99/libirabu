@@ -44,7 +44,14 @@ public final class CalendarEngine {
     private var startedAtTop = false         // the drag began already resting at an edge —
     private var startedAtBottom = false      // only then does an overscroll pull arm a flip
     private var yearPull: YearPull?          // pull-to-change-year hint (nil when not pulling)
-    public var yearFlipEnabled = false       // DEBUG: gate the actual prev/next-year jump
+    public var yearFlipEnabled = true        // gate the prev/next-year flip
+    // Year-flip transition: outgoing year scrolls out + fades, then the incoming year
+    // slides in from the opposite edge + fades in. Driven by the per-frame clock.
+    private struct FlipAnim { var dir: Int; var fromYear: Int; var toYear: Int; var startScroll: CGFloat; var start: Date }
+    private var flipAnim: FlipAnim?
+    public private(set) var flipFade: CGFloat = 1
+    public var isFlipping: Bool { flipAnim != nil }
+    private let FLIP_DUR: TimeInterval = 1.0
     // pinch state
     private var magStartZ: CGFloat = 0
     private var magAccum: CGFloat = 0
@@ -120,7 +127,8 @@ public final class CalendarEngine {
     // ── Frame snapshot ──────────────────────────────────────────────────────────
     private func snapshot() -> SceneInput {
         SceneInput(z: z, focus: focus, week: week, vp: viewport, scrollY: scrollY, tlScroll: tlScroll,
-                   now: now, year: year, hover: hover, weekHourH: weekHourH, daily: daily, yearPull: yearPull)
+                   now: now, year: year, hover: hover, weekHourH: weekHourH, daily: daily,
+                   yearPull: yearPull, flipFade: flipFade)
     }
 
     /// Advance the tween to `date` and return the immutable input for this frame.
@@ -134,6 +142,7 @@ public final class CalendarEngine {
             week = wt.value(at: date)
             if wt.isComplete(at: date) { week = wt.to; weekTween = nil }
         }
+        if let fa = flipAnim { advanceFlip(fa, at: date) }
         return snapshot()
     }
 
@@ -255,17 +264,43 @@ public final class CalendarEngine {
     public func endYearScrollGesture() {
         liveScrolling = false
         yearPull = nil
-        guard yearFlipEnabled else { return }          // DEBUG: jump disabled for now
+        guard yearFlipEnabled, !isFlipping else { return }
         let (over, atTop) = lastOverscroll
         guard over >= Layout.yearFlipOver else { return }
         guard (atTop && startedAtTop) || (!atTop && startedAtBottom) else { return }  // must start from the edge
-        let target = atTop ? year - 1 : year + 1
+        let dir = atTop ? -1 : 1
+        let target = year + dir
         guard yearOptions.contains(target) else { return }
-        year = target
-        pushChrome()
-        let dest = atTop ? yearMaxScroll(viewport) : 0
-        scrollY = dest
-        onSetYearScroll?(dest)
+        flipAnim = FlipAnim(dir: dir, fromYear: year, toYear: target, startScroll: scrollY, start: Date())
+    }
+
+    /// Two-phase year-flip transition, evaluated per frame. Phase 1: the outgoing year
+    /// keeps scrolling in the pull direction (off-screen) and fades out. Phase 2: the
+    /// incoming year slides in from the opposite edge and fades in to its resting edge
+    /// (next → Jan at top; prev → Dec at bottom).
+    private func advanceFlip(_ fa: FlipAnim, at date: Date) {
+        let vpH = viewport.h
+        let maxY = yearMaxScroll(viewport)
+        let dir = CGFloat(fa.dir)
+        let rest: CGFloat = fa.dir > 0 ? 0 : maxY        // where the new year settles
+        let t = clamp(CGFloat(date.timeIntervalSince(fa.start) / FLIP_DUR), 0, 1)
+        if t >= 1 {
+            year = fa.toYear; scrollY = rest; flipFade = 1; flipAnim = nil
+            pushChrome(); onSetYearScroll?(rest)         // resync the scroll-view driver
+            return
+        }
+        if t < 0.5 {                                     // outgoing year exits + fades
+            let p = t / 0.5
+            if year != fa.fromYear { year = fa.fromYear; pushChrome() }
+            scrollY = fa.startScroll + dir * easeInOut(p) * vpH
+            flipFade = 1 - p
+        } else {                                         // incoming year enters + fades
+            let p = (t - 0.5) / 0.5
+            if year != fa.toYear { year = fa.toYear; pushChrome() }
+            let enter = rest - dir * vpH                 // from the opposite edge (off-screen)
+            scrollY = enter + (rest - enter) * easeOut(p)
+            flipFade = p
+        }
     }
 
     public func onMagnify(delta: CGFloat, at p: CGPoint, began: Bool, ended: Bool) {
