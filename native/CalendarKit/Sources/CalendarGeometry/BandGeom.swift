@@ -33,16 +33,16 @@ public func bandEventRect(_ ev: BandEvent, _ g: SceneInput, anim: PageAnim? = ni
     if f.opacity < 0.02 || !bandOnScreen(f.bandY, f.trackH, g.vp) { return nil }
     let x = f.x0 + CGFloat(ev.startDay - 1) * f.dayW
     let w = CGFloat(ev.endDay - ev.startDay + 1) * f.dayW
-    let leftRaw = x + 1
-    let rightRaw = x + w - 1
+    let leftRaw = x + 2   // 2px inset from the enclosing day-cell borders
+    let rightRaw = x + w - 2
     let left = max(leftRaw, Layout.labelW)
     let right = min(rightRaw, g.vp.w)
     if right - left < 2 { return nil }
     return BandRect(
         x: left,
-        y: f.bandY + CGFloat(ev.track) * f.trackH + 2,
+        y: f.bandY + CGFloat(ev.track) * f.trackH + 1,   // 1px from top/bottom
         w: max(2, right - left),
-        h: max(3, f.trackH - 4),
+        h: max(3, f.trackH - 2),
         clipStart: leftRaw < Layout.labelW - 0.5,
         clipEnd: rightRaw > g.vp.w + 0.5
     )

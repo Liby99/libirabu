@@ -172,8 +172,13 @@ private struct BandSticker: View {
         }
         .padding(2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(border.opacity(0.30)), in: RoundedRectangle(cornerRadius: 6))
+        // Liquid glass rounded rect. Selected: clearer (less blur) + stronger tint = more
+        // present. Unselected: frosted + fainter tint + lower opacity = more transparent.
+        .glassEffect(selected ? .clear.tint(border.opacity(0.5))
+                              : .regular.tint(border.opacity(0.18)),
+                     in: RoundedRectangle(cornerRadius: 6))
         .overlay { if selected { RoundedRectangle(cornerRadius: 6).strokeBorder(border, lineWidth: 1) } }
+        .opacity(selected ? 1 : 0.75)
     }
 }
 
