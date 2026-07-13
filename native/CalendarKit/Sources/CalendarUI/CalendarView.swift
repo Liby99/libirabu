@@ -227,11 +227,13 @@ final class CatcherView: NSView, NSMenuItemValidation {
         yearScroll.contentView.postsBoundsChangedNotifications = true
         addSubview(yearScroll, positioned: .below, relativeTo: nil)  // behind; never hit-tested
 
-        // Mirror the driver's offset each frame. Gesture begin/end is driven from the
-        // event phase in scrollWheel(), not the live-scroll notifications (unreliable
-        // when we forward events to a non-hit-tested scroll view).
-        NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged),
+        let nc = NotificationCenter.default
+        nc.addObserver(self, selector: #selector(clipBoundsChanged),
                        name: NSView.boundsDidChangeNotification, object: yearScroll.contentView)
+        nc.addObserver(self, selector: #selector(liveScrollBegan),
+                       name: NSScrollView.willStartLiveScrollNotification, object: yearScroll)
+        nc.addObserver(self, selector: #selector(liveScrollEnded),
+                       name: NSScrollView.didEndLiveScrollNotification, object: yearScroll)
         engine?.onSetYearScroll = { [weak self] y in self?.setDriverOffset(y) }
     }
 
@@ -245,6 +247,8 @@ final class CatcherView: NSView, NSMenuItemValidation {
         guard let engine, engine.isYearLevel, !engine.isFlipping else { return }
         engine.setYearScroll(yearScroll.contentView.bounds.origin.y)
     }
+    @objc private func liveScrollBegan() { print("[FLIP] notif willStartLiveScroll"); engine?.beginYearScrollGesture() }
+    @objc private func liveScrollEnded() { print("[FLIP] notif didEndLiveScroll"); engine?.endYearScrollGesture() }
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
@@ -280,12 +284,10 @@ final class CatcherView: NSView, NSMenuItemValidation {
         guard let engine else { return }
         if engine.isFlipping { return }            // don't fight the flip transition
         if engine.isYearLevel {
-            print("[FLIP] wheel year=\(engine.isYearLevel) phase=\(e.phase.rawValue) mom=\(e.momentumPhase.rawValue) dy=\(String(format: "%.1f", e.scrollingDeltaY))")
-            // Drive gesture begin/end from the event phase (reliable when forwarding to a
-            // non-hit-tested scroll view; the live-scroll notifications aren't).
-            if e.phase.contains(.began) { print("[FLIP] -> begin"); engine.beginYearScrollGesture() }
+            print("[FLIP] wheel phase=\(e.phase.rawValue) mom=\(e.momentumPhase.rawValue) dy=\(String(format: "%.1f", e.scrollingDeltaY))")
+            // The scroll view grabs the gesture (concurrent scrolling), so begin/end come
+            // from its live-scroll notifications, not the forwarded event's phase.
             yearScroll.scrollWheel(with: e)
-            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { print("[FLIP] -> end"); engine.endYearScrollGesture() }
         } else {
             engine.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
         }
