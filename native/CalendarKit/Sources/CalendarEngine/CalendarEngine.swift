@@ -349,7 +349,9 @@ public final class CalendarEngine {
         let g = snapshot()
         switch level(z) {
         case 0:
-            if let m = monthAtPoint(p.x, p.y, g) { focus = m }
+            // Whole band row (incl. the gutter: track names + month name), so a pinch
+            // starting over the labels still focuses that month.
+            if let m = monthRowAtPoint(p.x, p.y, g) { focus = m }
         case 1:
             if let w = weekAtPointInMonth(p.x, g) { week = CGFloat(w) }
         case 2:
