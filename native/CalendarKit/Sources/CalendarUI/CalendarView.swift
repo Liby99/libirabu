@@ -19,33 +19,24 @@ public struct CalendarView: View {
             let vp = Viewport(w: geo.size.width, h: geo.size.height)
             TimelineView(.animation) { tl in
                 let input = engine.sceneInput(at: tl.date, viewport: vp)
-                let reveal = max(0, min(1, input.z - 2))
-                let dashLeft = dashboardLeft(input)
                 ZStack {
-                    // 1. below the masks: grid, washes, today, hover, day labels
+                    // Single translucent-glass background (the window material). Everything
+                    // below is just fonts + borders drawn on top; the gutter + dashboard
+                    // regions are the same glass, so content is CLIPPED (not masked) so it
+                    // never overflows into them.
+                    // 1. scene below events — clipped to the content area
                     Canvas { ctx, size in
                         var c = ctx
                         SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
                     }
                     // 2. events (bands + timed), Liquid Glass stickers
                     EventsOverlay(input: input, events: engine.seedEvents, bands: engine.seedBands, selected: engine.selectedId, theme: theme)
-                    // 3. deadlines (above events, below the masks)
+                    // 3. deadlines (above events, clipped to the content area)
                     Canvas { ctx, size in
                         var c = ctx
                         SceneRenderer.drawMid(input: input, deadlines: engine.seedDeadlines, selected: engine.selectedId, in: &c, theme: theme)
                     }
-                    // 4. frosted gutter mask (left strip)
-                    Rectangle().fill(.thickMaterial)
-                        .frame(width: Layout.labelW)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    // 5. frosted dashboard mask (right, in day view)
-                    if reveal > 0.001 && dashLeft < input.vp.w {
-                        Rectangle().fill(.thickMaterial)
-                            .frame(width: input.vp.w - dashLeft)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                            .opacity(Double(reveal))
-                    }
-                    // 6. chrome above the masks: gutter labels/borders, track names,
+                    // 4. chrome on top of the glass: gutter labels/borders, track names,
                     //    now-line/cursor, dashboard title + bars
                     Canvas { ctx, size in
                         var c = ctx

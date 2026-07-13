@@ -39,9 +39,14 @@ enum SceneRenderer {
     }
 
     static func drawBelow(input: SceneInput, in ctx: inout GraphicsContext, theme: Theme) {
+        // Clip to the content area so grid/columns never spill into the gutter (left)
+        // or the daily dashboard (right) — those regions are just the glass background.
+        let contentRight = input.z > 2 ? dashboardLeft(input) : input.vp.w
+        var clipped = ctx
+        clipped.clip(to: Path(CGRect(x: Layout.labelW, y: 0, width: max(0, contentRight - Layout.labelW), height: input.vp.h)))
         for it in buildScene(input).items.sorted(by: { $0.z < $1.z })
         where it.opacity > 0.001 && !isForeground(it.kind) && !isGutterChrome(it) {
-            var layer = ctx; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
+            var layer = clipped; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
     }
 
