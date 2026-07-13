@@ -191,13 +191,27 @@ struct InputCatcher: NSViewRepresentable {
 /// Flipped so its scroll origin (0 = top, increasing downward) matches our scrollY.
 final class FlippedDocView: NSView { override var isFlipped: Bool { true } }
 
+/// The year-scroll physics driver. Overriding scrollWheel (a) disables concurrent
+/// "responsive scrolling" — which otherwise grabs the gesture and swallows the
+/// .ended phase — so we reliably see begin/end, and (b) is the same pattern the
+/// macOS pull-to-refresh libraries use. super still does the native elastic scroll.
+final class DriverScrollView: NSScrollView {
+    weak var engine: CalendarEngine?
+    override func scrollWheel(with e: NSEvent) {
+        print("[FLIP] driver phase=\(e.phase.rawValue) mom=\(e.momentumPhase.rawValue) dy=\(String(format: "%.1f", e.scrollingDeltaY))")
+        if e.phase.contains(.began) { engine?.beginYearScrollGesture() }
+        super.scrollWheel(with: e)
+        if e.phase.contains(.ended) || e.phase.contains(.cancelled) { engine?.endYearScrollGesture() }
+    }
+}
+
 final class CatcherView: NSView, NSMenuItemValidation {
     weak var engine: CalendarEngine?
     var onOpenEvent: ((String) -> Void)?
     private var trackingAreaRef: NSTrackingArea?
     // Invisible NSScrollView used purely as a physics driver: AppKit computes the elastic
     // bounce + momentum, and we mirror its offset into the engine (year-view scroll).
-    private let yearScroll = NSScrollView()
+    private let yearScroll = DriverScrollView()
     private let docView = FlippedDocView()
 
     override var isFlipped: Bool { true }
@@ -227,13 +241,9 @@ final class CatcherView: NSView, NSMenuItemValidation {
         yearScroll.contentView.postsBoundsChangedNotifications = true
         addSubview(yearScroll, positioned: .below, relativeTo: nil)  // behind; never hit-tested
 
-        let nc = NotificationCenter.default
-        nc.addObserver(self, selector: #selector(clipBoundsChanged),
+        yearScroll.engine = engine   // the driver detects begin/end from the event phase
+        NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged),
                        name: NSView.boundsDidChangeNotification, object: yearScroll.contentView)
-        nc.addObserver(self, selector: #selector(liveScrollBegan),
-                       name: NSScrollView.willStartLiveScrollNotification, object: yearScroll)
-        nc.addObserver(self, selector: #selector(liveScrollEnded),
-                       name: NSScrollView.didEndLiveScrollNotification, object: yearScroll)
         engine?.onSetYearScroll = { [weak self] y in self?.setDriverOffset(y) }
     }
 
@@ -247,8 +257,6 @@ final class CatcherView: NSView, NSMenuItemValidation {
         guard let engine, engine.isYearLevel, !engine.isFlipping else { return }
         engine.setYearScroll(yearScroll.contentView.bounds.origin.y)
     }
-    @objc private func liveScrollBegan() { print("[FLIP] notif willStartLiveScroll"); engine?.beginYearScrollGesture() }
-    @objc private func liveScrollEnded() { print("[FLIP] notif didEndLiveScroll"); engine?.endYearScrollGesture() }
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
