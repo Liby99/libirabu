@@ -117,7 +117,7 @@ private struct Breadcrumb: View {
                 sep; crumb("\(WD_LONG[dayOfWeek(chrome.year, r.month, r.day)]), \(r.day)\(ordinal(r.day))", active: true)
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 18)
     }
 
     private var sep: some View {
