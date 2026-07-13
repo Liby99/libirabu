@@ -195,8 +195,10 @@ private func buildQuarterHeaders(_ g: SceneInput, _ clock: Clock) -> [Item] {
             items.append(Item(key: "qh-\(q)-\(d)", kind: .dayLabel, x: Layout.labelW + CGFloat(d - 1) * dayW, y: hy + 5, w: dayW, h: 14, opacity: yearVis * 0.7, text: String(d), fontSize: 10, align: .center, today: isToday, z: 4))
         }
         let topY = hy + Layout.qHeaderH - 1
-        items.append(Item(key: "qhsepg-\(q)", kind: .gridline, x: 0, y: topY, w: Layout.labelW - Layout.rightPad, h: 1, opacity: yearVis * 0.6, z: 11, gutter: true))
-        items.append(Item(key: "qhsepd-\(q)", kind: .gridline, x: Layout.labelW, y: topY, w: 31 * dayW, h: 1, opacity: yearVis * 0.6, z: 11))
+        // Quarter top border — emphasized (full opacity + 1.5× width) vs the internal
+        // month dividers (0.6 opacity, 1× width).
+        items.append(Item(key: "qhsepg-\(q)", kind: .gridline, x: 0, y: topY, w: Layout.labelW - Layout.rightPad, h: 1, opacity: yearVis, z: 11, gutter: true, lineW: 1.5))
+        items.append(Item(key: "qhsepd-\(q)", kind: .gridline, x: Layout.labelW, y: topY, w: 31 * dayW, h: 1, opacity: yearVis, z: 11, lineW: 1.5))
     }
     return items
 }
@@ -227,7 +229,9 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
         if dim < 31 && dimFade > 0.02 {
             items.append(Item(key: "dim-\(m)", kind: .dim, x: f.x0 + CGFloat(dim) * f.dayW, y: f.bandY, w: CGFloat(31 - dim) * f.dayW, h: 4 * f.trackH, opacity: f.opacity * dimFade, z: 3))
         }
-        items.append(Item(key: "msep-\(m)", kind: .gridline, x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: fullW, h: 1, opacity: f.opacity * 0.55, z: 1))
+        // The bottom month of each quarter (m%3==2) gets the emphasized outer border.
+        let quarterBottom = m % 3 == 2
+        items.append(Item(key: "msep-\(m)", kind: .gridline, x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: fullW, h: 1, opacity: f.opacity * (quarterBottom ? 1.0 : 0.55), z: 1, lineW: quarterBottom ? 1.5 : 1))
     }
     return items
 }

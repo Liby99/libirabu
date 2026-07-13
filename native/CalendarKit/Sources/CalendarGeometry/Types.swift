@@ -70,19 +70,21 @@ public struct Item: Sendable {
     public var today: Bool = false       // dayLabel: red capsule + white text
     public var gutter: Bool = false      // lives in the left gutter [0, LABEL_W]:
                                          // month name, hour labels, gutter borders, gutter hover
+    public var lineW: CGFloat = 1        // gridline stroke width
 
     public var rect: CGRect { CGRect(x: x, y: y, width: w, height: h) }
 
     // NOTE: `z` is declared LAST-ish (Swift call-site args must follow declared order),
     // so every call lists styling before z: color, text, fontSize, align, cols,
-    // lineStyle, inner, instant, today, then z, then gutter.
+    // lineStyle, inner, instant, today, then z, then gutter, then lineW.
     public init(key: String, kind: ItemKind, x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat,
                 opacity: CGFloat, color: String? = nil, text: String? = nil,
                 fontSize: CGFloat? = nil, align: TextAlign = .center, cols: Int? = nil,
                 lineStyle: LineStyle? = nil, inner: Bool = false, instant: Bool = false,
-                today: Bool = false, z: Int = 0, gutter: Bool = false) {
+                today: Bool = false, z: Int = 0, gutter: Bool = false, lineW: CGFloat = 1) {
         self.key = key; self.kind = kind; self.x = x; self.y = y; self.w = w; self.h = h
         self.opacity = opacity; self.z = z; self.color = color; self.text = text; self.gutter = gutter
+        self.lineW = lineW
         self.fontSize = fontSize; self.align = align; self.cols = cols; self.lineStyle = lineStyle
         self.inner = inner; self.instant = instant; self.today = today
     }

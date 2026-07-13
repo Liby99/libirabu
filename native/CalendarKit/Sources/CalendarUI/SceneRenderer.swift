@@ -187,7 +187,7 @@ enum SceneRenderer {
             p.move(to: CGPoint(x: it.x, y: y)); p.addLine(to: CGPoint(x: it.x + it.w, y: y))
         }
         // solid = the strong line color; dashed/dotted = same but patterned (fainter reads via item opacity)
-        ctx.stroke(p, with: .color(it.lineStyle == nil ? theme.sep : theme.gridLine), style: strokeStyle(it.lineStyle))
+        ctx.stroke(p, with: .color(it.lineStyle == nil ? theme.sep : theme.gridLine), style: strokeStyle(it.lineStyle, width: it.lineW))
     }
 
     private static func drawEndDots(_ it: Item, _ ctx: inout GraphicsContext, color: Color, bg: Color) {
@@ -276,21 +276,23 @@ enum SceneRenderer {
                          size: 12, align: .left, color: theme.text, into: &layer, clipToRect: true)
             }
             // solid bottom border across the gutter (month-name cell + track cells) —
-            // the grid's month divider doesn't extend into the gutter. Uses the same
-            // 0.6 opacity as the quarter's top border (qhsepg) so they read identically.
+            // the grid's month divider doesn't extend into the gutter. Internal borders
+            // match the quarter top (0.6, 1×); the quarter's bottom month is emphasized
+            // (1.0, 1.5×), matching its grid msep.
+            let quarterBottom = m % 3 == 2
             var bottom = Path()
             let by = f.bandY + 4 * f.trackH
             bottom.move(to: CGPoint(x: 0, y: by)); bottom.addLine(to: CGPoint(x: Layout.labelW - Layout.rightPad, y: by))
-            layer.stroke(bottom, with: .color(theme.sep.opacity(0.6)), lineWidth: 1)
+            layer.stroke(bottom, with: .color(theme.sep.opacity(quarterBottom ? 1.0 : 0.6)), lineWidth: quarterBottom ? 1.5 : 1)
         }
     }
 
     // ── Text + stroke helpers ──────────────────────────────────────────────────────
-    private static func strokeStyle(_ s: LineStyle?) -> StrokeStyle {
+    private static func strokeStyle(_ s: LineStyle?, width: CGFloat = 1) -> StrokeStyle {
         switch s {
-        case .dashed: return StrokeStyle(lineWidth: 1, dash: [4, 3])
-        case .dotted: return StrokeStyle(lineWidth: 1, dash: [1, 3])
-        case .none: return StrokeStyle(lineWidth: 1)
+        case .dashed: return StrokeStyle(lineWidth: width, dash: [4, 3])
+        case .dotted: return StrokeStyle(lineWidth: width, dash: [1, 3])
+        case .none: return StrokeStyle(lineWidth: width)
         }
     }
 
