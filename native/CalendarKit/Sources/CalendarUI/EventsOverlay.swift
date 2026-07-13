@@ -55,20 +55,24 @@ struct EventsOverlay: View {
         return (CGPoint(x: cx, y: cy), WD3[dayOfWeek(input.year, m, dom)])
     }
 
-    private struct Item2 { let rect: CGRect; let fade: Double; let view: AnyView }
+    private struct Item2: Identifiable { let id: String; let rect: CGRect; let fade: Double; let view: AnyView }
 
     @ViewBuilder private func stickers(_ items: [Item2]) -> some View {
         ZStack(alignment: .topLeading) {
-            // index order = draw order (ZStack draws later items in front)
-            ForEach(Array(items.enumerated()), id: \.offset) { _, it in
+            // Stable identity (event id) so a z-order re-sort keeps the view alive and its
+            // hover/select transitions can animate rather than snapping.
+            ForEach(items) { it in
                 it.view
                     .frame(width: it.rect.width, height: it.rect.height)
                     .position(x: it.rect.midX, y: it.rect.midY)
                     .opacity(it.fade)
+                    .zIndex(zOf(it.id))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+    // Draw order via zIndex (selected/hovered on top) since ForEach is id-ordered now.
+    private func zOf(_ id: String) -> Double { id == selected ? 2 : (id == hovered ? 1 : 0) }
 
     private func bandItems() -> [Item2] {
         var placed: [(ev: BandEvent, rect: CGRect, fade: Double)] = []
@@ -78,7 +82,7 @@ struct EventsOverlay: View {
             placed.append((b, CGRect(x: r.x, y: r.y, width: r.w, height: r.h), Double(f.opacity)))
         }
         placed.sort(by: orderBands)
-        return placed.map { Item2(rect: $0.rect, fade: $0.fade, view: AnyView(
+        return placed.map { Item2(id: $0.ev.id, rect: $0.rect, fade: $0.fade, view: AnyView(
             BandSticker(ev: $0.ev, hovered: $0.ev.id == hovered, selected: $0.ev.id == selected,
                         drawerOpen: $0.ev.id == drawerId, theme: theme))) }
     }
@@ -101,7 +105,7 @@ struct EventsOverlay: View {
             }
         }
         placed.sort(by: orderTimed)
-        return placed.map { Item2(rect: $0.rect, fade: $0.fade, view: AnyView(EventSticker(ev: $0.ev, height: $0.rect.height, selected: $0.ev.id == selected, theme: theme))) }
+        return placed.map { Item2(id: $0.ev.id, rect: $0.rect, fade: $0.fade, view: AnyView(EventSticker(ev: $0.ev, height: $0.rect.height, selected: $0.ev.id == selected, theme: theme))) }
     }
 
     // Draw order: later-starting events in front; the selected one always frontmost.
@@ -169,6 +173,7 @@ private struct BandSticker: View {
     var body: some View {
         let border = theme.eventBorder(ev.color)
         let radius: CGFloat = 9
+        let active = hovered || selected || drawerOpen   // frosted when engaged, else clear
         Text(ev.title)
             .font(.custom("Comic Sans MS", size: 12))
             .foregroundStyle(theme.text)
@@ -176,8 +181,9 @@ private struct BandSticker: View {
             .padding(.leading, 14)
             .padding(.trailing, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .glassEffect(.regular.tint(border.opacity(0.34)), in: RoundedRectangle(cornerRadius: radius))
-            // Left accent bar: rounded, inset 3px from left/top/bottom; thicker when selected.
+            .glassEffect(active ? .regular.tint(border.opacity(0.34)) : .clear.tint(border.opacity(0.24)),
+                         in: RoundedRectangle(cornerRadius: radius))
+            // Left accent bar: rounded, inset 6px from left/top/bottom; thicker when selected.
             .overlay(alignment: .leading) {
                 Capsule()
                     .fill(border)
@@ -192,7 +198,7 @@ private struct BandSticker: View {
                     RoundedRectangle(cornerRadius: radius).strokeBorder(border, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
                 }
             }
-            .opacity(hovered ? 0.82 : 1)   // hover: slightly less opaque
+            .animation(.easeInOut(duration: 0.18), value: [hovered, selected, drawerOpen])
     }
 }
 
