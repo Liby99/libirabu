@@ -98,12 +98,16 @@ struct EventsOverlay: View {
         var gapBy: [String: CGFloat] = [:]
         var zBy: [String: Double] = [:]
         var clipBox = Set<String>()   // non-longest same-start bars clip to their own box
+        var behindBy: [String: String] = [:]   // color key of the bar the spill overruns
         var byLane: [String: [Int]] = [:]
         for (i, p) in placed.enumerated() where !hidden.contains(p.ev.id) { byLane["\(p.ev.month)-\(p.ev.track)", default: []].append(i) }
         for (_, idxs) in byLane {
             for i in idxs {
-                let laterMinX = idxs.filter { placed[$0].ev.startDay > placed[i].ev.startDay }.map { placed[$0].rect.minX }.min()
-                if let lx = laterMinX { gapBy[placed[i].ev.id] = lx - placed[i].rect.minX }
+                let later = idxs.filter { placed[$0].ev.startDay > placed[i].ev.startDay }
+                if let nearest = later.min(by: { placed[$0].rect.minX < placed[$1].rect.minX }) {
+                    gapBy[placed[i].ev.id] = placed[nearest].rect.minX - placed[i].rect.minX
+                    behindBy[placed[i].ev.id] = placed[nearest].ev.color
+                }
             }
             var byDay: [Int: [Int]] = [:]
             for i in idxs { byDay[placed[i].ev.startDay, default: []].append(i) }
@@ -112,7 +116,10 @@ struct EventsOverlay: View {
                 let stack = stackIdxs.sorted { len($0) > len($1) }   // longest first (bottom)
                 for si in stack.indices {
                     zBy[placed[stack[si]].ev.id] = Double(10 + start + si * 2)   // shorter → higher → on top
-                    if si > 0 { clipBox.insert(placed[stack[si]].ev.id) }        // all but the longest
+                    if si > 0 {
+                        clipBox.insert(placed[stack[si]].ev.id)                        // all but the longest
+                        behindBy[placed[stack[si]].ev.id] = placed[stack[si - 1]].ev.color  // the longer bar behind
+                    }
                 }
             }
         }
@@ -123,8 +130,8 @@ struct EventsOverlay: View {
             return Item2(id: id, rect: p.rect, fade: p.fade, z: z, view: AnyView(
                 BandSticker(ev: p.ev, hovered: id == hovered, selected: id == selected,
                             drawerOpen: id == drawerId, editing: id == editingId,
-                            gap: gapBy[id], clipBox: clipBox.contains(id), warn: warn.contains(id),
-                            box: p.rect.size, theme: theme)))
+                            gap: gapBy[id], clipBox: clipBox.contains(id), behindColor: behindBy[id],
+                            warn: warn.contains(id), box: p.rect.size, theme: theme)))
         }
     }
 
@@ -210,6 +217,7 @@ private struct BandSticker: View {
     let editing: Bool
     let gap: CGFloat?        // px to the nearest later-starting bar (title clips before it)
     let clipBox: Bool        // clip title to this box's right edge (shorter same-start bar on top)
+    let behindColor: String? // color key of the bar the spill overruns (scrim tint)
     let warn: Bool           // fully-overlapping-events warning (this is the kept band)
     let box: CGSize          // band box size (for scrim geometry)
     let theme: Theme
@@ -245,11 +253,17 @@ private struct BandSticker: View {
                 Capsule().fill(border).frame(width: barWidth)
                     .padding(.vertical, BandStyle.accentInset).padding(.leading, BandStyle.accentInset)
             }
-            .overlay(alignment: .leading) {   // spill scrim: dark plate behind the spilled title
+            .overlay(alignment: .leading) {   // spill scrim: occluding plate tinted like the bar behind
                 if maskW > 0 {
                     UnevenRoundedRectangle(bottomTrailingRadius: 5, topTrailingRadius: 5)
-                        .fill(theme.bg.opacity(0.9))
+                        .fill(theme.bg.opacity(0.92))
                         .frame(width: maskW, height: box.height)
+                        .overlay {
+                            if let bc = behindColor {
+                                UnevenRoundedRectangle(bottomTrailingRadius: 5, topTrailingRadius: 5)
+                                    .fill(theme.eventColor(bc).opacity(BandStyle.tintIdle))
+                            }
+                        }
                         .offset(x: box.width)
                 }
             }
