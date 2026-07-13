@@ -126,7 +126,7 @@ public final class CalendarEngine {
     }
 
     public func setViewport(_ size: CGSize) {
-        viewport = Viewport(w: size.width, h: size.height)
+        viewport = Viewport(w: size.width - Layout.padLeft - Layout.padRight, h: size.height)
         scrollY = clamp(scrollY, 0, yearMaxScroll(viewport))
     }
 

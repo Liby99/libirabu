@@ -15,6 +15,12 @@ public enum Layout {
     public static let qHeaderH: CGFloat = 24   // day-number header row per quarter
     public static let qGap: CGFloat = 32       // separation between quarters
     public static let pastDim: CGFloat = 0.4   // "dim past events" opacity multiplier
+
+    // Global insets for the whole calendar. The geometry works in a viewport shrunk
+    // by padLeft+padRight; the render is translated right by padLeft (so x=0 in
+    // geometry space lands padLeft px from the window's left edge).
+    public static let padLeft: CGFloat = 5
+    public static let padRight: CGFloat = 0
 }
 
 @inlinable public func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * t }

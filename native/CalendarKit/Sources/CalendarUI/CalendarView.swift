@@ -16,7 +16,7 @@ public struct CalendarView: View {
     public var body: some View {
         let theme = Theme(dark: scheme == .dark)
         GeometryReader { geo in
-            let vp = Viewport(w: geo.size.width, h: geo.size.height)
+            let vp = Viewport(w: geo.size.width - Layout.padLeft - Layout.padRight, h: geo.size.height)
             TimelineView(.animation) { tl in
                 let input = engine.sceneInput(at: tl.date, viewport: vp)
                 ZStack {
@@ -27,19 +27,23 @@ public struct CalendarView: View {
                     // 1. scene below events — clipped to the content area
                     Canvas { ctx, size in
                         var c = ctx
+                        c.translateBy(x: Layout.padLeft, y: 0)
                         SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
                     }
                     // 2. events (bands + timed), Liquid Glass stickers
                     EventsOverlay(input: input, events: engine.seedEvents, bands: engine.seedBands, selected: engine.selectedId, theme: theme)
+                        .offset(x: Layout.padLeft)
                     // 3. deadlines (above events, clipped to the content area)
                     Canvas { ctx, size in
                         var c = ctx
+                        c.translateBy(x: Layout.padLeft, y: 0)
                         SceneRenderer.drawMid(input: input, deadlines: engine.seedDeadlines, selected: engine.selectedId, in: &c, theme: theme)
                     }
                     // 4. chrome on top of the glass: gutter labels/borders, track names,
                     //    now-line/cursor, dashboard title + bars
                     Canvas { ctx, size in
                         var c = ctx
+                        c.translateBy(x: Layout.padLeft, y: 0)
                         SceneRenderer.drawAbove(input: input, tracks: engine.trackNames, in: &c, theme: theme)
                     }
                 }
@@ -174,7 +178,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
         engine?.setViewport(bounds.size)
     }
 
-    private func point(_ e: NSEvent) -> CGPoint { convert(e.locationInWindow, from: nil) }
+    private func point(_ e: NSEvent) -> CGPoint {
+        // Undo the render's padLeft translation so hits land in geometry space.
+        let p = convert(e.locationInWindow, from: nil)
+        return CGPoint(x: p.x - Layout.padLeft, y: p.y)
+    }
 
     override func scrollWheel(with e: NSEvent) {
         engine?.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
