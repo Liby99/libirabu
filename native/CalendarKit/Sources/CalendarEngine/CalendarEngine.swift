@@ -26,6 +26,7 @@ public final class CalendarEngine {
     public private(set) var seedBands: [BandEvent] = []
     public private(set) var seedDeadlines: [Deadline] = []
     public let trackNames = TRACKS.map { $0.name }
+    public let chrome = CalendarChrome()   // breadcrumb state for the toolbar
 
     public private(set) var selectedId: String?
 
@@ -92,6 +93,7 @@ public final class CalendarEngine {
         nowTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.now = Date() }
         }
+        pushChrome()
     }
 
     // ── Persistence ─────────────────────────────────────────────────────────────
@@ -131,6 +133,14 @@ public final class CalendarEngine {
     // ── Levels + tween helpers ────────────────────────────────────────────────────
     private func level(_ z: CGFloat) -> Int { z < 0.5 ? 0 : (z < 1.5 ? 1 : (z < 2.5 ? 2 : 3)) }
 
+    private func pushChrome(level lvl: Int? = nil) {
+        chrome.level = lvl ?? level(z)
+        chrome.year = year
+        chrome.focus = focus
+        chrome.week = Double(week)
+        chrome.dailyDom = daily.dom
+    }
+
     private func cancelTween() {
         if let t = tween { z = t.value(at: Date()); tween = nil }
         if let wt = weekTween { week = wt.value(at: Date()); weekTween = nil }
@@ -150,6 +160,7 @@ public final class CalendarEngine {
 
     public func tweenZ(to target: CGFloat, dur: TimeInterval? = nil) {
         tween = Tween(from: z, to: clamp(target, 0, 3), start: Date(), duration: dur ?? ZOOM_DUR, ease: easeInOut)
+        pushChrome(level: level(clamp(target, 0, 3)))
     }
 
     // ── Gestures ──────────────────────────────────────────────────────────────────
@@ -173,6 +184,7 @@ public final class CalendarEngine {
                 wheelAccumX = 0
             }
         }
+        pushChrome()
     }
 
     public func onMagnify(delta: CGFloat, at p: CGPoint, began: Bool, ended: Bool) {
@@ -186,6 +198,7 @@ public final class CalendarEngine {
         } else {
             magAccum += delta
             z = clamp(magStartZ + magAccum * PINCH_SENS, 0, 3)
+            pushChrome()
         }
     }
 
@@ -200,6 +213,7 @@ public final class CalendarEngine {
             if let d = dayAtPointInWeek(p.x, g) { focus = d.month; week = CGFloat(d.week); daily.dom = d.day }
         default: break
         }
+        pushChrome()
     }
 
     // ── Pointer: unified down / drag / up ────────────────────────────────────────

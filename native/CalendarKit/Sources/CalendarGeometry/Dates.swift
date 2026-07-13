@@ -12,6 +12,7 @@ public let MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"
 public let MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 public let WD = ["S", "M", "T", "W", "T", "F", "S"]           // single-letter weekday
 public let WD3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+public let WD_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 /// Track lanes (GridCal palette keys → theme event colors).
 public struct Track: Sendable { public let id: Int; public let name: String; public let color: String }

@@ -82,6 +82,58 @@ public struct CalendarView: View {
             .onChange(of: geo.size) { _, s in engine.setViewport(s) }
         }
         .ignoresSafeArea()
+        .toolbar {
+            ToolbarItem(placement: .navigation) { Breadcrumb(chrome: engine.chrome) }
+            ToolbarSpacer(.flexible)
+            ToolbarItem(placement: .primaryAction) {
+                Button { } label: { Image(systemName: "magnifyingglass") }
+                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Search")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { } label: { Image(systemName: "sparkles") }
+                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Assistant")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { } label: { Text("Today") }
+                    .buttonStyle(.glass).buttonBorderShape(.capsule)
+            }
+        }
+        // Let the translucent window material show through the toolbar (native tint).
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+    }
+}
+
+/// Year › Month › Week › Day breadcrumb, progressive by zoom level (matches the web).
+private struct Breadcrumb: View {
+    let chrome: CalendarChrome
+
+    var body: some View {
+        HStack(spacing: 5) {
+            crumb("Year \(chrome.year)", active: chrome.level == 0)
+            if chrome.level >= 1 {
+                sep; crumb(MONTH_LONG[chrome.focus], active: chrome.level == 1)
+            }
+            if chrome.level >= 2 {
+                sep; crumb("Week \(Int(chrome.week.rounded()) + 1)", active: chrome.level == 2)
+            }
+            if chrome.level >= 3, let r = resolveDate(chrome.focus, chrome.dailyDom) {
+                sep; crumb("\(WD_LONG[dayOfWeek(chrome.year, r.month, r.day)]), \(r.day)\(ordinal(r.day))", active: true)
+            }
+        }
+        .padding(.leading, 4)
+    }
+
+    private var sep: some View {
+        Text("›").font(.system(size: 12)).foregroundStyle(.tertiary)
+    }
+    private func crumb(_ text: String, active: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: active ? .semibold : .regular))
+            .foregroundStyle(active ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+    }
+    private func ordinal(_ n: Int) -> String {
+        if (n % 100) / 10 == 1 { return "th" }
+        switch n % 10 { case 1: return "st"; case 2: return "nd"; case 3: return "rd"; default: return "th" }
     }
 }
 
