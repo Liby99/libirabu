@@ -252,7 +252,7 @@ public final class CalendarEngine {
         if liveScrolling, over > 2 {
             let eligible = (atTop && startedAtTop) || (!atTop && startedAtBottom)
             let target = atTop ? year - 1 : year + 1
-            yearPull = (eligible && yearOptions.contains(target))
+            yearPull = eligible
                 ? YearPull(targetYear: target, atTop: atTop, over: over, armed: over >= Layout.yearFlipOver) : nil
         } else {
             yearPull = nil
@@ -271,8 +271,7 @@ public final class CalendarEngine {
         guard over >= Layout.yearFlipOver else { print("[FLIP] end: BAIL over<thr"); return }
         guard (atTop && startedAtTop) || (!atTop && startedAtBottom) else { print("[FLIP] end: BAIL not edge-started"); return }
         let dir = atTop ? -1 : 1
-        let target = year + dir
-        guard yearOptions.contains(target) else { print("[FLIP] end: BAIL target \(target) out of range"); return }
+        let target = year + dir            // unbounded — flip any number of years
         print("[FLIP] START \(year) -> \(target) dir=\(dir)")
         flipAnim = FlipAnim(dir: dir, fromYear: year, toYear: target, startScroll: scrollY, start: Date())
     }
