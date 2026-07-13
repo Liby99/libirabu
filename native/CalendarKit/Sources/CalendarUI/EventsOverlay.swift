@@ -25,8 +25,32 @@ struct EventsOverlay: View {
             if tl.reveal > 0.05 && tl.hourH > 0 {
                 stickers(timedItems(tl)).clipShape(RectClip(rect: tlClip))
             }
+            // Year-view weekday marker ("Thu") floating above the hovered day — a small
+            // Liquid Glass capsule, centered on the day column.
+            if let wm = weekdayMarker() {
+                Text(wm.text)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.text)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2.5)
+                    .glassEffect(.regular, in: .capsule)
+                    .fixedSize()
+                    .position(wm.center)
+            }
         }
         .allowsHitTesting(false)
+    }
+
+    /// The floating weekday chip for year-view day hover. Mirrors buildHover's `dayOn`:
+    /// year zoom, a hovered month on screen, and a valid day-of-month.
+    private func weekdayMarker() -> (center: CGPoint, text: String)? {
+        guard input.z < 0.5, let m = input.hover.month, let dom = input.hover.dom else { return nil }
+        guard dom >= 1 && dom <= daysInMonth(m) else { return nil }
+        let f = frameFor(m, input)
+        guard f.bandY <= input.vp.h + 20, f.bandY + 4 * f.trackH >= -20 else { return nil }  // on screen
+        let cx = f.x0 + (CGFloat(dom) - 0.5) * f.dayW   // center of the day column
+        let cy = f.bandY - 20                            // floated above the band top
+        return (CGPoint(x: cx, y: cy), WD3[dayOfWeek(input.year, m, dom)])
     }
 
     private struct Item2 { let rect: CGRect; let fade: Double; let view: AnyView }

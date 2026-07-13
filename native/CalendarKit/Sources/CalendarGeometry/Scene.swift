@@ -127,8 +127,9 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         let dcol = h.dom ?? 1
         let dayOn = monthOn && h.dom != nil && h.dom! >= 1 && h.dom! <= dim
         items.append(Item(key: "hl-yd", kind: .hl, x: f.x0 + (CGFloat(dcol) - 1) * f.dayW, y: f.bandY, w: f.dayW, h: bandH, opacity: dayOn ? HL_STRONG : 0, z: 3))
-        let wdow = dayOfWeek(g.year, m, dcol)
-        items.append(Item(key: "hl-ywd", kind: .weekdayTag, x: f.x0 + (CGFloat(dcol) - 1) * f.dayW, y: f.bandY - 15, w: f.dayW, h: 13, opacity: dayOn ? 1 : 0, text: WD3[wdow], fontSize: 8.5, align: .center, z: 9))
+        // NOTE: the "Thu"/"Fri" weekday marker above the hovered day is rendered as a
+        // Liquid Glass capsule in EventsOverlay (Canvas can't draw glass) — see
+        // weekdayMarker(). Its visibility mirrors `dayOn` here.
     }
     // Month: hovered week span (soft) + day column (strong)
     do {
