@@ -49,7 +49,7 @@ struct EventsOverlay: View {
         let f = frameFor(m, input)
         guard f.bandY <= input.vp.h + 20, f.bandY + 4 * f.trackH >= -20 else { return nil }  // on screen
         let cx = f.x0 + (CGFloat(dom) - 0.5) * f.dayW   // center of the day column
-        let cy = f.bandY - 20                            // floated above the band top
+        let cy = f.bandY - 15                            // floated above the band top
         return (CGPoint(x: cx, y: cy), WD3[dayOfWeek(input.year, m, dom)])
     }
 
