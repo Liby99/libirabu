@@ -40,6 +40,7 @@ public final class CalendarEngine {
     // The input bridge forwards wheel events to it and mirrors its offset back here via
     // setYearScroll(_:); onSetYearScroll moves it programmatically (flip / year switch).
     public var onSetYearScroll: ((CGFloat) -> Void)?
+    private var didInitialScroll = false     // center the current month once, at first layout
     private var liveScrolling = false        // fingers-down phase of a trackpad gesture
     private var startedAtTop = false         // the drag began already resting at an edge —
     private var startedAtBottom = false      // only then does an overscroll pull arm a flip
@@ -176,7 +177,18 @@ public final class CalendarEngine {
 
     public func setViewport(_ size: CGSize) {
         viewport = Viewport(w: size.width - Layout.padLeft - Layout.padRight, h: size.height)
-        scrollY = clamp(scrollY, 0, yearMaxScroll(viewport))
+        if !didInitialScroll, viewport.h > 1 {
+            didInitialScroll = true          // once: center today's month (clamped to top/bottom)
+            scrollY = clamp(centerScroll(for: focus), 0, yearMaxScroll(viewport))
+            onSetYearScroll?(scrollY)
+        } else {
+            scrollY = clamp(scrollY, 0, yearMaxScroll(viewport))
+        }
+    }
+
+    /// Scroll offset that vertically centers month `m`'s band; caller clamps to range.
+    private func centerScroll(for m: Int) -> CGFloat {
+        yearFrame(m, viewport, 0).bandY + 2 * Layout.trackH - viewport.h / 2
     }
 
     // ── Year selection (breadcrumb picker) ────────────────────────────────────────
