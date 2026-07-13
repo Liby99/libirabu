@@ -10,26 +10,54 @@ import AppKit
 struct Theme {
     let dark: Bool   // only affects the event palette; structural colors are system-native
 
-    private var label: Color { Color(nsColor: .labelColor) }   // white in dark, near-black in light
+    // Structural colors — resolved ONCE per render from the macOS system palette
+    // against the correct appearance. (SwiftUI.Canvas resolves dynamic system colors
+    // against the light appearance regardless of the window, so we must resolve them
+    // to concrete colors ourselves; otherwise dark mode shows light-mode colors.)
+    let bg: Color
+    let text: Color
+    let textMuted: Color
+    let accentDark: Color
+    let accentGrey: Color
+    let sep: Color
+    let gridLine: Color
+    let cellGrid: Color
+    let dimFill: Color
+    let weekendWash: Color
+    let highlight: Color
+    let cursor: Color
+    let nowLine: Color
+    let todayTint: Color
 
-    var bg: Color { Color(nsColor: .textBackgroundColor) }     // content background (near-black / white)
-
-    var accentDark: Color { label }                            // strong lines / text
-    var accentGrey: Color { label.opacity(0.28) }              // faint gray
-    var sep: Color { label.opacity(0.28) }                     // solid separators (dimmed)
-
-    var text: Color { label }                                  // labels
-    var textMuted: Color { Color(nsColor: .secondaryLabelColor) } // day labels
-
-    var gridLine: Color { label.opacity(0.35) }                // solid gridlines
-    var cellGrid: Color { label.opacity(0.16) }                // dotted day-cell verticals + lane separators
-
-    var dimFill: Color { label.opacity(0.09) }
-    var weekendWash: Color { label.opacity(0.045) }
-    var highlight: Color { label }                             // hover wash (item opacity is tiny)
-    var cursor: Color { label.opacity(0.6) }
-    var nowLine: Color { Color(hex: 0xff3b6b) }                // red accent (kept)
-    var todayTint: Color { Color(hex: 0xff3b6b, opacity: 0.07) }
+    init(dark: Bool) {
+        self.dark = dark
+        let appearance = NSAppearance(named: dark ? .darkAqua : .aqua) ?? .currentDrawing()
+        func sys(_ ns: NSColor) -> Color {
+            var out = Color.clear
+            appearance.performAsCurrentDrawingAppearance {
+                if let c = ns.usingColorSpace(.sRGB) {
+                    out = Color(.sRGB, red: Double(c.redComponent), green: Double(c.greenComponent),
+                                blue: Double(c.blueComponent), opacity: Double(c.alphaComponent))
+                }
+            }
+            return out
+        }
+        let label = sys(.labelColor)          // white in dark, near-black in light
+        bg = sys(.textBackgroundColor)         // content background (near-black / white)
+        text = label
+        textMuted = sys(.secondaryLabelColor)
+        accentDark = label
+        accentGrey = label.opacity(0.28)
+        sep = label.opacity(0.28)
+        gridLine = label.opacity(0.35)         // solid gridlines
+        cellGrid = label.opacity(0.16)         // dotted day-cell verticals + lane separators
+        dimFill = label.opacity(0.09)
+        weekendWash = label.opacity(0.045)
+        highlight = label                      // hover wash (item opacity is tiny)
+        cursor = label.opacity(0.6)
+        nowLine = Color(hex: 0xff3b6b)          // red accent (kept)
+        todayTint = Color(hex: 0xff3b6b, opacity: 0.07)
+    }
 
     // Event stickers are the ONLY color: a translucent tint fill + an opaque
     // border/accent, exact values from globals.css (--event-*).
