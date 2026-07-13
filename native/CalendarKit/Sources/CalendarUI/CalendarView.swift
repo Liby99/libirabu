@@ -31,7 +31,9 @@ public struct CalendarView: View {
                         SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
                     }
                     // 2. events (bands + timed), Liquid Glass stickers
-                    EventsOverlay(input: input, events: engine.seedEvents, bands: engine.seedBands, selected: engine.selectedId, theme: theme)
+                    EventsOverlay(input: input, events: engine.seedEvents, bands: engine.seedBands,
+                                  selected: engine.selectedId, hovered: engine.hoveredEventId,
+                                  drawerId: ui.openEventId, theme: theme)
                         .offset(x: Layout.padLeft)
                     // 3. deadlines (above events, clipped to the content area)
                     Canvas { ctx, size in

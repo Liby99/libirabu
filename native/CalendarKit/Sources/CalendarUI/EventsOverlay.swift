@@ -11,6 +11,8 @@ struct EventsOverlay: View {
     let events: [TimedEvent]
     let bands: [BandEvent]
     let selected: String?
+    let hovered: String?
+    let drawerId: String?
     let theme: Theme
 
     var body: some View {
@@ -76,7 +78,9 @@ struct EventsOverlay: View {
             placed.append((b, CGRect(x: r.x, y: r.y, width: r.w, height: r.h), Double(f.opacity)))
         }
         placed.sort(by: orderBands)
-        return placed.map { Item2(rect: $0.rect, fade: $0.fade, view: AnyView(BandSticker(ev: $0.ev, selected: $0.ev.id == selected, theme: theme))) }
+        return placed.map { Item2(rect: $0.rect, fade: $0.fade, view: AnyView(
+            BandSticker(ev: $0.ev, hovered: $0.ev.id == hovered, selected: $0.ev.id == selected,
+                        drawerOpen: $0.ev.id == drawerId, theme: theme))) }
     }
 
     private func timedItems(_ tl: TimelineInfo) -> [Item2] {
@@ -152,33 +156,35 @@ private struct EventSticker: View {
     }
 }
 
-/// An all-day band glass sticker — title vertically centered.
+/// An all-day band: a frosted liquid-glass rounded rect tinted with the event color.
+/// Hover fades the fill slightly; single-select adds a thin dotted border; an open
+/// drawer (double-click) makes it a solid, thicker border.
 private struct BandSticker: View {
     let ev: BandEvent
+    let hovered: Bool
     let selected: Bool
+    let drawerOpen: Bool
     let theme: Theme
 
     var body: some View {
         let border = theme.eventBorder(ev.color)
-        HStack(spacing: 0) {
-            Rectangle().fill(border).frame(width: selected ? 3 : 1)
-            Text(ev.title)
-                .font(.custom("Comic Sans MS", size: 12))
-                .foregroundStyle(theme.text)
-                .lineLimit(1)
-                .padding(.leading, 4)
-                .padding(.trailing, 6)
-            Spacer(minLength: 0)
-        }
-        .padding(2)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        // Liquid glass rounded rect. Selected: clearer (less blur) + stronger tint = more
-        // present. Unselected: frosted + fainter tint + lower opacity = more transparent.
-        .glassEffect(selected ? .clear.tint(border.opacity(0.5))
-                              : .regular.tint(border.opacity(0.18)),
-                     in: RoundedRectangle(cornerRadius: 6))
-        .overlay { if selected { RoundedRectangle(cornerRadius: 6).strokeBorder(border, lineWidth: 1) } }
-        .opacity(selected ? 1 : 0.75)
+        let radius: CGFloat = 9
+        Text(ev.title)
+            .font(.custom("Comic Sans MS", size: 12))
+            .foregroundStyle(theme.text)
+            .lineLimit(1)
+            .padding(.leading, 8)
+            .padding(.trailing, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .glassEffect(.regular.tint(border.opacity(0.34)), in: RoundedRectangle(cornerRadius: radius))
+            .overlay {
+                if drawerOpen {
+                    RoundedRectangle(cornerRadius: radius).strokeBorder(border, lineWidth: 2)
+                } else if selected {
+                    RoundedRectangle(cornerRadius: radius).strokeBorder(border, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                }
+            }
+            .opacity(hovered ? 0.82 : 1)   // hover: slightly less opaque
     }
 }
 

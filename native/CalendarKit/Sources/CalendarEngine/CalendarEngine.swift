@@ -31,6 +31,7 @@ public final class CalendarEngine {
     public let chrome = CalendarChrome()   // breadcrumb state for the toolbar
 
     public private(set) var selectedId: String?
+    public private(set) var hoveredEventId: String?   // band/timed/deadline under the cursor
 
     private var tween: Tween?
     private var weekTween: Tween?
@@ -381,8 +382,8 @@ public final class CalendarEngine {
         cancelTween()
         let g = snapshot()
         let prior = selectedId   // decide deselect-vs-navigate on a plain click (see onPointerUp)
-        // 1. all-day bands (on the lanes) — month view onward
-        if z >= 1, let hit = bandAt(p, g) {
+        // 1. all-day bands (on the lanes) — selectable at every zoom incl. year view
+        if let hit = bandAt(p, g) {
             selectedId = hit.id
             drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id, origBand: seedBands.first { $0.id == hit.id })
             return
@@ -505,7 +506,7 @@ public final class CalendarEngine {
     /// Any item (band / timed / deadline) under the point — for double-click to open.
     public func itemId(at p: CGPoint) -> String? {
         let g = snapshot()
-        if z >= 1, let h = bandAt(p, g) { return h.id }
+        if let h = bandAt(p, g) { return h.id }
         if z >= 1.5, let h = eventAt(p, g) { return h.id }
         if z >= 1.5, let id = deadlineAt(p, g) { return id }
         return nil
@@ -726,15 +727,19 @@ public final class CalendarEngine {
             let c = cellInWeek(p.x, p.y, g)
             hv.dom = c.dom; hv.hour = c.hour; hv.hourFrac = c.hourFrac; hv.nearLeft = c.nearLeft
         }
+        if let b = bandAt(p, g) { hoveredEventId = b.id }
+        else if z >= 1.5, let e = eventAt(p, g) { hoveredEventId = e.id }
+        else if z >= 1.5, let d = deadlineAt(p, g) { hoveredEventId = d }
+        else { hoveredEventId = nil }
         hover = hv
     }
 
-    public func onHoverExit() { hover = .none }
+    public func onHoverExit() { hover = .none; hoveredEventId = nil }
 
     public enum CursorHint { case normal, grab, create }
     public func cursorHint(at p: CGPoint) -> CursorHint {
         let g = snapshot()
-        if z >= 1, bandAt(p, g) != nil { return .grab }
+        if bandAt(p, g) != nil { return .grab }
         if z >= 1.5 {
             if eventAt(p, g) != nil { return .grab }
             if deadlineAt(p, g) != nil { return .grab }
