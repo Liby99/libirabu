@@ -58,14 +58,14 @@ enum SceneRenderer {
     /// Chrome, each clipped to its own region so it can't collide with content:
     /// gutter items + track names (gutter region), now-line/cursor (content region),
     /// then the dashboard title.
-    static func drawAbove(input: SceneInput, tracks: [[String]], in ctx: inout GraphicsContext, theme: Theme) {
+    static func drawAbove(input: SceneInput, tracks: [[String]], hideTrack: (Int, Int)? = nil, in ctx: inout GraphicsContext, theme: Theme) {
         let items = buildScene(input).items.sorted { $0.z < $1.z }
         // gutter region: month name, hour labels, gutter borders, gutter hover + tracks
         var gut = ctx; gut.clip(to: Path(gutterRect(input)))
         for it in items where it.gutter && it.opacity > 0.001 {
             var layer = gut; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
-        drawTrackNames(input, tracks, &gut, theme)
+        drawTrackNames(input, tracks, hideTrack, &gut, theme)
         // content region: now-line + mouse cursor
         var content = ctx; content.clip(to: Path(contentRect(input)))
         for it in items where isForeground(it.kind) && it.opacity > 0.001 {
@@ -308,7 +308,7 @@ enum SceneRenderer {
         }
     }
 
-    private static func drawTrackNames(_ input: SceneInput, _ tracks: [[String]], _ ctx: inout GraphicsContext, _ theme: Theme) {
+    private static func drawTrackNames(_ input: SceneInput, _ tracks: [[String]], _ hide: (Int, Int)?, _ ctx: inout GraphicsContext, _ theme: Theme) {
         let left = Layout.mnameW
         let width = Layout.labelW - Layout.mnameW - Layout.rightPad
         for m in 0..<12 {
@@ -324,6 +324,7 @@ enum SceneRenderer {
                     sep.move(to: CGPoint(x: left, y: y)); sep.addLine(to: CGPoint(x: left + width, y: y))
                     layer.stroke(sep, with: .color(theme.cellGrid), style: StrokeStyle(lineWidth: 1, dash: [1, 2]))
                 }
+                if hide?.0 == m, hide?.1 == i { continue }   // slot is being edited inline
                 let name = i < names.count ? names[i] : ""
                 // Match the event-name font (Comic Sans MS 13) for a consistent look.
                 drawText(name, CGRect(x: left + 6, y: y, width: width - 8, height: f.trackH),

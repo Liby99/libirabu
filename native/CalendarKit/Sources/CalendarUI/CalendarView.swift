@@ -44,7 +44,8 @@ public struct CalendarView: View {
                     Canvas { ctx, size in
                         var c = ctx
                         c.translateBy(x: Layout.padLeft, y: 0)
-                        SceneRenderer.drawAbove(input: input, tracks: engine.trackNames, in: &c, theme: theme)
+                        SceneRenderer.drawAbove(input: input, tracks: engine.trackNames,
+                                                hideTrack: ui.editingTrack.map { ($0.month, $0.track) }, in: &c, theme: theme)
                     }
                 }
                 .opacity(input.flipFade)   // whole-calendar fade during a year flip
@@ -126,10 +127,8 @@ private struct TrackNameEditor: View {
             .font(.custom("Comic Sans MS", size: 13))
             .foregroundStyle(theme.text)
             .focused($focused)
-            .padding(.horizontal, 6)
+            .padding(.leading, 6)
             .frame(width: r.width, height: max(18, r.height - 6), alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 4).fill(theme.bg))
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.nowLine, lineWidth: 1.5))
             .position(x: r.midX + Layout.padLeft, y: r.midY)
             .onAppear {
                 let names = target.month < engine.trackNames.count ? engine.trackNames[target.month] : []

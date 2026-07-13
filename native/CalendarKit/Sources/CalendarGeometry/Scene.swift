@@ -5,8 +5,8 @@
 import CoreGraphics
 import Foundation
 
-private let HL_SOFT: CGFloat = 0.08   // L1 coarse highlight (row / month span)
-private let HL_STRONG: CGFloat = 0.16 // L2 fine highlight (day / week column)
+private let HL_SOFT: CGFloat = 0.03   // L1 coarse highlight (row / month span)
+private let HL_STRONG: CGFloat = 0.08 // L2 fine highlight (day / week column)
 
 struct Clock { var year: Int; var month: Int; var day: Int; var hour: Int; var minute: Int }
 private func clockOf(_ date: Date) -> Clock {
