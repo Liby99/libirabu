@@ -28,6 +28,7 @@ struct Theme {
     let cursor: Color
     let nowLine: Color
     let todayTint: Color
+    let todayMonthWash: Color
 
     init(dark: Bool) {
         self.dark = dark
@@ -57,6 +58,7 @@ struct Theme {
         cursor = label.opacity(0.6)
         nowLine = Color(hex: 0xff3b6b)          // red accent (kept)
         todayTint = Color(hex: 0xff3b6b, opacity: 0.07)
+        todayMonthWash = Color(hex: 0xc77e8b, opacity: 0.05)  // current-month wash: faint red-pink gray
     }
 
     // Event stickers are the ONLY color: a translucent tint fill + an opaque

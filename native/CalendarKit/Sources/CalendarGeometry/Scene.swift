@@ -5,8 +5,8 @@
 import CoreGraphics
 import Foundation
 
-private let HL_SOFT: CGFloat = 0.05   // L1 coarse highlight
-private let HL_STRONG: CGFloat = 0.11 // L2 fine highlight
+private let HL_SOFT: CGFloat = 0.08   // L1 coarse highlight (row / month span)
+private let HL_STRONG: CGFloat = 0.16 // L2 fine highlight (day / week column)
 
 struct Clock { var year: Int; var month: Int; var day: Int; var hour: Int; var minute: Int }
 private func clockOf(_ date: Date) -> Clock {
@@ -63,6 +63,10 @@ private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, keyTa
     do {
         let f = frameFor(tMonth, g)
         let on = present && g.z < 0.5 && onScreen(f, g.vp)
+        // Faint wash over the whole current-month row (gutter + band).
+        let dimM = daysInMonth(g.year, tMonth)
+        items.append(Item(key: "tm-y", kind: .todayMonth, x: f.x0, y: f.bandY, w: CGFloat(dimM) * f.dayW, h: 4 * f.trackH, opacity: on ? mul : 0, z: 2))
+        items.append(Item(key: "tm-yg", kind: .todayMonth, x: -Layout.padLeft, y: f.bandY, w: Layout.labelW + Layout.padLeft, h: 4 * f.trackH, opacity: on ? mul : 0, z: 2, gutter: true))
         let tx = f.x0 + (CGFloat(tDom) - 1) * f.dayW
         items.append(Item(key: "td-y", kind: .today, x: tx, y: f.bandY, w: f.dayW, h: 4 * f.trackH, opacity: on ? mul : 0, z: 3))
         let tagW: CGFloat = 54

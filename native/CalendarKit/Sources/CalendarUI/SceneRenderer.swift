@@ -186,6 +186,8 @@ enum SceneRenderer {
             ctx.fill(Path(roundedRect: it.rect, cornerRadius: 3), with: .color(theme.highlight))
         case .today:
             ctx.fill(Path(roundedRect: it.rect, cornerRadius: 3), with: .color(theme.todayTint))
+        case .todayMonth:
+            ctx.fill(Path(it.rect), with: .color(theme.todayMonthWash))
         case .now:
             ctx.fill(Path(it.rect), with: .color(theme.nowLine))
             drawEndDots(it, &ctx, color: theme.nowLine, bg: theme.bg)

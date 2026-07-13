@@ -41,7 +41,7 @@ public struct Hover: Sendable, Equatable {
 }
 
 public enum ItemKind: Sendable {
-    case row, event, monthLabel, dayLabel, gridline, dim, hl, today, now
+    case row, event, monthLabel, dayLabel, gridline, dim, hl, today, todayMonth, now
     case todayTag, nowLabel, timeTag, cursor, weekdayTag, weekend
 }
 
