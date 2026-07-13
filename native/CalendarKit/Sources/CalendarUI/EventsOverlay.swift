@@ -253,17 +253,13 @@ private struct BandSticker: View {
                 Capsule().fill(border).frame(width: barWidth)
                     .padding(.vertical, BandStyle.accentInset).padding(.leading, BandStyle.accentInset)
             }
-            .overlay(alignment: .leading) {   // spill scrim: occluding plate tinted like the bar behind
+            .overlay(alignment: .leading) {   // spill scrim: frosted glass tinted like the bar behind
                 if maskW > 0 {
-                    UnevenRoundedRectangle(bottomTrailingRadius: 5, topTrailingRadius: 5)
-                        .fill(theme.bg.opacity(0.92))
+                    let shape = UnevenRoundedRectangle(bottomTrailingRadius: 5, topTrailingRadius: 5)
+                    Rectangle().fill(theme.bg.opacity(0.55))   // base occlusion under the frost
                         .frame(width: maskW, height: box.height)
-                        .overlay {
-                            if let bc = behindColor {
-                                UnevenRoundedRectangle(bottomTrailingRadius: 5, topTrailingRadius: 5)
-                                    .fill(theme.eventColor(bc).opacity(BandStyle.tintIdle))
-                            }
-                        }
+                        .glassEffect(.regular.tint(theme.eventColor(behindColor).opacity(BandStyle.tintIdle)), in: shape)
+                        .clipShape(shape)
                         .offset(x: box.width)
                 }
             }
