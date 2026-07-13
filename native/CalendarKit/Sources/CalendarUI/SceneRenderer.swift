@@ -276,11 +276,12 @@ enum SceneRenderer {
                          size: 12, align: .left, color: theme.text, into: &layer, clipToRect: true)
             }
             // solid bottom border across the gutter (month-name cell + track cells) —
-            // the grid's month divider doesn't extend into the gutter.
+            // the grid's month divider doesn't extend into the gutter. Uses the same
+            // 0.6 opacity as the quarter's top border (qhsepg) so they read identically.
             var bottom = Path()
             let by = f.bandY + 4 * f.trackH
             bottom.move(to: CGPoint(x: 0, y: by)); bottom.addLine(to: CGPoint(x: Layout.labelW - Layout.rightPad, y: by))
-            layer.stroke(bottom, with: .color(theme.sep), lineWidth: 1)
+            layer.stroke(bottom, with: .color(theme.sep.opacity(0.6)), lineWidth: 1)
         }
     }
 
