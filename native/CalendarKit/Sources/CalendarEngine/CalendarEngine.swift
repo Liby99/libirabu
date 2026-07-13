@@ -26,7 +26,7 @@ public final class CalendarEngine {
     public private(set) var seedEvents: [TimedEvent] = []
     public private(set) var seedBands: [BandEvent] = []
     public private(set) var seedDeadlines: [Deadline] = []
-    public private(set) var trackNames = TRACKS.map { $0.name }
+    public private(set) var trackNames = Array(repeating: TRACKS.map { $0.name }, count: 12)  // per month
     public var trackEditing = false        // an inline track-name field is open (freezes scroll)
     public let chrome = CalendarChrome()   // breadcrumb state for the toolbar
 
@@ -107,7 +107,7 @@ public final class CalendarEngine {
         // self is now fully initialized — restore persisted edits over the seeds.
         if let s = store.load() {
             seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines
-            if let names = s.trackNames, names.count == trackNames.count { trackNames = names }
+            if let names = s.monthTrackNames, names.count == 12, names.allSatisfy({ $0.count == 4 }) { trackNames = names }
         } else {
             persistNow()   // seed the store on first launch
         }
@@ -118,18 +118,19 @@ public final class CalendarEngine {
     }
 
     // ── Persistence ─────────────────────────────────────────────────────────────
-    private func persistNow() { store.save(PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, trackNames: trackNames)) }
+    private func persistNow() { store.save(PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, monthTrackNames: trackNames)) }
 
-    // ── Track names (editable lane labels, shared across all months) ──────────────
-    public func setTrackName(_ i: Int, _ name: String) {
-        guard i >= 0, i < trackNames.count, trackNames[i] != name else { return }
-        trackNames[i] = name
+    // ── Track names (editable lane labels, per month) ─────────────────────────────
+    public func setTrackName(_ month: Int, _ track: Int, _ name: String) {
+        guard month >= 0, month < trackNames.count, track >= 0, track < trackNames[month].count,
+              trackNames[month][track] != name else { return }
+        trackNames[month][track] = name
         schedulePersist()
     }
 
-    /// Which track-name gutter slot is under the cursor (year view only), with its
-    /// geometry-space rect — used to place the inline editor.
-    public func trackNameHit(at p: CGPoint) -> (track: Int, rect: CGRect)? {
+    /// Which track-name gutter slot is under the cursor (year view only): its month,
+    /// track index, and geometry-space rect — used to place the inline editor.
+    public func trackNameHit(at p: CGPoint) -> (month: Int, track: Int, rect: CGRect)? {
         guard isYearLevel, p.x >= Layout.mnameW, p.x <= Layout.labelW - Layout.rightPad else { return nil }
         let g = snapshot()
         for m in 0..<12 {
@@ -138,7 +139,7 @@ public final class CalendarEngine {
             for i in 0..<4 {
                 let y = f.bandY + CGFloat(i) * f.trackH
                 if p.y >= y, p.y < y + f.trackH {
-                    return (i, CGRect(x: Layout.mnameW, y: y, width: Layout.labelW - Layout.mnameW - Layout.rightPad, height: f.trackH))
+                    return (m, i, CGRect(x: Layout.mnameW, y: y, width: Layout.labelW - Layout.mnameW - Layout.rightPad, height: f.trackH))
                 }
             }
         }

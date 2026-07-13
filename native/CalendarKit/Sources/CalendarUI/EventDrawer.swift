@@ -16,8 +16,8 @@ public final class CalendarUIState {
     public init() {}
 }
 
-/// Target for the inline track-name editor: which track, and where (geometry-space rect).
-public struct TrackEdit: Equatable { public var track: Int; public var rect: CGRect }
+/// Target for the inline track-name editor: which month + track, and where (geometry rect).
+public struct TrackEdit: Equatable { public var month: Int; public var track: Int; public var rect: CGRect }
 
 private enum ItemKind2 { case timed, band, deadline }
 

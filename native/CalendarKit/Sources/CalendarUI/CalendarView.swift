@@ -132,10 +132,11 @@ private struct TrackNameEditor: View {
             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.nowLine, lineWidth: 1.5))
             .position(x: r.midX + Layout.padLeft, y: r.midY)
             .onAppear {
-                text = target.track < engine.trackNames.count ? engine.trackNames[target.track] : ""
+                let names = target.month < engine.trackNames.count ? engine.trackNames[target.month] : []
+                text = target.track < names.count ? names[target.track] : ""
                 focused = true
             }
-            .onChange(of: text) { _, v in engine.setTrackName(target.track, v) }
+            .onChange(of: text) { _, v in engine.setTrackName(target.month, target.track, v) }
             .onChange(of: focused) { _, f in if !f { onDone() } }
             .onSubmit { onDone() }
             .onExitCommand { onDone() }
@@ -349,7 +350,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         let p = point(e)
         // Year view: clicking a track-name gutter slot opens the inline editor.
         if e.clickCount == 1, let hit = engine?.trackNameHit(at: p) {
-            onEditTrack?(TrackEdit(track: hit.track, rect: hit.rect))
+            onEditTrack?(TrackEdit(month: hit.month, track: hit.track, rect: hit.rect))
             return
         }
         window?.makeFirstResponder(self)

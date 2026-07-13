@@ -58,7 +58,7 @@ enum SceneRenderer {
     /// Chrome, each clipped to its own region so it can't collide with content:
     /// gutter items + track names (gutter region), now-line/cursor (content region),
     /// then the dashboard title.
-    static func drawAbove(input: SceneInput, tracks: [String], in ctx: inout GraphicsContext, theme: Theme) {
+    static func drawAbove(input: SceneInput, tracks: [[String]], in ctx: inout GraphicsContext, theme: Theme) {
         let items = buildScene(input).items.sorted { $0.z < $1.z }
         // gutter region: month name, hour labels, gutter borders, gutter hover + tracks
         var gut = ctx; gut.clip(to: Path(gutterRect(input)))
@@ -306,12 +306,13 @@ enum SceneRenderer {
         }
     }
 
-    private static func drawTrackNames(_ input: SceneInput, _ tracks: [String], _ ctx: inout GraphicsContext, _ theme: Theme) {
+    private static func drawTrackNames(_ input: SceneInput, _ tracks: [[String]], _ ctx: inout GraphicsContext, _ theme: Theme) {
         let left = Layout.mnameW
         let width = Layout.labelW - Layout.mnameW - Layout.rightPad
         for m in 0..<12 {
             let f = frameFor(m, input, anim: input.monthAnim)
             if f.opacity < 0.05 || f.bandY + 4 * f.trackH < -4 || f.bandY > input.vp.h + 4 { continue }
+            let names = m < tracks.count ? tracks[m] : []
             var layer = ctx
             layer.opacity = Double(f.opacity)
             for i in 0..<4 {
@@ -321,7 +322,7 @@ enum SceneRenderer {
                     sep.move(to: CGPoint(x: left, y: y)); sep.addLine(to: CGPoint(x: left + width, y: y))
                     layer.stroke(sep, with: .color(theme.cellGrid), style: StrokeStyle(lineWidth: 1, dash: [1, 2]))
                 }
-                let name = i < tracks.count ? tracks[i] : ""
+                let name = i < names.count ? names[i] : ""
                 // Match the event-name font (Comic Sans MS 13) for a consistent look.
                 drawText(name, CGRect(x: left + 6, y: y, width: width - 8, height: f.trackH),
                          size: 13, align: .left, color: theme.text, font: .custom("Comic Sans MS", size: 13),
