@@ -138,7 +138,7 @@ struct EventDrawer: View {
     private func dayStepper(_ value: Binding<Int>, _ commit: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
             Text("\(MONTH_NAMES[month]) \(value.wrappedValue)").font(.callout.monospacedDigit())
-            Stepper("", value: value, in: 1...daysInMonth(month)).labelsHidden()
+            Stepper("", value: value, in: 1...daysInMonth(engine.year, month)).labelsHidden()
                 .onChange(of: value.wrappedValue) { _, _ in commit() }
         }
     }

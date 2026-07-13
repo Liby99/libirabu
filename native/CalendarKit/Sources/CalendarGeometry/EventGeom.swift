@@ -60,10 +60,10 @@ public func timelineInfo(_ g: SceneInput, detailMul: CGFloat = 1) -> TimelineInf
 }
 
 /// An event's day expressed in `focus`'s numbering (≤0 / >dim for spillover); nil otherwise.
-public func relDomOf(_ focus: Int, _ month: Int, _ day: Int) -> Int? {
+public func relDomOf(_ year: Int, _ focus: Int, _ month: Int, _ day: Int) -> Int? {
     if month == focus { return day }
-    if month == focus - 1 { return day - daysInMonth(focus - 1) }
-    if month == focus + 1 { return daysInMonth(focus) + day }
+    if month == focus - 1 { return day - daysInMonth(year, focus - 1) }
+    if month == focus + 1 { return daysInMonth(year, focus) + day }
     return nil
 }
 
@@ -128,8 +128,8 @@ public func layoutDay(_ events: [TimedEvent]) -> [String: EventLayout] {
 }
 
 /// Placement of an event within the day-detail timeline. Ported from eventRect().
-public func eventRect(_ ev: TimedEvent, _ focus: Int, _ tl: TimelineInfo, _ vp: Viewport, _ layout: EventLayout? = nil) -> CGRect? {
-    guard let dom = relDomOf(focus, ev.month, ev.day), tl.hourH > 0 else { return nil }
+public func eventRect(_ ev: TimedEvent, _ year: Int, _ focus: Int, _ tl: TimelineInfo, _ vp: Viewport, _ layout: EventLayout? = nil) -> CGRect? {
+    guard let dom = relDomOf(year, focus, ev.month, ev.day), tl.hourH > 0 else { return nil }
     let colX = tl.x0 + (CGFloat(dom) - 1) * tl.colW
     if colX + tl.colW < -40 || colX > vp.w + 40 { return nil }
     let col = layout?.col ?? 0

@@ -48,8 +48,8 @@ private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, keyTa
     let timeStr = String(format: "%02d:%02d", clock.hour, clock.minute)
 
     let relDom: Int? = tMonth == g.focus ? tDom
-        : (tMonth == g.focus - 1 ? tDom - daysInMonth(g.focus - 1)
-        : (tMonth == g.focus + 1 ? daysInMonth(g.focus) + tDom : nil))
+        : (tMonth == g.focus - 1 ? tDom - daysInMonth(g.year, g.focus - 1)
+        : (tMonth == g.focus + 1 ? daysInMonth(g.year, g.focus) + tDom : nil))
 
     func nowLabel(_ key: String, _ x: CGFloat, _ colW: CGFloat, _ lineY: CGFloat, _ active: Bool, gate: CGFloat = 1) -> Item {
         let W: CGFloat = 84, GAP: CGFloat = 10, H: CGFloat = 30
@@ -117,7 +117,7 @@ private func buildHover(_ g: SceneInput) -> [Item] {
     do {
         let m = h.month ?? g.focus
         let f = frameFor(m, g)
-        let dim = daysInMonth(m)
+        let dim = daysInMonth(g.year, m)
         let bandH = 4 * f.trackH
         let monthOn = g.z < 0.5 && h.month != nil && onScreen(f, g.vp)
         items.append(Item(key: "hl-ym", kind: .hl, x: f.x0, y: f.bandY, w: CGFloat(dim) * f.dayW, h: bandH, opacity: monthOn ? HL_SOFT : 0, z: 3))
@@ -135,7 +135,7 @@ private func buildHover(_ g: SceneInput) -> [Item] {
     do {
         let active = g.z >= 0.5 && g.z < 1.5
         let f = frameFor(g.focus, g)
-        let dim = daysInMonth(g.focus)
+        let dim = daysInMonth(g.year, g.focus)
         let colW = f.dayW
         let top = f.bandY
         let bottom = g.z >= 0.82 ? g.vp.h - 8 : f.bandY + 4 * f.trackH
@@ -212,7 +212,7 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
     for m in 0..<12 {
         let f = frameFor(m, g, anim: g.monthAnim)
         if f.opacity < 0.02 || !onScreen(f, g.vp) { continue }
-        let dim = daysInMonth(m)
+        let dim = daysInMonth(g.year, m)
         let fullW = 31 * f.dayW
 
         items.append(Item(key: "ml-\(m)", kind: .monthLabel, x: 0, y: f.bandY, w: Layout.mnameW, h: f.trackH * 4, opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 15, align: .center, z: 8, gutter: true))
@@ -246,7 +246,7 @@ private func buildDetail(_ g: SceneInput, _ clock: Clock, focus: Int, detailMul:
     // build with `focus` (may be the incoming month during a page-turn)
     var gf = g; gf.focus = focus
     let f = frameFor(focus, gf)
-    let dim = daysInMonth(focus)
+    let dim = daysInMonth(g.year, focus)
     let colW = f.dayW
     let bandBottom = f.bandY + 4 * f.trackH
     let wide = colW > 60
@@ -287,7 +287,7 @@ private func buildDetail(_ g: SceneInput, _ clock: Clock, focus: Int, detailMul:
     func pushDay(_ dom: Int, _ opIn: CGFloat) {
         let op = opIn * dailyFade(dom, gf)
         if op <= 0.002 { return }
-        guard let r = resolveDate(focus, dom) else { return }
+        guard let r = resolveDate(g.year, focus, dom) else { return }
         let x = f.x0 + (CGFloat(dom) - 1) * colW
         if x + colW < -40 || x > g.vp.w + 40 { return }
         let dow = dayOfWeek(g.year, r.month, r.day)

@@ -83,7 +83,7 @@ public final class CalendarEngine {
         systemYear = c.year ?? 2026
         focus = (c.month ?? 1) - 1
         daily = DailyState(dom: c.day ?? 1, frac: 0.45)
-        seedEvents = Self.makeSeeds(month: focus, day: c.day ?? 15)
+        seedEvents = Self.makeSeeds(year: year, month: focus, day: c.day ?? 15)
         seedBands = Self.makeSeedBands(year: year, month: focus)
         seedDeadlines = Self.makeSeedDeadlines(year: year, month: focus, day: c.day ?? 15)
         // self is now fully initialized — restore persisted edits over the seeds.
@@ -197,7 +197,7 @@ public final class CalendarEngine {
         } else if b == 3 {
             wheelAccumX += dx
             if abs(wheelAccumX) > 55 {
-                daily.dom = min(daysInMonth(focus), max(1, daily.dom + (wheelAccumX < 0 ? 1 : -1)))  // swipe-left → next day
+                daily.dom = min(daysInMonth(year, focus), max(1, daily.dom + (wheelAccumX < 0 ? 1 : -1)))  // swipe-left → next day
                 wheelAccumX = 0
             }
         }
@@ -421,9 +421,9 @@ public final class CalendarEngine {
         if z > 2 && p.x >= tl.x0 + CGFloat(daily.dom) * tl.colW { return nil }  // under dashboard
         var found: (String, PointerKind)?
         for e in seedEvents {
-            if dailyFade(relDomOf(focus, e.month, e.day) ?? -999, g) <= 0.02 { continue }
+            if dailyFade(relDomOf(year, focus, e.month, e.day) ?? -999, g) <= 0.02 { continue }
             let sameDay = seedEvents.filter { $0.month == e.month && $0.day == e.day }
-            guard let r = eventRect(e, focus, tl, g.vp, layoutDay(sameDay)[e.id]) else { continue }
+            guard let r = eventRect(e, year, focus, tl, g.vp, layoutDay(sameDay)[e.id]) else { continue }
             let rect = CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
             if rect.contains(p) {
                 let zone: PointerKind = (p.y - rect.minY < 5) ? .resizeTop : (rect.maxY - p.y < 5 ? .resizeBottom : .move)
@@ -438,7 +438,7 @@ public final class CalendarEngine {
         guard tl.reveal > 0.05, tl.hourH > 0, p.y >= tl.tlTop, p.y <= tl.tlBottom else { return nil }
         if z > 2 && p.x >= tl.x0 + CGFloat(daily.dom) * tl.colW { return nil }
         let (domOpt, hf) = pointToSlot(p.x, p.y, tl)
-        guard let dom = domOpt, let r = resolveDate(focus, dom) else { return nil }
+        guard let dom = domOpt, let r = resolveDate(year, focus, dom) else { return nil }
         return (r.month, r.day, snap(hf, 30))
     }
 
@@ -449,7 +449,7 @@ public final class CalendarEngine {
         let ns = max(0, min(24 - dur, snap(orig.startHour + (p.y - d.startPoint.y) / tl.hourH, 15)))
         var ev = seedEvents[idx]
         ev.startHour = ns; ev.endHour = ns + dur
-        if let dom = pointToSlot(p.x, p.y, tl).dom, let r = resolveDate(focus, dom) { ev.month = r.month; ev.day = r.day }
+        if let dom = pointToSlot(p.x, p.y, tl).dom, let r = resolveDate(year, focus, dom) { ev.month = r.month; ev.day = r.day }
         seedEvents[idx] = ev
     }
 
@@ -506,7 +506,7 @@ public final class CalendarEngine {
         beginTxn()
         let len = orig.endDay - orig.startDay
         let delta = bandDay(p.x, orig.month, g) - bandDay(d.startPoint.x, orig.month, g)
-        let ns = max(1, min(daysInMonth(orig.month) - len, orig.startDay + delta))
+        let ns = max(1, min(daysInMonth(year, orig.month) - len, orig.startDay + delta))
         var b = seedBands[idx]
         b.startDay = ns; b.endDay = ns + len
         if let slot = bandSlotAtPoint(p.x, p.y, g), slot.month == orig.month { b.track = slot.track }
@@ -516,7 +516,7 @@ public final class CalendarEngine {
     private func applyBandResize(_ d: Drag, _ p: CGPoint, _ g: SceneInput, left: Bool) {
         guard let orig = d.origBand, let idx = seedBands.firstIndex(where: { $0.id == d.eventId }) else { return }
         beginTxn()
-        let day = max(1, min(daysInMonth(orig.month), bandDay(p.x, orig.month, g)))
+        let day = max(1, min(daysInMonth(year, orig.month), bandDay(p.x, orig.month, g)))
         var b = seedBands[idx]
         if left { b.startDay = min(b.endDay, day) } else { b.endDay = max(b.startDay, day) }
         seedBands[idx] = b
@@ -533,7 +533,7 @@ public final class CalendarEngine {
             d.eventId = id; drag = d; selectedId = id
         }
         guard let id = d.eventId, let idx = seedBands.firstIndex(where: { $0.id == id }), let mo = d.bandMonth, let a = d.bandAnchorDay else { return }
-        let cur = max(1, min(daysInMonth(mo), bandDay(p.x, mo, g)))
+        let cur = max(1, min(daysInMonth(year, mo), bandDay(p.x, mo, g)))
         var b = seedBands[idx]
         b.startDay = min(a, cur); b.endDay = max(a, cur)
         seedBands[idx] = b
@@ -555,7 +555,7 @@ public final class CalendarEngine {
         let (domOpt, hf) = pointToSlot(p.x, p.y, tl)
         var dd = seedDeadlines[idx]
         dd.hour = snap(hf, 15)
-        if let dom = domOpt, let r = resolveDate(focus, dom) { dd.month = r.month; dd.day = r.day }
+        if let dom = domOpt, let r = resolveDate(year, focus, dom) { dd.month = r.month; dd.day = r.day }
         seedDeadlines[idx] = dd
     }
 
@@ -605,20 +605,20 @@ public final class CalendarEngine {
     }
 
     // ── Seed data (display only, until the sync layer lands) ─────────────────────
-    private static func makeSeeds(month: Int, day: Int) -> [TimedEvent] {
-        let d0 = max(1, min(daysInMonth(month) - 2, day))
+    private static func makeSeeds(year: Int, month: Int, day: Int) -> [TimedEvent] {
+        let d0 = max(1, min(daysInMonth(year, month) - 2, day))
         return [
             TimedEvent(id: "s1", month: month, day: d0, startHour: 9, endHour: 10, title: "Standup", color: "blue"),
             TimedEvent(id: "s2", month: month, day: d0, startHour: 11, endHour: 12.5, title: "Design review", color: "green"),
             TimedEvent(id: "s3", month: month, day: d0, startHour: 11.5, endHour: 13, title: "1:1 with Alex", color: "yellow"),
             TimedEvent(id: "s4", month: month, day: d0, startHour: 14, endHour: 15, title: "Lecture", color: "red"),
-            TimedEvent(id: "s5", month: month, day: min(daysInMonth(month), d0 + 1), startHour: 10, endHour: 11.5, title: "Research sync", color: "blue"),
-            TimedEvent(id: "s6", month: month, day: min(daysInMonth(month), d0 + 1), startHour: 16, endHour: 18, title: "Seminar", color: "purple"),
+            TimedEvent(id: "s5", month: month, day: min(daysInMonth(year, month), d0 + 1), startHour: 10, endHour: 11.5, title: "Research sync", color: "blue"),
+            TimedEvent(id: "s6", month: month, day: min(daysInMonth(year, month), d0 + 1), startHour: 16, endHour: 18, title: "Seminar", color: "purple"),
         ]
     }
 
     private static func makeSeedBands(year: Int, month: Int) -> [BandEvent] {
-        let dim = daysInMonth(month)
+        let dim = daysInMonth(year, month)
         func clampD(_ d: Int) -> Int { max(1, min(dim, d)) }
         return [
             BandEvent(id: "b1", year: year, month: month, track: 0, startDay: clampD(3), endDay: clampD(7), title: "Intro to AI", color: "red"),
@@ -628,10 +628,10 @@ public final class CalendarEngine {
     }
 
     private static func makeSeedDeadlines(year: Int, month: Int, day: Int) -> [Deadline] {
-        let d0 = max(1, min(daysInMonth(month), day))
+        let d0 = max(1, min(daysInMonth(year, month), day))
         return [
             Deadline(id: "d1", year: year, month: month, day: d0, hour: 17, title: "Paper due", color: "red"),
-            Deadline(id: "d2", year: year, month: month, day: min(daysInMonth(month), d0 + 2), hour: 12.5, title: "Reviews", color: "purple"),
+            Deadline(id: "d2", year: year, month: month, day: min(daysInMonth(year, month), d0 + 2), hour: 12.5, title: "Reviews", color: "purple"),
         ]
     }
 }

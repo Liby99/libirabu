@@ -45,7 +45,7 @@ struct EventsOverlay: View {
     /// year zoom, a hovered month on screen, and a valid day-of-month.
     private func weekdayMarker() -> (center: CGPoint, text: String)? {
         guard input.z < 0.5, let m = input.hover.month, let dom = input.hover.dom else { return nil }
-        guard dom >= 1 && dom <= daysInMonth(m) else { return nil }
+        guard dom >= 1 && dom <= daysInMonth(input.year, m) else { return nil }
         let f = frameFor(m, input)
         guard f.bandY <= input.vp.h + 20, f.bandY + 4 * f.trackH >= -20 else { return nil }  // on screen
         let cx = f.x0 + (CGFloat(dom) - 0.5) * f.dayW   // center of the day column
@@ -82,7 +82,7 @@ struct EventsOverlay: View {
     private func timedItems(_ tl: TimelineInfo) -> [Item2] {
         var byDay: [Int: [TimedEvent]] = [:]
         for e in events {
-            if let rd = relDomOf(input.focus, e.month, e.day) { byDay[rd, default: []].append(e) }
+            if let rd = relDomOf(input.year, input.focus, e.month, e.day) { byDay[rd, default: []].append(e) }
         }
         var placed: [(ev: TimedEvent, rect: CGRect, fade: Double)] = []
         for (rd, evs) in byDay {
@@ -90,7 +90,7 @@ struct EventsOverlay: View {
             if fade <= 0.02 { continue }
             let layout = layoutDay(evs)
             for e in evs {
-                guard let r = eventRect(e, input.focus, tl, input.vp, layout[e.id]) else { continue }
+                guard let r = eventRect(e, input.year, input.focus, tl, input.vp, layout[e.id]) else { continue }
                 let rect = CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
                 if rect.maxY < tl.tlTop || rect.minY > tl.tlBottom { continue }
                 placed.append((e, rect, Double(fade)))

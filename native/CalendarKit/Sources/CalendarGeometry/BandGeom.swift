@@ -55,7 +55,7 @@ public func bandSlotAtPoint(_ px: CGFloat, _ py: CGFloat, _ g: SceneInput) -> (m
         let f = frameFor(m, g)
         if f.opacity < 0.02 || !bandOnScreen(f.bandY, f.trackH, g.vp) { continue }
         if py < f.bandY || py >= f.bandY + 4 * f.trackH { continue }
-        let dim = daysInMonth(m)
+        let dim = daysInMonth(g.year, m)
         let day = Int((px - f.x0) / f.dayW) + 1
         if day < 1 || day > dim { continue }
         return (m, min(3, max(0, Int((py - f.bandY) / f.trackH))), day)
@@ -82,7 +82,7 @@ public struct Deadline: Sendable, Identifiable, Equatable, Codable {
 /// day column at the deadline's hour. nil when off the focused window or scrolled out.
 public func deadlinePos(_ d: Deadline, _ g: SceneInput) -> (x: CGFloat, y: CGFloat, w: CGFloat)? {
     let tl = timelineInfo(g)
-    guard tl.reveal > 0.05, tl.hourH > 0, let rd = relDomOf(g.focus, d.month, d.day) else { return nil }
+    guard tl.reveal > 0.05, tl.hourH > 0, let rd = relDomOf(g.year, g.focus, d.month, d.day) else { return nil }
     let x = tl.x0 + CGFloat(rd - 1) * tl.colW
     let y = tl.tlTop + d.hour * tl.hourH - tl.scroll
     if y < tl.tlTop || y > tl.tlBottom { return nil }

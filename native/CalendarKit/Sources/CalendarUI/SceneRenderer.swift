@@ -85,7 +85,7 @@ enum SceneRenderer {
         clip.clip(to: Path(CGRect(x: Layout.labelW, y: tl.tlTop, width: max(0, clipRight - Layout.labelW), height: tl.tlBottom - tl.tlTop)))
         for d in deadlines {
             guard let pos = deadlinePos(d, input) else { continue }
-            let fade = dailyFade(relDomOf(input.focus, d.month, d.day) ?? -999, input) * tl.reveal
+            let fade = dailyFade(relDomOf(input.year, input.focus, d.month, d.day) ?? -999, input) * tl.reveal
             if fade <= 0.02 { continue }
             var layer = clip
             layer.opacity = Double(fade)
@@ -245,7 +245,7 @@ enum SceneRenderer {
         }
         // day title — bottom-aligned in the band region, just above the lower bar
         // (matches .cc-dd-titlezone { align-items: flex-end }).
-        if let r = resolveDate(input.focus, input.daily.dom) {
+        if let r = resolveDate(input.year, input.focus, input.daily.dom) {
             let lowerBarY = Layout.topPad + Layout.monthH
             let w = input.vp.w - barX - 18
             let name = WD3[dayOfWeek(input.year, r.month, r.day)].uppercased()

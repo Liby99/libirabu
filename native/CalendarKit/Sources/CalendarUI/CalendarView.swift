@@ -135,7 +135,7 @@ private struct Breadcrumb: View {
             if chrome.level >= 2 {
                 sep; crumb("Week \(Int(chrome.week.rounded()) + 1)", active: chrome.level == 2)
             }
-            if chrome.level >= 3, let r = resolveDate(chrome.focus, chrome.dailyDom) {
+            if chrome.level >= 3, let r = resolveDate(chrome.year, chrome.focus, chrome.dailyDom) {
                 sep; crumb("\(WD_LONG[dayOfWeek(chrome.year, r.month, r.day)]), \(r.day)\(ordinal(r.day))", active: true)
             }
         }

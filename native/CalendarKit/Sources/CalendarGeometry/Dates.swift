@@ -1,10 +1,10 @@
 // Calendar date helpers + label arrays. Weeks are Sunday-aligned. Ported from
 // util/dates.ts + model/api/mock.ts.
 //
-// Ground-truth fidelity note: daysInMonth is a FIXED table (Feb always 28, no
-// leap-year handling) exactly as mock.ts; only weekday alignment changes between
-// years, computed here with Sakamoto's algorithm (the pure analogue of the TS
-// `new Date(year, m, d).getDay()`).
+// Ground-truth fidelity note: weekday alignment changes between years, computed
+// here with Sakamoto's algorithm (the pure analogue of the TS
+// `new Date(year, m, d).getDay()`). Unlike the web's mock.ts (Feb always 28),
+// daysInMonth is year-aware so leap years show Feb 29.
 
 import Foundation
 
@@ -24,7 +24,10 @@ public let TRACKS: [Track] = [
 ]
 
 private let DIM = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-public func daysInMonth(_ month: Int) -> Int { DIM[month] }
+public func isLeapYear(_ y: Int) -> Bool { (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 }
+public func daysInMonth(_ year: Int, _ month: Int) -> Int {
+    (month == 1 && isLeapYear(year)) ? 29 : DIM[month]
+}
 
 /// Day-of-week (0 = Sunday) for a Gregorian date. month is 0-based. Sakamoto's algorithm.
 public func dayOfWeek(_ year: Int, _ month0: Int, _ day: Int) -> Int {
@@ -41,7 +44,7 @@ public func firstDOW(_ year: Int, _ m: Int) -> Int { dayOfWeek(year, m, 1) }  //
 public func weekStartDOM(_ year: Int, _ m: Int, _ week: Int) -> Int { 1 - firstDOW(year, m) + week * 7 }
 
 public func weeksInMonth(_ year: Int, _ m: Int) -> Int {
-    Int(ceil(Double(firstDOW(year, m) + daysInMonth(m)) / 7.0))
+    Int(ceil(Double(firstDOW(year, m) + daysInMonth(year, m)) / 7.0))
 }
 
 public func weekOfDate(_ year: Int, _ month: Int, _ day: Int) -> Int {
@@ -49,14 +52,14 @@ public func weekOfDate(_ year: Int, _ month: Int, _ day: Int) -> Int {
 }
 
 /// Resolve a (focus month, day-of-month-that-may-spill) into a real {month, day}.
-public func resolveDate(_ focus: Int, _ dom: Int) -> (month: Int, day: Int)? {
-    if dom >= 1 && dom <= daysInMonth(focus) { return (focus, dom) }
+public func resolveDate(_ year: Int, _ focus: Int, _ dom: Int) -> (month: Int, day: Int)? {
+    if dom >= 1 && dom <= daysInMonth(year, focus) { return (focus, dom) }
     if dom < 1 {
         let m = focus - 1
         if m < 0 { return nil }
-        return (m, daysInMonth(m) + dom)
+        return (m, daysInMonth(year, m) + dom)
     }
     let m = focus + 1
     if m > 11 { return nil }
-    return (m, dom - daysInMonth(focus))
+    return (m, dom - daysInMonth(year, focus))
 }
