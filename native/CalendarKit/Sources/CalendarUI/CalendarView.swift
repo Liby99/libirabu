@@ -116,22 +116,25 @@ private struct Breadcrumb: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } label: {
-                // The caret is hidden until hover; on hover the crumb expands
-                // rightwards to open space for it (the "Year 20XX" text stays put).
-                HStack(spacing: 3) {
+                // "Year 20XX" is anchored on the left; the caret is always the trailing
+                // child but collapses to zero width when not hovered, so on hover the
+                // crumb expands *rightwards* to reveal it (the text never moves).
+                HStack(spacing: 0) {
                     crumb("Year \(chrome.year)", active: chrome.level == 0)
-                    if yearHover {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                            .transition(.opacity)
-                    }
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 4)
+                        .frame(width: yearHover ? 13 : 0, alignment: .leading)
+                        .opacity(yearHover ? 1 : 0)
+                        .clipped()
                 }
             }
             .menuIndicator(.hidden)
             .buttonStyle(.plain)
             .fixedSize()
-            .onHover { h in withAnimation(.easeOut(duration: 0.15)) { yearHover = h } }
+            .animation(.easeOut(duration: 0.15), value: yearHover)
+            .onHover { h in yearHover = h }
             if chrome.level >= 1 {
                 sep; crumb(MONTH_LONG[chrome.focus], active: chrome.level == 1)
             }
