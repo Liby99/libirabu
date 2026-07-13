@@ -105,6 +105,7 @@ public struct CalendarView: View {
 private struct Breadcrumb: View {
     let engine: CalendarEngine
     private var chrome: CalendarChrome { engine.chrome }
+    @State private var yearHover = false
 
     var body: some View {
         HStack(spacing: 5) {
@@ -115,16 +116,22 @@ private struct Breadcrumb: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } label: {
+                // The caret is hidden until hover; on hover the crumb expands
+                // rightwards to open space for it (the "Year 20XX" text stays put).
                 HStack(spacing: 3) {
                     crumb("Year \(chrome.year)", active: chrome.level == 0)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                    if yearHover {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .transition(.opacity)
+                    }
                 }
             }
             .menuIndicator(.hidden)
             .buttonStyle(.plain)
             .fixedSize()
+            .onHover { h in withAnimation(.easeOut(duration: 0.15)) { yearHover = h } }
             if chrome.level >= 1 {
                 sep; crumb(MONTH_LONG[chrome.focus], active: chrome.level == 1)
             }
