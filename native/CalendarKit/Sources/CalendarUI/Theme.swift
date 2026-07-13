@@ -1,36 +1,35 @@
-// Colors for the Canvas renderer, mirroring the web calendar's CSS variables.
-//
-// Design rule (01-base.css): "Color comes only from event stickers; everything
-// else is structure drawn with dotted/dashed/solid lines." So the grid is
-// monochrome — a single warm accent at graded alpha — and only events are colored.
+// Colors for the calendar. Structural colors (background, text, lines/borders) come
+// straight from the macOS system palette so the app matches the OS light/dark theme
+// automatically — a near-black/dark-gray content background with white-to-light-gray
+// lines in dark mode, and the mirror in light mode. Only two things are colored: the
+// event stickers (their own palette) and the red now/today accent.
 
 import SwiftUI
+import AppKit
 
 struct Theme {
-    let dark: Bool
+    let dark: Bool   // only affects the event palette; structural colors are system-native
 
-    // Base accent (theme-aware: dark-brown in light mode, light in dark mode) → the
-    // single hue everything structural is drawn from, at varying alpha.
-    private var accent: UInt32 { dark ? 0xd4b4b4 : 0x4c2d14 }
+    private var label: Color { Color(nsColor: .labelColor) }   // white in dark, near-black in light
 
-    var bg: Color { dark ? Color(hex: 0x101a2b) : Color(hex: 0xfefcfb) }
+    var bg: Color { Color(nsColor: .textBackgroundColor) }     // content background (near-black / white)
 
-    var accentDark: Color { Color(hex: accent, opacity: dark ? 0.92 : 0.9) }   // --accent-dark / cc-line
-    var accentGrey: Color { Color(hex: accent, opacity: 0.30) }                 // --accent-grey / cc-grid
-    var sep: Color { Color(hex: accent, opacity: 0.5) }                         // --cc-sep (solid separators)
+    var accentDark: Color { label }                            // strong lines / text
+    var accentGrey: Color { label.opacity(0.28) }              // faint gray
+    var sep: Color { label.opacity(0.28) }                     // solid separators (dimmed)
 
-    var text: Color { Color(hex: accent, opacity: dark ? 0.92 : 0.9) }          // labels: accent-dark
-    var textMuted: Color { Color(hex: accent, opacity: 0.45) }                  // day labels: accent-grey
+    var text: Color { label }                                  // labels
+    var textMuted: Color { Color(nsColor: .secondaryLabelColor) } // day labels
 
-    var gridLine: Color { accentDark }        // solid gridlines (cc-line)
-    var cellGrid: Color { accentGrey }        // dotted day-cell verticals + lane separators
+    var gridLine: Color { label.opacity(0.35) }                // solid gridlines
+    var cellGrid: Color { label.opacity(0.16) }                // dotted day-cell verticals + lane separators
 
-    var dimFill: Color { Color(hex: accent, opacity: dark ? 0.16 : 0.10) }
-    var weekendWash: Color { Color(hex: accent, opacity: 0.045) }
-    var highlight: Color { Color(hex: accent, opacity: 1) }                     // cc-hl base (item opacity is tiny)
-    var cursor: Color { dark ? Color(hex: 0xcdd6ff) : Color(hex: 0xd8cfc8) }
-    var nowLine: Color { Color(hex: 0xff3b6b) }
-    var todayTint: Color { Color(hex: 0xff3b6b, opacity: 0.07) }                // --cc-today: now at 7%
+    var dimFill: Color { label.opacity(0.09) }
+    var weekendWash: Color { label.opacity(0.045) }
+    var highlight: Color { label }                             // hover wash (item opacity is tiny)
+    var cursor: Color { label.opacity(0.6) }
+    var nowLine: Color { Color(hex: 0xff3b6b) }                // red accent (kept)
+    var todayTint: Color { Color(hex: 0xff3b6b, opacity: 0.07) }
 
     // Event stickers are the ONLY color: a translucent tint fill + an opaque
     // border/accent, exact values from globals.css (--event-*).
