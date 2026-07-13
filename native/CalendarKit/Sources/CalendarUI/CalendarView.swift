@@ -78,7 +78,7 @@ public struct CalendarView: View {
         }
         .ignoresSafeArea()
         .toolbar {
-            ToolbarItem(placement: .navigation) { Breadcrumb(chrome: engine.chrome) }
+            ToolbarItem(placement: .navigation) { Breadcrumb(engine: engine) }
             ToolbarSpacer(.flexible)
             ToolbarItem(placement: .primaryAction) {
                 Button { } label: { Image(systemName: "magnifyingglass") }
@@ -101,12 +101,30 @@ public struct CalendarView: View {
 }
 
 /// Year › Month › Week › Day breadcrumb, progressive by zoom level (matches the web).
+/// The Year crumb is a menu that jumps between selectable years.
 private struct Breadcrumb: View {
-    let chrome: CalendarChrome
+    let engine: CalendarEngine
+    private var chrome: CalendarChrome { engine.chrome }
 
     var body: some View {
         HStack(spacing: 5) {
-            crumb("Year \(chrome.year)", active: chrome.level == 0)
+            Menu {
+                Picker("Year", selection: Binding(get: { chrome.year }, set: { engine.selectYear($0) })) {
+                    ForEach(engine.yearOptions, id: \.self) { y in Text(verbatim: "\(y)").tag(y) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                HStack(spacing: 3) {
+                    crumb("Year \(chrome.year)", active: chrome.level == 0)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .fixedSize()
             if chrome.level >= 1 {
                 sep; crumb(MONTH_LONG[chrome.focus], active: chrome.level == 1)
             }

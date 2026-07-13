@@ -19,6 +19,7 @@ public final class CalendarEngine {
     public private(set) var daily: DailyState
     public private(set) var hover: Hover = .none
     public private(set) var year: Int
+    public let systemYear: Int          // the real "today" year at launch — anchors the picker range
     public private(set) var now: Date = Date()
     public var weekHourH: CGFloat = 60
     public private(set) var viewport: Viewport = Viewport(w: 1, h: 1)
@@ -79,6 +80,7 @@ public final class CalendarEngine {
     public init() {
         let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
         year = c.year ?? 2026
+        systemYear = c.year ?? 2026
         focus = (c.month ?? 1) - 1
         daily = DailyState(dom: c.day ?? 1, frac: 0.45)
         seedEvents = Self.makeSeeds(month: focus, day: c.day ?? 15)
@@ -128,6 +130,18 @@ public final class CalendarEngine {
     public func setViewport(_ size: CGSize) {
         viewport = Viewport(w: size.width - Layout.padLeft - Layout.padRight, h: size.height)
         scrollY = clamp(scrollY, 0, yearMaxScroll(viewport))
+    }
+
+    // ── Year selection (breadcrumb picker) ────────────────────────────────────────
+    /// Selectable years: 2024 … systemYear+3, matching the web (CalendarCanvas.tsx).
+    public var yearOptions: [Int] { Array(2024...(systemYear + 3)) }
+
+    /// Jump to another calendar year. Resets vertical scroll to the top, like the web's selectYear.
+    public func selectYear(_ y: Int) {
+        guard y != year else { return }
+        year = y
+        scrollY = 0
+        pushChrome()
     }
 
     // ── Levels + tween helpers ────────────────────────────────────────────────────
