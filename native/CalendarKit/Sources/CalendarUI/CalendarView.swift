@@ -85,21 +85,18 @@ public struct CalendarView: View {
         .toolbar {
             ToolbarItem(placement: .navigation) { Breadcrumb(chrome: engine.chrome) }
             ToolbarSpacer(.flexible)
-            // .fixed spacers between items break the shared glass group into
-            // separate glass pieces AND add the margin between the buttons.
+            // One item, an HStack of individually-glass buttons → separate glass
+            // pieces with a spacing we control directly (ToolbarSpacer(.fixed) is
+            // too wide and not adjustable).
             ToolbarItem(placement: .primaryAction) {
-                Button { } label: { Image(systemName: "magnifyingglass") }
-                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Search")
-            }
-            ToolbarSpacer(.fixed)
-            ToolbarItem(placement: .primaryAction) {
-                Button { } label: { Image(systemName: "sparkles") }
-                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Assistant")
-            }
-            ToolbarSpacer(.fixed)
-            ToolbarItem(placement: .primaryAction) {
-                Button { } label: { Text("Today") }
-                    .buttonStyle(.glass).buttonBorderShape(.capsule)
+                HStack(spacing: 8) {
+                    Button { } label: { Image(systemName: "magnifyingglass") }
+                        .buttonStyle(.glass).buttonBorderShape(.circle).help("Search")
+                    Button { } label: { Image(systemName: "sparkles") }
+                        .buttonStyle(.glass).buttonBorderShape(.circle).help("Assistant")
+                    Button { } label: { Text("Today") }
+                        .buttonStyle(.glass).buttonBorderShape(.capsule)
+                }
             }
         }
         // Let the translucent window material show through the toolbar (native tint).
