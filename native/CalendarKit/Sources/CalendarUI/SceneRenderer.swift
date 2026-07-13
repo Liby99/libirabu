@@ -109,7 +109,11 @@ enum SceneRenderer {
         // Center on the whole window, not the content area: geometry x=0 sits padLeft
         // from the window's left edge, so the window center is (vp.w - padLeft)/2.
         let cx = (input.vp.w - Layout.padLeft) / 2
-        let cy = p.atTop ? p.over * 0.5 : input.vp.h - p.over * 0.5
+        // Hug the content edge you're pulling (top of Jan / bottom of Dec) rather than
+        // floating up by the window edge — clamped so it's always fully on-screen.
+        let contentTop = Layout.yearTop - input.scrollY
+        let contentBottom = contentTop + yearContentH()
+        let cy = p.atTop ? max(21, contentTop - 24) : min(input.vp.h - 21, contentBottom + 24)
         var layer = ctx
         layer.opacity = Double(reveal)
         drawText("\(p.targetYear)", CGRect(x: cx - 100, y: cy - 17, width: 200, height: 22),
