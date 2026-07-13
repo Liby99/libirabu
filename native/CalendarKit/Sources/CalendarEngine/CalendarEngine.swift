@@ -122,6 +122,14 @@ public final class CalendarEngine {
                 if let n = Int(id.dropFirst(pre.count)) { createCounter = max(createCounter, n) }
             }
         }
+        // Repair any duplicate ids already on disk (from the earlier collision bug).
+        var seenIds = Set<String>()
+        for i in seedBands.indices where !seenIds.insert(seedBands[i].id).inserted {
+            createCounter += 1; seedBands[i].id = "newb-\(createCounter)"
+        }
+        for i in seedEvents.indices where !seenIds.insert(seedEvents[i].id).inserted {
+            createCounter += 1; seedEvents[i].id = "new-\(createCounter)"
+        }
         nowTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.now = Date() }
         }
