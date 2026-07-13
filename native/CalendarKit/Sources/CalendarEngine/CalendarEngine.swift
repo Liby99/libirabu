@@ -42,8 +42,7 @@ public final class CalendarEngine {
     private var liveScrolling = false        // fingers-down phase of a trackpad gesture
     private var startedAtTop = false         // the drag began already resting at an edge —
     private var startedAtBottom = false      // only then does an overscroll pull arm a flip
-    private var peakOver: CGFloat = 0        // max overscroll during the gesture (release may bounce back first)
-    private var peakAtTop = false
+    private var lastOverscroll: (over: CGFloat, atTop: Bool) = (0, false)
     private var yearPull: YearPull?          // pull-to-change-year hint (nil when not pulling)
     public var yearFlipEnabled = true        // gate the prev/next-year flip
     // Year-flip transition: outgoing year scrolls out + fades, then the incoming year
@@ -235,7 +234,6 @@ public final class CalendarEngine {
     /// from the middle that happens to overshoot into it).
     public func beginYearScrollGesture() {
         liveScrolling = true
-        peakOver = 0
         let maxY = yearMaxScroll(viewport)
         startedAtTop = scrollY <= 2
         startedAtBottom = scrollY >= maxY - 2
@@ -250,8 +248,8 @@ public final class CalendarEngine {
         let maxY = yearMaxScroll(viewport)
         let over: CGFloat = y < 0 ? -y : (y > maxY ? y - maxY : 0)
         let atTop = y < 0
+        lastOverscroll = (over, atTop)
         if liveScrolling, over > 2 {
-            if over > peakOver { peakOver = over; peakAtTop = atTop; print("[FLIP] peak=\(Int(peakOver)) atTop=\(atTop)") }
             let eligible = (atTop && startedAtTop) || (!atTop && startedAtBottom)
             let target = atTop ? year - 1 : year + 1
             yearPull = (eligible && yearOptions.contains(target))
@@ -267,9 +265,9 @@ public final class CalendarEngine {
     public func endYearScrollGesture() {
         liveScrolling = false
         yearPull = nil
-        print("[FLIP] end: enabled=\(yearFlipEnabled) flipping=\(isFlipping) peakOver=\(Int(peakOver)) atTop=\(peakAtTop) startTop=\(startedAtTop) startBot=\(startedAtBottom) thr=\(Int(Layout.yearFlipOver))")
+        print("[FLIP] end: enabled=\(yearFlipEnabled) flipping=\(isFlipping) over=\(Int(lastOverscroll.over)) atTop=\(lastOverscroll.atTop) startTop=\(startedAtTop) startBot=\(startedAtBottom) thr=\(Int(Layout.yearFlipOver))")
         guard yearFlipEnabled, !isFlipping else { print("[FLIP] end: BAIL enabled/flipping"); return }
-        let over = peakOver, atTop = peakAtTop         // peak, not the possibly-bounced-back last value
+        let (over, atTop) = lastOverscroll
         guard over >= Layout.yearFlipOver else { print("[FLIP] end: BAIL over<thr"); return }
         guard (atTop && startedAtTop) || (!atTop && startedAtBottom) else { print("[FLIP] end: BAIL not edge-started"); return }
         let dir = atTop ? -1 : 1
