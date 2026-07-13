@@ -106,35 +106,38 @@ private struct Breadcrumb: View {
     let engine: CalendarEngine
     private var chrome: CalendarChrome { engine.chrome }
     @State private var yearHover = false
+    @State private var yearMenuOpen = false
 
     var body: some View {
         HStack(spacing: 5) {
-            Menu {
-                Picker("Year", selection: Binding(get: { chrome.year }, set: { engine.selectYear($0) })) {
-                    ForEach(engine.yearOptions, id: \.self) { y in Text(verbatim: "\(y)").tag(y) }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                // "Year 20XX" is anchored on the left; the caret is always the trailing
-                // child but collapses to zero width when not hovered, so on hover the
-                // crumb expands *rightwards* to reveal it (the text never moves).
+            // A plain Button + popover (not Menu) so there's no system disclosure arrow —
+            // the only caret is our own, hidden by default and revealed on hover.
+            Button { yearMenuOpen.toggle() } label: {
                 HStack(spacing: 0) {
                     crumb("Year \(chrome.year)", active: chrome.level == 0)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 4)
-                        .frame(width: yearHover ? 13 : 0, alignment: .leading)
-                        .opacity(yearHover ? 1 : 0)
+                        .frame(width: (yearHover || yearMenuOpen) ? 13 : 0, alignment: .leading)
+                        .opacity((yearHover || yearMenuOpen) ? 1 : 0)
                         .clipped()
                 }
             }
-            .menuIndicator(.hidden)
             .buttonStyle(.plain)
             .fixedSize()
-            .animation(.easeOut(duration: 0.15), value: yearHover)
+            .animation(.easeOut(duration: 0.15), value: yearHover || yearMenuOpen)
             .onHover { h in yearHover = h }
+            .popover(isPresented: $yearMenuOpen, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(engine.yearOptions, id: \.self) { y in
+                        YearOption(year: y, selected: y == chrome.year) {
+                            engine.selectYear(y); yearMenuOpen = false
+                        }
+                    }
+                }
+                .padding(6)
+            }
             if chrome.level >= 1 {
                 sep; crumb(MONTH_LONG[chrome.focus], active: chrome.level == 1)
             }
@@ -159,6 +162,34 @@ private struct Breadcrumb: View {
     private func ordinal(_ n: Int) -> String {
         if (n % 100) / 10 == 1 { return "th" }
         switch n % 10 { case 1: return "st"; case 2: return "nd"; case 3: return "rd"; default: return "th" }
+    }
+}
+
+/// One row in the year-picker popover: checkmark for the current year + hover highlight.
+private struct YearOption: View {
+    let year: Int
+    let selected: Bool
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .opacity(selected ? 1 : 0)
+                Text(verbatim: "\(year)").font(.system(size: 13))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .frame(width: 120, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(hover ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear),
+                        in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
     }
 }
 
