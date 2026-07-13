@@ -105,14 +105,13 @@ public struct CalendarView: View {
 private struct Breadcrumb: View {
     let engine: CalendarEngine
     private var chrome: CalendarChrome { engine.chrome }
-    @State private var yearHover = false
     @State private var yearMenuOpen = false
 
     var body: some View {
         let atYear = chrome.level == 0
-        // The caret (and the year picker) exist only at the yearly view. Deeper in, the
-        // "Year" crumb is a plain navigation button that zooms back out to the year.
-        let showCaret = atYear && (yearHover || yearMenuOpen)
+        // The caret (and the year picker) exist only at the yearly view, where it's shown
+        // always. Deeper in, the "Year" crumb is a plain navigation button that zooms
+        // back out to the year.
         HStack(spacing: 5) {
             // A plain Button + popover (not Menu) so there's no system disclosure arrow —
             // the only caret is our own.
@@ -120,20 +119,15 @@ private struct Breadcrumb: View {
                 HStack(spacing: 0) {
                     crumb("Year \(chrome.year)", active: atYear).fixedSize()
                     if atYear {
-                        // Width is ALWAYS reserved (text + chevron), so the crumb never
-                        // resizes — only the chevron's opacity animates in/out on hover.
                         Image(systemName: "chevron.down")
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(.tertiary)
                             .padding(.leading, 5)
-                            .frame(width: 17, alignment: .leading)
-                            .opacity(showCaret ? 1 : 0)
                     }
                 }
             }
             .buttonStyle(.plain)
-            .animation(.easeOut(duration: 0.18), value: showCaret)
-            .onHover { h in yearHover = h }
+            .animation(.easeOut(duration: 0.18), value: atYear)
             .popover(isPresented: $yearMenuOpen, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(engine.yearOptions, id: \.self) { y in
