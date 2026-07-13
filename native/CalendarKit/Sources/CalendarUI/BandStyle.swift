@@ -26,7 +26,7 @@ enum BandStyle {
 
     // Borders.
     static let selectedBorderWidth: CGFloat = 1
-    static let selectedDash: [CGFloat] = [4, 2]      // thin dotted when just selected
+    static let selectedDash: [CGFloat] = [2, 1]      // thin dotted when just selected
     static let drawerBorderWidth: CGFloat = 2        // solid + thicker when the drawer is open
 
     // Title.

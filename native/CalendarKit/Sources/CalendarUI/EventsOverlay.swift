@@ -56,24 +56,23 @@ struct EventsOverlay: View {
         return (CGPoint(x: cx, y: cy), WD3[dayOfWeek(input.year, m, dom)])
     }
 
-    private struct Item2: Identifiable { let id: String; let rect: CGRect; let fade: Double; let view: AnyView }
+    private struct Item2: Identifiable { let id: String; let rect: CGRect; let fade: Double; let z: Double; let view: AnyView }
 
     @ViewBuilder private func stickers(_ items: [Item2]) -> some View {
         ZStack(alignment: .topLeading) {
             // Stable identity (event id) so a z-order re-sort keeps the view alive and its
-            // hover/select transitions can animate rather than snapping.
+            // hover/select transitions can animate rather than snapping. Draw order is the
+            // explicit per-item z (band: 10+startDay baseline, raised on hover/select).
             ForEach(items) { it in
                 it.view
                     .frame(width: it.rect.width, height: it.rect.height)
                     .position(x: it.rect.midX, y: it.rect.midY)
                     .opacity(it.fade)
-                    .zIndex(zOf(it.id))
+                    .zIndex(it.z)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
-    // Draw order via zIndex (selected/hovered on top) since ForEach is id-ordered now.
-    private func zOf(_ id: String) -> Double { id == selected ? 2 : (id == hovered ? 1 : 0) }
 
     private func bandItems() -> [Item2] {
         var placed: [(ev: BandEvent, rect: CGRect, fade: Double)] = []
@@ -82,10 +81,27 @@ struct EventsOverlay: View {
             let f = frameFor(b.month, input, anim: input.monthAnim)
             placed.append((b, CGRect(x: r.x, y: r.y, width: r.w, height: r.h), Double(f.opacity)))
         }
-        placed.sort(by: orderBands)
-        return placed.map { Item2(id: $0.ev.id, rect: $0.rect, fade: $0.fade, view: AnyView(
-            BandSticker(ev: $0.ev, hovered: $0.ev.id == hovered, selected: $0.ev.id == selected,
-                        drawerOpen: $0.ev.id == drawerId, editing: $0.ev.id == editingId, theme: theme))) }
+        // Per-lane (month+track) gap-clip: a title runs freely into empty cells but truncates
+        // ~10px before the next-starting bar. No later bar → unbounded overflow.
+        var titleMax: [String: CGFloat] = [:]
+        var byLane: [String: [Int]] = [:]
+        for (i, p) in placed.enumerated() { byLane["\(p.ev.month)-\(p.ev.track)", default: []].append(i) }
+        for (_, idxs) in byLane {
+            let sorted = idxs.sorted { placed[$0].ev.startDay < placed[$1].ev.startDay }
+            for j in sorted.indices where j + 1 < sorted.count {
+                let gap = placed[sorted[j + 1]].rect.minX - placed[sorted[j]].rect.minX
+                titleMax[placed[sorted[j]].ev.id] = max(12, gap - 10)
+            }
+        }
+        return placed.map { p in
+            let id = p.ev.id
+            let active = id == hovered || id == selected || id == drawerId
+            let z: Double = id == drawerId ? 1001 : (id == selected ? 1000 : (id == hovered ? 950 : Double(10 + p.ev.startDay)))
+            return Item2(id: id, rect: p.rect, fade: p.fade, z: z, view: AnyView(
+                BandSticker(ev: p.ev, hovered: id == hovered, selected: id == selected,
+                            drawerOpen: id == drawerId, editing: id == editingId,
+                            titleMax: active ? nil : titleMax[id], theme: theme)))
+        }
     }
 
     private func timedItems(_ tl: TimelineInfo) -> [Item2] {
@@ -106,7 +122,10 @@ struct EventsOverlay: View {
             }
         }
         placed.sort(by: orderTimed)
-        return placed.map { Item2(id: $0.ev.id, rect: $0.rect, fade: $0.fade, view: AnyView(EventSticker(ev: $0.ev, height: $0.rect.height, selected: $0.ev.id == selected, theme: theme))) }
+        return placed.enumerated().map { i, p in
+            let z: Double = p.ev.id == selected ? 1000 : (p.ev.id == hovered ? 950 : Double(i))
+            return Item2(id: p.ev.id, rect: p.rect, fade: p.fade, z: z, view: AnyView(EventSticker(ev: p.ev, height: p.rect.height, selected: p.ev.id == selected, theme: theme)))
+        }
     }
 
     // Draw order: later-starting events in front; the selected one always frontmost.
@@ -115,11 +134,6 @@ struct EventsOverlay: View {
         if sa != sb { return sb }                                  // selected sorts last (front)
         if a.ev.startHour != b.ev.startHour { return a.ev.startHour < b.ev.startHour }
         return a.ev.endHour > b.ev.endHour
-    }
-    private func orderBands(_ a: (ev: BandEvent, rect: CGRect, fade: Double), _ b: (ev: BandEvent, rect: CGRect, fade: Double)) -> Bool {
-        let sa = a.ev.id == selected, sb = b.ev.id == selected
-        if sa != sb { return sb }
-        return a.ev.startDay < b.ev.startDay
     }
 }
 
@@ -170,6 +184,7 @@ private struct BandSticker: View {
     let selected: Bool
     let drawerOpen: Bool
     let editing: Bool
+    let titleMax: CGFloat?   // width cap before the next bar; nil = overflow full width
     let theme: Theme
 
     var body: some View {
@@ -181,16 +196,12 @@ private struct BandSticker: View {
                  : (hovered ? BandStyle.tintHovered : BandStyle.tintIdle)
         let glass: Glass = (active || BandStyle.idleFrosted) ? .regular.tint(color.opacity(tint))
                                                              : .clear.tint(color.opacity(tint))
-        // Text leading = bar inset + bar width + a FIXED gap, so thickening the bar on
-        // select slides the title right (animated) instead of eating into the gap.
         let barWidth = selected ? BandStyle.accentWidthSelected : BandStyle.accentWidth
-        Text(editing ? "" : ev.title)   // hidden while the inline editor is open (no double text)
-            .font(.custom("Comic Sans MS", size: BandStyle.titleSize))
-            .foregroundStyle(theme.text)
-            .lineLimit(1)
-            .padding(.leading, BandStyle.accentInset + barWidth + BandStyle.barTextGap)
-            .padding(.trailing, BandStyle.titleTrailing)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        let titleLeading = BandStyle.accentInset + barWidth + BandStyle.barTextGap
+        // The glass box fills the band rect; the title is a separate overlay that can
+        // overflow to the right (into empty cells), truncating before the next bar.
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .glassEffect(glass, in: RoundedRectangle(cornerRadius: r))
             .overlay(alignment: .leading) {
                 Capsule()
@@ -206,7 +217,32 @@ private struct BandSticker: View {
                     RoundedRectangle(cornerRadius: r).strokeBorder(border, style: StrokeStyle(lineWidth: BandStyle.selectedBorderWidth, dash: BandStyle.selectedDash))
                 }
             }
+            .overlay(alignment: .leading) {
+                if !editing { titleView.padding(.leading, titleLeading) }
+            }
             .animation(.easeInOut(duration: BandStyle.animation), value: [hovered, selected, drawerOpen])
+    }
+
+    // The title: capped to titleMax (ellipsis) when there's a next bar; full-width
+    // (overflows the box) otherwise or when active. A frosted plate on hover keeps the
+    // spilled text legible over whatever's behind it.
+    @ViewBuilder private var titleView: some View {
+        let t = Text(ev.title)
+            .font(.custom("Comic Sans MS", size: BandStyle.titleSize))
+            .foregroundStyle(theme.text)
+            .lineLimit(1)
+        Group {
+            if let max = titleMax { t.truncationMode(.tail).frame(width: max, alignment: .leading) }
+            else { t.fixedSize() }
+        }
+        .padding(.trailing, BandStyle.titleTrailing)
+        .background {
+            if hovered {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(.regularMaterial)
+                    .padding(.vertical, 1).padding(.horizontal, -3)
+            }
+        }
     }
 }
 
