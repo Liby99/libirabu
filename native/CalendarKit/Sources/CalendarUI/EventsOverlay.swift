@@ -97,6 +97,7 @@ struct EventsOverlay: View {
         // simply behind — its title runs full and is covered by the shorter bar.
         var gapBy: [String: CGFloat] = [:]
         var zBy: [String: Double] = [:]
+        var clipBox = Set<String>()   // non-longest same-start bars clip to their own box
         var byLane: [String: [Int]] = [:]
         for (i, p) in placed.enumerated() where !hidden.contains(p.ev.id) { byLane["\(p.ev.month)-\(p.ev.track)", default: []].append(i) }
         for (_, idxs) in byLane {
@@ -109,7 +110,10 @@ struct EventsOverlay: View {
             for (start, stackIdxs) in byDay where stackIdxs.count >= 2 {
                 func len(_ i: Int) -> Int { placed[i].ev.endDay - placed[i].ev.startDay }
                 let stack = stackIdxs.sorted { len($0) > len($1) }   // longest first (bottom)
-                for si in stack.indices { zBy[placed[stack[si]].ev.id] = Double(10 + start + si * 2) }
+                for si in stack.indices {
+                    zBy[placed[stack[si]].ev.id] = Double(10 + start + si * 2)   // shorter → higher → on top
+                    if si > 0 { clipBox.insert(placed[stack[si]].ev.id) }        // all but the longest
+                }
             }
         }
         return placed.compactMap { p in
@@ -119,7 +123,8 @@ struct EventsOverlay: View {
             return Item2(id: id, rect: p.rect, fade: p.fade, z: z, view: AnyView(
                 BandSticker(ev: p.ev, hovered: id == hovered, selected: id == selected,
                             drawerOpen: id == drawerId, editing: id == editingId,
-                            gap: gapBy[id], warn: warn.contains(id), box: p.rect.size, theme: theme)))
+                            gap: gapBy[id], clipBox: clipBox.contains(id), warn: warn.contains(id),
+                            box: p.rect.size, theme: theme)))
         }
     }
 
@@ -204,6 +209,7 @@ private struct BandSticker: View {
     let drawerOpen: Bool
     let editing: Bool
     let gap: CGFloat?        // px to the nearest later-starting bar (title clips before it)
+    let clipBox: Bool        // clip title to this box's right edge (shorter same-start bar on top)
     let warn: Bool           // fully-overlapping-events warning (this is the kept band)
     let box: CGSize          // band box size (for scrim geometry)
     let theme: Theme
@@ -220,9 +226,11 @@ private struct BandSticker: View {
         let barWidth = selected ? BandStyle.accentWidthSelected : BandStyle.accentWidth
         let lead = BandStyle.accentInset + barWidth + BandStyle.barTextGap
 
-        // Hover un-truncates to full overflow; otherwise clip before the next later bar
-        // (unbounded when none). Same-start bars just clip to their own gap and layer by z.
-        let clip: CGFloat? = hovered ? nil : gap.map { max(12, $0 - 10) }
+        // Hover un-truncates to full overflow. Otherwise: a shorter same-start bar (on top)
+        // clips to its own box so its title doesn't spill over the longer bar behind it;
+        // everyone else clips before the next later bar (unbounded when none).
+        let clip: CGFloat? = hovered ? nil
+            : (clipBox ? max(0, box.width - lead - BandStyle.titleTrailing) : gap.map { max(12, $0 - 10) })
         // Spill scrim (hover only): only the part of the full title past the box's right edge,
         // and only when it overruns the next bar. Height = full box height.
         let titleEnd = lead + Self.titleWidth(ev.title)

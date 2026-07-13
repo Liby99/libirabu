@@ -661,21 +661,33 @@ public final class CalendarEngine {
     }
 
     private func bandAt(_ p: CGPoint, _ g: SceneInput) -> (id: String, zone: PointerKind)? {
-        var found: (String, PointerKind)?
+        // Return the TOP-most band under the cursor, matching the draw order: selected and
+        // hovered are raised to the front; otherwise later start > shorter length > higher id.
+        func tier(_ b: BandEvent) -> Int { b.id == selectedId ? 2 : (b.id == hoveredEventId ? 1 : 0) }
+        var best: (b: BandEvent, r: BandRect, rect: CGRect)?
         for b in seedBands {
             guard let r = bandEventRect(b, g, anim: g.monthAnim) else { continue }
             let rect = CGRect(x: r.x, y: r.y, width: r.w, height: r.h)
-            if rect.contains(p) {
-                // Edges only resize when the band is already selected; otherwise the whole
-                // band is a move/select target.
-                let zone: PointerKind = b.id == selectedId
-                    ? ((p.x - rect.minX < 6 && !r.clipStart) ? .bandResizeL
-                       : (rect.maxX - p.x < 6 && !r.clipEnd ? .bandResizeR : .bandMove))
-                    : .bandMove
-                found = (b.id, zone)   // keep last → topmost
+            guard rect.contains(p) else { continue }
+            guard let cur = best else { best = (b, r, rect); continue }
+            let tb = tier(b), tc = tier(cur.b)
+            let onTop: Bool
+            if tb != tc { onTop = tb > tc }
+            else {
+                let bl = b.endDay - b.startDay, cl = cur.b.endDay - cur.b.startDay
+                onTop = b.startDay > cur.b.startDay
+                    || (b.startDay == cur.b.startDay && bl < cl)
+                    || (b.startDay == cur.b.startDay && bl == cl && b.id > cur.b.id)
             }
+            if onTop { best = (b, r, rect) }
         }
-        return found
+        guard let bb = best else { return nil }
+        // Edges only resize when the band is already selected; otherwise it's a move/select.
+        let zone: PointerKind = bb.b.id == selectedId
+            ? ((p.x - bb.rect.minX < 6 && !bb.r.clipStart) ? .bandResizeL
+               : (bb.rect.maxX - p.x < 6 && !bb.r.clipEnd ? .bandResizeR : .bandMove))
+            : .bandMove
+        return (bb.b.id, zone)
     }
 
     private func applyBandMove(_ d: Drag, _ p: CGPoint, _ g: SceneInput) {
