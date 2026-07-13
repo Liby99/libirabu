@@ -273,7 +273,7 @@ enum SceneRenderer {
                 }
                 let name = i < tracks.count ? tracks[i] : ""
                 drawText(name, CGRect(x: left + 6, y: y, width: width - 8, height: f.trackH),
-                         size: 12, align: .left, color: theme.text, into: &layer, clipToRect: true)
+                         size: 13, align: .left, color: theme.text, into: &layer, clipToRect: true)
             }
             // solid bottom border across the gutter (month-name cell + track cells) —
             // the grid's month divider doesn't extend into the gutter. Internal borders

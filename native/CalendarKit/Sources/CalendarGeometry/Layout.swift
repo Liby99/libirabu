@@ -10,7 +10,7 @@ public enum Layout {
     public static let labelW: CGFloat = 250    // left gutter width
     public static let mnameW: CGFloat = 28     // rotated month-name zone within the gutter
     public static let rightPad: CGFloat = 24   // gap between gutter editor and day grid
-    public static let trackH: CGFloat = 35     // fixed lane height
+    public static let trackH: CGFloat = 40     // fixed lane height (room for 13pt labels)
     public static let monthH: CGFloat = trackH * 4  // a month band = 4 lanes
     public static let qHeaderH: CGFloat = 24   // day-number header row per quarter
     public static let qGap: CGFloat = 32       // separation between quarters
