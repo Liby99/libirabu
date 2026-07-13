@@ -42,7 +42,7 @@ public final class CalendarEngine {
     private var liveScrolling = false        // fingers-down phase of a trackpad gesture
     private var lastOverscroll: (over: CGFloat, atTop: Bool) = (0, false)
     private var yearPull: YearPull?          // pull-to-change-year hint (nil when not pulling)
-    private let FLIP_OVER: CGFloat = 38      // on-screen overscroll (px) that arms a year flip
+    public var yearFlipEnabled = false       // DEBUG: gate the actual prev/next-year jump
     // pinch state
     private var magStartZ: CGFloat = 0
     private var magAccum: CGFloat = 0
@@ -233,7 +233,7 @@ public final class CalendarEngine {
         if liveScrolling, over > 2 {
             let target = atTop ? year - 1 : year + 1
             yearPull = yearOptions.contains(target)
-                ? YearPull(targetYear: target, atTop: atTop, over: over, armed: over >= FLIP_OVER) : nil
+                ? YearPull(targetYear: target, atTop: atTop, over: over, armed: over >= Layout.yearFlipOver) : nil
         } else {
             yearPull = nil
         }
@@ -245,8 +245,9 @@ public final class CalendarEngine {
     public func endYearScrollGesture() {
         liveScrolling = false
         yearPull = nil
+        guard yearFlipEnabled else { return }          // DEBUG: jump disabled for now
         let (over, atTop) = lastOverscroll
-        guard over >= FLIP_OVER else { return }
+        guard over >= Layout.yearFlipOver else { return }
         let target = atTop ? year - 1 : year + 1
         guard yearOptions.contains(target) else { return }
         year = target

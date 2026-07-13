@@ -216,6 +216,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
         yearScroll.verticalScrollElasticity = .allowed
         yearScroll.horizontalScrollElasticity = .none
         yearScroll.autohidesScrollers = true
+        // Critical: without this, a toolbar window gives the scroll view a top content
+        // inset (toolbar height) — which pushes the content down AND makes the scroll
+        // range asymmetric (top hair-trigger, bottom unreachable). We manage insets.
+        yearScroll.automaticallyAdjustsContentInsets = false
+        yearScroll.contentInsets = NSEdgeInsetsZero
         docView.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
         yearScroll.documentView = docView
         yearScroll.contentView.postsBoundsChangedNotifications = true

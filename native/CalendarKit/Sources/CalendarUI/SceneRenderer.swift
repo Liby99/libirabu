@@ -73,6 +73,32 @@ enum SceneRenderer {
         }
         drawDashboardChrome(input, &ctx, theme)
         drawYearPull(input, &ctx, theme)
+        drawScrollDebug(input, &ctx, theme)
+    }
+
+    // DEBUG: visualize the year-scroll boundaries + flip threshold. Toggle with debugScroll.
+    static var debugScroll = true
+    private static func drawScrollDebug(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
+        guard debugScroll, input.z < 0.5 else { return }
+        let vp = input.vp
+        let maxY = yearMaxScroll(vp)
+        let thr = Layout.yearFlipOver
+        func hline(_ y: CGFloat, _ color: Color, dash: Bool = false, w: CGFloat = 1) {
+            var p = Path(); p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: vp.w, y: y))
+            ctx.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: w, dash: dash ? [5, 4] : []))
+        }
+        // rest boundaries (blue), flip thresholds (red dashed), live content edges (green)
+        hline(Layout.yearTop, .blue)
+        hline(Layout.yearTop + thr, .red, dash: true)
+        hline(vp.h - Layout.bottomPad, .blue)
+        hline(vp.h - Layout.bottomPad - thr, .red, dash: true)
+        hline(Layout.yearTop - input.scrollY, .green, w: 2)                    // content top
+        hline(Layout.yearTop - input.scrollY + yearContentH(), .green, w: 2)   // content bottom
+        let over = input.scrollY < 0 ? -input.scrollY : max(0, input.scrollY - maxY)
+        let hud = String(format: "scrollY %.0f   max %.0f   over %.0f   thr %.0f   armed %@",
+                         input.scrollY, maxY, over, thr, (input.yearPull?.armed ?? false) ? "YES" : "no")
+        drawText(hud, CGRect(x: Layout.labelW + 8, y: 3, width: 520, height: 16),
+                 size: 11, align: .left, color: .green, into: &ctx)
     }
 
     // Pull-to-change-year hint shown in the overscroll gap (year view). The target year
