@@ -82,42 +82,44 @@ struct EventsOverlay: View {
             let f = frameFor(b.month, input, anim: input.monthAnim)
             placed.append((b, CGRect(x: r.x, y: r.y, width: r.w, height: r.h), Double(f.opacity)))
         }
-        // Per-lane (month+track): (a) gap = px to the next later-starting bar (title clips
-        // before it); (b) same-start stacks — longest at the bottom, each covered by the
-        // next-shorter above; identical lengths flag an error. Ported from BandEventsLayer.
+        // Fully-overlapping (same month/track/startDay/endDay): collapse to ONE (highest id),
+        // hide the rest, and flag the kept one with a warning sign.
+        var hidden = Set<String>(), warn = Set<String>()
+        var full: [String: [Int]] = [:]
+        for (i, p) in placed.enumerated() { full["\(p.ev.month)-\(p.ev.track)-\(p.ev.startDay)-\(p.ev.endDay)", default: []].append(i) }
+        for (_, idxs) in full where idxs.count > 1 {
+            let keep = idxs.max { placed[$0].ev.id < placed[$1].ev.id }!
+            warn.insert(placed[keep].ev.id)
+            for i in idxs where i != keep { hidden.insert(placed[i].ev.id) }
+        }
+        // Per lane (visible bars): gap = px to the nearest LATER-starting bar (title clips
+        // before it; unbounded if none). Same-start stacks: shorter on top (z), longer
+        // simply behind — its title runs full and is covered by the shorter bar.
         var gapBy: [String: CGFloat] = [:]
-        var collideBy: [String: (z: Double, maskLeft: CGFloat, err: Bool)] = [:]
+        var zBy: [String: Double] = [:]
         var byLane: [String: [Int]] = [:]
-        for (i, p) in placed.enumerated() { byLane["\(p.ev.month)-\(p.ev.track)", default: []].append(i) }
+        for (i, p) in placed.enumerated() where !hidden.contains(p.ev.id) { byLane["\(p.ev.month)-\(p.ev.track)", default: []].append(i) }
         for (_, idxs) in byLane {
-            let byStart = idxs.sorted { placed[$0].ev.startDay < placed[$1].ev.startDay }
-            for k in 0 ..< max(0, byStart.count - 1) {
-                let d = placed[byStart[k + 1]].rect.minX - placed[byStart[k]].rect.minX
-                if d > 0 { gapBy[placed[byStart[k]].ev.id] = d }
+            for i in idxs {
+                let laterMinX = idxs.filter { placed[$0].ev.startDay > placed[i].ev.startDay }.map { placed[$0].rect.minX }.min()
+                if let lx = laterMinX { gapBy[placed[i].ev.id] = lx - placed[i].rect.minX }
             }
             var byDay: [Int: [Int]] = [:]
             for i in idxs { byDay[placed[i].ev.startDay, default: []].append(i) }
             for (start, stackIdxs) in byDay where stackIdxs.count >= 2 {
                 func len(_ i: Int) -> Int { placed[i].ev.endDay - placed[i].ev.startDay }
                 let stack = stackIdxs.sorted { len($0) > len($1) }   // longest first (bottom)
-                for si in stack.indices {
-                    let curLen = len(stack[si])
-                    let hasAbove = si + 1 < stack.count
-                    let aboveW: CGFloat = hasAbove ? placed[stack[si + 1]].rect.width : 0
-                    let sameLen = (hasAbove && len(stack[si + 1]) == curLen) || (si > 0 && len(stack[si - 1]) == curLen)
-                    collideBy[placed[stack[si]].ev.id] = (Double(10 + start + si * 2), aboveW, sameLen)
-                }
+                for si in stack.indices { zBy[placed[stack[si]].ev.id] = Double(10 + start + si * 2) }
             }
         }
-        return placed.map { p in
+        return placed.compactMap { p in
             let id = p.ev.id
-            let cd = collideBy[id]
-            let z: Double = id == drawerId ? 1001 : (id == selected ? 1000 : (id == hovered ? 950 : (cd?.z ?? Double(10 + p.ev.startDay))))
+            if hidden.contains(id) { return nil }
+            let z: Double = id == drawerId ? 1001 : (id == selected ? 1000 : (id == hovered ? 950 : (zBy[id] ?? Double(10 + p.ev.startDay))))
             return Item2(id: id, rect: p.rect, fade: p.fade, z: z, view: AnyView(
                 BandSticker(ev: p.ev, hovered: id == hovered, selected: id == selected,
                             drawerOpen: id == drawerId, editing: id == editingId,
-                            gap: gapBy[id], maskLeft: cd?.maskLeft ?? 0, collide: cd != nil,
-                            error: cd?.err ?? false, box: p.rect.size, theme: theme)))
+                            gap: gapBy[id], warn: warn.contains(id), box: p.rect.size, theme: theme)))
         }
     }
 
@@ -201,11 +203,9 @@ private struct BandSticker: View {
     let selected: Bool
     let drawerOpen: Bool
     let editing: Bool
-    let gap: CGFloat?        // px to the next later-starting bar on the lane (title clips before it)
-    let maskLeft: CGFloat    // px of this bar covered by the shorter one above (same-start stack)
-    let collide: Bool        // part of a same-start stack
-    let error: Bool          // identical-length overlap → error badge
-    let box: CGSize          // the band box size (for scrim/mask geometry)
+    let gap: CGFloat?        // px to the nearest later-starting bar (title clips before it)
+    let warn: Bool           // fully-overlapping-events warning (this is the kept band)
+    let box: CGSize          // band box size (for scrim geometry)
     let theme: Theme
 
     var body: some View {
@@ -219,17 +219,12 @@ private struct BandSticker: View {
                                                              : .clear.tint(color.opacity(tint))
         let barWidth = selected ? BandStyle.accentWidthSelected : BandStyle.accentWidth
         let lead = BandStyle.accentInset + barWidth + BandStyle.barTextGap
-        let inner = max(0, box.width - lead - BandStyle.titleTrailing)
 
-        // Title layout. Hover un-truncates to full overflow. Same-start undercut shifts the
-        // title past the covering bar and clips; a collide top-bar clips to its box; else
-        // clip to the gap; else unbounded.
-        let shift: CGFloat = hovered ? 0 : (collide ? maskLeft : 0)
-        let clip: CGFloat? = hovered ? nil
-            : (collide ? max(0, inner - shift) : gap.map { max(12, $0 - 10) })
-
-        // Spill scrim (hover only): the part of the full title past the box's right edge, but
-        // only when it actually overruns the next bar. Height = full box height.
+        // Hover un-truncates to full overflow; otherwise clip before the next later bar
+        // (unbounded when none). Same-start bars just clip to their own gap and layer by z.
+        let clip: CGFloat? = hovered ? nil : gap.map { max(12, $0 - 10) }
+        // Spill scrim (hover only): only the part of the full title past the box's right edge,
+        // and only when it overruns the next bar. Height = full box height.
         let titleEnd = lead + Self.titleWidth(ev.title)
         let maskW: CGFloat = (hovered && gap != nil && gap! < titleEnd) ? max(0, titleEnd + 9 - box.width) : 0
 
@@ -240,13 +235,6 @@ private struct BandSticker: View {
                 Capsule().fill(border).frame(width: barWidth)
                     .padding(.vertical, BandStyle.accentInset).padding(.leading, BandStyle.accentInset)
             }
-            .overlay(alignment: .leading) {   // undercut mask: hide the covered left region
-                if !hovered && collide && maskLeft > 0 {
-                    UnevenRoundedRectangle(topLeadingRadius: r, bottomLeadingRadius: r)
-                        .fill(.regularMaterial)
-                        .frame(width: maskLeft, height: box.height)
-                }
-            }
             .overlay(alignment: .leading) {   // spill scrim (behind the title)
                 if maskW > 0 {
                     UnevenRoundedRectangle(bottomTrailingRadius: 5, topTrailingRadius: 5)
@@ -255,8 +243,8 @@ private struct BandSticker: View {
                         .offset(x: box.width)
                 }
             }
-            .overlay(alignment: .leading) {   // title (can overflow right)
-                if !editing { titleView(clip: clip).padding(.leading, lead + shift) }
+            .overlay(alignment: .leading) {   // title (renders full; covered by any bar on top)
+                if !editing { titleView(clip: clip).padding(.leading, lead) }
             }
             .overlay {                          // selection / drawer border
                 if drawerOpen {
@@ -265,10 +253,13 @@ private struct BandSticker: View {
                     RoundedRectangle(cornerRadius: r).strokeBorder(border, style: StrokeStyle(lineWidth: BandStyle.selectedBorderWidth, dash: BandStyle.selectedDash))
                 }
             }
-            .overlay(alignment: .trailing) {   // error badge (same-start identical length)
-                if error {
-                    Text("!").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
-                        .frame(width: 15, height: 15).background(Circle().fill(.red)).padding(.trailing, 2)
+            .overlay(alignment: .topLeading) { // fully-overlapping warning
+                if warn {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.yellow)
+                        .padding(.leading, 2).padding(.top, 1)
+                        .help("Fully overlapping events")
                 }
             }
             .animation(.easeInOut(duration: BandStyle.animation), value: [hovered, selected, drawerOpen])

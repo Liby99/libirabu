@@ -416,6 +416,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
     override func mouseMoved(with e: NSEvent) {
         let p = point(e)
         engine?.onHover(at: p)
+        toolTip = engine?.bandWarningTooltip(at: p)   // "Fully overlapping events" over the warn sign
         switch engine?.cursorHint(at: p) {
         case .grab: NSCursor.openHand.set()
         case .create: NSCursor.crosshair.set()

@@ -525,6 +525,19 @@ public final class CalendarEngine {
         // just the box width.
         onEditBand?(id, CGRect(x: r.x, y: r.y, width: max(r.w, g.vp.w - r.x), height: r.h))
     }
+    /// Tooltip when the cursor is over a fully-overlapping-events warning sign (top-left of
+    /// the kept band). Fully overlapping = same month/track/startDay/endDay.
+    public func bandWarningTooltip(at p: CGPoint) -> String? {
+        var groups: [String: [BandEvent]] = [:]
+        for b in seedBands { groups["\(b.month)-\(b.track)-\(b.startDay)-\(b.endDay)", default: []].append(b) }
+        let g = snapshot()
+        for (_, arr) in groups where arr.count > 1 {
+            guard let keep = arr.max(by: { $0.id < $1.id }), let r = bandEventRect(keep, g, anim: g.monthAnim) else { continue }
+            if CGRect(x: r.x, y: r.y, width: 18, height: 18).contains(p) { return "Fully overlapping events" }
+        }
+        return nil
+    }
+
     public func setBandTitle(_ id: String, _ title: String) {
         guard let i = seedBands.firstIndex(where: { $0.id == id }), seedBands[i].title != title else { return }
         beginTxn(); seedBands[i].title = title; scheduleCommit()
