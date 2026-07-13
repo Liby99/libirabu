@@ -727,11 +727,29 @@ public final class CalendarEngine {
             let c = cellInWeek(p.x, p.y, g)
             hv.dom = c.dom; hv.hour = c.hour; hv.hourFrac = c.hourFrac; hv.nearLeft = c.nearLeft
         }
-        if let b = bandAt(p, g) { hoveredEventId = b.id }
+        // Hover stickiness: if the cursor is still inside the currently-hovered event,
+        // keep it — so moving into an overlap doesn't hand the highlight to the event
+        // underneath. Only when the cursor leaves it do we re-pick the topmost.
+        if let cur = hoveredEventId, bandContains(cur, p, g) || timedContains(cur, p, g) {
+            // keep hoveredEventId
+        } else if let b = bandAt(p, g) { hoveredEventId = b.id }
         else if z >= 1.5, let e = eventAt(p, g) { hoveredEventId = e.id }
         else if z >= 1.5, let d = deadlineAt(p, g) { hoveredEventId = d }
         else { hoveredEventId = nil }
         hover = hv
+    }
+
+    private func bandContains(_ id: String, _ p: CGPoint, _ g: SceneInput) -> Bool {
+        guard let b = seedBands.first(where: { $0.id == id }), let r = bandEventRect(b, g, anim: g.monthAnim) else { return false }
+        return CGRect(x: r.x, y: r.y, width: r.w, height: r.h).contains(p)
+    }
+    private func timedContains(_ id: String, _ p: CGPoint, _ g: SceneInput) -> Bool {
+        guard z >= 1.5, let e = seedEvents.first(where: { $0.id == id }) else { return false }
+        let tl = timelineInfo(g)
+        guard tl.reveal > 0.05, tl.hourH > 0 else { return false }
+        let sameDay = seedEvents.filter { $0.month == e.month && $0.day == e.day }
+        guard let r = eventRect(e, year, focus, tl, g.vp, layoutDay(sameDay)[e.id]) else { return false }
+        return CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height).contains(p)
     }
 
     public func onHoverExit() { hover = .none; hoveredEventId = nil }

@@ -137,14 +137,14 @@ private struct EventSticker: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(ev.title)
                     .font(.custom("Comic Sans MS", size: lay.tiny ? 10 : 13))
-                    .foregroundStyle(theme.text)
+                    .foregroundStyle(border)
                     .lineLimit(lay.titleLines)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                 if !(lay.short || lay.tiny) {
                     Text(fmtHourRange(ev.startHour, ev.endHour))
                         .font(.system(size: 8.5))
-                        .foregroundStyle(theme.text.opacity(0.72))
+                        .foregroundStyle(border.opacity(0.72))
                 }
                 Spacer(minLength: 0)
             }
@@ -176,7 +176,7 @@ private struct BandSticker: View {
         let active = hovered || selected || drawerOpen   // frosted when engaged, else clear
         Text(ev.title)
             .font(.custom("Comic Sans MS", size: 12))
-            .foregroundStyle(theme.text)
+            .foregroundStyle(border)
             .lineLimit(1)
             .padding(.leading, 14)
             .padding(.trailing, 6)
