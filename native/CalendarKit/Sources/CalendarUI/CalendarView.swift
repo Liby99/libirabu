@@ -348,6 +348,12 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
     override func mouseDown(with e: NSEvent) {
         let p = point(e)
+        // While a track name is being edited, a click just commits/dismisses it (blur the
+        // field) and is swallowed — it must NOT navigate/zoom into the month.
+        if engine?.trackEditing == true {
+            window?.makeFirstResponder(self)
+            return
+        }
         // Year view: clicking a track-name gutter slot opens the inline editor.
         if e.clickCount == 1, let hit = engine?.trackNameHit(at: p) {
             onEditTrack?(TrackEdit(month: hit.month, track: hit.track, rect: hit.rect))
