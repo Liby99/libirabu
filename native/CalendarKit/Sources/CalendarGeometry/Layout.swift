@@ -19,7 +19,7 @@ public enum Layout {
     // Global insets for the whole calendar. The geometry works in a viewport shrunk
     // by padLeft+padRight; the render is translated right by padLeft (so x=0 in
     // geometry space lands padLeft px from the window's left edge).
-    public static let padLeft: CGFloat = 15
+    public static let padLeft: CGFloat = 20
     public static let padRight: CGFloat = 0
 }
 

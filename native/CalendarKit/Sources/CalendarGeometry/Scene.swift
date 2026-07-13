@@ -121,7 +121,9 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         let bandH = 4 * f.trackH
         let monthOn = g.z < 0.5 && h.month != nil && onScreen(f, g.vp)
         items.append(Item(key: "hl-ym", kind: .hl, x: f.x0, y: f.bandY, w: CGFloat(dim) * f.dayW, h: bandH, opacity: monthOn ? HL_SOFT : 0, z: 3))
-        items.append(Item(key: "hl-yg", kind: .hl, x: 0, y: f.bandY, w: Layout.labelW, h: bandH, opacity: monthOn ? HL_SOFT : 0, z: 6, gutter: true))
+        // Extend the gutter hover left over the padding so the row highlight reaches
+        // the window's left border (like a native list-row selection).
+        items.append(Item(key: "hl-yg", kind: .hl, x: -Layout.padLeft, y: f.bandY, w: Layout.labelW + Layout.padLeft, h: bandH, opacity: monthOn ? HL_SOFT : 0, z: 6, gutter: true))
         let nameOn = g.z < 0.5 && h.nameMonth != nil && onScreen(f, g.vp)
         items.append(Item(key: "hl-yn", kind: .hl, x: 0, y: f.bandY, w: Layout.mnameW, h: bandH, opacity: nameOn ? HL_STRONG : 0, z: 7, gutter: true))
         let dcol = h.dom ?? 1

@@ -36,7 +36,8 @@ enum SceneRenderer {
         return CGRect(x: Layout.labelW, y: 0, width: max(0, right - Layout.labelW), height: input.vp.h)
     }
     private static func gutterRect(_ input: SceneInput) -> CGRect {
-        CGRect(x: 0, y: 0, width: Layout.labelW, height: input.vp.h)
+        // Extends left over the padding so the gutter hover can reach the window edge.
+        CGRect(x: -Layout.padLeft, y: 0, width: Layout.labelW + Layout.padLeft, height: input.vp.h)
     }
 
     /// Below the events: content-region scene items (grid, washes, today, grid hover,
