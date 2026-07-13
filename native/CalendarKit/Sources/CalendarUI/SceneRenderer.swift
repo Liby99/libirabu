@@ -72,6 +72,24 @@ enum SceneRenderer {
             var layer = content; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
         drawDashboardChrome(input, &ctx, theme)
+        drawYearPull(input, &ctx, theme)
+    }
+
+    // Pull-to-change-year hint shown in the overscroll gap (year view). The target year
+    // with a caption that flips to "Release to switch" once past the flip threshold.
+    private static func drawYearPull(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
+        guard input.z < 0.5, let p = input.yearPull, p.over > 4 else { return }
+        let reveal = min(1, p.over / 55)
+        let cx = (Layout.labelW + input.vp.w) / 2
+        let cy = p.atTop ? p.over * 0.5 : input.vp.h - p.over * 0.5
+        var layer = ctx
+        layer.opacity = Double(reveal)
+        drawText("\(p.targetYear)", CGRect(x: cx - 100, y: cy - 17, width: 200, height: 22),
+                 size: 18, align: .center, color: theme.text, weight: .semibold, into: &layer)
+        let cap = p.armed ? "Release to switch" : (p.atTop ? "Previous year" : "Next year")
+        drawText(cap, CGRect(x: cx - 120, y: cy + 5, width: 240, height: 14),
+                 size: 10, align: .center, color: p.armed ? theme.nowLine : theme.text.opacity(0.55),
+                 weight: p.armed ? .semibold : .regular, into: &layer)
     }
 
     // Deadlines: a colored horizontal rule across the day column at the deadline's

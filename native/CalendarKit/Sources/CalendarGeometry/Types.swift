@@ -113,6 +113,18 @@ public struct DailyState: Sendable, Equatable {
     }
 }
 
+/// Year-view overscroll pull state, for the pull-to-change-year hint. `over` is the
+/// rubber-banded overscroll distance (px); `armed` means past the flip threshold.
+public struct YearPull: Sendable, Equatable {
+    public var targetYear: Int
+    public var atTop: Bool       // pulling down past the top (→ previous year) vs up past bottom
+    public var over: CGFloat
+    public var armed: Bool
+    public init(targetYear: Int, atTop: Bool, over: CGFloat, armed: Bool) {
+        self.targetYear = targetYear; self.atTop = atTop; self.over = over; self.armed = armed
+    }
+}
+
 /// Everything a frame/scene needs, by value. Replaces the TS module-level singletons
 /// (setDaily / syncWeekHourH / setCalendarYear) — so all geometry is a pure function
 /// of its arguments and safe under strict concurrency.
@@ -133,16 +145,17 @@ public struct SceneInput: Sendable {
     public var altDeltaHours: CGFloat?
     public var altLabel: String?
     public var dimPast: Bool
+    public var yearPull: YearPull?
 
     public init(z: CGFloat, focus: Int, week: CGFloat, vp: Viewport, scrollY: CGFloat,
                 tlScroll: CGFloat, now: Date, year: Int, hover: Hover = .none,
                 weekHourH: CGFloat = 60, daily: DailyState = DailyState(), monthAnim: PageAnim? = nil,
                 detailMul: CGFloat = 1, altDeltaHours: CGFloat? = nil, altLabel: String? = nil,
-                dimPast: Bool = false) {
+                dimPast: Bool = false, yearPull: YearPull? = nil) {
         self.z = z; self.focus = focus; self.week = week; self.vp = vp; self.scrollY = scrollY
         self.tlScroll = tlScroll; self.now = now; self.year = year; self.hover = hover
         self.weekHourH = weekHourH; self.daily = daily; self.monthAnim = monthAnim
         self.detailMul = detailMul; self.altDeltaHours = altDeltaHours; self.altLabel = altLabel
-        self.dimPast = dimPast
+        self.dimPast = dimPast; self.yearPull = yearPull
     }
 }

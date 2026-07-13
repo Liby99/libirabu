@@ -28,3 +28,8 @@ public enum Layout {
 @inlinable public func easeInOut(_ t: CGFloat) -> CGFloat {
     t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
 }
+@inlinable public func easeOut(_ t: CGFloat) -> CGFloat { 1 - pow(1 - t, 3) }
+/// iOS-style rubber-band resistance: how far a `raw` overscroll displaces on screen.
+@inlinable public func rubberBand(_ raw: CGFloat, _ dim: CGFloat, _ c: CGFloat = 0.55) -> CGFloat {
+    dim <= 0 ? 0 : (1 - 1 / (raw * c / dim + 1)) * dim
+}

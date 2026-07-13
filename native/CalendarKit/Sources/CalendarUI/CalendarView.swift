@@ -219,7 +219,13 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
 
     override func scrollWheel(with e: NSEvent) {
-        engine?.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
+        let phase: CalendarEngine.ScrollPhase
+        if e.phase.contains(.began) { phase = .began }
+        else if e.phase.contains(.ended) || e.phase.contains(.cancelled) { phase = .ended }
+        else if e.momentumPhase.contains(.ended) { phase = .momentumEnded }
+        else if !e.phase.isEmpty || !e.momentumPhase.isEmpty { phase = .changed }
+        else { phase = .none }   // legacy mouse wheel (no phase info)
+        engine?.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY, phase: phase)
     }
     override func magnify(with e: NSEvent) {
         let began = e.phase.contains(.began)

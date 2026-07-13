@@ -33,8 +33,17 @@ public final class CalendarEngine {
 
     private var tween: Tween?
     private var weekTween: Tween?
+    private var scrollTween: Tween?          // year-scroll spring-back / flip settle
     private var snapWork: DispatchWorkItem?
     private var wheelAccumX: CGFloat = 0
+    // year-view overscroll (rubber-band + pull-to-change-year)
+    private var scrollRaw: CGFloat = 0       // unclamped scroll accumulation during a trackpad gesture
+    private var scrolling = false            // a trackpad scroll gesture is in progress
+    private var yearPull: YearPull?          // active pull hint (nil when within bounds)
+    private let YEAR_FLIP_RAW: CGFloat = 120 // raw overscroll distance that arms a year flip
+
+    /// Trackpad/mouse scroll gesture phase, mapped from NSEvent by the input bridge.
+    public enum ScrollPhase: Sendable { case none, began, changed, ended, momentumEnded }
     // pinch state
     private var magStartZ: CGFloat = 0
     private var magAccum: CGFloat = 0
@@ -110,7 +119,7 @@ public final class CalendarEngine {
     // ── Frame snapshot ──────────────────────────────────────────────────────────
     private func snapshot() -> SceneInput {
         SceneInput(z: z, focus: focus, week: week, vp: viewport, scrollY: scrollY, tlScroll: tlScroll,
-                   now: now, year: year, hover: hover, weekHourH: weekHourH, daily: daily)
+                   now: now, year: year, hover: hover, weekHourH: weekHourH, daily: daily, yearPull: yearPull)
     }
 
     /// Advance the tween to `date` and return the immutable input for this frame.
@@ -123,6 +132,10 @@ public final class CalendarEngine {
         if let wt = weekTween {
             week = wt.value(at: date)
             if wt.isComplete(at: date) { week = wt.to; weekTween = nil }
+        }
+        if let st = scrollTween {
+            scrollY = st.value(at: date)
+            if st.isComplete(at: date) { scrollY = st.to; scrollTween = nil }
         }
         return snapshot()
     }
@@ -181,12 +194,15 @@ public final class CalendarEngine {
     }
 
     // ── Gestures ──────────────────────────────────────────────────────────────────
-    public func onWheel(dx: CGFloat, dy: CGFloat) {
-        cancelTween()
+    public func onWheel(dx: CGFloat, dy: CGFloat, phase: ScrollPhase = .none) {
         let b = level(z)
-        if b == 0 {
-            scrollY = clamp(scrollY - dy, 0, yearMaxScroll(viewport))
-        } else if abs(dy) >= abs(dx) {
+        if b == 0 {                                // year view: rubber-band + pull-to-flip
+            yearScroll(dy: dy, phase: phase)
+            pushChrome()
+            return
+        }
+        cancelTween()
+        if abs(dy) >= abs(dx) {
             let tl = timelineInfo(snapshot())
             tlScroll = min(max(0, tlScroll - dy), tl.maxScroll)
         } else if b == 2 {
@@ -201,6 +217,77 @@ public final class CalendarEngine {
                 wheelAccumX = 0
             }
         }
+        pushChrome()
+    }
+
+    // ── Year-view vertical scroll: rubber-band overscroll + pull-to-change-year ──────
+    private var directPull = false           // true = fingers-on drag (can flip); false = inertial momentum
+    private func yearScroll(dy: CGFloat, phase: ScrollPhase) {
+        let maxY = yearMaxScroll(viewport)
+        switch phase {
+        case .none:                                  // legacy mouse wheel — hard clamp, no bounce
+            scrollTween = nil; scrolling = false; yearPull = nil
+            scrollY = clamp(scrollY - dy, 0, maxY)
+        case .began:
+            scrollTween = nil
+            scrolling = true; directPull = true
+            scrollRaw = scrollY - dy
+            applyYearOverscroll(maxY)
+        case .changed:
+            if !scrolling {
+                if scrollTween != nil { return }     // let an in-flight bounce/flip settle
+                scrolling = true; directPull = false // momentum resumed without a fresh finger-down
+                scrollRaw = scrollY
+            }
+            scrollRaw -= dy
+            applyYearOverscroll(maxY)
+        case .ended:                                 // fingers lifted — flip past threshold, else bounce back
+            scrolling = false
+            if directPull, scrollRaw < -YEAR_FLIP_RAW, yearOptions.contains(year - 1) {
+                flipYear(to: year - 1, toBottom: true)
+            } else if directPull, scrollRaw > maxY + YEAR_FLIP_RAW, yearOptions.contains(year + 1) {
+                flipYear(to: year + 1, toBottom: false)
+            } else {
+                springScroll(to: clamp(scrollY, 0, maxY))
+            }
+        case .momentumEnded:
+            scrolling = false
+            if scrollTween == nil { springScroll(to: clamp(scrollY, 0, maxY)) }
+        }
+    }
+
+    private func applyYearOverscroll(_ maxY: CGFloat) {
+        if scrollRaw < 0 {                           // pulled down past the top → previous year
+            scrollY = -rubberBand(-scrollRaw, viewport.h)
+            yearPull = (directPull && yearOptions.contains(year - 1))
+                ? YearPull(targetYear: year - 1, atTop: true, over: -scrollY, armed: scrollRaw < -YEAR_FLIP_RAW) : nil
+        } else if scrollRaw > maxY {                 // pulled up past the bottom → next year
+            scrollY = maxY + rubberBand(scrollRaw - maxY, viewport.h)
+            yearPull = (directPull && yearOptions.contains(year + 1))
+                ? YearPull(targetYear: year + 1, atTop: false, over: scrollY - maxY, armed: scrollRaw > maxY + YEAR_FLIP_RAW) : nil
+        } else {
+            scrollY = scrollRaw
+            yearPull = nil
+        }
+    }
+
+    private func springScroll(to target: CGFloat) {
+        yearPull = nil
+        if abs(scrollY - target) < 0.5 { scrollY = target; return }
+        scrollTween = Tween(from: scrollY, to: target, start: Date(), duration: 0.35, ease: easeOut)
+    }
+
+    /// Commit a year change from an overscroll pull, settling to the far edge so the
+    /// timeline reads as continuous (prev year lands at its bottom, next year at its top).
+    private func flipYear(to y: Int, toBottom: Bool) {
+        year = y
+        scrollRaw = 0; yearPull = nil
+        let maxY = yearMaxScroll(viewport)
+        let target: CGFloat = toBottom ? maxY : 0
+        let overshoot: CGFloat = 30
+        let from: CGFloat = toBottom ? target + overshoot : target - overshoot
+        scrollY = from
+        scrollTween = Tween(from: from, to: target, start: Date(), duration: 0.36, ease: easeOut)
         pushChrome()
     }
 
