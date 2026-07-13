@@ -231,10 +231,12 @@ private struct BandSticker: View {
         // everyone else clips before the next later bar (unbounded when none).
         let clip: CGFloat? = hovered ? nil
             : (clipBox ? max(0, box.width - lead - BandStyle.titleTrailing) : gap.map { max(12, $0 - 10) })
-        // Spill scrim (hover only): only the part of the full title past the box's right edge,
-        // and only when it overruns the next bar. Height = full box height.
+        // Spill scrim (hover only): the part of the full title past the box's right edge, when
+        // it overruns something behind it — a longer same-start bar (clipBox) or a later bar.
+        // A dark plate occludes that bar's text so the spilled title stays readable.
         let titleEnd = lead + Self.titleWidth(ev.title)
-        let maskW: CGFloat = (hovered && gap != nil && gap! < titleEnd) ? max(0, titleEnd + 9 - box.width) : 0
+        let spill = max(0, titleEnd + 9 - box.width)
+        let maskW: CGFloat = (hovered && spill > 0 && (clipBox || (gap != nil && gap! < titleEnd))) ? spill : 0
 
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -243,10 +245,10 @@ private struct BandSticker: View {
                 Capsule().fill(border).frame(width: barWidth)
                     .padding(.vertical, BandStyle.accentInset).padding(.leading, BandStyle.accentInset)
             }
-            .overlay(alignment: .leading) {   // spill scrim (behind the title)
+            .overlay(alignment: .leading) {   // spill scrim: dark plate behind the spilled title
                 if maskW > 0 {
                     UnevenRoundedRectangle(bottomTrailingRadius: 5, topTrailingRadius: 5)
-                        .fill(.regularMaterial)
+                        .fill(theme.bg.opacity(0.9))
                         .frame(width: maskW, height: box.height)
                         .offset(x: box.width)
                 }
