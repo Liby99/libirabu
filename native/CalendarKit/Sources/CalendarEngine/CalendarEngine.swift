@@ -463,6 +463,10 @@ public final class CalendarEngine {
             seedEvents.removeAll { $0.id == id }
             if selectedId == id { selectedId = nil }
         }
+        // a freshly drag-created band → open its title editor so the name is focused for typing
+        if d.kind == .bandCreate, let id = d.eventId, seedBands.contains(where: { $0.id == id }) {
+            editBand(id)
+        }
     }
 
     public func deleteSelected() {
@@ -691,14 +695,16 @@ public final class CalendarEngine {
     }
 
     private func applyBandMove(_ d: Drag, _ p: CGPoint, _ g: SceneInput) {
-        guard let orig = d.origBand, let idx = seedBands.firstIndex(where: { $0.id == d.eventId }) else { return }
+        guard let orig = d.origBand, let idx = seedBands.firstIndex(where: { $0.id == d.eventId }),
+              let slot = bandSlotAtPoint(p.x, p.y, g) else { return }   // follow the lane under the cursor
         beginTxn()
         let len = orig.endDay - orig.startDay
-        let delta = bandDay(p.x, orig.month, g) - bandDay(d.startPoint.x, orig.month, g)
-        let ns = max(1, min(daysInMonth(year, orig.month) - len, orig.startDay + delta))
+        // Keep the grab offset (day within the band where the drag started), so a band can be
+        // dragged across months/tracks in year view — not just within its own month.
+        let grab = (bandSlotAtPoint(d.startPoint.x, d.startPoint.y, g)?.day ?? orig.startDay) - orig.startDay
+        let start = max(1, min(daysInMonth(year, slot.month) - len, slot.day - grab))
         var b = seedBands[idx]
-        b.startDay = ns; b.endDay = ns + len
-        if let slot = bandSlotAtPoint(p.x, p.y, g), slot.month == orig.month { b.track = slot.track }
+        b.month = slot.month; b.track = slot.track; b.startDay = start; b.endDay = start + len
         seedBands[idx] = b
     }
 
