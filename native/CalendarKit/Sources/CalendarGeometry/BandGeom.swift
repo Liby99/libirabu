@@ -40,9 +40,9 @@ public func bandEventRect(_ ev: BandEvent, _ g: SceneInput, anim: PageAnim? = ni
     if right - left < 2 { return nil }
     return BandRect(
         x: left,
-        y: f.bandY + CGFloat(ev.track) * f.trackH + 1,   // 1px from top/bottom
+        y: f.bandY + CGFloat(ev.track) * f.trackH + 3,   // 3px inset top/bottom (shorter band)
         w: max(2, right - left),
-        h: max(3, f.trackH - 2),
+        h: max(3, f.trackH - 6),
         clipStart: leftRaw < Layout.labelW - 0.5,
         clipEnd: rightRaw > g.vp.w + 0.5
     )
