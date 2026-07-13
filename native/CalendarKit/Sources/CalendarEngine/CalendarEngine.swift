@@ -239,6 +239,7 @@ public final class CalendarEngine {
         let maxY = yearMaxScroll(viewport)
         startedAtTop = scrollY <= 2
         startedAtBottom = scrollY >= maxY - 2
+        print("[FLIP] begin: scrollY=\(Int(scrollY)) maxY=\(Int(maxY)) startTop=\(startedAtTop) startBot=\(startedAtBottom)")
     }
 
     /// Mirror the scroll view's live offset (may be < 0 or > maxScroll during elastic
@@ -250,7 +251,7 @@ public final class CalendarEngine {
         let over: CGFloat = y < 0 ? -y : (y > maxY ? y - maxY : 0)
         let atTop = y < 0
         if liveScrolling, over > 2 {
-            if over > peakOver { peakOver = over; peakAtTop = atTop }
+            if over > peakOver { peakOver = over; peakAtTop = atTop; print("[FLIP] peak=\(Int(peakOver)) atTop=\(atTop)") }
             let eligible = (atTop && startedAtTop) || (!atTop && startedAtBottom)
             let target = atTop ? year - 1 : year + 1
             yearPull = (eligible && yearOptions.contains(target))
@@ -266,13 +267,15 @@ public final class CalendarEngine {
     public func endYearScrollGesture() {
         liveScrolling = false
         yearPull = nil
-        guard yearFlipEnabled, !isFlipping else { return }
+        print("[FLIP] end: enabled=\(yearFlipEnabled) flipping=\(isFlipping) peakOver=\(Int(peakOver)) atTop=\(peakAtTop) startTop=\(startedAtTop) startBot=\(startedAtBottom) thr=\(Int(Layout.yearFlipOver))")
+        guard yearFlipEnabled, !isFlipping else { print("[FLIP] end: BAIL enabled/flipping"); return }
         let over = peakOver, atTop = peakAtTop         // peak, not the possibly-bounced-back last value
-        guard over >= Layout.yearFlipOver else { return }
-        guard (atTop && startedAtTop) || (!atTop && startedAtBottom) else { return }  // must start from the edge
+        guard over >= Layout.yearFlipOver else { print("[FLIP] end: BAIL over<thr"); return }
+        guard (atTop && startedAtTop) || (!atTop && startedAtBottom) else { print("[FLIP] end: BAIL not edge-started"); return }
         let dir = atTop ? -1 : 1
         let target = year + dir
-        guard yearOptions.contains(target) else { return }
+        guard yearOptions.contains(target) else { print("[FLIP] end: BAIL target \(target) out of range"); return }
+        print("[FLIP] START \(year) -> \(target) dir=\(dir)")
         flipAnim = FlipAnim(dir: dir, fromYear: year, toYear: target, startScroll: scrollY, start: Date())
     }
 

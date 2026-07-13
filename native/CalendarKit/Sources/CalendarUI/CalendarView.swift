@@ -280,11 +280,12 @@ final class CatcherView: NSView, NSMenuItemValidation {
         guard let engine else { return }
         if engine.isFlipping { return }            // don't fight the flip transition
         if engine.isYearLevel {
+            print("[FLIP] wheel year=\(engine.isYearLevel) phase=\(e.phase.rawValue) mom=\(e.momentumPhase.rawValue) dy=\(String(format: "%.1f", e.scrollingDeltaY))")
             // Drive gesture begin/end from the event phase (reliable when forwarding to a
             // non-hit-tested scroll view; the live-scroll notifications aren't).
-            if e.phase.contains(.began) { engine.beginYearScrollGesture() }
+            if e.phase.contains(.began) { print("[FLIP] -> begin"); engine.beginYearScrollGesture() }
             yearScroll.scrollWheel(with: e)
-            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { engine.endYearScrollGesture() }
+            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { print("[FLIP] -> end"); engine.endYearScrollGesture() }
         } else {
             engine.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
         }
