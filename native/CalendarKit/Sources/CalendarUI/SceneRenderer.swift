@@ -77,7 +77,7 @@ enum SceneRenderer {
     }
 
     // DEBUG: visualize the year-scroll boundaries + flip threshold. Toggle with debugScroll.
-    static var debugScroll = true
+    static var debugScroll = false
     private static func drawScrollDebug(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         guard debugScroll, input.z < 0.5 else { return }
         let vp = input.vp
