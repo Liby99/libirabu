@@ -173,7 +173,7 @@ private struct BandSticker: View {
             .font(.custom("Comic Sans MS", size: 12))
             .foregroundStyle(theme.text)
             .lineLimit(1)
-            .padding(.leading, 8)
+            .padding(.leading, 14)
             .padding(.trailing, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .glassEffect(.regular.tint(border.opacity(0.34)), in: RoundedRectangle(cornerRadius: radius))
@@ -182,8 +182,8 @@ private struct BandSticker: View {
                 Capsule()
                     .fill(border)
                     .frame(width: selected ? 3 : 2)
-                    .padding(.vertical, 3)
-                    .padding(.leading, 3)
+                    .padding(.vertical, 6)
+                    .padding(.leading, 6)
             }
             .overlay {
                 if drawerOpen {
