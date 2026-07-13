@@ -198,7 +198,6 @@ final class FlippedDocView: NSView { override var isFlipped: Bool { true } }
 final class DriverScrollView: NSScrollView {
     weak var engine: CalendarEngine?
     override func scrollWheel(with e: NSEvent) {
-        print("[FLIP] driver phase=\(e.phase.rawValue) mom=\(e.momentumPhase.rawValue) dy=\(String(format: "%.1f", e.scrollingDeltaY))")
         if e.phase.contains(.began) { engine?.beginYearScrollGesture() }
         super.scrollWheel(with: e)
         if e.phase.contains(.ended) || e.phase.contains(.cancelled) { engine?.endYearScrollGesture() }
@@ -292,10 +291,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         guard let engine else { return }
         if engine.isFlipping { return }            // don't fight the flip transition
         if engine.isYearLevel {
-            print("[FLIP] wheel phase=\(e.phase.rawValue) mom=\(e.momentumPhase.rawValue) dy=\(String(format: "%.1f", e.scrollingDeltaY))")
-            // The scroll view grabs the gesture (concurrent scrolling), so begin/end come
-            // from its live-scroll notifications, not the forwarded event's phase.
-            yearScroll.scrollWheel(with: e)
+            yearScroll.scrollWheel(with: e)   // DriverScrollView does the physics + begin/end
         } else {
             engine.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
         }

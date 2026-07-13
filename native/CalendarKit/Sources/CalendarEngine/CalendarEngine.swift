@@ -237,7 +237,6 @@ public final class CalendarEngine {
         let maxY = yearMaxScroll(viewport)
         startedAtTop = scrollY <= 2
         startedAtBottom = scrollY >= maxY - 2
-        print("[FLIP] begin: scrollY=\(Int(scrollY)) maxY=\(Int(maxY)) startTop=\(startedAtTop) startBot=\(startedAtBottom)")
     }
 
     /// Mirror the scroll view's live offset (may be < 0 or > maxScroll during elastic
@@ -265,14 +264,12 @@ public final class CalendarEngine {
     public func endYearScrollGesture() {
         liveScrolling = false
         yearPull = nil
-        print("[FLIP] end: enabled=\(yearFlipEnabled) flipping=\(isFlipping) over=\(Int(lastOverscroll.over)) atTop=\(lastOverscroll.atTop) startTop=\(startedAtTop) startBot=\(startedAtBottom) thr=\(Int(Layout.yearFlipOver))")
-        guard yearFlipEnabled, !isFlipping else { print("[FLIP] end: BAIL enabled/flipping"); return }
+        guard yearFlipEnabled, !isFlipping else { return }
         let (over, atTop) = lastOverscroll
-        guard over >= Layout.yearFlipOver else { print("[FLIP] end: BAIL over<thr"); return }
-        guard (atTop && startedAtTop) || (!atTop && startedAtBottom) else { print("[FLIP] end: BAIL not edge-started"); return }
+        guard over >= Layout.yearFlipOver else { return }
+        guard (atTop && startedAtTop) || (!atTop && startedAtBottom) else { return }  // must start from the edge
         let dir = atTop ? -1 : 1
         let target = year + dir            // unbounded — flip any number of years
-        print("[FLIP] START \(year) -> \(target) dir=\(dir)")
         flipAnim = FlipAnim(dir: dir, fromYear: year, toYear: target, startScroll: scrollY, start: Date())
     }
 
