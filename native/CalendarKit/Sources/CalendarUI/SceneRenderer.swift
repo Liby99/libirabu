@@ -13,37 +13,52 @@ import SwiftUI
 import CalendarGeometry
 
 enum SceneRenderer {
-    // Draws the background scene + chrome. Events are a separate SwiftUI overlay
-    // (EventsOverlay) so they get a real material backdrop blur.
-    // These float ABOVE the events overlay (the now-line and mouse cursor draw over events).
+    // The renderer draws three Canvas passes; the frosted gutter/dashboard masks are
+    // SwiftUI material views layered BETWEEN drawMid and drawAbove (see CalendarView).
+    //
+    //   drawBelow  — everything the masks hide: grid, washes, today, hover, day labels
+    //   (events overlay)
+    //   drawMid    — deadlines (above events, below masks)
+    //   (frosted gutter mask · frosted dashboard mask)
+    //   drawAbove  — chrome that sits ON the masks: gutter labels/borders, track names,
+    //                now-line/cursor, dashboard title + bars
+
+    // now-line / mouse cursor + their labels — drawn in the top pass, above everything.
     private static func isForeground(_ k: ItemKind) -> Bool {
         switch k { case .now, .nowLabel, .cursor, .timeTag: return true; default: return false }
     }
-
-    /// Base layer (below events): grid, washes, today tint, labels, tracks, gutter.
-    static func drawBase(input: SceneInput, tracks: [String], in ctx: inout GraphicsContext, theme: Theme) {
-        let items = buildScene(input).items.sorted { $0.z < $1.z }
-        func drawBand(_ lo: Int, _ hi: Int) {
-            for it in items where it.z >= lo && it.z < hi && it.opacity > 0.001 && !isForeground(it.kind) {
-                var layer = ctx; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
-            }
+    // Gutter chrome (month names, hour labels, gutter border segments) sits ON the
+    // frosted gutter mask → also drawn in the top pass.
+    private static func isGutterChrome(_ it: Item) -> Bool {
+        switch it.kind {
+        case .monthLabel: return true
+        case .dayLabel: return it.x + it.w <= Layout.labelW + 1
+        case .gridline: return it.x + it.w <= Layout.labelW - Layout.rightPad + 2
+        default: return false
         }
-        drawBand(Int.min, 5)
-        drawGutter(input, &ctx, theme)
-        drawBand(5, 14)
-        drawTrackNames(input, tracks, &ctx, theme)
-        drawBand(14, Int.max)
     }
 
-    /// Foreground layer (above events): deadlines + now-line + mouse cursor, then the
-    /// daily dashboard mask on top (hides the other days on the right).
-    static func drawForeground(input: SceneInput, deadlines: [Deadline], selected: String?, in ctx: inout GraphicsContext, theme: Theme) {
-        let items = buildScene(input).items.sorted { $0.z < $1.z }
+    static func drawBelow(input: SceneInput, in ctx: inout GraphicsContext, theme: Theme) {
+        for it in buildScene(input).items.sorted(by: { $0.z < $1.z })
+        where it.opacity > 0.001 && !isForeground(it.kind) && !isGutterChrome(it) {
+            var layer = ctx; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
+        }
+    }
+
+    static func drawMid(input: SceneInput, deadlines: [Deadline], selected: String?, in ctx: inout GraphicsContext, theme: Theme) {
         drawDeadlines(input, deadlines, selected, &ctx, theme)
+    }
+
+    static func drawAbove(input: SceneInput, tracks: [String], in ctx: inout GraphicsContext, theme: Theme) {
+        let items = buildScene(input).items.sorted { $0.z < $1.z }
+        for it in items where it.opacity > 0.001 && !isForeground(it.kind) && isGutterChrome(it) {
+            var layer = ctx; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
+        }
+        drawTrackNames(input, tracks, &ctx, theme)
         for it in items where isForeground(it.kind) && it.opacity > 0.001 {
             var layer = ctx; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
-        drawDashboard(input, &ctx, theme)
+        drawDashboardChrome(input, &ctx, theme)
     }
 
     // Deadlines: a colored horizontal rule across the day column at the deadline's
@@ -199,22 +214,15 @@ enum SceneRenderer {
         ctx.stroke(b, with: .color(theme.accentGrey), style: StrokeStyle(lineWidth: 1, dash: [1, 2]))
     }
 
-    // ── Chrome: gutter mask, dashboard mask, track names ─────────────────────────
-    private static func drawGutter(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
-        // opaque left strip that occludes lane/column content sliding under it (week view)
-        ctx.fill(Path(CGRect(x: 0, y: 0, width: Layout.labelW, height: input.vp.h)), with: .color(theme.bg))
-    }
-
-    private static func drawDashboard(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
+    // ── Chrome: dashboard title + bars, track names ───────────────────────────────
+    // (The gutter + dashboard masks themselves are frosted SwiftUI material views.)
+    private static func drawDashboardChrome(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         let reveal = clamp(input.z - 2, 0, 1)
         if reveal <= 0.001 { return }
-        let f = frameFor(input.focus, input)
-        // right edge of the chosen day column → left edge of the dashboard
-        let dashLeft = max(Layout.labelW, f.x0 + CGFloat(input.daily.dom) * f.dayW)
+        let dashLeft = dashboardLeft(input)
         if dashLeft >= input.vp.w { return }
         var layer = ctx
         layer.opacity = Double(reveal)
-        layer.fill(Path(CGRect(x: dashLeft, y: 0, width: input.vp.w - dashLeft, height: input.vp.h)), with: .color(theme.bg))
         // two thin bars at the band top/bottom, matching the timeline dividers
         let barX = dashLeft + 25
         for y in [Layout.topPad, Layout.topPad + Layout.monthH] {

@@ -11,6 +11,9 @@ struct CalendarApp: App {
         WindowGroup {
             CalendarView()
                 .frame(minWidth: 900, minHeight: 600)
+                // Translucent window material → the calendar picks up the macOS 26
+                // wallpaper tint (and the frosted masks read as glass over it).
+                .containerBackground(.windowBackground, for: .window)
         }
         .defaultSize(width: 1280, height: 840)
         .commands {

@@ -108,6 +108,12 @@ private func blend(_ a: Frame, _ b: Frame, _ t: CGFloat) -> Frame {
           trackH: lerp(a.trackH, b.trackH, t), opacity: lerp(a.opacity, b.opacity, t))
 }
 
+/// Left edge of the daily dashboard panel (right of the chosen day's column).
+public func dashboardLeft(_ g: SceneInput) -> CGFloat {
+    let f = frameFor(g.focus, g)
+    return max(Layout.labelW, f.x0 + CGFloat(g.daily.dom) * f.dayW)
+}
+
 /// Resolve month `m`'s frame at the current zoom. `anim` (month paging) overrides z when present.
 public func frameFor(_ m: Int, _ g: SceneInput, anim: PageAnim? = nil) -> Frame {
     if let anim { return monthSwipeFrame(m, anim, g.focus, g.vp) }

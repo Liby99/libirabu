@@ -19,26 +19,46 @@ public struct CalendarView: View {
             let vp = Viewport(w: geo.size.width, h: geo.size.height)
             TimelineView(.animation) { tl in
                 let input = engine.sceneInput(at: tl.date, viewport: vp)
+                let reveal = max(0, min(1, input.z - 2))
+                let dashLeft = dashboardLeft(input)
                 ZStack {
-                    // 1. base scene (below events)
+                    // 1. below the masks: grid, washes, today, hover, day labels
                     Canvas { ctx, size in
                         var c = ctx
-                        SceneRenderer.drawBase(input: input, tracks: engine.trackNames, in: &c, theme: theme)
+                        SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
                     }
-                    // 2. events (bands + timed), frosted-glass stickers
+                    // 2. events (bands + timed), Liquid Glass stickers
                     EventsOverlay(input: input, events: engine.seedEvents, bands: engine.seedBands, selected: engine.selectedId, theme: theme)
-                    // 3. foreground: deadlines + now-line + cursor, then the dashboard mask
+                    // 3. deadlines (above events, below the masks)
                     Canvas { ctx, size in
                         var c = ctx
-                        SceneRenderer.drawForeground(input: input, deadlines: engine.seedDeadlines, selected: engine.selectedId, in: &c, theme: theme)
+                        SceneRenderer.drawMid(input: input, deadlines: engine.seedDeadlines, selected: engine.selectedId, in: &c, theme: theme)
+                    }
+                    // 4. frosted gutter mask (left strip)
+                    Rectangle().fill(.thickMaterial)
+                        .frame(width: Layout.labelW)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    // 5. frosted dashboard mask (right, in day view)
+                    if reveal > 0.001 && dashLeft < input.vp.w {
+                        Rectangle().fill(.thickMaterial)
+                            .frame(width: input.vp.w - dashLeft)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                            .opacity(Double(reveal))
+                    }
+                    // 6. chrome above the masks: gutter labels/borders, track names,
+                    //    now-line/cursor, dashboard title + bars
+                    Canvas { ctx, size in
+                        var c = ctx
+                        SceneRenderer.drawAbove(input: input, tracks: engine.trackNames, in: &c, theme: theme)
                     }
                 }
             }
             // The visual layers are purely presentational — never let them intercept
             // mouse events (the Canvas layers are hit-testable and re-render every
             // frame, which otherwise steals clicks/drags from the input catcher).
+            // No opaque background: the window is translucent (see CalendarApp),
+            // so the desktop tint shows through.
             .allowsHitTesting(false)
-            .background(theme.bg)
             .overlay(InputCatcher(engine: engine, onOpenEvent: { ui.openEventId = $0 }))
             // 4a. scrim — blocks the canvas + closes on outside-click (fades)
             .overlay {
