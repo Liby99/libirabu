@@ -181,23 +181,70 @@ struct InputCatcher: NSViewRepresentable {
         let v = CatcherView()
         v.engine = engine
         v.onOpenEvent = onOpenEvent
+        v.installYearScrollDriver()
         return v
     }
     func updateNSView(_ v: CatcherView, context: Context) { v.engine = engine; v.onOpenEvent = onOpenEvent }
 }
 
+/// Flipped so its scroll origin (0 = top, increasing downward) matches our scrollY.
+final class FlippedDocView: NSView { override var isFlipped: Bool { true } }
+
 final class CatcherView: NSView, NSMenuItemValidation {
     weak var engine: CalendarEngine?
     var onOpenEvent: ((String) -> Void)?
     private var trackingAreaRef: NSTrackingArea?
+    // Invisible NSScrollView used purely as a physics driver: AppKit computes the elastic
+    // bounce + momentum, and we mirror its offset into the engine (year-view scroll).
+    private let yearScroll = NSScrollView()
+    private let docView = FlippedDocView()
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // No subviews compete; be the event target for any point within our bounds.
+        // Always be the event target; the scroll-view driver is a physics-only subview
+        // that we feed manually (never a hit target for mouse/clicks).
         bounds.contains(convert(point, from: superview)) ? self : nil
     }
+
+    // ── Year-view scroll driver (native elastic bounce via NSScrollView) ─────────────
+    func installYearScrollDriver() {
+        yearScroll.drawsBackground = false
+        yearScroll.hasVerticalScroller = false
+        yearScroll.hasHorizontalScroller = false
+        yearScroll.verticalScrollElasticity = .allowed
+        yearScroll.horizontalScrollElasticity = .none
+        yearScroll.autohidesScrollers = true
+        docView.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+        yearScroll.documentView = docView
+        yearScroll.contentView.postsBoundsChangedNotifications = true
+        addSubview(yearScroll, positioned: .below, relativeTo: nil)  // behind; never hit-tested
+
+        let nc = NotificationCenter.default
+        nc.addObserver(self, selector: #selector(clipBoundsChanged),
+                       name: NSView.boundsDidChangeNotification, object: yearScroll.contentView)
+        nc.addObserver(self, selector: #selector(liveScrollBegan),
+                       name: NSScrollView.willStartLiveScrollNotification, object: yearScroll)
+        nc.addObserver(self, selector: #selector(liveScrollEnded),
+                       name: NSScrollView.didEndLiveScrollNotification, object: yearScroll)
+        engine?.onSetYearScroll = { [weak self] y in self?.setDriverOffset(y) }
+    }
+
+    private func setDriverOffset(_ y: CGFloat) {
+        let cv = yearScroll.contentView
+        cv.scroll(to: NSPoint(x: 0, y: y))
+        yearScroll.reflectScrolledClipView(cv)
+    }
+
+    @objc private func clipBoundsChanged() {
+        guard let engine, engine.isYearLevel else { return }
+        engine.setYearScroll(yearScroll.contentView.bounds.origin.y)
+    }
+    @objc private func liveScrollBegan() { engine?.beginYearScrollGesture() }
+    @objc private func liveScrollEnded() { engine?.endYearScrollGesture() }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -210,6 +257,12 @@ final class CatcherView: NSView, NSMenuItemValidation {
     override func layout() {
         super.layout()
         engine?.setViewport(bounds.size)
+        // Size the driver so its scrollable range == the engine's yearMaxScroll:
+        // docHeight − clipHeight = maxScroll  ⇒  docHeight = clipHeight + maxScroll.
+        yearScroll.frame = bounds
+        let maxY = yearMaxScroll(Viewport(w: bounds.width, h: bounds.height))
+        docView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height + maxY)
+        setDriverOffset(engine?.scrollY ?? 0)   // keep the driver aligned with engine state
     }
 
     private func point(_ e: NSEvent) -> CGPoint {
@@ -219,13 +272,14 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
 
     override func scrollWheel(with e: NSEvent) {
-        let phase: CalendarEngine.ScrollPhase
-        if e.phase.contains(.began) { phase = .began }
-        else if e.phase.contains(.ended) || e.phase.contains(.cancelled) { phase = .ended }
-        else if e.momentumPhase.contains(.ended) { phase = .momentumEnded }
-        else if !e.phase.isEmpty || !e.momentumPhase.isEmpty { phase = .changed }
-        else { phase = .none }   // legacy mouse wheel (no phase info)
-        engine?.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY, phase: phase)
+        // Year view: hand the event to the NSScrollView driver so AppKit does the elastic
+        // physics; its offset is mirrored back via clipBoundsChanged. Deeper levels use
+        // the manual timeline/week/day handling.
+        if engine?.isYearLevel == true {
+            yearScroll.scrollWheel(with: e)
+        } else {
+            engine?.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
+        }
     }
     override func magnify(with e: NSEvent) {
         let began = e.phase.contains(.began)
