@@ -234,17 +234,18 @@ private struct BandSticker: View {
         let barWidth = selected ? BandStyle.accentWidthSelected : BandStyle.accentWidth
         let lead = BandStyle.accentInset + barWidth + BandStyle.barTextGap
 
-        // Hover un-truncates to full overflow. Otherwise: a shorter same-start bar (on top)
-        // clips to its own box so its title doesn't spill over the longer bar behind it;
-        // everyone else clips before the next later bar (unbounded when none).
-        let clip: CGFloat? = hovered ? nil
+        // Front (hover / select / drawer) un-truncates to full overflow — it's on top, so its
+        // full title should show. Otherwise: a shorter same-start bar (on top) clips to its own
+        // box so its title doesn't spill over the longer bar behind it; everyone else clips
+        // before the next later bar (unbounded when none).
+        let clip: CGFloat? = active ? nil
             : (clipBox ? max(0, box.width - lead - BandStyle.titleTrailing) : gap.map { max(12, $0 - 10) })
         // Spill scrim (hover only): the part of the full title past the box's right edge, when
         // it overruns something behind it — a longer same-start bar (clipBox) or a later bar.
         // A dark plate occludes that bar's text so the spilled title stays readable.
         let titleEnd = lead + Self.titleWidth(ev.title)
         let spill = max(0, titleEnd + 9 - box.width)
-        let maskW: CGFloat = (hovered && spill > 0 && (clipBox || (gap != nil && gap! < titleEnd))) ? spill : 0
+        let maskW: CGFloat = (active && spill > 0 && (clipBox || (gap != nil && gap! < titleEnd))) ? spill : 0
 
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
