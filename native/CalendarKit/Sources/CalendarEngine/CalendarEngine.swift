@@ -521,7 +521,9 @@ public final class CalendarEngine {
     private func editBand(_ id: String) {
         let g = snapshot()
         guard let b = seedBands.first(where: { $0.id == id }), let r = bandEventRect(b, g, anim: g.monthAnim) else { return }
-        onEditBand?(id, CGRect(x: r.x, y: r.y, width: r.w, height: r.h))
+        // Let the field extend right to the content edge (like the title's overflow), not
+        // just the box width.
+        onEditBand?(id, CGRect(x: r.x, y: r.y, width: max(r.w, g.vp.w - r.x), height: r.h))
     }
     public func setBandTitle(_ id: String, _ title: String) {
         guard let i = seedBands.firstIndex(where: { $0.id == id }), seedBands[i].title != title else { return }
