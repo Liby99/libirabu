@@ -115,6 +115,13 @@ public final class CalendarEngine {
         } else {
             persistNow()   // seed the store on first launch
         }
+        // Resume the create-counter past any persisted new-/newb- ids so fresh items don't
+        // collide with reloaded ones (which produced duplicate SwiftUI ForEach ids).
+        for id in seedEvents.map(\.id) + seedBands.map(\.id) {
+            for pre in ["newb-", "new-"] where id.hasPrefix(pre) {
+                if let n = Int(id.dropFirst(pre.count)) { createCounter = max(createCounter, n) }
+            }
+        }
         nowTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.now = Date() }
         }
