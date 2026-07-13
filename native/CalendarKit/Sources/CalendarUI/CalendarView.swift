@@ -85,37 +85,23 @@ public struct CalendarView: View {
         .toolbar {
             ToolbarItem(placement: .navigation) { Breadcrumb(chrome: engine.chrome) }
             ToolbarSpacer(.flexible)
-            // Explicit per-button .glassEffect (not the toolbar's auto-glass, which
-            // merges adjacent buttons into one pill) → three separate glass pieces
-            // with a gap we control via the HStack spacing.
-            ToolbarItem(placement: .primaryAction) { ToolbarActions() }
+            ToolbarItem(placement: .primaryAction) {
+                Button { } label: { Image(systemName: "magnifyingglass") }
+                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Search")
+            }
+            ToolbarSpacer(.fixed)
+            ToolbarItem(placement: .primaryAction) {
+                Button { } label: { Image(systemName: "sparkles") }
+                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Assistant")
+            }
+            ToolbarSpacer(.fixed)
+            ToolbarItem(placement: .primaryAction) {
+                Button { } label: { Text("Today") }
+                    .buttonStyle(.glass).buttonBorderShape(.capsule)
+            }
         }
         // Let the translucent window material show through the toolbar (native tint).
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-    }
-}
-
-/// The right-side toolbar actions: search · assistant · Today. Each is its OWN
-/// glass shape (explicit .glassEffect), so they don't merge into a group pill and
-/// the gap between them is just the HStack spacing.
-private struct ToolbarActions: View {
-    var body: some View {
-        HStack(spacing: 6) {
-            Button { } label: {
-                Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .medium)).frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle()).help("Search")
-
-            Button { } label: {
-                Image(systemName: "sparkles").font(.system(size: 13, weight: .medium)).frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle()).help("Assistant")
-
-            Button { } label: {
-                Text("Today").font(.system(size: 13, weight: .medium)).padding(.horizontal, 12).frame(height: 28)
-            }
-            .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Capsule())
-        }
     }
 }
 
