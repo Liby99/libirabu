@@ -41,6 +41,8 @@ public final class CalendarEngine {
     public var onSetYearScroll: ((CGFloat) -> Void)?
     private var liveScrolling = false        // fingers-down phase of a trackpad gesture
     private var lastOverscroll: (over: CGFloat, atTop: Bool) = (0, false)
+    private var startedAtTop = false         // the drag began already resting at an edge —
+    private var startedAtBottom = false      // only then does an overscroll pull arm a flip
     private var yearPull: YearPull?          // pull-to-change-year hint (nil when not pulling)
     public var yearFlipEnabled = false       // DEBUG: gate the actual prev/next-year jump
     // pinch state
@@ -218,8 +220,15 @@ public final class CalendarEngine {
     // ── Year-view scroll: mirror of the native NSScrollView driver ───────────────────
     public var isYearLevel: Bool { level(z) == 0 }
 
-    /// Fingers-down phase begins — enables the pull-to-change-year hint.
-    public func beginYearScrollGesture() { liveScrolling = true }
+    /// Fingers-down phase begins. Record whether we were already resting at an edge —
+    /// a flip is only allowed for a pull that STARTS from the edge (not a fast scroll
+    /// from the middle that happens to overshoot into it).
+    public func beginYearScrollGesture() {
+        liveScrolling = true
+        let maxY = yearMaxScroll(viewport)
+        startedAtTop = scrollY <= 2
+        startedAtBottom = scrollY >= maxY - 2
+    }
 
     /// Mirror the scroll view's live offset (may be < 0 or > maxScroll during elastic
     /// overscroll, which is exactly what gives the native bounce). Computes the pull
@@ -231,8 +240,9 @@ public final class CalendarEngine {
         let atTop = y < 0
         lastOverscroll = (over, atTop)
         if liveScrolling, over > 2 {
+            let eligible = (atTop && startedAtTop) || (!atTop && startedAtBottom)
             let target = atTop ? year - 1 : year + 1
-            yearPull = yearOptions.contains(target)
+            yearPull = (eligible && yearOptions.contains(target))
                 ? YearPull(targetYear: target, atTop: atTop, over: over, armed: over >= Layout.yearFlipOver) : nil
         } else {
             yearPull = nil
@@ -248,6 +258,7 @@ public final class CalendarEngine {
         guard yearFlipEnabled else { return }          // DEBUG: jump disabled for now
         let (over, atTop) = lastOverscroll
         guard over >= Layout.yearFlipOver else { return }
+        guard (atTop && startedAtTop) || (!atTop && startedAtBottom) else { return }  // must start from the edge
         let target = atTop ? year - 1 : year + 1
         guard yearOptions.contains(target) else { return }
         year = target
