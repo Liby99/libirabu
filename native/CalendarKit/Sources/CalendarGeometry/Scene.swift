@@ -121,9 +121,9 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         let bandH = 4 * f.trackH
         let monthOn = g.z < 0.5 && h.month != nil && onScreen(f, g.vp)
         items.append(Item(key: "hl-ym", kind: .hl, x: f.x0, y: f.bandY, w: CGFloat(dim) * f.dayW, h: bandH, opacity: monthOn ? HL_SOFT : 0, z: 3))
-        items.append(Item(key: "hl-yg", kind: .hl, x: 0, y: f.bandY, w: Layout.labelW, h: bandH, opacity: monthOn ? HL_SOFT : 0, z: 6))
+        items.append(Item(key: "hl-yg", kind: .hl, x: 0, y: f.bandY, w: Layout.labelW, h: bandH, opacity: monthOn ? HL_SOFT : 0, z: 6, gutter: true))
         let nameOn = g.z < 0.5 && h.nameMonth != nil && onScreen(f, g.vp)
-        items.append(Item(key: "hl-yn", kind: .hl, x: 0, y: f.bandY, w: Layout.mnameW, h: bandH, opacity: nameOn ? HL_STRONG : 0, z: 7))
+        items.append(Item(key: "hl-yn", kind: .hl, x: 0, y: f.bandY, w: Layout.mnameW, h: bandH, opacity: nameOn ? HL_STRONG : 0, z: 7, gutter: true))
         let dcol = h.dom ?? 1
         let dayOn = monthOn && h.dom != nil && h.dom! >= 1 && h.dom! <= dim
         items.append(Item(key: "hl-yd", kind: .hl, x: f.x0 + (CGFloat(dcol) - 1) * f.dayW, y: f.bandY, w: f.dayW, h: bandH, opacity: dayOn ? HL_STRONG : 0, z: 3))
@@ -195,7 +195,7 @@ private func buildQuarterHeaders(_ g: SceneInput, _ clock: Clock) -> [Item] {
             items.append(Item(key: "qh-\(q)-\(d)", kind: .dayLabel, x: Layout.labelW + CGFloat(d - 1) * dayW, y: hy + 5, w: dayW, h: 14, opacity: yearVis * 0.7, text: String(d), fontSize: 10, align: .center, today: isToday, z: 4))
         }
         let topY = hy + Layout.qHeaderH - 1
-        items.append(Item(key: "qhsepg-\(q)", kind: .gridline, x: 0, y: topY, w: Layout.labelW - Layout.rightPad, h: 1, opacity: yearVis * 0.6, z: 11))
+        items.append(Item(key: "qhsepg-\(q)", kind: .gridline, x: 0, y: topY, w: Layout.labelW - Layout.rightPad, h: 1, opacity: yearVis * 0.6, z: 11, gutter: true))
         items.append(Item(key: "qhsepd-\(q)", kind: .gridline, x: Layout.labelW, y: topY, w: 31 * dayW, h: 1, opacity: yearVis * 0.6, z: 11))
     }
     return items
@@ -212,12 +212,12 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
         let dim = daysInMonth(m)
         let fullW = 31 * f.dayW
 
-        items.append(Item(key: "ml-\(m)", kind: .monthLabel, x: 0, y: f.bandY, w: Layout.mnameW, h: f.trackH * 4, opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 13, align: .center, z: 8))
+        items.append(Item(key: "ml-\(m)", kind: .monthLabel, x: 0, y: f.bandY, w: Layout.mnameW, h: f.trackH * 4, opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 13, align: .center, z: 8, gutter: true))
 
         let isFocusBand = m == g.focus || (g.monthAnim != nil && m == g.focus + g.monthAnim!.dir)
         if detailReveal > 0.02 && isFocusBand {
             let top = f.opacity * detailReveal * 0.6
-            items.append(Item(key: "ftopg-\(m)", kind: .gridline, x: 0, y: f.bandY - 1, w: Layout.labelW - Layout.rightPad, h: 1, opacity: top, z: 11))
+            items.append(Item(key: "ftopg-\(m)", kind: .gridline, x: 0, y: f.bandY - 1, w: Layout.labelW - Layout.rightPad, h: 1, opacity: top, z: 11, gutter: true))
             items.append(Item(key: "ftopd-\(m)", kind: .gridline, x: Layout.labelW, y: f.bandY - 1, w: g.vp.w - Layout.labelW, h: 1, opacity: top, z: 11))
         }
 
@@ -264,18 +264,18 @@ private func buildDetail(_ g: SceneInput, _ clock: Clock, focus: Int, detailMul:
             let even = hr % 2 == 0
             items.append(Item(key: "hl-\(hr)", kind: .gridline, x: Layout.labelW, y: y, w: g.vp.w - Layout.labelW, h: 1, opacity: reveal * (even ? 0.22 : 0.12), lineStyle: even ? .dashed : .dotted, z: 0))
             if hr % (wide ? 2 : 6) == 0 {
-                items.append(Item(key: "ht-\(hr)", kind: .dayLabel, x: Layout.labelW - 46, y: y - 7, w: 42, h: 14, opacity: reveal * 0.7, text: String(format: "%02d:00", hr), fontSize: 9, align: .center, z: 9))
+                items.append(Item(key: "ht-\(hr)", kind: .dayLabel, x: Layout.labelW - 46, y: y - 7, w: 42, h: 14, opacity: reveal * 0.7, text: String(format: "%02d:00", hr), fontSize: 9, align: .center, z: 9, gutter: true))
                 if altOn {
                     let t = (((Int(((CGFloat(hr) + g.altDeltaHours!) * 60).rounded()) % 1440) + 1440) % 1440)
                     let txt = String(format: "%02d:%02d", t / 60, t % 60)
-                    items.append(Item(key: "hta-\(hr)", kind: .dayLabel, x: Layout.labelW - 92, y: y - 7, w: 42, h: 14, opacity: reveal * 0.7, text: txt, fontSize: 9, align: .center, z: 9))
+                    items.append(Item(key: "hta-\(hr)", kind: .dayLabel, x: Layout.labelW - 92, y: y - 7, w: 42, h: 14, opacity: reveal * 0.7, text: txt, fontSize: 9, align: .center, z: 9, gutter: true))
                 }
             }
             hr += step
         }
         if altOn {
-            items.append(Item(key: "tzaxis", kind: .gridline, x: Layout.labelW - 50, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: reveal * 0.35, z: 9))
-            if let al = g.altLabel { items.append(Item(key: "tzhdr", kind: .dayLabel, x: Layout.labelW - 92, y: tlTop - 16, w: 42, h: 12, opacity: reveal * 0.85, text: al, fontSize: 9, align: .center, z: 9)) }
+            items.append(Item(key: "tzaxis", kind: .gridline, x: Layout.labelW - 50, y: tlTop, w: 1, h: tlBottom - tlTop, opacity: reveal * 0.35, z: 9, gutter: true))
+            if let al = g.altLabel { items.append(Item(key: "tzhdr", kind: .dayLabel, x: Layout.labelW - 92, y: tlTop - 16, w: 42, h: 12, opacity: reveal * 0.85, text: al, fontSize: 9, align: .center, z: 9, gutter: true)) }
         }
     }
 

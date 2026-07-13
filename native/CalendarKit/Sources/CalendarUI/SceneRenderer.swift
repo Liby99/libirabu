@@ -27,41 +27,48 @@ enum SceneRenderer {
     private static func isForeground(_ k: ItemKind) -> Bool {
         switch k { case .now, .nowLabel, .cursor, .timeTag: return true; default: return false }
     }
-    // Gutter chrome (month names, hour labels, gutter border segments) sits ON the
-    // frosted gutter mask → also drawn in the top pass.
-    private static func isGutterChrome(_ it: Item) -> Bool {
-        switch it.kind {
-        case .monthLabel: return true
-        case .dayLabel: return it.x + it.w <= Layout.labelW + 1
-        case .gridline: return it.x + it.w <= Layout.labelW - Layout.rightPad + 2
-        default: return false
-        }
+
+    // Two disjoint regions. Content items clip to the content rect; gutter items
+    // (it.gutter) clip to the gutter rect — so neither can be drawn over the other,
+    // and no occlusion/background is needed.
+    private static func contentRect(_ input: SceneInput) -> CGRect {
+        let right = input.z > 2 ? dashboardLeft(input) : input.vp.w
+        return CGRect(x: Layout.labelW, y: 0, width: max(0, right - Layout.labelW), height: input.vp.h)
+    }
+    private static func gutterRect(_ input: SceneInput) -> CGRect {
+        CGRect(x: 0, y: 0, width: Layout.labelW, height: input.vp.h)
     }
 
+    /// Below the events: content-region scene items (grid, washes, today, grid hover,
+    /// day labels), clipped to the content area.
     static func drawBelow(input: SceneInput, in ctx: inout GraphicsContext, theme: Theme) {
-        // Clip to the content area so grid/columns never spill into the gutter (left)
-        // or the daily dashboard (right) — those regions are just the glass background.
-        let contentRight = input.z > 2 ? dashboardLeft(input) : input.vp.w
-        var clipped = ctx
-        clipped.clip(to: Path(CGRect(x: Layout.labelW, y: 0, width: max(0, contentRight - Layout.labelW), height: input.vp.h)))
+        var clipped = ctx; clipped.clip(to: Path(contentRect(input)))
         for it in buildScene(input).items.sorted(by: { $0.z < $1.z })
-        where it.opacity > 0.001 && !isForeground(it.kind) && !isGutterChrome(it) {
+        where it.opacity > 0.001 && !it.gutter && !isForeground(it.kind) {
             var layer = clipped; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
     }
 
+    /// Above the events, below the chrome: deadlines (self-clip to the content area).
     static func drawMid(input: SceneInput, deadlines: [Deadline], selected: String?, in ctx: inout GraphicsContext, theme: Theme) {
         drawDeadlines(input, deadlines, selected, &ctx, theme)
     }
 
+    /// Chrome, each clipped to its own region so it can't collide with content:
+    /// gutter items + track names (gutter region), now-line/cursor (content region),
+    /// then the dashboard title.
     static func drawAbove(input: SceneInput, tracks: [String], in ctx: inout GraphicsContext, theme: Theme) {
         let items = buildScene(input).items.sorted { $0.z < $1.z }
-        for it in items where it.opacity > 0.001 && !isForeground(it.kind) && isGutterChrome(it) {
-            var layer = ctx; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
+        // gutter region: month name, hour labels, gutter borders, gutter hover + tracks
+        var gut = ctx; gut.clip(to: Path(gutterRect(input)))
+        for it in items where it.gutter && it.opacity > 0.001 {
+            var layer = gut; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
-        drawTrackNames(input, tracks, &ctx, theme)
+        drawTrackNames(input, tracks, &gut, theme)
+        // content region: now-line + mouse cursor
+        var content = ctx; content.clip(to: Path(contentRect(input)))
         for it in items where isForeground(it.kind) && it.opacity > 0.001 {
-            var layer = ctx; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
+            var layer = content; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
         drawDashboardChrome(input, &ctx, theme)
     }
