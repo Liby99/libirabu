@@ -177,6 +177,14 @@ private struct BandSticker: View {
             .padding(.trailing, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .glassEffect(.regular.tint(border.opacity(0.34)), in: RoundedRectangle(cornerRadius: radius))
+            // Left accent bar: rounded, inset 3px from left/top/bottom; thicker when selected.
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(border)
+                    .frame(width: selected ? 3 : 2)
+                    .padding(.vertical, 3)
+                    .padding(.leading, 3)
+            }
             .overlay {
                 if drawerOpen {
                     RoundedRectangle(cornerRadius: radius).strokeBorder(border, lineWidth: 2)
