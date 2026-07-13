@@ -12,9 +12,9 @@ enum BandStyle {
     static let cornerRadius: CGFloat = 9
 
     // Tint = saturated event color at this opacity, by state (0…1).
-    static let tintIdle: Double = 0.25
-    static let tintHovered: Double = 0.40
-    static let tintSelected: Double = 0.45
+    static let tintIdle: Double = 0.20
+    static let tintHovered: Double = 0.25
+    static let tintSelected: Double = 0.40
 
     // Idle material: true = .regular (frosted, colorful), false = .clear (transparent, pale).
     static let idleFrosted = true

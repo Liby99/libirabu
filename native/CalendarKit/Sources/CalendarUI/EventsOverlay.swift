@@ -13,6 +13,7 @@ struct EventsOverlay: View {
     let selected: String?
     let hovered: String?
     let drawerId: String?
+    let editingId: String?
     let theme: Theme
 
     var body: some View {
@@ -84,7 +85,7 @@ struct EventsOverlay: View {
         placed.sort(by: orderBands)
         return placed.map { Item2(id: $0.ev.id, rect: $0.rect, fade: $0.fade, view: AnyView(
             BandSticker(ev: $0.ev, hovered: $0.ev.id == hovered, selected: $0.ev.id == selected,
-                        drawerOpen: $0.ev.id == drawerId, theme: theme))) }
+                        drawerOpen: $0.ev.id == drawerId, editing: $0.ev.id == editingId, theme: theme))) }
     }
 
     private func timedItems(_ tl: TimelineInfo) -> [Item2] {
@@ -168,6 +169,7 @@ private struct BandSticker: View {
     let hovered: Bool
     let selected: Bool
     let drawerOpen: Bool
+    let editing: Bool
     let theme: Theme
 
     var body: some View {
@@ -182,7 +184,7 @@ private struct BandSticker: View {
         // Text leading = bar inset + bar width + a FIXED gap, so thickening the bar on
         // select slides the title right (animated) instead of eating into the gap.
         let barWidth = selected ? BandStyle.accentWidthSelected : BandStyle.accentWidth
-        Text(ev.title)
+        Text(editing ? "" : ev.title)   // hidden while the inline editor is open (no double text)
             .font(.custom("Comic Sans MS", size: BandStyle.titleSize))
             .foregroundStyle(theme.text)
             .lineLimit(1)

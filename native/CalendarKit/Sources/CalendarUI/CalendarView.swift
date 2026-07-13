@@ -33,7 +33,7 @@ public struct CalendarView: View {
                     // 2. events (bands + timed), Liquid Glass stickers
                     EventsOverlay(input: input, events: engine.seedEvents, bands: engine.seedBands,
                                   selected: engine.selectedId, hovered: engine.hoveredEventId,
-                                  drawerId: ui.openEventId, theme: theme)
+                                  drawerId: ui.openEventId, editingId: ui.editingBand?.id, theme: theme)
                         .offset(x: Layout.padLeft)
                     // 3. deadlines (above events, clipped to the content area)
                     Canvas { ctx, size in
@@ -67,6 +67,13 @@ public struct CalendarView: View {
                                     onDone: { ui.editingTrack = nil; engine.trackEditing = false })
                 }
             }
+            // inline band-title editor
+            .overlay {
+                if let be = ui.editingBand {
+                    BandTitleEditor(engine: engine, target: be, theme: theme,
+                                    onDone: { ui.editingBand = nil; engine.bandEditing = false })
+                }
+            }
             // 4a. scrim — blocks the canvas + closes on outside-click (fades)
             .overlay {
                 if ui.openEventId != nil {
@@ -85,7 +92,10 @@ public struct CalendarView: View {
                 }
             }
             .animation(.easeOut(duration: 0.26), value: ui.openEventId)
-            .onAppear { engine.setViewport(geo.size) }
+            .onAppear {
+                engine.setViewport(geo.size)
+                engine.onEditBand = { id, rect in engine.bandEditing = true; ui.editingBand = BandEdit(id: id, rect: rect) }
+            }
             .onChange(of: geo.size) { _, s in engine.setViewport(s) }
         }
         .ignoresSafeArea()
@@ -138,6 +148,35 @@ private struct TrackNameEditor: View {
                 focused = true
             }
             .onChange(of: text) { _, v in engine.setTrackName(target.month, target.track, v) }
+            .onChange(of: focused) { _, f in if !f { onDone() } }
+            .onSubmit { onDone() }
+            .onExitCommand { onDone() }
+    }
+}
+
+/// Inline editor for a band's title, placed over the band. Its leading matches the
+/// selected band's title (bar inset + selected bar width + gap). Commits live.
+private struct BandTitleEditor: View {
+    let engine: CalendarEngine
+    let target: BandEdit
+    let theme: Theme
+    var onDone: () -> Void
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let r = target.rect
+        TextField("Event", text: $text)
+            .textFieldStyle(.plain)
+            .font(.custom("Comic Sans MS", size: BandStyle.titleSize))
+            .foregroundStyle(theme.text)
+            .focused($focused)
+            .padding(.leading, BandStyle.accentInset + BandStyle.accentWidthSelected + BandStyle.barTextGap)
+            .padding(.trailing, BandStyle.titleTrailing)
+            .frame(width: r.width, height: r.height, alignment: .leading)
+            .position(x: r.midX + Layout.padLeft, y: r.midY)
+            .onAppear { text = engine.band(target.id)?.title ?? ""; focused = true }
+            .onChange(of: text) { _, v in engine.setBandTitle(target.id, v) }
             .onChange(of: focused) { _, f in if !f { onDone() } }
             .onSubmit { onDone() }
             .onExitCommand { onDone() }
@@ -340,7 +379,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         // physics; its offset is mirrored back via clipBoundsChanged. Deeper levels use
         // the manual timeline/week/day handling.
         guard let engine else { return }
-        if engine.isFlipping || engine.trackEditing { return }   // don't fight flip / inline edit
+        if engine.isFlipping || engine.trackEditing || engine.bandEditing { return }   // don't fight flip / inline edit
         if engine.isYearLevel {
             yearScroll.scrollWheel(with: e)   // DriverScrollView does the physics + begin/end
         } else {
@@ -354,9 +393,9 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
     override func mouseDown(with e: NSEvent) {
         let p = point(e)
-        // While a track name is being edited, a click just commits/dismisses it (blur the
-        // field) and is swallowed — it must NOT navigate/zoom into the month.
-        if engine?.trackEditing == true {
+        // While an inline field (track name / band title) is open, a click just commits/
+        // dismisses it (blur the field) and is swallowed — no navigate/select underneath.
+        if engine?.trackEditing == true || engine?.bandEditing == true {
             window?.makeFirstResponder(self)
             return
         }
@@ -380,6 +419,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         switch engine?.cursorHint(at: p) {
         case .grab: NSCursor.openHand.set()
         case .create: NSCursor.crosshair.set()
+        case .resizeLR: NSCursor.resizeLeftRight.set()
         default: NSCursor.arrow.set()
         }
     }

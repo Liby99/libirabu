@@ -13,11 +13,14 @@ import CalendarEngine
 public final class CalendarUIState {
     public var openEventId: String?
     public var editingTrack: TrackEdit?   // inline track-name editor target
+    public var editingBand: BandEdit?     // inline band-title editor target
     public init() {}
 }
 
 /// Target for the inline track-name editor: which month + track, and where (geometry rect).
 public struct TrackEdit: Equatable { public var month: Int; public var track: Int; public var rect: CGRect }
+/// Target for the inline band-title editor: which band id, and where (geometry rect).
+public struct BandEdit: Equatable { public var id: String; public var rect: CGRect }
 
 private enum ItemKind2 { case timed, band, deadline }
 

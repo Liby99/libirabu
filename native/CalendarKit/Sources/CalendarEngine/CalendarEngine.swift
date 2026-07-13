@@ -41,6 +41,8 @@ public final class CalendarEngine {
     // The input bridge forwards wheel events to it and mirrors its offset back here via
     // setYearScroll(_:); onSetYearScroll moves it programmatically (flip / year switch).
     public var onSetYearScroll: ((CGFloat) -> Void)?
+    public var onEditBand: ((_ id: String, _ rect: CGRect) -> Void)?   // open inline title editor
+    public var bandEditing = false        // an inline band-title field is open (freezes scroll)
     private var didInitialScroll = false     // center the current month once, at first layout
     private var liveScrolling = false        // fingers-down phase of a trackpad gesture
     private var startedAtTop = false         // the drag began already resting at an edge —
@@ -385,7 +387,8 @@ public final class CalendarEngine {
         // 1. all-day bands (on the lanes) — selectable at every zoom incl. year view
         if let hit = bandAt(p, g) {
             selectedId = hit.id
-            drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id, origBand: seedBands.first { $0.id == hit.id })
+            drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id,
+                        origBand: seedBands.first { $0.id == hit.id }, priorSelection: prior)
             return
         }
         // 2. timed events (on the timeline)
@@ -447,6 +450,9 @@ public final class CalendarEngine {
             switch d.kind {
             case .create, .bandCreate, .navigate:
                 if d.priorSelection != nil { selectedId = nil } else { navigate(at: p) }
+            case .bandMove:
+                // click the body of an ALREADY-selected band → edit its title inline
+                if d.priorSelection == d.eventId, let id = d.eventId { editBand(id) }
             default:
                 break
             }
@@ -511,6 +517,17 @@ public final class CalendarEngine {
         if z >= 1.5, let id = deadlineAt(p, g) { return id }
         return nil
     }
+    /// Open the inline title editor for a band, positioned over its rect (geometry space).
+    private func editBand(_ id: String) {
+        let g = snapshot()
+        guard let b = seedBands.first(where: { $0.id == id }), let r = bandEventRect(b, g, anim: g.monthAnim) else { return }
+        onEditBand?(id, CGRect(x: r.x, y: r.y, width: r.w, height: r.h))
+    }
+    public func setBandTitle(_ id: String, _ title: String) {
+        guard let i = seedBands.firstIndex(where: { $0.id == id }), seedBands[i].title != title else { return }
+        beginTxn(); seedBands[i].title = title; scheduleCommit()
+    }
+
     public func event(_ id: String) -> TimedEvent? { seedEvents.first { $0.id == id } }
     public func band(_ id: String) -> BandEvent? { seedBands.first { $0.id == id } }
     public func deadline(_ id: String) -> Deadline? { seedDeadlines.first { $0.id == id } }
@@ -634,8 +651,12 @@ public final class CalendarEngine {
             guard let r = bandEventRect(b, g, anim: g.monthAnim) else { continue }
             let rect = CGRect(x: r.x, y: r.y, width: r.w, height: r.h)
             if rect.contains(p) {
-                let zone: PointerKind = (p.x - rect.minX < 6 && !r.clipStart) ? .bandResizeL
-                    : (rect.maxX - p.x < 6 && !r.clipEnd ? .bandResizeR : .bandMove)
+                // Edges only resize when the band is already selected; otherwise the whole
+                // band is a move/select target.
+                let zone: PointerKind = b.id == selectedId
+                    ? ((p.x - rect.minX < 6 && !r.clipStart) ? .bandResizeL
+                       : (rect.maxX - p.x < 6 && !r.clipEnd ? .bandResizeR : .bandMove))
+                    : .bandMove
                 found = (b.id, zone)   // keep last → topmost
             }
         }
@@ -754,10 +775,12 @@ public final class CalendarEngine {
 
     public func onHoverExit() { hover = .none; hoveredEventId = nil }
 
-    public enum CursorHint { case normal, grab, create }
+    public enum CursorHint { case normal, grab, create, resizeLR }
     public func cursorHint(at p: CGPoint) -> CursorHint {
         let g = snapshot()
-        if bandAt(p, g) != nil { return .grab }
+        if let hit = bandAt(p, g) {
+            return (hit.zone == .bandResizeL || hit.zone == .bandResizeR) ? .resizeLR : .grab
+        }
         if z >= 1.5 {
             if eventAt(p, g) != nil { return .grab }
             if deadlineAt(p, g) != nil { return .grab }
