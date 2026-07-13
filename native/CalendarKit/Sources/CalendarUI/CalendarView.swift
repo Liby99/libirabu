@@ -109,24 +109,31 @@ private struct Breadcrumb: View {
     @State private var yearMenuOpen = false
 
     var body: some View {
+        let showCaret = yearHover || yearMenuOpen
         HStack(spacing: 5) {
             // A plain Button + popover (not Menu) so there's no system disclosure arrow —
             // the only caret is our own, hidden by default and revealed on hover.
             Button { yearMenuOpen.toggle() } label: {
                 HStack(spacing: 0) {
-                    crumb("Year \(chrome.year)", active: chrome.level == 0)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, 4)
-                        .frame(width: (yearHover || yearMenuOpen) ? 13 : 0, alignment: .leading)
-                        .opacity((yearHover || yearMenuOpen) ? 1 : 0)
+                    // The text keeps its natural width and stays put; the caret rides in a
+                    // clear spacer whose width animates 0→17, so the crumb grows rightward
+                    // smoothly (no whole-button fixedSize snap, which caused the jump).
+                    crumb("Year \(chrome.year)", active: chrome.level == 0).fixedSize()
+                    Color.clear
+                        .frame(width: showCaret ? 17 : 0)
+                        .overlay(alignment: .leading) {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                                .padding(.leading, 5)
+                                .opacity(showCaret ? 1 : 0)
+                                .fixedSize()
+                        }
                         .clipped()
                 }
             }
             .buttonStyle(.plain)
-            .fixedSize()
-            .animation(.easeOut(duration: 0.15), value: yearHover || yearMenuOpen)
+            .animation(.easeOut(duration: 0.18), value: showCaret)
             .onHover { h in yearHover = h }
             .popover(isPresented: $yearMenuOpen, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 1) {
