@@ -85,14 +85,18 @@ public struct CalendarView: View {
         .toolbar {
             ToolbarItem(placement: .navigation) { Breadcrumb(chrome: engine.chrome) }
             ToolbarSpacer(.flexible)
+            // .fixed spacers between items break the shared glass group into
+            // separate glass pieces AND add the margin between the buttons.
             ToolbarItem(placement: .primaryAction) {
                 Button { } label: { Image(systemName: "magnifyingglass") }
                     .buttonStyle(.glass).buttonBorderShape(.circle).help("Search")
             }
+            ToolbarSpacer(.fixed)
             ToolbarItem(placement: .primaryAction) {
                 Button { } label: { Image(systemName: "sparkles") }
                     .buttonStyle(.glass).buttonBorderShape(.circle).help("Assistant")
             }
+            ToolbarSpacer(.fixed)
             ToolbarItem(placement: .primaryAction) {
                 Button { } label: { Text("Today") }
                     .buttonStyle(.glass).buttonBorderShape(.capsule)
@@ -120,7 +124,7 @@ private struct Breadcrumb: View {
                 sep; crumb("\(WD_LONG[dayOfWeek(chrome.year, r.month, r.day)]), \(r.day)\(ordinal(r.day))", active: true)
             }
         }
-        .padding(.leading, 4)
+        .padding(.horizontal, 10)
     }
 
     private var sep: some View {
