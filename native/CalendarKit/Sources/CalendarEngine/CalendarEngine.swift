@@ -411,7 +411,7 @@ public final class CalendarEngine {
             return
         }
         // 5. empty lane → band create (drag) / deselect / navigate
-        if z >= 1, let slot = bandSlotAtPoint(p.x, p.y, g) {
+        if let slot = bandSlotAtPoint(p.x, p.y, g) {   // empty lane, any zoom incl. year view
             drag = Drag(kind: .bandCreate, startPoint: p, bandMonth: slot.month, bandTrack: slot.track, bandAnchorDay: slot.day, priorSelection: prior)
             return
         }
@@ -813,7 +813,7 @@ public final class CalendarEngine {
             if deadlineAt(p, g) != nil { return .grab }
             if createSpot(at: p, g) != nil { return .create }
         }
-        if z >= 1, bandSlotAtPoint(p.x, p.y, g) != nil { return .create }
+        if bandSlotAtPoint(p.x, p.y, g) != nil { return .create }
         return .normal
     }
 
