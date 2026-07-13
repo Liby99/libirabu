@@ -227,13 +227,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
         yearScroll.contentView.postsBoundsChangedNotifications = true
         addSubview(yearScroll, positioned: .below, relativeTo: nil)  // behind; never hit-tested
 
-        let nc = NotificationCenter.default
-        nc.addObserver(self, selector: #selector(clipBoundsChanged),
+        // Mirror the driver's offset each frame. Gesture begin/end is driven from the
+        // event phase in scrollWheel(), not the live-scroll notifications (unreliable
+        // when we forward events to a non-hit-tested scroll view).
+        NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged),
                        name: NSView.boundsDidChangeNotification, object: yearScroll.contentView)
-        nc.addObserver(self, selector: #selector(liveScrollBegan),
-                       name: NSScrollView.willStartLiveScrollNotification, object: yearScroll)
-        nc.addObserver(self, selector: #selector(liveScrollEnded),
-                       name: NSScrollView.didEndLiveScrollNotification, object: yearScroll)
         engine?.onSetYearScroll = { [weak self] y in self?.setDriverOffset(y) }
     }
 
@@ -247,8 +245,6 @@ final class CatcherView: NSView, NSMenuItemValidation {
         guard let engine, engine.isYearLevel, !engine.isFlipping else { return }
         engine.setYearScroll(yearScroll.contentView.bounds.origin.y)
     }
-    @objc private func liveScrollBegan() { engine?.beginYearScrollGesture() }
-    @objc private func liveScrollEnded() { engine?.endYearScrollGesture() }
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
@@ -281,11 +277,16 @@ final class CatcherView: NSView, NSMenuItemValidation {
         // Year view: hand the event to the NSScrollView driver so AppKit does the elastic
         // physics; its offset is mirrored back via clipBoundsChanged. Deeper levels use
         // the manual timeline/week/day handling.
-        if engine?.isFlipping == true { return }   // don't fight the flip transition
-        if engine?.isYearLevel == true {
+        guard let engine else { return }
+        if engine.isFlipping { return }            // don't fight the flip transition
+        if engine.isYearLevel {
+            // Drive gesture begin/end from the event phase (reliable when forwarding to a
+            // non-hit-tested scroll view; the live-scroll notifications aren't).
+            if e.phase.contains(.began) { engine.beginYearScrollGesture() }
             yearScroll.scrollWheel(with: e)
+            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { engine.endYearScrollGesture() }
         } else {
-            engine?.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
+            engine.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
         }
     }
     override func magnify(with e: NSEvent) {
