@@ -10,6 +10,13 @@ public enum Layout {
     public static let topPad: CGFloat = 78
     public static let yearTop: CGFloat = 44    // year view top inset (no date row up there)
     public static let yearFlipOver: CGFloat = 30  // on-screen overscroll (px) that arms a year flip
+
+    // Emphasized band-edge borders — thicker + more solid than the internal dividers. Shared
+    // by the year view's quarter top/bottom and the month view's focus-band top/bottom.
+    public static let bandEdgeWidth: CGFloat = 1.5
+    public static let bandEdgeOpacity: CGFloat = 1.0
+    public static let bandInnerWidth: CGFloat = 1.0
+    public static let bandInnerOpacity: CGFloat = 0.6
     public static let barH: CGFloat = 32       // top nav bar height
     public static let bottomPad: CGFloat = 28  // breathing room below year content
     public static let labelW: CGFloat = 250    // left gutter width

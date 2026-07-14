@@ -332,15 +332,17 @@ enum SceneRenderer {
                          size: 13, align: .left, color: theme.text, font: .custom("Comic Sans MS", size: 13),
                          into: &layer, clipToRect: true)
             }
-            // solid bottom border across the gutter (month-name cell + track cells) —
-            // the grid's month divider doesn't extend into the gutter. Internal borders
-            // match the quarter top (0.6, 1×); the quarter's bottom month is emphasized
-            // (1.0, 1.5×), matching its grid msep.
+            // Gutter bottom border (the grid's month divider doesn't reach the gutter).
+            // Emphasized (shared band-edge style) for a quarter's bottom month OR the focused
+            // band in month view; internal dividers otherwise. Matches the grid msep.
             let quarterBottom = m % 3 == 2
+            let isFocus = m == input.focus || (input.monthAnim != nil && m == input.focus + input.monthAnim!.dir)
+            let edge = max(quarterBottom ? 1 : 0, isFocus ? clamp((input.z - 0.82) / 0.18, 0, 1) : 0)
             var bottom = Path()
             let by = f.bandY + 4 * f.trackH
             bottom.move(to: CGPoint(x: 0, y: by)); bottom.addLine(to: CGPoint(x: Layout.labelW - Layout.rightPad, y: by))
-            layer.stroke(bottom, with: .color(theme.sep.opacity(quarterBottom ? 1.0 : 0.6)), lineWidth: quarterBottom ? 1.5 : 1)
+            layer.stroke(bottom, with: .color(theme.sep.opacity(lerp(Layout.bandInnerOpacity, Layout.bandEdgeOpacity, edge))),
+                         lineWidth: lerp(Layout.bandInnerWidth, Layout.bandEdgeWidth, edge))
         }
     }
 

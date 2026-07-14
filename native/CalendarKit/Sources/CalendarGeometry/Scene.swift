@@ -202,8 +202,8 @@ private func buildQuarterHeaders(_ g: SceneInput, _ clock: Clock) -> [Item] {
         let topY = hy + Layout.qHeaderH - 1
         // Quarter top border — emphasized (full opacity + 1.5× width) vs the internal
         // month dividers (0.6 opacity, 1× width).
-        items.append(Item(key: "qhsepg-\(q)", kind: .gridline, x: 0, y: topY, w: Layout.labelW - Layout.rightPad, h: 1, opacity: yearVis, z: 11, gutter: true, lineW: 1.5))
-        items.append(Item(key: "qhsepd-\(q)", kind: .gridline, x: Layout.labelW, y: topY, w: 31 * dayW, h: 1, opacity: yearVis, z: 11, lineW: 1.5))
+        items.append(Item(key: "qhsepg-\(q)", kind: .gridline, x: 0, y: topY, w: Layout.labelW - Layout.rightPad, h: 1, opacity: yearVis * Layout.bandEdgeOpacity, z: 11, gutter: true, lineW: Layout.bandEdgeWidth))
+        items.append(Item(key: "qhsepd-\(q)", kind: .gridline, x: Layout.labelW, y: topY, w: 31 * dayW, h: 1, opacity: yearVis * Layout.bandEdgeOpacity, z: 11, lineW: Layout.bandEdgeWidth))
     }
     return items
 }
@@ -222,10 +222,10 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
         items.append(Item(key: "ml-\(m)", kind: .monthLabel, x: 0, y: f.bandY, w: Layout.mnameW, h: f.trackH * 4, opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 13, align: .center, z: 8, gutter: true))
 
         let isFocusBand = m == g.focus || (g.monthAnim != nil && m == g.focus + g.monthAnim!.dir)
-        if detailReveal > 0.02 && isFocusBand {
-            let top = f.opacity * detailReveal * 0.6
-            items.append(Item(key: "ftopg-\(m)", kind: .gridline, x: 0, y: f.bandY - 1, w: Layout.labelW - Layout.rightPad, h: 1, opacity: top, z: 11, gutter: true))
-            items.append(Item(key: "ftopd-\(m)", kind: .gridline, x: Layout.labelW, y: f.bandY - 1, w: g.vp.w - Layout.labelW, h: 1, opacity: top, z: 11))
+        if detailReveal > 0.02 && isFocusBand {   // emphasized top border for the focused month band
+            let top = f.opacity * detailReveal * Layout.bandEdgeOpacity
+            items.append(Item(key: "ftopg-\(m)", kind: .gridline, x: 0, y: f.bandY - 1, w: Layout.labelW - Layout.rightPad, h: 1, opacity: top, z: 11, gutter: true, lineW: Layout.bandEdgeWidth))
+            items.append(Item(key: "ftopd-\(m)", kind: .gridline, x: Layout.labelW, y: f.bandY - 1, w: g.vp.w - Layout.labelW, h: 1, opacity: top, z: 11, lineW: Layout.bandEdgeWidth))
         }
 
         for t in 0..<4 {
@@ -234,9 +234,13 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
         if dim < 31 && dimFade > 0.02 {
             items.append(Item(key: "dim-\(m)", kind: .dim, x: f.x0 + CGFloat(dim) * f.dayW, y: f.bandY, w: CGFloat(31 - dim) * f.dayW, h: 4 * f.trackH, opacity: f.opacity * dimFade, z: 3))
         }
-        // The bottom month of each quarter (m%3==2) gets the emphasized outer border.
+        // Bottom border emphasized for a quarter's bottom month (year) OR the focused band
+        // (month) — same shared edge style, blended in as we zoom into the focus.
         let quarterBottom = m % 3 == 2
-        items.append(Item(key: "msep-\(m)", kind: .gridline, x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: fullW, h: 1, opacity: f.opacity * (quarterBottom ? 1.0 : 0.55), z: 1, lineW: quarterBottom ? 1.5 : 1))
+        let edge = max(quarterBottom ? 1 : 0, isFocusBand ? detailReveal : 0)
+        items.append(Item(key: "msep-\(m)", kind: .gridline, x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: fullW, h: 1,
+                          opacity: f.opacity * lerp(Layout.bandInnerOpacity, Layout.bandEdgeOpacity, edge), z: 1,
+                          lineW: lerp(Layout.bandInnerWidth, Layout.bandEdgeWidth, edge)))
     }
     return items
 }
