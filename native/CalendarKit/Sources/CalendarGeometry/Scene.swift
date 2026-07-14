@@ -5,8 +5,8 @@
 import CoreGraphics
 import Foundation
 
-private let HL_SOFT: CGFloat = 0.03   // L1 coarse highlight (row / month span)
-private let HL_STRONG: CGFloat = 0.08 // L2 fine highlight (day / week column)
+private let HL_SOFT = Layout.hlSoft     // coarse highlight (row / month span)
+private let HL_STRONG = Layout.hlStrong // fine highlight (day / week column)
 
 struct Clock { var year: Int; var month: Int; var day: Int; var hour: Int; var minute: Int }
 private func clockOf(_ date: Date) -> Clock {
@@ -142,7 +142,7 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         let dim = daysInMonth(g.year, g.focus)
         let colW = f.dayW
         let top = f.bandY
-        let bottom = g.z >= 0.82 ? g.vp.h - 8 : f.bandY + 4 * f.trackH
+        let bottom = f.bandY + 4 * f.trackH   // band region only (matches year view; not the timeline)
         var wx = f.x0, ww: CGFloat = 0
         if let hw = h.week {
             let ws = weekStartDOM(g.year, g.focus, hw)
@@ -151,6 +151,9 @@ private func buildHover(_ g: SceneInput) -> [Item] {
             wx = f.x0 + CGFloat(startCol) * colW
             ww = max(0, CGFloat(endCol - startCol) * colW)
         }
+        // Gutter row highlight for the focused band while hovering it (like year's hl-yg).
+        let bandHovered = active && (h.dom != nil || h.week != nil)
+        items.append(Item(key: "hl-mg", kind: .hl, x: -Layout.padLeft, y: top, w: Layout.labelW + Layout.padLeft, h: bottom - top, opacity: bandHovered ? HL_SOFT : 0, z: 6, gutter: true))
         items.append(Item(key: "hl-mw", kind: .hl, x: wx, y: top, w: ww, h: bottom - top, opacity: active && ww > 0 ? HL_SOFT : 0, z: 3))
         let dcol = h.dom ?? 1
         let dayOn = active && h.dom != nil && h.dom! >= 1 && h.dom! <= dim

@@ -17,6 +17,11 @@ public enum Layout {
     public static let bandEdgeOpacity: CGFloat = 1.0
     public static let bandInnerWidth: CGFloat = 1.0
     public static let bandInnerOpacity: CGFloat = 0.6
+
+    // Hover-highlight + weekend-wash style guide — shared across year / month / week.
+    public static let hlSoft: CGFloat = 0.03            // coarse: month-band row / week span
+    public static let hlStrong: CGFloat = 0.08          // fine: hovered day / hour cell
+    public static let weekendWashOpacity: CGFloat = 0.03 // toned down to match the hover feel
     public static let barH: CGFloat = 32       // top nav bar height
     public static let bottomPad: CGFloat = 28  // breathing room below year content
     public static let labelW: CGFloat = 250    // left gutter width

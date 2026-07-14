@@ -6,6 +6,7 @@
 
 import SwiftUI
 import AppKit
+import CalendarGeometry
 
 struct Theme {
     let dark: Bool   // only affects the event palette; structural colors are system-native
@@ -53,7 +54,7 @@ struct Theme {
         gridLine = label.opacity(0.35)         // solid gridlines
         cellGrid = label.opacity(0.16)         // dotted day-cell verticals + lane separators
         dimFill = label.opacity(0.09)
-        weekendWash = label.opacity(0.045)
+        weekendWash = label.opacity(CalendarGeometry.Layout.weekendWashOpacity)
         highlight = label                      // hover wash (item opacity is tiny)
         cursor = label.opacity(0.6)
         nowLine = Color(hex: 0xff3b6b)          // red accent (kept)
