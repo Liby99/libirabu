@@ -4,7 +4,10 @@
 import CoreGraphics
 
 public enum Layout {
-    public static let topPad: CGFloat = 56     // month/detail: date row (bandY-20) + breathing room
+    // Month/week/day top padding: the band's resting Y (the date row sits at bandY-20).
+    // The year→month accordion lands the band here, so this animates smoothly (no jump);
+    // year view is unaffected (it uses yearTop). Raise to move month content clear of the toolbar.
+    public static let topPad: CGFloat = 78
     public static let yearTop: CGFloat = 44    // year view top inset (no date row up there)
     public static let yearFlipOver: CGFloat = 30  // on-screen overscroll (px) that arms a year flip
     public static let barH: CGFloat = 32       // top nav bar height
