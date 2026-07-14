@@ -149,8 +149,11 @@ struct EventsOverlay: View {
         }
         placed.sort(by: orderTimed)
         return placed.enumerated().map { i, p in
-            let z: Double = p.ev.id == selected ? 1000 : (p.ev.id == hovered ? 950 : Double(i))
-            return Item2(id: p.ev.id, rect: p.rect, fade: p.fade, z: z, view: AnyView(EventSticker(ev: p.ev, height: p.rect.height, selected: p.ev.id == selected, theme: theme)))
+            let id = p.ev.id
+            let z: Double = id == drawerId ? 1001 : (id == selected ? 1000 : (id == hovered ? 950 : Double(i)))
+            return Item2(id: id, rect: p.rect, fade: p.fade, z: z, view: AnyView(
+                EventSticker(ev: p.ev, height: p.rect.height, hovered: id == hovered, selected: id == selected,
+                             drawerOpen: id == drawerId, theme: theme)))
         }
     }
 
@@ -163,41 +166,59 @@ struct EventsOverlay: View {
     }
 }
 
-/// A timed-event glass sticker — a colored left accent bar + handwriting title + time.
+/// A timed event — same visual language as a band (BandStyle): frosted glass tinted with
+/// the event color, a rounded accent bar, dotted-when-selected / solid-when-drawer border.
+/// Content is the height-driven title + time (clipped, unlike bands' overflow).
 private struct EventSticker: View {
     let ev: TimedEvent
     let height: CGFloat
+    let hovered: Bool
     let selected: Bool
+    let drawerOpen: Bool
     let theme: Theme
 
     var body: some View {
         let lay = eventTextLayout(height)
         let border = theme.eventBorder(ev.color)
-        HStack(alignment: .top, spacing: 0) {
-            Rectangle().fill(border).frame(width: selected ? 3 : 1)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(ev.title)
-                    .font(.custom("Comic Sans MS", size: lay.tiny ? 10 : 13))
-                    .foregroundStyle(theme.text)
-                    .lineLimit(lay.titleLines)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !(lay.short || lay.tiny) {
-                    Text(fmtHourRange(ev.startHour, ev.endHour))
-                        .font(.system(size: 8.5))
-                        .foregroundStyle(theme.text.opacity(0.72))
-                }
-                Spacer(minLength: 0)
+        let color = theme.eventColor(ev.color)
+        let r = BandStyle.cornerRadius
+        let active = hovered || selected || drawerOpen
+        let tint = (selected || drawerOpen) ? BandStyle.tintSelected
+                 : (hovered ? BandStyle.tintHovered : BandStyle.tintIdle)
+        let glass: Glass = (active || BandStyle.idleFrosted) ? .regular.tint(color.opacity(tint))
+                                                             : .clear.tint(color.opacity(tint))
+        let barWidth = selected ? BandStyle.accentWidthSelected : BandStyle.accentWidth
+        VStack(alignment: .leading, spacing: 1) {
+            Text(ev.title)
+                .font(.custom("Comic Sans MS", size: lay.tiny ? 10 : 13))
+                .foregroundStyle(theme.text)
+                .lineLimit(lay.titleLines)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            if !(lay.short || lay.tiny) {
+                Text(fmtHourRange(ev.startHour, ev.endHour))
+                    .font(.system(size: 8.5))
+                    .foregroundStyle(theme.text.opacity(0.72))
             }
-            .padding(.leading, 4)
-            .padding(.trailing, 6)
             Spacer(minLength: 0)
         }
-        .padding(4)
+        .padding(.leading, BandStyle.accentInset + barWidth + BandStyle.barTextGap)
+        .padding(.trailing, BandStyle.titleTrailing)
+        .padding(.vertical, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glassEffect(.regular.tint(border.opacity(0.30)), in: RoundedRectangle(cornerRadius: 7))
-        .overlay { if selected { RoundedRectangle(cornerRadius: 7).strokeBorder(border, lineWidth: 1) } }
-        .shadow(color: .black.opacity(selected ? 0.26 : 0), radius: selected ? 6 : 0, y: selected ? 3 : 0)
+        .glassEffect(glass, in: RoundedRectangle(cornerRadius: r))
+        .overlay(alignment: .leading) {   // rounded accent bar, inset + thicker when selected
+            Capsule().fill(border).frame(width: barWidth)
+                .padding(.vertical, BandStyle.accentInset).padding(.leading, BandStyle.accentInset)
+        }
+        .overlay {
+            if drawerOpen {
+                RoundedRectangle(cornerRadius: r).strokeBorder(border, lineWidth: BandStyle.drawerBorderWidth)
+            } else if selected {
+                RoundedRectangle(cornerRadius: r).strokeBorder(border, style: StrokeStyle(lineWidth: BandStyle.selectedBorderWidth, dash: BandStyle.selectedDash))
+            }
+        }
+        .animation(.easeInOut(duration: BandStyle.animation), value: [hovered, selected, drawerOpen])
     }
 }
 
