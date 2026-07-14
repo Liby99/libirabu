@@ -147,10 +147,10 @@ public final class CalendarEngine {
         schedulePersist()
     }
 
-    /// Which track-name gutter slot is under the cursor (year view only): its month,
-    /// track index, and geometry-space rect — used to place the inline editor.
+    /// Which track-name gutter slot is under the cursor (any zoom that shows a band gutter):
+    /// its month, track index, and geometry-space rect — used to place the inline editor.
     public func trackNameHit(at p: CGPoint) -> (month: Int, track: Int, rect: CGRect)? {
-        guard isYearLevel, p.x >= Layout.mnameW, p.x <= Layout.labelW - Layout.rightPad else { return nil }
+        guard p.x >= Layout.mnameW, p.x <= Layout.labelW - Layout.rightPad else { return nil }
         let g = snapshot()
         for m in 0..<12 {
             let f = frameFor(m, g)
