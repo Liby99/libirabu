@@ -80,9 +80,10 @@ public struct Deadline: Sendable, Identifiable, Equatable, Codable {
 
 /// A deadline's line position on the day-detail timeline: a horizontal rule across the
 /// day column at the deadline's hour. nil when off the focused window or scrolled out.
-public func deadlinePos(_ d: Deadline, _ g: SceneInput) -> (x: CGFloat, y: CGFloat, w: CGFloat)? {
-    let tl = timelineInfo(g)
-    guard tl.reveal > 0.05, tl.hourH > 0, let rd = relDomOf(g.year, g.focus, d.month, d.day) else { return nil }
+public func deadlinePos(_ d: Deadline, _ g: SceneInput, focus: Int? = nil, anim: PageAnim? = nil) -> (x: CGFloat, y: CGFloat, w: CGFloat)? {
+    let mo = focus ?? g.focus
+    let tl = timelineInfo(g, focus: focus, anim: anim)
+    guard tl.reveal > 0.05, tl.hourH > 0, let rd = relDomOf(g.year, mo, d.month, d.day) else { return nil }
     let x = tl.x0 + CGFloat(rd - 1) * tl.colW
     let y = tl.tlTop + d.hour * tl.hourH - tl.scroll
     if y < tl.tlTop || y > tl.tlBottom { return nil }

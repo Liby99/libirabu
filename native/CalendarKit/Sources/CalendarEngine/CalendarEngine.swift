@@ -17,6 +17,7 @@ public final class CalendarEngine {
     public private(set) var scrollY: CGFloat = 0
     public private(set) var tlScroll: CGFloat = 0
     public private(set) var daily: DailyState
+    public private(set) var monthAnim: PageAnim?   // vertical month↕month page-turn (nil = settled)
     public private(set) var hover: Hover = .none
     public private(set) var year: Int
     public let systemYear: Int          // the real "today" year at launch — anchors the picker range
@@ -35,6 +36,11 @@ public final class CalendarEngine {
 
     private var tween: Tween?
     private var weekTween: Tween?
+    private var monthSnap: Tween?      // month page release-snap (p → 0 or 1)
+    // Month↕month paging is driven by a real NSScrollView (native elastic drag + momentum).
+    // The input bridge mirrors its offset via setMonthScroll(_:); onSetMonthScroll re-centres
+    // the driver after a page commits or snaps back.
+    public var onSetMonthScroll: ((CGFloat) -> Void)?
     private var snapWork: DispatchWorkItem?
     private var wheelAccumX: CGFloat = 0
     // Year-view scroll is driven by a real NSScrollView (native elastic bounce + momentum).
@@ -73,6 +79,25 @@ public final class CalendarEngine {
     private var undoWork: DispatchWorkItem?
     private let store = ItemStore()
     private var persistWork: DispatchWorkItem?
+    // ── Cloud-sync seam (Phase 1) ─────────────────────────────────────────────────
+    // The state the sync layer last saw, for computing per-record deltas at persist.
+    private var syncedState: PersistedState?
+    /// Fired at the persist choke point with the record ids that changed since the last
+    /// persist: (upserted, deleted). Phase 2's cloud layer maps these to CKSyncEngine
+    /// pending changes. A change to the lane labels upserts `trackNamesRecordID`.
+    public var onLocalChange: (([String], [String]) -> Void)?
+    public static let trackNamesRecordID = "trackNames"
+    private var cloud: CloudSync?
+    /// Start CloudKit sync when this build carries the iCloud entitlement (the signed
+    /// CalendarApp). The unsigned CalendarMac dev binary isn't entitled → no-op, local-only.
+    private func enableCloudSyncIfEntitled() {
+        guard CloudSync.isEntitled else { return }
+        let c = CloudSync(engine: self)
+        cloud = c
+        Task { await c.startIfAccountAvailable() }
+    }
+    /// Nudge a cloud fetch (e.g. when the app returns to the foreground).
+    public func syncNow() { cloud?.syncNow() }
 
     private enum PointerKind {
         case navigate, move, resizeTop, resizeBottom, create           // timed
@@ -134,10 +159,75 @@ public final class CalendarEngine {
             Task { @MainActor in self?.now = Date() }
         }
         pushChrome()
+        enableCloudSyncIfEntitled()
     }
 
     // ── Persistence ─────────────────────────────────────────────────────────────
-    private func persistNow() { store.save(PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, monthTrackNames: trackNames)) }
+    private func persistNow() {
+        let state = PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, monthTrackNames: trackNames)
+        store.save(state)
+        emitDelta(to: state)
+    }
+
+    /// Diff the freshly-persisted state against what the sync layer last saw and emit the
+    /// changed record ids. Before the cloud layer attaches, just track the baseline.
+    private func emitDelta(to state: PersistedState) {
+        guard let onLocalChange else { syncedState = state; return }
+        let (up, del) = Self.recordDelta(from: syncedState, to: state)
+        syncedState = state
+        if !up.isEmpty || !del.isEmpty { onLocalChange(up, del) }
+    }
+
+    static func recordDelta(from old: PersistedState?, to new: PersistedState) -> (upserts: [String], deletes: [String]) {
+        var upserts: [String] = [], deletes: [String] = []
+        func diff<T: Equatable>(_ o: [T], _ n: [T], _ id: (T) -> String) {
+            let oldByID = Dictionary(o.map { (id($0), $0) }, uniquingKeysWith: { a, _ in a })
+            let newByID = Dictionary(n.map { (id($0), $0) }, uniquingKeysWith: { a, _ in a })
+            for (k, v) in newByID where oldByID[k] != v { upserts.append(k) }
+            for k in oldByID.keys where newByID[k] == nil { deletes.append(k) }
+        }
+        diff(old?.events ?? [], new.events, \.id)
+        diff(old?.bands ?? [], new.bands, \.id)
+        diff(old?.deadlines ?? [], new.deadlines, \.id)
+        if (old?.monthTrackNames ?? []) != (new.monthTrackNames ?? []) { upserts.append(trackNamesRecordID) }
+        return (upserts, deletes)
+    }
+
+    // ── Cloud-sync seam: inbound + accessors (Phase 1) ────────────────────────────
+    /// Snapshot of everything the sync layer needs to materialize records.
+    public func syncSnapshot() -> PersistedState {
+        PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, monthTrackNames: trackNames)
+    }
+    /// Capture the current state as the sync baseline (call when the cloud layer attaches,
+    /// so the first local edit emits an incremental delta rather than the whole store).
+    public func beginSyncTracking() { syncedState = syncSnapshot() }
+    public func loadSyncState() -> Data? { store.loadSyncState() }
+    public func saveSyncState(_ data: Data?) { store.saveSyncState(data) }
+
+    /// Apply records fetched from the cloud. Upserts replace/insert by id; deletes remove.
+    /// Deliberately bypasses undo history and the local-delta emit — this IS the synced
+    /// state, so it must not echo back out or land on the undo stack.
+    public func applyRemote(events: [TimedEvent] = [], bands: [BandEvent] = [],
+                            deadlines: [Deadline] = [], trackNames newNames: [[String]]? = nil,
+                            deletedIDs: [String] = []) {
+        for e in events { Self.upsert(&seedEvents, e) }
+        for b in bands { Self.upsert(&seedBands, b) }
+        for d in deadlines { Self.upsert(&seedDeadlines, d) }
+        if let newNames, newNames.count == 12, newNames.allSatisfy({ $0.count == 4 }) { trackNames = newNames }
+        for id in deletedIDs {
+            seedEvents.removeAll { $0.id == id }
+            seedBands.removeAll { $0.id == id }
+            seedDeadlines.removeAll { $0.id == id }
+            if selectedId == id { selectedId = nil }
+        }
+        let state = PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, monthTrackNames: trackNames)
+        store.save(state)
+        syncedState = state   // adopt as baseline so the merge doesn't re-emit as a local delta
+    }
+
+    private static func upsert<T: Identifiable>(_ arr: inout [T], _ item: T) where T.ID == String {
+        if let i = arr.firstIndex(where: { $0.id == item.id }) { arr[i] = item } else { arr.append(item) }
+    }
 
     // ── Track names (editable lane labels, per month) ─────────────────────────────
     public func setTrackName(_ month: Int, _ track: Int, _ name: String) {
@@ -175,7 +265,7 @@ public final class CalendarEngine {
     private func snapshot() -> SceneInput {
         SceneInput(z: z, focus: focus, week: week, vp: viewport, scrollY: scrollY, tlScroll: tlScroll,
                    now: now, year: year, hover: hover, weekHourH: weekHourH, daily: daily,
-                   yearPull: yearPull, flipFade: flipFade)
+                   monthAnim: monthAnim, yearPull: yearPull, flipFade: flipFade)
     }
 
     /// Advance the tween to `date` and return the immutable input for this frame.
@@ -190,6 +280,7 @@ public final class CalendarEngine {
             if wt.isComplete(at: date) { week = wt.to; weekTween = nil }
         }
         if let fa = flipAnim { advanceFlip(fa, at: date) }
+        if let ms = monthSnap { advanceMonthSnap(ms, at: date) }
         return snapshot()
     }
 
@@ -360,9 +451,61 @@ public final class CalendarEngine {
         }
     }
 
+    // ── Month view: vertical month↕month paging, mirrored from a native NSScrollView ──────
+    // Same approach as the year scroll: AppKit computes the elastic drag physics, the input
+    // bridge mirrors its offset here as a signed distance from the "home" (centred) position,
+    // and we convert that to a PageAnim. The bridge owns the release-snap (a native animated
+    // scroll to the nearest page edge), then calls commitMonthPage / clears the anim.
+    public var isMonthLevel: Bool { level(z) == 1 }
+
+    /// The driver's "home" offset (centred): the mirror reports offsets relative to this.
+    public var monthScrollHome: CGFloat { monthPageDist(viewport) }
+
+    /// True while the release-snap tween runs — the bridge drops incoming scroll events (and
+    /// AppKit momentum) so they don't fight the settle, and re-centres its driver when it ends.
+    public var isMonthSnapping: Bool { monthSnap != nil }
+
+    /// Fingers-down: a scroll gesture starts. Kill any zoom tween so they don't fight.
+    public func beginMonthGesture() { cancelTween(); monthSnap = nil }
+
+    /// Mirror the driver's live offset (signed px from home; + = scrolled down = next month).
+    /// Clamped at the Jan/Dec ends (no paging past them — the drag just snaps back there).
+    public func setMonthScroll(_ off: CGFloat) {
+        guard isMonthLevel, !isMonthSnapping else { return }
+        var v = off
+        if focus >= 11 { v = min(0, v) }   // Dec → no next month
+        if focus <= 0 { v = max(0, v) }    // Jan → no prev month
+        let norm = v / monthPageDist(viewport)
+        monthAnim = abs(norm) < 0.001 ? nil
+            : PageAnim(dir: norm > 0 ? 1 : -1, p: min(1, abs(norm)))
+    }
+
+    /// Fingers lifted: settle the page. Past monthCommitP → finish the turn (p→1, then swap the
+    /// focus month); otherwise snap back (p→0). The web-style tween is advanced per frame in
+    /// sceneInput; the DRAG that fed it was the native NSScrollView. No-op if nothing is in flight.
+    public func endMonthGesture() {
+        guard let a = monthAnim else { return }
+        let commit = a.p >= Layout.monthCommitP
+        monthSnap = Tween(from: a.p, to: commit ? 1 : 0, start: Date(), duration: 0.3, ease: easeOut)
+    }
+
+    /// Advance the release-snap; on completion turn (or don't) the month and re-centre the driver.
+    private func advanceMonthSnap(_ ms: Tween, at date: Date) {
+        guard let a = monthAnim else { monthSnap = nil; return }
+        monthAnim = PageAnim(dir: a.dir, p: ms.value(at: date))
+        guard ms.isComplete(at: date) else { return }
+        monthSnap = nil
+        if ms.to >= 0.5 { focus = min(11, max(0, focus + a.dir)); pushChrome() }  // committed the turn
+        monthAnim = nil
+        onSetMonthScroll?(monthScrollHome)   // silently re-centre the driver for the next gesture
+    }
+
     public func onMagnify(delta: CGFloat, at p: CGPoint, began: Bool, ended: Bool) {
         if began {
             cancelTween()
+            monthAnim = nil            // a pinch overrides an in-flight month page
+            monthSnap = nil
+            onSetMonthScroll?(monthScrollHome)   // re-centre the driver so the next page starts clean
             magStartZ = z
             magAccum = 0
             captureFocus(at: p)
@@ -660,8 +803,9 @@ public final class CalendarEngine {
         beginTxn()   // snapshot pre-create so undo removes the new event
         if d.eventId == nil {
             guard let mo = d.createMonth, let dy = d.createDay, let a = d.anchorHour else { return }
-            createCounter += 1
-            let id = "new-\(createCounter)"
+            // UUID (not the counter) so ids are globally unique — two devices creating
+            // offline must never mint the same recordName. Prefix kept for readability.
+            let id = "new-\(UUID().uuidString)"
             seedEvents.append(TimedEvent(id: id, month: mo, day: dy, startHour: a, endHour: min(24, a + 0.25), title: "New event", color: "blue"))
             d.eventId = id; drag = d; selectedId = id
         }
@@ -737,8 +881,7 @@ public final class CalendarEngine {
         beginTxn()
         if d.eventId == nil {
             guard let mo = d.bandMonth, let tr = d.bandTrack, let a = d.bandAnchorDay else { return }
-            createCounter += 1
-            let id = "newb-\(createCounter)"
+            let id = "newb-\(UUID().uuidString)"   // globally unique (see applyCreate)
             seedBands.append(BandEvent(id: id, year: year, month: mo, track: tr, startDay: a, endDay: a, title: "New event", color: "blue"))
             d.eventId = id; drag = d; selectedId = id
         }

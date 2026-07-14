@@ -27,20 +27,21 @@ public func buildScene(_ g: SceneInput) -> Scene {
     }
     items += buildQuarterHeaders(g, clock)
     items += buildMonthBands(g)
-    items += buildDetail(g, clock, focus: g.focus)
+    // The outgoing month's timeline fades as the page turns (nil anim → mul 1, untouched).
+    let outMul = g.monthAnim.map { outgoingDetailReveal($0.p) } ?? 1
+    items += buildDetail(g, clock, focus: g.focus, detailMul: outMul)
     if let anim = g.monthAnim {
-        items += buildToday(g, clock, mul: g.detailMul)
+        items += buildToday(g, clock, mul: outMul)        // now-line fades out with the timeline
         let to = g.focus + anim.dir
         if to >= 0 && to <= 11 {
             items += buildDetail(g, clock, focus: to, detailMul: incomingDetailReveal(anim.p), keyTag: "~in")
-            items += buildToday(g, clock, mul: incomingDetailReveal(anim.p), keyTag: "~in")
         }
     }
     return Scene(items: items)
 }
 
 // ── Today markers + live current-time line ───────────────────────────────────────
-private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, keyTag: String = "") -> [Item] {
+private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, fo: Int? = nil, keyTag: String = "") -> [Item] {
     var items: [Item] = []
     let present = clock.year == g.year
     let tMonth = clock.month, tDom = clock.day
@@ -74,8 +75,11 @@ private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, keyTa
     }
     // Month: today's column (band + timeline) + now line
     do {
-        let active = present && g.z >= 0.5 && g.z < 1.5 && g.focus == tMonth
-        let f = frameFor(g.focus, g)
+        // `fo` overrides the month so a page-turn can draw the incoming month's today column /
+        // now-line (sliding in) as well as the outgoing month's (sliding out).
+        let mo = fo ?? g.focus
+        let active = present && g.z >= 0.5 && g.z < 1.5 && mo == tMonth
+        let f = frameFor(mo, g, anim: g.monthAnim)   // slide the now-line with a month page-turn
         let colW = f.dayW
         let tlTop = f.bandY + 4 * f.trackH + 18
         let tlBottom = g.vp.h - 8
@@ -250,9 +254,10 @@ private func buildDetail(_ g: SceneInput, _ clock: Clock, focus: Int, detailMul:
     if reveal <= 0.02 { return [] }
     var items: [Item] = []
 
-    // build with `focus` (may be the incoming month during a page-turn)
+    // build with `focus` (may be the incoming month during a page-turn). The FRAME keeps the
+    // original pivot (g.focus) so a month page-turn slides this detail in/out via monthSwipeFrame.
     var gf = g; gf.focus = focus
-    let f = frameFor(focus, gf)
+    let f = frameFor(focus, g, anim: g.monthAnim)
     let dim = daysInMonth(g.year, focus)
     let colW = f.dayW
     let bandBottom = f.bandY + 4 * f.trackH

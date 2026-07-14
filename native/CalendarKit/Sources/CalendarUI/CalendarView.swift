@@ -267,6 +267,7 @@ struct InputCatcher: NSViewRepresentable {
         v.onOpenEvent = onOpenEvent
         v.onEditTrack = onEditTrack
         v.installYearScrollDriver()
+        v.installMonthScrollDriver()
         return v
     }
     func updateNSView(_ v: CatcherView, context: Context) { v.engine = engine; v.onOpenEvent = onOpenEvent; v.onEditTrack = onEditTrack }
@@ -275,16 +276,22 @@ struct InputCatcher: NSViewRepresentable {
 /// Flipped so its scroll origin (0 = top, increasing downward) matches our scrollY.
 final class FlippedDocView: NSView { override var isFlipped: Bool { true } }
 
-/// The year-scroll physics driver. Overriding scrollWheel (a) disables concurrent
-/// "responsive scrolling" — which otherwise grabs the gesture and swallows the
-/// .ended phase — so we reliably see begin/end, and (b) is the same pattern the
-/// macOS pull-to-refresh libraries use. super still does the native elastic scroll.
+/// A scroll physics driver. Overriding scrollWheel (a) disables concurrent "responsive
+/// scrolling" — which otherwise grabs the gesture and swallows the .ended phase — so we
+/// reliably see begin/end, and (b) is the same pattern the macOS pull-to-refresh libraries
+/// use. super does the native elastic drag; begin/end are surfaced as closures so the same
+/// class drives both the year scroll and the month↕month paging. `suppressSuperOnEnd` lets
+/// the month driver run its own release-snap instead of AppKit's deceleration/bounce.
 final class DriverScrollView: NSScrollView {
-    weak var engine: CalendarEngine?
+    var onBegan: (() -> Void)?
+    var onEnded: (() -> Void)?
+    var suppressSuperOnEnd = false
     override func scrollWheel(with e: NSEvent) {
-        if e.phase.contains(.began) { engine?.beginYearScrollGesture() }
+        let ended = e.phase.contains(.ended) || e.phase.contains(.cancelled)
+        if e.phase.contains(.began) { onBegan?() }
+        if ended && suppressSuperOnEnd { onEnded?(); return }
         super.scrollWheel(with: e)
-        if e.phase.contains(.ended) || e.phase.contains(.cancelled) { engine?.endYearScrollGesture() }
+        if ended { onEnded?() }
     }
 }
 
@@ -298,6 +305,10 @@ final class CatcherView: NSView, NSMenuItemValidation {
     private let yearScroll = DriverScrollView()
     private let docView = FlippedDocView()
     private var syncing = false   // true while WE move/resize the driver — ignore its notifications
+    // A second driver for month↕month paging — same native-physics trick, its own document.
+    private let monthScroll = DriverScrollView()
+    private let monthDoc = FlippedDocView()
+    private var syncingM = false
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -326,10 +337,48 @@ final class CatcherView: NSView, NSMenuItemValidation {
         yearScroll.contentView.postsBoundsChangedNotifications = true
         addSubview(yearScroll, positioned: .below, relativeTo: nil)  // behind; never hit-tested
 
-        yearScroll.engine = engine   // the driver detects begin/end from the event phase
+        yearScroll.onBegan = { [weak engine] in engine?.beginYearScrollGesture() }
+        yearScroll.onEnded = { [weak engine] in engine?.endYearScrollGesture() }
         NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged),
                        name: NSView.boundsDidChangeNotification, object: yearScroll.contentView)
         engine?.onSetYearScroll = { [weak self] y in self?.setDriverOffset(y) }
+    }
+
+    // ── Month-view paging driver (native elastic drag; engine runs the release-snap) ──────
+    func installMonthScrollDriver() {
+        monthScroll.drawsBackground = false
+        monthScroll.hasVerticalScroller = false
+        monthScroll.hasHorizontalScroller = false
+        monthScroll.verticalScrollElasticity = .allowed
+        monthScroll.horizontalScrollElasticity = .none
+        monthScroll.autohidesScrollers = true
+        monthScroll.automaticallyAdjustsContentInsets = false
+        monthScroll.contentInsets = NSEdgeInsetsZero
+        monthDoc.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+        monthScroll.documentView = monthDoc
+        monthScroll.contentView.postsBoundsChangedNotifications = true
+        addSubview(monthScroll, positioned: .below, relativeTo: nil)  // behind; never hit-tested
+
+        monthScroll.suppressSuperOnEnd = true   // WE settle the page (engine tween), not AppKit
+        monthScroll.onBegan = { [weak engine] in engine?.beginMonthGesture() }
+        monthScroll.onEnded = { [weak engine] in engine?.endMonthGesture() }
+        NotificationCenter.default.addObserver(self, selector: #selector(monthClipChanged),
+                       name: NSView.boundsDidChangeNotification, object: monthScroll.contentView)
+        engine?.onSetMonthScroll = { [weak self] y in self?.setMonthDriverOffset(y) }
+    }
+
+    private func setMonthDriverOffset(_ y: CGFloat) {
+        let prev = syncingM; syncingM = true
+        let cv = monthScroll.contentView
+        cv.scroll(to: NSPoint(x: 0, y: y))
+        monthScroll.reflectScrolledClipView(cv)
+        syncingM = prev
+    }
+
+    @objc private func monthClipChanged() {
+        guard let engine, engine.isMonthLevel, !engine.isMonthSnapping, !syncingM else { return }
+        let home = monthPageDist(Viewport(w: bounds.width, h: bounds.height))
+        engine.setMonthScroll(monthScroll.contentView.bounds.origin.y - home)
     }
 
     private func setDriverOffset(_ y: CGFloat) {
@@ -362,10 +411,19 @@ final class CatcherView: NSView, NSMenuItemValidation {
         // Size the driver so its scrollable range == the engine's yearMaxScroll:
         // docHeight − clipHeight = maxScroll  ⇒  docHeight = clipHeight + maxScroll.
         yearScroll.frame = bounds
-        let maxY = yearMaxScroll(Viewport(w: bounds.width, h: bounds.height))
+        let vp = Viewport(w: bounds.width, h: bounds.height)
+        let maxY = yearMaxScroll(vp)
         docView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height + maxY)
+        // Month paging driver: a document with one page of room above and below "home", so a
+        // full page-drag is possible in either direction (elastic beyond). Home = centred.
+        let page = monthPageDist(vp)
+        syncingM = true
+        monthScroll.frame = bounds
+        monthDoc.frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height + 2 * page)
+        syncingM = false
         syncing = false
         setDriverOffset(engine?.scrollY ?? 0)   // apply AFTER the doc is sized (engine.scrollY = centered)
+        setMonthDriverOffset(page)               // centre the month driver at home
     }
 
     private func point(_ e: NSEvent) -> CGPoint {
@@ -380,8 +438,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
         // the manual timeline/week/day handling.
         guard let engine else { return }
         if engine.isFlipping || engine.trackEditing || engine.bandEditing { return }   // don't fight flip / inline edit
+        if engine.isMonthSnapping { return }   // ignore input (incl. momentum) while a page settles
         if engine.isYearLevel {
             yearScroll.scrollWheel(with: e)   // DriverScrollView does the physics + begin/end
+        } else if engine.isMonthLevel {
+            monthScroll.scrollWheel(with: e)  // native elastic drag; engine settles the page on release
         } else {
             engine.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
         }

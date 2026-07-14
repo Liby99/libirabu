@@ -127,15 +127,30 @@ enum SceneRenderer {
     // Deadlines: a colored horizontal rule across the day column at the deadline's
     // hour, with end dots + a title/time pill. Clipped to the visible day area.
     private static func drawDeadlines(_ input: SceneInput, _ deadlines: [Deadline], _ selected: String?, _ ctx: inout GraphicsContext, _ theme: Theme) {
-        let tl = timelineInfo(input)
+        let anim = input.monthAnim
+        // Outgoing (current) month — slides + fades out during a page-turn (anim==nil → resting).
+        let outMul = anim.map { outgoingDetailReveal($0.p) } ?? 1
+        drawDeadlineLayer(input, deadlines, selected, &ctx, theme, focus: input.focus, anim: anim, fadeMul: outMul)
+        // Incoming month during a page-turn: its deadlines slide in + fade in with its timeline.
+        if let anim {
+            let to = input.focus + anim.dir
+            if to >= 0, to <= 11 {
+                drawDeadlineLayer(input, deadlines, selected, &ctx, theme, focus: to, anim: anim, fadeMul: incomingDetailReveal(anim.p))
+            }
+        }
+    }
+
+    private static func drawDeadlineLayer(_ input: SceneInput, _ deadlines: [Deadline], _ selected: String?, _ ctx: inout GraphicsContext, _ theme: Theme, focus: Int, anim: PageAnim?, fadeMul: CGFloat) {
+        let tl = timelineInfo(input, focus: focus, anim: anim)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return }
-        let f = frameFor(input.focus, input)
+        let f = frameFor(input.focus, input, anim: anim)
         let clipRight = input.z > 2 ? f.x0 + CGFloat(input.daily.dom) * f.dayW : input.vp.w
         var clip = ctx
         clip.clip(to: Path(CGRect(x: Layout.labelW, y: tl.tlTop, width: max(0, clipRight - Layout.labelW), height: tl.tlBottom - tl.tlTop)))
+        var gf = input; gf.focus = focus
         for d in deadlines {
-            guard let pos = deadlinePos(d, input) else { continue }
-            let fade = dailyFade(relDomOf(input.year, input.focus, d.month, d.day) ?? -999, input) * tl.reveal
+            guard let pos = deadlinePos(d, input, focus: focus, anim: anim) else { continue }
+            let fade = dailyFade(relDomOf(input.year, focus, d.month, d.day) ?? -999, gf) * tl.reveal * fadeMul
             if fade <= 0.02 { continue }
             var layer = clip
             layer.opacity = Double(fade)

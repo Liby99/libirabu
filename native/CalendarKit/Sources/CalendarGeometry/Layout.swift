@@ -18,6 +18,13 @@ public enum Layout {
     public static let bandInnerWidth: CGFloat = 1.0
     public static let bandInnerOpacity: CGFloat = 0.6
 
+    // Vertical month↕month paging. One full page = viewport.h * monthPageFrac (floored at
+    // monthPageMin px); releasing past monthCommitP of a page turns the month, else it snaps
+    // back. Matches the web (useCalendarInteractions.ts).
+    public static let monthPageFrac: CGFloat = 0.6   // ↑ = less sensitive (more finger travel per page)
+    public static let monthPageMin: CGFloat = 380
+    public static let monthCommitP: CGFloat = 0.2
+
     // Hover-highlight + weekend-wash style guide — shared across year / month / week.
     public static let hlSoft: CGFloat = 0.03            // coarse: month-band row / week span
     public static let hlStrong: CGFloat = 0.08          // fine: hovered day / hour cell
@@ -38,6 +45,11 @@ public enum Layout {
     // geometry space lands padLeft px from the window's left edge).
     public static let padLeft: CGFloat = 20
     public static let padRight: CGFloat = 0
+}
+
+/// The vertical drag distance that equals one full month page-turn, for the given viewport.
+@inlinable public func monthPageDist(_ vp: Viewport) -> CGFloat {
+    max(Layout.monthPageMin, vp.h * Layout.monthPageFrac)
 }
 
 @inlinable public func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * t }

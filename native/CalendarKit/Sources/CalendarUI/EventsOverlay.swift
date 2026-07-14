@@ -18,16 +18,29 @@ struct EventsOverlay: View {
     let theme: Theme
 
     var body: some View {
-        let tl = timelineInfo(input)
-        let f = frameFor(input.focus, input)
+        let anim = input.monthAnim
+        let to = anim.map { input.focus + $0.dir }
+        // Outgoing (current) month — slides + fades out during a page-turn (anim==nil → resting, mul 1).
+        let tlOut = timelineInfo(input, anim: anim)
+        let outMul = anim.map { outgoingDetailReveal($0.p) } ?? 1
+        let f = frameFor(input.focus, input, anim: anim)
         let clipRight = input.z > 2 ? f.x0 + CGFloat(input.daily.dom) * f.dayW : input.vp.w
         let bandClip = CGRect(x: Layout.labelW, y: 0, width: max(0, clipRight - Layout.labelW), height: input.vp.h)
-        let tlClip = CGRect(x: Layout.labelW, y: tl.tlTop, width: max(0, clipRight - Layout.labelW), height: max(0, tl.tlBottom - tl.tlTop))
 
         ZStack(alignment: .topLeading) {
             stickers(bandItems()).clipShape(RectClip(rect: bandClip))
-            if tl.reveal > 0.05 && tl.hourH > 0 {
-                stickers(timedItems(tl)).clipShape(RectClip(rect: tlClip))
+            if tlOut.reveal > 0.05 && tlOut.hourH > 0 {
+                stickers(timedItems(tlOut, focus: input.focus, fadeMul: outMul))
+                    .clipShape(RectClip(rect: tlClip(tlOut, clipRight)))
+            }
+            // Incoming month during a page-turn: its timeline slides in from the opposite edge,
+            // and its timed events fade in alongside it (matching the incoming grid's reveal).
+            if let anim, let to, to >= 0, to <= 11 {
+                let tlIn = timelineInfo(input, focus: to, anim: anim)
+                if tlIn.reveal > 0.05 && tlIn.hourH > 0 {
+                    stickers(timedItems(tlIn, focus: to, fadeMul: incomingDetailReveal(anim.p), keyTag: "~in"))
+                        .clipShape(RectClip(rect: tlClip(tlIn, clipRight)))
+                }
             }
             // Year-view weekday marker ("Thu") floating above the hovered day — a small
             // Liquid Glass capsule, centered on the day column.
@@ -43,6 +56,12 @@ struct EventsOverlay: View {
             }
         }
         .allowsHitTesting(false)
+    }
+
+    /// Clip a timeline layer to its own (possibly sliding) day-detail region.
+    private func tlClip(_ tl: TimelineInfo, _ clipRight: CGFloat) -> CGRect {
+        CGRect(x: Layout.labelW, y: tl.tlTop, width: max(0, clipRight - Layout.labelW),
+               height: max(0, tl.tlBottom - tl.tlTop))
     }
 
     /// The floating weekday chip for year-view day hover. Mirrors buildHover's `dayOn`:
@@ -130,18 +149,22 @@ struct EventsOverlay: View {
         }
     }
 
-    private func timedItems(_ tl: TimelineInfo) -> [Item2] {
+    /// Timed stickers for one month `focus`, placed against its timeline `tl`. `fadeMul` scales
+    /// the whole layer (a page-turn fades the outgoing set out / incoming set in); `keyTag` keeps
+    /// the incoming set's ForEach ids distinct from the outgoing set's during the cross-fade.
+    private func timedItems(_ tl: TimelineInfo, focus: Int, fadeMul: CGFloat = 1, keyTag: String = "") -> [Item2] {
         var byDay: [Int: [TimedEvent]] = [:]
         for e in events {
-            if let rd = relDomOf(input.year, input.focus, e.month, e.day) { byDay[rd, default: []].append(e) }
+            if let rd = relDomOf(input.year, focus, e.month, e.day) { byDay[rd, default: []].append(e) }
         }
+        var gf = input; gf.focus = focus
         var placed: [(ev: TimedEvent, rect: CGRect, fade: Double)] = []
         for (rd, evs) in byDay {
-            let fade = dailyFade(rd, input) * tl.reveal
+            let fade = dailyFade(rd, gf) * tl.reveal * fadeMul
             if fade <= 0.02 { continue }
             let layout = layoutDay(evs)
             for e in evs {
-                guard let r = eventRect(e, input.year, input.focus, tl, input.vp, layout[e.id]) else { continue }
+                guard let r = eventRect(e, input.year, focus, tl, input.vp, layout[e.id]) else { continue }
                 let rect = CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
                 if rect.maxY < tl.tlTop || rect.minY > tl.tlBottom { continue }
                 placed.append((e, rect, Double(fade)))
@@ -151,7 +174,7 @@ struct EventsOverlay: View {
         return placed.enumerated().map { i, p in
             let id = p.ev.id
             let z: Double = id == drawerId ? 1001 : (id == selected ? 1000 : (id == hovered ? 950 : Double(i)))
-            return Item2(id: id, rect: p.rect, fade: p.fade, z: z, view: AnyView(
+            return Item2(id: id + keyTag, rect: p.rect, fade: p.fade, z: z, view: AnyView(
                 EventSticker(ev: p.ev, height: p.rect.height, hovered: id == hovered, selected: id == selected,
                              drawerOpen: id == drawerId, theme: theme)))
         }

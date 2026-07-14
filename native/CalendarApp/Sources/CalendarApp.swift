@@ -27,6 +27,11 @@ struct CalendarApp: App {
                 Button("Redo") { NSApp.sendAction(Selector(("performRedo:")), to: nil, from: nil) }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
             }
+            // Phase-0 CloudKit de-risk. Remove once the real sync layer lands.
+            CommandMenu("Debug") {
+                Button("Run CloudKit Round-Trip") { CloudKitSpike.run() }
+                    .keyboardShortcut("k", modifiers: [.command, .option])
+            }
         }
     }
 }

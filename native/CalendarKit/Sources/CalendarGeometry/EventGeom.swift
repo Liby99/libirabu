@@ -32,6 +32,9 @@ public func hourMetrics(_ tlTop: CGFloat, _ tlBottom: CGFloat, _ z: CGFloat, _ t
 }
 
 public func incomingDetailReveal(_ p: CGFloat) -> CGFloat { min(1, max(0, (p - 0.45) / 0.4)) }
+/// The outgoing month's daily timeline dissolves early in the page-turn, handing off to the
+/// incoming month's timeline (which reveals from p≈0.45) — so the two cross-fade in the middle.
+public func outgoingDetailReveal(_ p: CGFloat) -> CGFloat { 1 - min(1, max(0, p / 0.55)) }
 
 public struct TimelineInfo: Sendable {
     public var x0: CGFloat
@@ -47,9 +50,11 @@ public struct TimelineInfo: Sendable {
     public var wide: Bool
 }
 
-/// Single source of truth for the day-detail timeline geometry.
-public func timelineInfo(_ g: SceneInput, detailMul: CGFloat = 1) -> TimelineInfo {
-    let f = frameFor(g.focus, g)
+/// Single source of truth for the day-detail timeline geometry. `focus`/`anim` override the
+/// month + page-turn frame so a page-turn can lay out the incoming month's timeline (sliding
+/// in) as well as the outgoing one (sliding out) — both cross-fade with their events.
+public func timelineInfo(_ g: SceneInput, focus: Int? = nil, anim: PageAnim? = nil, detailMul: CGFloat = 1) -> TimelineInfo {
+    let f = frameFor(focus ?? g.focus, g, anim: anim)
     let tlTop = f.bandY + 4 * f.trackH + 18
     let tlBottom = g.vp.h - 8
     let m = hourMetrics(tlTop, tlBottom, g.z, g.tlScroll, g.weekHourH)

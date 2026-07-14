@@ -14,6 +14,7 @@ public struct PersistedState: Codable, Sendable {
 
 struct ItemStore {
     private let url: URL
+    private let syncStateURL: URL
 
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -21,6 +22,7 @@ struct ItemStore {
         let dir = base.appendingPathComponent("CalendarKit", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appendingPathComponent("data.json")
+        syncStateURL = dir.appendingPathComponent("syncState.bin")
     }
 
     func load() -> PersistedState? {
@@ -31,5 +33,14 @@ struct ItemStore {
     func save(_ state: PersistedState) {
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: url, options: .atomic)
+    }
+
+    // ── CKSyncEngine state serialization ──────────────────────────────────────────
+    // CKSyncEngine hands us an opaque Data blob (its record/zone change-tracking state)
+    // to persist across launches. Kept beside the item cache; nil means "never synced".
+    func loadSyncState() -> Data? { try? Data(contentsOf: syncStateURL) }
+    func saveSyncState(_ data: Data?) {
+        if let data { try? data.write(to: syncStateURL, options: .atomic) }
+        else { try? FileManager.default.removeItem(at: syncStateURL) }
     }
 }
