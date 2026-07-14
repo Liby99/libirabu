@@ -28,13 +28,14 @@ public struct Hover: Sendable, Equatable {
     public var month: Int?
     public var dom: Int?
     public var week: Int?
+    public var track: Int?      // hovered track lane 0…3 (month view)
     public var hour: Int?
     public var hourFrac: CGFloat?
     public var nameMonth: Int?
     public var nearLeft: Bool?
-    public init(month: Int? = nil, dom: Int? = nil, week: Int? = nil, hour: Int? = nil,
+    public init(month: Int? = nil, dom: Int? = nil, week: Int? = nil, track: Int? = nil, hour: Int? = nil,
                 hourFrac: CGFloat? = nil, nameMonth: Int? = nil, nearLeft: Bool? = nil) {
-        self.month = month; self.dom = dom; self.week = week; self.hour = hour
+        self.month = month; self.dom = dom; self.week = week; self.track = track; self.hour = hour
         self.hourFrac = hourFrac; self.nameMonth = nameMonth; self.nearLeft = nearLeft
     }
     public static let none = Hover()

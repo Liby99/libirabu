@@ -135,29 +135,25 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         // Liquid Glass capsule in EventsOverlay (Canvas can't draw glass) — see
         // weekdayMarker(). Its visibility mirrors `dayOn` here.
     }
-    // Month: hovered week span (soft) + day column (strong)
+    // Month: crosshair — hovered track lane (row) + hovered day column (band + timeline).
     do {
         let active = g.z >= 0.5 && g.z < 1.5
         let f = frameFor(g.focus, g)
         let dim = daysInMonth(g.year, g.focus)
         let colW = f.dayW
-        let top = f.bandY
-        let bottom = f.bandY + 4 * f.trackH   // band region only (matches year view; not the timeline)
-        var wx = f.x0, ww: CGFloat = 0
-        if let hw = h.week {
-            let ws = weekStartDOM(g.year, g.focus, hw)
-            let startCol = max(0, ws - 1)
-            let endCol = min(dim, ws - 1 + 7)
-            wx = f.x0 + CGFloat(startCol) * colW
-            ww = max(0, CGFloat(endCol - startCol) * colW)
+        let bandTop = f.bandY
+        let bandBottom = f.bandY + 4 * f.trackH
+        let colBottom = g.z >= 0.82 ? g.vp.h - 8 : bandBottom   // day column runs through the timeline
+        // Track lane row (hovering a track name OR a band cell) — gutter + content.
+        if active, let tr = h.track {
+            let ly = bandTop + CGFloat(tr) * f.trackH
+            items.append(Item(key: "hl-mtg", kind: .hl, x: -Layout.padLeft, y: ly, w: Layout.labelW + Layout.padLeft, h: f.trackH, opacity: HL_SOFT, z: 6, gutter: true))
+            items.append(Item(key: "hl-mtd", kind: .hl, x: f.x0, y: ly, w: CGFloat(dim) * colW, h: f.trackH, opacity: HL_SOFT, z: 3))
         }
-        // Gutter row highlight for the focused band while hovering it (like year's hl-yg).
-        let bandHovered = active && (h.dom != nil || h.week != nil)
-        items.append(Item(key: "hl-mg", kind: .hl, x: -Layout.padLeft, y: top, w: Layout.labelW + Layout.padLeft, h: bottom - top, opacity: bandHovered ? HL_SOFT : 0, z: 6, gutter: true))
-        items.append(Item(key: "hl-mw", kind: .hl, x: wx, y: top, w: ww, h: bottom - top, opacity: active && ww > 0 ? HL_SOFT : 0, z: 3))
-        let dcol = h.dom ?? 1
-        let dayOn = active && h.dom != nil && h.dom! >= 1 && h.dom! <= dim
-        items.append(Item(key: "hl-md", kind: .hl, x: f.x0 + (CGFloat(dcol) - 1) * colW, y: top, w: colW, h: bottom - top, opacity: dayOn ? HL_STRONG : 0, z: 3))
+        // Day column (hovering a band cell OR the timeline) — band cells + daily timeline.
+        if active, let d = h.dom, d >= 1, d <= dim {
+            items.append(Item(key: "hl-mday", kind: .hl, x: f.x0 + (CGFloat(d) - 1) * colW, y: bandTop, w: colW, h: colBottom - bandTop, opacity: HL_SOFT, z: 3))
+        }
     }
     // Week: hovered day column (soft) + hour cell (strong) + cursor line/tag
     do {

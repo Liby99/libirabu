@@ -784,8 +784,15 @@ public final class CalendarEngine {
             hv.nameMonth = monthNameAtPoint(p.x, p.y, g)
             if let m { hv.dom = domInMonthBand(p.x, m, g) }
         case 1:
-            hv.dom = domInFocus(p.x, g)
-            hv.week = weekAtPointInMonth(p.x, g)
+            // Crosshair: track lane (band cell or track-name gutter) + day column (band or timeline).
+            let f = frameFor(focus, g)
+            let bandTop = f.bandY, bandBottom = f.bandY + 4 * f.trackH
+            let inGutter = p.x < Layout.labelW
+            if p.y >= bandTop, p.y < bandBottom,
+               (!inGutter || (p.x >= Layout.mnameW && p.x <= Layout.labelW - Layout.rightPad)) {
+                hv.track = min(3, max(0, Int((p.y - bandTop) / f.trackH)))
+            }
+            if !inGutter { hv.dom = domInFocus(p.x, g) }   // day column when over content (band or timeline)
         default:
             // In daily view the right panel is the dashboard — no background time cursor there.
             if z > 2 {
