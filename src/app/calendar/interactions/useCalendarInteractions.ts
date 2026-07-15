@@ -446,24 +446,31 @@ export function useCalendarInteractions() {
     const onChange = (e: GestureLikeEvent) => {
       e.preventDefault();
       if (drawerOpen() || dialogOpen()) return;
+      // The live gesture always wins over a stray snap/tween: if Safari dropped a gestureend and the
+      // idle fallback (arm→snapNow) already kicked off a z-tween, cancel it here so the tween and the
+      // gesture don't both drive z on overlapping ticks (redundant renders / jitter).
+      cancelTween(); cancelWeekTween(); clearSnap();
       const vpNow = { w: el.clientWidth, h: el.clientHeight };
       const nz = Math.max(0, Math.min(3, startZ + Math.log2(e.scale) * 0.6)); // lower = slower
-      // Lock focus/week/day once, based on the level we STARTED at + the gesture origin.
+      // Lock focus/week/day once, based on the level we STARTED at + the gesture origin. Each setter is
+      // guarded to fire only on a real change — a pinch emits gesturechange at ~60Hz and these targets
+      // are usually stable across frames, so unguarded calls were pure re-render churn.
       if (nz > startZ && startZ < 0.15) {
         const m = monthAtPoint(cx, cy, vpNow, scrollYRef.current);
-        if (m != null) setFocus(m);
+        if (m != null && m !== focusRef.current) setFocus(m);
       } else if (nz > startZ && startZ >= 0.85 && startZ < 1.15) {
         const w = weekAtPointInMonth(cx, focusRef.current, vpNow);
-        if (w != null) setWeek(w);
+        if (w != null && w !== weekRef.current) setWeek(w);
       } else if (nz > startZ && startZ >= 1.85 && startZ < 2.15) {
         // zooming week → day: lock onto the day captured at gesturestart (fixed — the morph must not
         // drift the target, or the zoom stutters). Fall back to the middle of the week. Spillover days
         // (in the prev/next month) are NOT zoomable — clamp the target into the focused month's range.
         const dim = new Date(yearRef.current, focusRef.current + 1, 0).getDate();
         const raw = pinchDayRef.current ?? weekStartDOM(focusRef.current, Math.round(weekRef.current)) + 3;
-        setDailyDom(Math.max(1, Math.min(dim, raw)));
+        const nd = Math.max(1, Math.min(dim, raw));
+        if (nd !== dailyDomRef.current) setDailyDom(nd);
       }
-      setZ(nz);
+      if (nz !== zRef.current) setZ(nz);
       arm();
     };
     const onEnd = (e: GestureLikeEvent) => { e.preventDefault(); clearTimeout(idle); idle = 0; snapNow(); };

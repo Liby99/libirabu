@@ -83,12 +83,27 @@ function deadlineBody(d: Deadline) {
 }
 
 // ── HTTP ────────────────────────────────────────────────────────────────
+// If a request comes back 401 (session expired while the page was open — the server gate on
+// /calendar covers the not-logged-in case up front), bounce to sign-in preserving where we
+// were, instead of surfacing a raw "→ 401" error. Guarded so concurrent 401s redirect once.
+let redirectingToSignIn = false;
+function redirectToSignIn(): void {
+  if (redirectingToSignIn) return;
+  redirectingToSignIn = true;
+  const cb = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.href = `/auth/signin?callbackUrl=${cb}`;
+}
+
 async function send(method: string, url: string, body?: unknown): Promise<Response> {
   const res = await fetch(url, {
     method,
     headers: body !== undefined ? { "content-type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 401 && typeof window !== "undefined") {
+    redirectToSignIn();
+    return new Promise<Response>(() => {}); // never resolves — the page is navigating away
+  }
   if (!res.ok && res.status !== 204) {
     const detail = await res.text().catch(() => "");
     throw new Error(`${method} ${url} → ${res.status} ${detail}`);

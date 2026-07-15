@@ -24,7 +24,7 @@ final class GeometryTests: XCTestCase {
     }
 
     func testDatesFixedTableAndDOW() {
-        XCTAssertEqual(daysInMonth(1), 28)          // Feb always 28 (no leap handling)
+        XCTAssertEqual(daysInMonth(2026, 1), 28)          // Feb always 28 (no leap handling)
         // 2026-01-01 is a Thursday → dayOfWeek == 4.
         XCTAssertEqual(dayOfWeek(2026, 0, 1), 4)
         XCTAssertEqual(firstDOW(2026, 0), 4)
@@ -32,7 +32,7 @@ final class GeometryTests: XCTestCase {
 
     func testResolveSpillover() {
         // Day 0 of March resolves to the last day of February.
-        let r = resolveDate(2, 0)
+        let r = resolveDate(2026, 2, 0)
         XCTAssertEqual(r?.month, 1)
         XCTAssertEqual(r?.day, 28)
     }

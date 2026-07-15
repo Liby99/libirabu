@@ -149,6 +149,10 @@
   max-height: 60vh;
   overflow-y: auto;
   padding: 4px;
+  /* Same frosted recipe as .cc-menu. The timezone flyouts (EditMenu) are PORTALED to <body>, so
+     this backdrop-filter actually samples the page and blurs — a flyout nested inside the
+     backdrop-filtered .cc-menu would no-op it. (.cc-tag-submenu, still nested in ViewMenu, opts
+     into a mostly-opaque fill below to compensate.) */
   background: color-mix(in srgb, var(--popup-bg, #fff) 65%, transparent);
   backdrop-filter: blur(9px) saturate(1.15);
   -webkit-backdrop-filter: blur(9px) saturate(1.15);
@@ -158,13 +162,11 @@
 }
 
 /* Tag filter dropdown */
-/* Tag filter as a View-menu flyout: don't scroll the flyout itself (the list scrolls); column
-   gap matches the standalone menu. A backdrop-filtered ancestor (.cc-menu) turns a nested
-   backdrop-filter into a no-op, so give the flyout a mostly-opaque frosted fill of its own so
-   it reads like the other menus instead of a flat translucent panel. */
+/* Tag filter as a View-menu flyout: don't scroll the flyout itself (the list scrolls); column gap
+   matches the standalone menu. Like all MenuFlyout panels it's portaled to <body>, so it inherits
+   the base .cc-submenu frosted blur — no opaque fallback needed. */
 .cc-tag-submenu {
   min-width: 232px; gap: 6px; overflow: visible; max-height: none;
-  background: color-mix(in srgb, var(--popup-bg, #fff) 88%, transparent);
 }
 /* Show All / Show None: a borderless pair pinned to the bottom, under a separator. */
 .cc-tag-sep { height: 1px; margin: 5px 6px 3px; background: var(--accent-grey); opacity: 0.5; }

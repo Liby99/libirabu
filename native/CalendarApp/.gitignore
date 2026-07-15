@@ -4,3 +4,6 @@
 *.xcworkspace/xcuserdata/
 DerivedData/
 .DS_Store
+
+## Release artifacts from scripts/package.sh (archive, exported .app, .dmg)
+build/

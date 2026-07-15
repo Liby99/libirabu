@@ -1,0 +1,103 @@
+/* Theme variables — overridden at runtime by Swift (CK.setTheme). Defaults are a dark fallback. */
+:root {
+  --accent-dark: #e8e8ea;
+  --accent-grey: rgba(232, 232, 234, 0.45);
+  --highlight: #ff3b6b;
+  --cc-line: rgba(232, 232, 234, 0.5);
+  --check-mark: #1c1c1e;                 /* the ✓ punched out of the filled checkbox */
+  --event-red-border: #ff6a6f;
+  --event-darkgreen-border: #8fbf7a;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { background: transparent; margin: 0; padding: 0; height: 100%; overflow: hidden;
+  color: var(--accent-dark); -webkit-font-smoothing: antialiased;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+/* Reveal wrapper + carousel clip: #dash slides in from the right + fades on zoom (transform/opacity
+   set by Swift), and holds two absolutely-stacked day panels that slide + cross-fade within it (Swift
+   ticks them, mirroring SceneRenderer.drawPanel). Overflow hidden clips a sliding panel at the panel
+   edge, just like the Canvas title bars above. */
+#dash { height: 100%; position: relative; overflow: hidden; font-size: 13px; box-sizing: border-box;
+  transform-origin: left center; will-change: transform, opacity; }
+:root { --dd-pad: 25px; }
+#panels, #note-live { position: absolute; inset: 0; }
+/* A day's note rendered statically inside a carousel panel (the .cc-dd-scroll is the scroller).
+   Top-aligned; bottom padding clears the native edit/preview toggle at the bottom-right. */
+.cc-dd-note-md { height: auto; overflow: visible; padding: 0 0 24px; }
+/* Empty day → the editor placeholder (matches CodeMirror's placeholder: mono, faint). */
+.cc-dd-note-empty { color: var(--accent-grey); font-family: var(--font-mono); font-size: 12px; }
+/* Transform layer: carries the per-frame carousel slide + fade. It must NOT be the scroller — a
+   transformed/composited scroller loses WebKit's native rubber-band. */
+.cc-dd-panel {
+  position: absolute; inset: 0; box-sizing: border-box; overflow: hidden;
+  will-change: transform, opacity; opacity: 0;
+}
+/* Plain inner scroller: no transform/will-change, so WebKit gives it native elastic overscroll. */
+.cc-dd-scroll {
+  position: absolute; inset: 0; box-sizing: border-box;
+  overflow-y: auto; overflow-x: hidden;
+  padding: 8px 18px 18px var(--dd-pad);          /* left 25 = gutter (matches the Canvas barX) */
+}
+
+/* ── NOTE tab: the per-day markdown editor (aligned with the TODO gutter; top-aligned) ───────────
+   Bottom padding clears the native edit/preview toggle at the bottom-right. */
+#note-editor { position: absolute; inset: 0; padding: 8px 18px 40px var(--dd-pad); box-sizing: border-box; }
+#note-editor .cm-editor { height: 100%; }
+#note-preview { position: absolute; inset: 0; padding: 8px 18px 40px var(--dd-pad); box-sizing: border-box; }
+
+/* ── Upcoming deadlines ─────────────────────────────────────────────────── */
+.cc-dd-sec { margin-bottom: 16px; }
+.cc-dd-sec-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 6px; }
+.cc-dd-sec-title { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; }
+.cc-dd-sec-count { font-size: 11px; opacity: 0.5; }
+.cc-dd-free { opacity: 0.6; font-style: italic; }
+.cc-dd-ddl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.cc-dd-ddl { display: flex; align-items: center; gap: 7px; cursor: pointer; border-radius: 5px; padding: 1px 4px; margin: 0 -4px; transition: background-color 0.1s ease; }
+.cc-dd-ddl:hover { background: color-mix(in srgb, var(--accent-grey) 14%, transparent); }
+.cc-dd-ddl:hover .cc-dd-ddl-title { color: var(--highlight); }
+.cc-dd-ddl-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ev-color, var(--accent-dark)); }
+.cc-dd-ddl-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-dd-ddl-when { flex: none; font-size: 11px; opacity: 0.6; }
+
+/* ── Grouped TODO list ──────────────────────────────────────────────────── */
+.cc-dtodo-empty { opacity: 0.5; font-size: 13px; padding: 6px 0; }
+.cc-dtodo-sec { margin: 0 0 16px; }
+.cc-dtodo-sec-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.cc-dtodo-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; }
+.cc-dtodo-sec-count { font-size: 10px; font-weight: 600; line-height: 1; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent-grey) 18%, transparent); color: var(--accent-dark); opacity: 0.7; }
+.cc-dtodo-list { list-style: none; margin: 0; padding: 0; }
+.cc-dtodo { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; }
+.cc-dtodo-check {
+  appearance: none; -webkit-appearance: none; flex: none; box-sizing: border-box;
+  width: 15px; height: 15px; margin-top: 2px;
+  border: 1.5px solid var(--accent-grey); border-radius: 5px; background: transparent; cursor: pointer;
+  position: relative; transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+.cc-dtodo-check:hover { border-color: var(--accent-dark); }
+.cc-dtodo-check:active { transform: scale(0.9); }
+.cc-dtodo-check:checked { background: var(--highlight); border-color: var(--highlight); }
+.cc-dtodo-check:checked::after { content: ""; position: absolute; left: 4px; top: 0.5px; width: 4px; height: 8px; border: solid var(--check-mark); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.cc-dtodo-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; cursor: pointer; border-radius: 5px; padding: 1px 4px; margin: -1px -4px; transition: background-color 0.1s ease; }
+.cc-dtodo-main:hover { background: color-mix(in srgb, var(--accent-grey) 14%, transparent); }
+.cc-dtodo-main:hover .cc-dtodo-text { color: var(--highlight); }
+.cc-dtodo-text { font-size: 13px; line-height: 1.4; }
+.cc-dtodo-event { color: var(--accent-grey); }
+.cc-dtodo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; line-height: 1.5; }
+.cc-dtodo-prio { font-family: var(--font-mono); font-weight: 800; letter-spacing: -0.05em; color: var(--event-red-border); }
+.cc-dtodo-prio[data-level="4"], .cc-dtodo-prio[data-level="5"] { background: var(--event-red-border); color: #fff; padding: 0 4px; border-radius: 4px; }
+.cc-dtodo-due { color: var(--accent-grey); }
+.cc-dtodo-due-over { color: var(--event-red-border); font-weight: 600; }
+.cc-dtodo-followup { color: #4fb0b0; font-weight: 500; }
+.cc-dtodo-followup.cc-dtodo-due-over { color: var(--event-red-border); }
+.cc-dtodo-tag { color: var(--highlight); opacity: 0.85; }
+.cc-dtodo-is-done .cc-dtodo-text { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--accent-grey) 60%, transparent); color: var(--accent-grey); }
+.cc-dtodo-is-done .cc-dtodo-main:hover .cc-dtodo-text { color: var(--accent-dark); }
+.cc-dtodo-fin { color: var(--event-darkgreen-border); opacity: 0.85; }
+
+/* calendar palette → --ev-color for the deadline dot (matches Theme.eventBorder) */
+.cc-ev-red { --ev-color: rgb(255,128,128); } .cc-ev-blue { --ev-color: rgb(128,170,255); }
+.cc-ev-green { --ev-color: rgb(150,220,150); } .cc-ev-yellow { --ev-color: rgb(240,205,110); }
+.cc-ev-purple { --ev-color: rgb(200,128,255); } .cc-ev-orange { --ev-color: rgb(236,152,70); }
+.cc-ev-cyan { --ev-color: rgb(104,196,206); } .cc-ev-darkgreen { --ev-color: rgb(104,146,86); }
+.cc-ev-indigo { --ev-color: rgb(124,150,226); } .cc-ev-default { --ev-color: var(--accent-grey); }

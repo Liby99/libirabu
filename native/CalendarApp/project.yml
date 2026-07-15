@@ -19,6 +19,7 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      - path: Assets.xcassets
     dependencies:
       - package: CalendarKit
         product: CalendarUI
@@ -31,6 +32,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Calendar
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.0"
         MACOSX_DEPLOYMENT_TARGET: "26.0"
         CODE_SIGN_STYLE: Automatic

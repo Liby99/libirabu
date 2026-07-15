@@ -141,16 +141,19 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
 .cc-dw-time .cc-dw-row.cc-dw-hint { padding-bottom: 5px; } /* a little more gap before the color picker below */
 /* Markdown notes — a CodeMirror editor that fills the rest of the drawer. */
 /* recurring events: Series | This-event note tabs sitting just above the notepad */
-.cc-dw-noteright { display: flex; align-items: center; gap: 8px; }
 .cc-dw-notetabs { flex: none; }
 .cc-dw-notetabs .cc-seg-btn { white-space: nowrap; padding: 3px 9px; }
-.cc-dw-isolate {
-  flex: none; padding: 3px 10px; border-radius: 6px;
-  border: 1px solid var(--accent-grey); background: none;
-  color: var(--accent-dark); font-size: 0.72rem; cursor: pointer; white-space: nowrap;
-}
-.cc-dw-isolate:hover { background: var(--accent-bg); border-color: var(--highlight); color: var(--highlight); }
 .cc-dw-tab-date { opacity: 0.7; } /* the occurrence date appended to the "This event" tab */
+
+/* Detach actions in the Configuration collapse: "Make editable copy" (imported) and "Isolate this
+   occurrence" (manual recurring) — one shared style so they look identical. */
+.cc-dw-detach { justify-content: flex-start; }
+.cc-dw-actbtn {
+  padding: 5px 12px; border-radius: 7px;
+  border: 1px solid var(--accent-grey); background: none;
+  color: var(--accent-dark); font-size: 0.76rem; cursor: pointer; white-space: nowrap;
+}
+.cc-dw-actbtn:hover { background: var(--accent-bg); border-color: var(--highlight); color: var(--highlight); }
 .cc-dw-cm {
   flex: 1; min-height: 80px; width: 100%; overflow: hidden;
 }
@@ -248,10 +251,8 @@ body.cc-drawer-resizing .app-shell { transition: none; } /* track the drag witho
 .cc-dw-md .katex-display { margin: 0.9em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 
 
-/* "Make editable copy" action in the imported-event source row (§7). */
-.cc-dw-source-btn { border: none; background: none; padding: 0; margin: 0; font: inherit; color: var(--highlight); cursor: pointer; text-decoration: underline; white-space: nowrap; }
-.cc-dw-source-btn:hover { opacity: 0.8; }
-/* Read-only state pill sitting beside the "Make editable copy" action. */
+/* Read-only state pill in the imported-event source row (the "Make editable copy" action moved to
+   the Configuration collapse — see .cc-dw-actbtn). */
 .cc-dw-ro-tag {
   padding: 1px 7px; border-radius: 999px; white-space: nowrap;
   font-size: 0.68rem; font-weight: 600; letter-spacing: 0.02em;

@@ -27,8 +27,11 @@ public func hourMetrics(_ tlTop: CGFloat, _ tlBottom: CGFloat, _ z: CGFloat, _ t
     let hourH = fitH + (weekH - fitH) * min(1, max(0, z - 1))
     let maxScroll = max(0, 24 * hourH - viewH)
     let zoomable = fitH < MAX_HOUR_H
+    // Allow a bounded overscroll past the ends (the engine rubber-bands + springs `tlScroll`), so
+    // the elastic bounce is visible; clamp only to a safe margin against stale/extreme values.
+    let over: CGFloat = 220
     return HourMetrics(viewH: viewH, hourH: hourH, maxScroll: maxScroll, zoomable: zoomable,
-                       scroll: min(max(0, tlScroll), maxScroll))
+                       scroll: min(max(-over, tlScroll), maxScroll + over))
 }
 
 public func incomingDetailReveal(_ p: CGFloat) -> CGFloat { min(1, max(0, (p - 0.45) / 0.4)) }
@@ -64,11 +67,16 @@ public func timelineInfo(_ g: SceneInput, focus: Int? = nil, anim: PageAnim? = n
                         reveal: reveal, wide: f.dayW > 60)
 }
 
-/// An event's day expressed in `focus`'s numbering (≤0 / >dim for spillover); nil otherwise.
-public func relDomOf(_ year: Int, _ focus: Int, _ month: Int, _ day: Int) -> Int? {
-    if month == focus { return day }
-    if month == focus - 1 { return day - daysInMonth(year, focus - 1) }
-    if month == focus + 1 { return daysInMonth(year, focus) + day }
+/// An absolute date `(evYear, month, day)` expressed in `focus`'s day-of-month numbering (≤0 / >dim
+/// for spillover), or nil if it isn't the focus month or one of its immediate neighbors. The neighbor
+/// months wrap across the year boundary (Dec's next = Jan of `focusYear+1`; Jan's prev = Dec of
+/// `focusYear-1`), and `evYear` disambiguates those from a same-year month 11 months away.
+public func relDomOf(_ focusYear: Int, _ focus: Int, _ evYear: Int, _ month: Int, _ day: Int) -> Int? {
+    if evYear == focusYear && month == focus { return day }
+    let pm = (focus + 11) % 12, py = focus == 0 ? focusYear - 1 : focusYear   // previous month
+    if evYear == py && month == pm { return day - daysInMonth(py, pm) }
+    let nm = (focus + 1) % 12, ny = focus == 11 ? focusYear + 1 : focusYear   // next month
+    if evYear == ny && month == nm { return daysInMonth(focusYear, focus) + day }
     return nil
 }
 
@@ -78,14 +86,15 @@ public let EVENT_COLORS = ["default", "blue", "indigo", "cyan", "green", "darkgr
 
 public struct TimedEvent: Sendable, Identifiable, Equatable, Codable {
     public var id: String
+    public var year: Int        // absolute year — the view is year-scoped, so this must be stored
     public var month: Int
     public var day: Int
     public var startHour: CGFloat
     public var endHour: CGFloat
     public var title: String
     public var color: String
-    public init(id: String, month: Int, day: Int, startHour: CGFloat, endHour: CGFloat, title: String, color: String) {
-        self.id = id; self.month = month; self.day = day; self.startHour = startHour
+    public init(id: String, year: Int, month: Int, day: Int, startHour: CGFloat, endHour: CGFloat, title: String, color: String) {
+        self.id = id; self.year = year; self.month = month; self.day = day; self.startHour = startHour
         self.endHour = endHour; self.title = title; self.color = color
     }
 }
@@ -134,7 +143,7 @@ public func layoutDay(_ events: [TimedEvent]) -> [String: EventLayout] {
 
 /// Placement of an event within the day-detail timeline. Ported from eventRect().
 public func eventRect(_ ev: TimedEvent, _ year: Int, _ focus: Int, _ tl: TimelineInfo, _ vp: Viewport, _ layout: EventLayout? = nil) -> CGRect? {
-    guard let dom = relDomOf(year, focus, ev.month, ev.day), tl.hourH > 0 else { return nil }
+    guard let dom = relDomOf(year, focus, ev.year, ev.month, ev.day), tl.hourH > 0 else { return nil }
     let colX = tl.x0 + (CGFloat(dom) - 1) * tl.colW
     if colX + tl.colW < -40 || colX > vp.w + 40 { return nil }
     let col = layout?.col ?? 0
@@ -169,7 +178,9 @@ public func fmtHourRange(_ s: CGFloat, _ e: CGFloat) -> String {
 
 /// Pointer → focus-relative day column + fractional hour, accounting for scroll.
 public func pointToSlot(_ px: CGFloat, _ py: CGFloat, _ tl: TimelineInfo) -> (dom: Int?, hourFrac: CGFloat) {
-    let dom = (px >= Layout.labelW && tl.colW > 0) ? Int((px - tl.x0) / tl.colW) + 1 : nil
+    // floor (not Int-truncation, which rounds toward zero) so leading spillover days (negative
+    // focus-relative index, px < x0) map correctly instead of shifting one column right.
+    let dom = (px >= Layout.labelW && tl.colW > 0) ? Int(((px - tl.x0) / tl.colW).rounded(.down)) + 1 : nil
     let hourFrac = tl.hourH > 0 ? max(0, min(24, (py - tl.tlTop + tl.scroll) / tl.hourH)) : 0
     return (dom, hourFrac)
 }

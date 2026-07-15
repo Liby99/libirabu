@@ -10,6 +10,59 @@ public struct PersistedState: Codable, Sendable {
     public var bands: [BandEvent]
     public var deadlines: [Deadline]
     public var monthTrackNames: [[String]]?   // per-month lane names; nil on older saves
+    // Full-fidelity fields the lean geometry types (TimedEvent/BandEvent/Deadline) don't carry,
+    // keyed by item id. Kept alongside so notes/tags/recurrence survive a round-trip through the
+    // store and CloudKit even though the renderer doesn't surface them yet. nil on older saves.
+    public var rich: [String: RichFields]?
+    // The daily-dashboard NOTE tab: one free-form markdown note per day, keyed by ISO date
+    // "YYYY-MM-DD". nil on older saves. (Mirrors the web's `dailyNote` table.)
+    public var dailyNotes: [String: String]?
+
+    public init(events: [TimedEvent], bands: [BandEvent], deadlines: [Deadline],
+                monthTrackNames: [[String]]? = nil, rich: [String: RichFields]? = nil,
+                dailyNotes: [String: String]? = nil) {
+        self.events = events; self.bands = bands; self.deadlines = deadlines
+        self.monthTrackNames = monthTrackNames; self.rich = rich; self.dailyNotes = dailyNotes
+    }
+}
+
+/// The item content that the lean render types omit. Carried by the sync layer (persisted +
+/// mapped onto the CKRecord) so it isn't lost; opaque to the geometry/renderer for now.
+/// `repeatJSON` is the recurrence config serialized (the renderer doesn't expand it yet).
+public struct RichFields: Codable, Sendable, Equatable {
+    public var notes: String?
+    public var tags: [String]
+    public var repeatJSON: String?
+    public var promoteTrack: Int?   // timed/deadline ghost-band lane; nil = not promoted
+    public var originTz: String?    // deadline origin tz ("AOE"/IANA); nil = main tz canonical
+    public var source: String       // "manual" | "apple" | "ical"
+    public var hidden: Bool         // soft-deleted (imported items)
+    public var createdByAI: Bool    // provenance: created/edited by the AI assistant
+    public var occurrenceNotes: [String: String]?   // per-occurrence notes (recurring), keyed by box id
+
+    public init(notes: String? = nil, tags: [String] = [], repeatJSON: String? = nil,
+                promoteTrack: Int? = nil, originTz: String? = nil,
+                source: String = "manual", hidden: Bool = false, createdByAI: Bool = false,
+                occurrenceNotes: [String: String]? = nil) {
+        self.notes = notes; self.tags = tags; self.repeatJSON = repeatJSON
+        self.promoteTrack = promoteTrack; self.originTz = originTz
+        self.source = source; self.hidden = hidden; self.createdByAI = createdByAI
+        self.occurrenceNotes = occurrenceNotes
+    }
+
+    // Tolerant decode: a field absent in an OLDER store just takes its default, so adding a field
+    // (like createdByAI) never fails the whole rich-map decode and drops notes/recurrence/etc.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        repeatJSON = try c.decodeIfPresent(String.self, forKey: .repeatJSON)
+        promoteTrack = try c.decodeIfPresent(Int.self, forKey: .promoteTrack)
+        originTz = try c.decodeIfPresent(String.self, forKey: .originTz)
+        source = try c.decodeIfPresent(String.self, forKey: .source) ?? "manual"
+        hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
+        createdByAI = try c.decodeIfPresent(Bool.self, forKey: .createdByAI) ?? false
+    }
 }
 
 struct ItemStore {

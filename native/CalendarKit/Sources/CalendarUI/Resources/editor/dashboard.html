@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <link rel="stylesheet" href="katex.min.css" />
+  <link rel="stylesheet" href="editor.css" />
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <div id="dash">
+    <!-- Per-day carousel content: TODO list, or a static NOTE preview (so paging slides the note). -->
+    <div id="panels"></div>
+    <!-- Live CodeMirror editor/preview, shown over the centered panel only at rest (for editing).
+         The edit/preview toggle is a native SwiftUI segmented control (bottom-right). -->
+    <div id="note-live" style="display:none">
+      <div id="note-editor"></div>
+      <div id="note-preview" class="cc-dw-md" style="display:none"></div>
+    </div>
+  </div>
+  <script src="dashboard.js"></script>
+</body>
+</html>

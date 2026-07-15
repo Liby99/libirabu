@@ -3,3 +3,6 @@
 *.xcodeproj
 DerivedData/
 .DS_Store
+
+# webeditor build tooling (bundle output IS committed under Sources/CalendarUI/Resources/editor)
+webeditor/node_modules/

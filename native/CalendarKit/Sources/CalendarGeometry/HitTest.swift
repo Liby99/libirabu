@@ -78,12 +78,12 @@ public func cellInWeek(_ px: CGFloat, _ py: CGFloat, _ g: SceneInput) -> WeekCel
     )
 }
 
-/// Week: which day column is under the cursor (may be a spillover day).
-public func dayAtPointInWeek(_ px: CGFloat, _ g: SceneInput) -> (month: Int, day: Int, week: Int)? {
+/// Week: which day column is under the cursor (may be a spillover day, incl. across the year edge).
+public func dayAtPointInWeek(_ px: CGFloat, _ g: SceneInput) -> (year: Int, month: Int, day: Int, week: Int)? {
     if px < Layout.labelW { return nil }
     let f = frameFor(g.focus, g)
     if f.dayW <= 0 { return nil }
-    let dom = Int((px - f.x0) / f.dayW) + 1
+    let dom = Int(((px - f.x0) / f.dayW).rounded(.down)) + 1   // floor → leading spillover days map right
     guard let r = resolveDate(g.year, g.focus, dom) else { return nil }
-    return (r.month, r.day, weekOfDate(g.year, r.month, r.day))
+    return (r.year, r.month, r.day, weekOfDate(r.year, r.month, r.day))
 }

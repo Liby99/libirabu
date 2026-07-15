@@ -82,14 +82,33 @@ private func monthSwipeFrame(_ m: Int, _ anim: PageAnim, _ focus: Int, _ vp: Vie
     return Frame(x0: x0, dayW: dayW, bandY: OFF_BOT, trackH: Layout.trackH, opacity: 0)
 }
 
+/// Dim multiplier for an event/deadline whose calendar month is `month`, in week view. Normally a
+/// neighbor-month (spillover) day is dimmed to `dim`. During a month-edge flip `focus` is ALREADY the
+/// destination month (labels swap the instant you release), so the destination brightens IN and the
+/// origin (the month you left) dims OUT as `weekFlipFade` runs 0→1 — the events cross-fade AFTER the
+/// text has changed. At f=0 this matches the pre-release dim exactly, so nothing jumps on release.
+public func spillFactor(_ month: Int, _ g: SceneInput, dim: CGFloat = 0.45) -> CGFloat {
+    if g.weekFlipDir != 0 {
+        let f = g.weekFlipFade
+        let origin = (g.focus - g.weekFlipDir + 12) % 12   // month left behind (year-wrap safe)
+        if month == g.focus { return lerp(dim, 1, f) }     // destination brightens in
+        if month == origin { return lerp(1, dim, f) }      // origin dims out
+        return dim
+    }
+    return month == g.focus ? 1 : dim
+}
+
 /// Day-detail opacity for a focus-relative day-of-month at zoom z.
 public func dailyFade(_ dom: Int, _ g: SceneInput) -> CGFloat {
+    // Week/month view shows EVERY day at full opacity — check this FIRST so a leftover day-paging
+    // `anim` (e.g. zoomed out mid-day-scroll, before the pager settled) can't blank out all the other
+    // days (and their grid/labels) here. The day-paging carousel only applies within day view (z>2).
+    if g.z <= 2 { return 1 }
     if let a = g.daily.anim {
         if dom == g.daily.dom { return 1 - a.p }
         if dom == g.daily.dom + a.dir { return a.p }
         return 0
     }
-    if g.z <= 2 { return 1 }
     return dom == g.daily.dom ? 1 : 1 - clamp(g.z - 2, 0, 1)
 }
 
@@ -110,20 +129,36 @@ private func blend(_ a: Frame, _ b: Frame, _ t: CGFloat) -> Frame {
           trackH: lerp(a.trackH, b.trackH, t), opacity: lerp(a.opacity, b.opacity, t))
 }
 
-/// Left edge of the daily dashboard panel (right of the chosen day's column).
+/// Left edge of the daily dashboard panel = the right edge of the (one-day-wide) timeline window.
+/// Uses the day-column WIDTH, not `f.x0 + dom·dayW`, so a day-to-day slide (the `pan` carrying the
+/// current day out and the next in) doesn't drag the boundary — the dashboard frame stays put while
+/// days carousel through the fixed window to its left.
 public func dashboardLeft(_ g: SceneInput) -> CGFloat {
     let f = frameFor(g.focus, g)
-    return max(Layout.labelW, f.x0 + CGFloat(g.daily.dom) * f.dayW)
+    return Layout.labelW + f.dayW
+}
+
+/// The daily dashboard's left edge, ANIMATED: flush with the right window edge (panel closed) at
+/// week level, easing in to `dashboardLeft` across z 2→3 — so the panel mask slides in from the
+/// right as the day opens, instead of snapping open the instant z crosses 2. Every day-view clip
+/// (content, bands, deadlines, chrome) uses this so they reveal together.
+public func dashboardLeftAnimated(_ g: SceneInput) -> CGFloat {
+    let reveal = easeInOut(clamp(g.z - 2, 0, 1))
+    if reveal <= 0.0001 { return g.vp.w }
+    return lerp(g.vp.w, dashboardLeft(g), reveal)
 }
 
 /// Resolve month `m`'s frame at the current zoom. `anim` (month paging) overrides z when present.
 public func frameFor(_ m: Int, _ g: SceneInput, anim: PageAnim? = nil) -> Frame {
-    if let anim { return monthSwipeFrame(m, anim, g.focus, g.vp) }
-    if g.z <= 1 { return yearToMonthFrame(m, easeInOut(clamp(g.z, 0, 1)), g.focus, g.vp, g.scrollY) }
-    let wf = weekFrame(m, g)
-    if g.z <= 2 {
+    var f: Frame
+    if let anim { f = monthSwipeFrame(m, anim, g.focus, g.vp) }
+    else if g.z <= 1 { f = yearToMonthFrame(m, easeInOut(clamp(g.z, 0, 1)), g.focus, g.vp, g.scrollY) }
+    else if g.z <= 2 {
         let mf = yearToMonthFrame(m, 1, g.focus, g.vp, g.scrollY)
-        return blend(mf, wf, easeInOut(clamp(g.z - 1, 0, 1)))
+        f = blend(mf, weekFrame(m, g), easeInOut(clamp(g.z - 1, 0, 1)))
+    } else {
+        f = blend(weekFrame(m, g), dayFrame(m, g), easeInOut(clamp(g.z - 2, 0, 1)))
     }
-    return blend(wf, dayFrame(m, g), easeInOut(clamp(g.z - 2, 0, 1)))
+    if g.monthFlipShift != 0 { f.bandY += g.monthFlipShift }   // month boundary-flip: shift the view
+    return f
 }

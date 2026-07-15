@@ -28,7 +28,8 @@ let package = Package(
     targets: [
         .target(name: "CalendarGeometry"),
         .target(name: "CalendarEngine", dependencies: ["CalendarGeometry"]),
-        .target(name: "CalendarUI", dependencies: ["CalendarGeometry", "CalendarEngine"]),
+        .target(name: "CalendarUI", dependencies: ["CalendarGeometry", "CalendarEngine"],
+                resources: [.copy("Resources/editor")]),   // bundled WKWebView notes editor (see webeditor/)
         .executableTarget(name: "CalendarMac", dependencies: ["CalendarUI"]),
         .testTarget(name: "CalendarGeometryTests", dependencies: ["CalendarGeometry"]),
     ],

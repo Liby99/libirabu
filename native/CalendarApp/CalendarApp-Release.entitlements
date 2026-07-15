@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Distribution variant. A Developer-ID-signed app runs against the PRODUCTION
+	     CloudKit environment, so push tokens should be production too. Only wire this
+	     in (project.yml → Release config) once the App ID has the Push Notifications
+	     capability enabled in the developer portal AND the CloudKit schema has been
+	     deployed to Production — otherwise automatic signing fails to provision. See
+	     DISTRIBUTE.md. Until then the base CalendarApp.entitlements (development) is
+	     used and realtime push degrades to sync-on-launch. -->
+	<key>com.apple.developer.aps-environment</key>
+	<string>production</string>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.dev.libirabu.calendar</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+</dict>
+</plist>

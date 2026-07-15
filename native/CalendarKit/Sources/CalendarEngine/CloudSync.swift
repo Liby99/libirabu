@@ -158,14 +158,16 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         deletions: [CKDatabase.RecordZoneChange.Deletion]
     ) {
         var events: [TimedEvent] = [], bands: [BandEvent] = [], deadlines: [Deadline] = []
+        var rich: [String: RichFields] = [:]
         var trackNames: [[String]]? = nil
         for m in modifications {
             let r = m.record
-            knownRecords[r.recordID.recordName] = r
+            let name = r.recordID.recordName
+            knownRecords[name] = r
             switch r.recordType {
-            case "TimedEvent": if let v = decodeEvent(r) { events.append(v) }
-            case "BandEvent":  if let v = decodeBand(r) { bands.append(v) }
-            case "Deadline":   if let v = decodeDeadline(r) { deadlines.append(v) }
+            case "TimedEvent": if let v = decodeEvent(r) { events.append(v); rich[name] = readRich(r) }
+            case "BandEvent":  if let v = decodeBand(r) { bands.append(v); rich[name] = readRich(r) }
+            case "Deadline":   if let v = decodeDeadline(r) { deadlines.append(v); rich[name] = readRich(r) }
             case "TrackNames": trackNames = decodeTrackNames(r)
             default: break
             }
@@ -175,7 +177,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         saveRecordCache()
         if !events.isEmpty || !bands.isEmpty || !deadlines.isEmpty || trackNames != nil || !deletedIDs.isEmpty {
             engine.applyRemote(events: events, bands: bands, deadlines: deadlines,
-                               trackNames: trackNames, deletedIDs: deletedIDs)
+                               trackNames: trackNames, deletedIDs: deletedIDs, rich: rich)
         }
     }
 
@@ -208,6 +210,30 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         knownRecords[name] ?? CKRecord(recordType: type, recordID: recordID(for: name))
     }
 
+    // ── Full-fidelity fields (notes/tags/recurrence/…) the lean item types don't carry ──
+    /// Write them onto the record, clearing any that are absent so an edit can't leave a stale value.
+    private func writeRich(_ r: CKRecord, _ rf: RichFields?) {
+        r["notes"] = rf?.notes as CKRecordValue?
+        r["tags"] = ((rf?.tags.isEmpty == false) ? rf?.tags : nil) as CKRecordValue?
+        r["repeatJSON"] = rf?.repeatJSON as CKRecordValue?
+        r["promoteTrack"] = rf?.promoteTrack.map { NSNumber(value: $0) } as CKRecordValue?
+        r["originTz"] = rf?.originTz as CKRecordValue?
+        r["source"] = (rf?.source ?? "manual") as NSString
+        r["hidden"] = ((rf?.hidden ?? false) ? 1 : 0) as NSNumber
+        r["createdByAI"] = ((rf?.createdByAI ?? false) ? 1 : 0) as NSNumber
+    }
+    private func readRich(_ r: CKRecord) -> RichFields {
+        RichFields(
+            notes: r["notes"] as? String,
+            tags: (r["tags"] as? [String]) ?? [],
+            repeatJSON: r["repeatJSON"] as? String,
+            promoteTrack: r["promoteTrack"] as? Int,
+            originTz: r["originTz"] as? String,
+            source: (r["source"] as? String) ?? "manual",
+            hidden: ((r["hidden"] as? Int) ?? 0) != 0,
+            createdByAI: ((r["createdByAI"] as? Int) ?? 0) != 0)
+    }
+
     /// Build the CKRecord to save for `recordID` from the current snapshot, or nil if the
     /// item is gone (a stale save that a matching delete will resolve).
     private func materialize(_ id: CKRecord.ID, from snap: PersistedState) -> CKRecord? {
@@ -219,23 +245,24 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         }
         if let e = snap.events.first(where: { $0.id == name }) {
             let r = base(name, "TimedEvent")
-            r["month"] = e.month as NSNumber; r["day"] = e.day as NSNumber
+            r["year"] = e.year as NSNumber; r["month"] = e.month as NSNumber; r["day"] = e.day as NSNumber
             r["startHour"] = Double(e.startHour) as NSNumber; r["endHour"] = Double(e.endHour) as NSNumber
             r["title"] = e.title as NSString; r["color"] = e.color as NSString
-            return r
+            writeRich(r, snap.rich?[name]); return r
         }
         if let b = snap.bands.first(where: { $0.id == name }) {
             let r = base(name, "BandEvent")
             r["year"] = b.year as NSNumber; r["month"] = b.month as NSNumber; r["track"] = b.track as NSNumber
             r["startDay"] = b.startDay as NSNumber; r["endDay"] = b.endDay as NSNumber
             r["title"] = b.title as NSString; r["color"] = b.color as NSString
-            return r
+            writeRich(r, snap.rich?[name]); return r
         }
         if let d = snap.deadlines.first(where: { $0.id == name }) {
             let r = base(name, "Deadline")
             r["year"] = d.year as NSNumber; r["month"] = d.month as NSNumber; r["day"] = d.day as NSNumber
             r["hour"] = Double(d.hour) as NSNumber; r["title"] = d.title as NSString; r["color"] = d.color as NSString
-            return r
+            r["originTz"] = d.originTz as CKRecordValue?
+            writeRich(r, snap.rich?[name]); return r
         }
         return nil
     }
@@ -244,7 +271,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         guard let month = r["month"] as? Int, let day = r["day"] as? Int,
               let sh = r["startHour"] as? Double, let eh = r["endHour"] as? Double,
               let title = r["title"] as? String, let color = r["color"] as? String else { return nil }
-        return TimedEvent(id: r.recordID.recordName, month: month, day: day,
+        return TimedEvent(id: r.recordID.recordName, year: (r["year"] as? Int) ?? 0, month: month, day: day,
                           startHour: CGFloat(sh), endHour: CGFloat(eh), title: title, color: color)
     }
     private func decodeBand(_ r: CKRecord) -> BandEvent? {
@@ -259,7 +286,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
               let hour = r["hour"] as? Double, let title = r["title"] as? String,
               let color = r["color"] as? String else { return nil }
         return Deadline(id: r.recordID.recordName, year: year, month: month, day: day,
-                        hour: CGFloat(hour), title: title, color: color)
+                        hour: CGFloat(hour), title: title, color: color, originTz: r["originTz"] as? String)
     }
     private func decodeTrackNames(_ r: CKRecord) -> [[String]]? {
         guard let json = r["json"] as? String, let data = json.data(using: .utf8),

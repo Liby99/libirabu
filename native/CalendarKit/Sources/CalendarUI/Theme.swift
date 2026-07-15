@@ -30,6 +30,10 @@ struct Theme {
     let nowLine: Color
     let todayTint: Color
     let todayMonthWash: Color
+    // Multiplier on the event-sticker tint opacity. Dark mode is already colorful at the
+    // BandStyle base opacities; light mode washes out (a saturated hue at 20% over white
+    // reads pale), so we boost it there only.
+    let eventTintScale: Double
 
     init(dark: Bool) {
         self.dark = dark
@@ -46,7 +50,11 @@ struct Theme {
         }
         let label = sys(.labelColor)          // white in dark, near-black in light
         bg = sys(.textBackgroundColor)         // content background (near-black / white)
-        text = label
+        // Text: keep the bright system label in dark mode; in light mode the system label is
+        // effectively pure black, which reads harsh — soften to a modest dark gray. Structural
+        // lines/borders below still derive from `label`, so only the text itself changes.
+        text = dark ? label : Color(.sRGB, red: 58/255, green: 58/255, blue: 63/255, opacity: 1)
+        eventTintScale = dark ? 1.0 : 1.5
         textMuted = sys(.secondaryLabelColor)
         accentDark = label
         accentGrey = label.opacity(0.28)
@@ -94,12 +102,16 @@ struct Theme {
             default: return (c(255, 214, 224, 0.10), c(255, 214, 224, 0.4))
             }
         } else {
+            // Light mode: saturated, on-hue tints (the old values were earthy/desaturated —
+            // "blue" was teal, "purple" was dusty rose — which read pale under the tint). The
+            // fill alpha here is nominal; perceived vibrance comes from eventColor × the boosted
+            // eventTintScale at the render sites.
             switch key {
-            case "red": return (c(253, 169, 124, 0.2), c(253, 169, 124))
-            case "yellow": return (c(239, 208, 134, 0.2), c(239, 208, 134))
-            case "green": return (c(187, 206, 130, 0.2), c(187, 206, 130))
-            case "blue": return (c(136, 195, 181, 0.2), c(136, 195, 181))
-            case "purple": return (c(219, 165, 171, 0.2), c(219, 165, 171))
+            case "red": return (c(240, 96, 96, 0.2), c(240, 96, 96))
+            case "yellow": return (c(236, 176, 52, 0.2), c(214, 156, 30))
+            case "green": return (c(104, 186, 92, 0.2), c(104, 186, 92))
+            case "blue": return (c(74, 142, 232, 0.2), c(74, 142, 232))
+            case "purple": return (c(168, 104, 216, 0.2), c(168, 104, 216))
             default: return (c(76, 45, 20, 0.102), c(76, 45, 20, 0.4))
             }
         }

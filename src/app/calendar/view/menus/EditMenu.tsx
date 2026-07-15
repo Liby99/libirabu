@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AUTO_TZ, COMMON_TZS, MAIN_TZS, systemTz, tzAbbrev, tzShortInfo } from "../../util/timezones";
 import MenuBackdrop from "./MenuBackdrop";
+import MenuFlyout from "./MenuFlyout";
 
 interface Props {
   canUndo: boolean;
@@ -28,13 +29,16 @@ interface Props {
 // menu hugs the right edge of the bar).
 export default function EditMenu({ canUndo, onUndo, canRedo, onRedo, canCut, onCut, canCopy, onCopy, canPaste, onPaste, altTz, onAltTz, mainTz, onMainTz }: Props) {
   const [open, setOpen] = useState(false);
-  const [tzOpen, setTzOpen] = useState(false);
-  const [mainTzOpen, setMainTzOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => { if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false); };
+    // A click closes the menu unless it lands inside the button/menu (wrapRef) OR inside a
+    // portaled timezone flyout (tagged data-cc-flyout) — those live outside wrapRef in <body>.
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      if (wrapRef.current && !wrapRef.current.contains(t) && !t?.closest?.("[data-cc-flyout]")) setOpen(false);
+    };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
@@ -66,28 +70,18 @@ export default function EditMenu({ canUndo, onUndo, canRedo, onRedo, canCut, onC
           <button className="cc-menu-item" disabled={!canCopy} onClick={run(onCopy, canCopy)}>Copy<span className="cc-menu-sc">⌘C</span></button>
           <button className="cc-menu-item" disabled={!canPaste} onClick={run(onPaste, canPaste)}>Paste<span className="cc-menu-sc">⌘V</span></button>
           <div className="cc-menu-sep" />
-          <div className="cc-menu-sub" onMouseEnter={() => setMainTzOpen(true)} onMouseLeave={() => setMainTzOpen(false)}>
-            <button className="cc-menu-item">Current Timezone<span className="cc-menu-sc">{mainLabel} ›</span></button>
-            {mainTzOpen && (
-              <div className="cc-submenu" role="menu">
-                <button className={`cc-menu-item${isAuto ? " sel" : ""}`} onClick={() => { onMainTz(AUTO_TZ); setOpen(false); }}>Auto<span className="cc-menu-sc">{tzShortInfo(sysTz, tzNow)}</span></button>
-                {MAIN_TZS.map((t) => (
-                  <button key={t.id} className={`cc-menu-item${mainTz === t.id ? " sel" : ""}`} onClick={() => { onMainTz(t.id); setOpen(false); }}>{t.label}<span className="cc-menu-sc">{tzShortInfo(t.id, tzNow)}</span></button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="cc-menu-sub" onMouseEnter={() => setTzOpen(true)} onMouseLeave={() => setTzOpen(false)}>
-            <button className="cc-menu-item">Alternative Timezone<span className="cc-menu-sc">{curTz ? curTz.label : "None"} ›</span></button>
-            {tzOpen && (
-              <div className="cc-submenu" role="menu">
-                <button className={`cc-menu-item${!altTz ? " sel" : ""}`} onClick={() => { onAltTz(null); setOpen(false); }}>None</button>
-                {COMMON_TZS.map((t) => (
-                  <button key={t.id} className={`cc-menu-item${altTz === t.id ? " sel" : ""}`} onClick={() => { onAltTz(t.id); setOpen(false); }}>{t.label}<span className="cc-menu-sc">{tzShortInfo(t.id, tzNow)}</span></button>
-                ))}
-              </div>
-            )}
-          </div>
+          <MenuFlyout label="Current Timezone" hint={mainLabel}>
+            <button className={`cc-menu-item${isAuto ? " sel" : ""}`} onClick={() => { onMainTz(AUTO_TZ); setOpen(false); }}>Auto<span className="cc-menu-sc">{tzShortInfo(sysTz, tzNow)}</span></button>
+            {MAIN_TZS.map((t) => (
+              <button key={t.id} className={`cc-menu-item${mainTz === t.id ? " sel" : ""}`} onClick={() => { onMainTz(t.id); setOpen(false); }}>{t.label}<span className="cc-menu-sc">{tzShortInfo(t.id, tzNow)}</span></button>
+            ))}
+          </MenuFlyout>
+          <MenuFlyout label="Alternative Timezone" hint={curTz ? curTz.label : "None"}>
+            <button className={`cc-menu-item${!altTz ? " sel" : ""}`} onClick={() => { onAltTz(null); setOpen(false); }}>None</button>
+            {COMMON_TZS.map((t) => (
+              <button key={t.id} className={`cc-menu-item${altTz === t.id ? " sel" : ""}`} onClick={() => { onAltTz(t.id); setOpen(false); }}>{t.label}<span className="cc-menu-sc">{tzShortInfo(t.id, tzNow)}</span></button>
+            ))}
+          </MenuFlyout>
         </div>
         </>
       )}

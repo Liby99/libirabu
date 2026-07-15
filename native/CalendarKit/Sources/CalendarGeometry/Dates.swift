@@ -51,15 +51,16 @@ public func weekOfDate(_ year: Int, _ month: Int, _ day: Int) -> Int {
     (firstDOW(year, month) + day - 1) / 7
 }
 
-/// Resolve a (focus month, day-of-month-that-may-spill) into a real {month, day}.
-public func resolveDate(_ year: Int, _ focus: Int, _ dom: Int) -> (month: Int, day: Int)? {
-    if dom >= 1 && dom <= daysInMonth(year, focus) { return (focus, dom) }
+/// Resolve a (focus month, day-of-month-that-may-spill) into a real {year, month, day}. Spillover
+/// into a neighbor month wraps across the year boundary (dom≤0 at focus=Jan → Dec of year−1; dom>dim
+/// at focus=Dec → Jan of year+1), so week-view boundary columns resolve to real dates in both years.
+public func resolveDate(_ year: Int, _ focus: Int, _ dom: Int) -> (year: Int, month: Int, day: Int)? {
+    let dimF = daysInMonth(year, focus)
+    if dom >= 1 && dom <= dimF { return (year, focus, dom) }
     if dom < 1 {
-        let m = focus - 1
-        if m < 0 { return nil }
-        return (m, daysInMonth(year, m) + dom)
+        let m = (focus + 11) % 12, my = focus == 0 ? year - 1 : year
+        return (my, m, daysInMonth(my, m) + dom)
     }
-    let m = focus + 1
-    if m > 11 { return nil }
-    return (m, dom - daysInMonth(year, focus))
+    let m = (focus + 1) % 12, my = focus == 11 ? year + 1 : year
+    return (my, m, dom - dimF)
 }

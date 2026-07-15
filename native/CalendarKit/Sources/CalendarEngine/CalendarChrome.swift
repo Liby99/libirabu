@@ -12,5 +12,8 @@ public final class CalendarChrome {
     public internal(set) var focus = 0      // month 0–11
     public internal(set) var week = 0.0
     public internal(set) var dailyDom = 1
+    public internal(set) var monthResync = 0   // bumped when the month pager must re-sync to `focus`
+    public internal(set) var weekResync = 0    // bumped when the week pager must re-sync to `week`/`focus`
+    public internal(set) var dailyResync = 0   // bumped when the day pager must re-sync to `daily.dom`/width
     public init() {}
 }

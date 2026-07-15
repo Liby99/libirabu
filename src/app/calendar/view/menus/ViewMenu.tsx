@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { TagFilterPanel, TagRow } from "./TagFilterMenu";
 import MenuBackdrop from "./MenuBackdrop";
+import MenuFlyout from "./MenuFlyout";
 
 interface Props {
   onGo: (level: number) => void; // 0 year · 1 month · 2 week · 3 day
@@ -35,14 +36,17 @@ const ITEMS: { level: number; label: string; hint: string }[] = [
 // "View" dropdown in the top bar: jump-to-now levels + a Tag Filter flyout.
 export default function ViewMenu({ onGo, tags, untaggedCount, hidden, onToggle, onShowAll, onHideAll, showHidden, onToggleShowHidden, dimPast, onToggleDimPast }: Props) {
   const [open, setOpen] = useState(false);
-  const [tagOpen, setTagOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    const close = () => { setOpen(false); setTagOpen(false); };
-    const onDown = (e: MouseEvent) => { if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) close(); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    // Close on outside click — but the tag flyout is portaled to <body> (tagged data-cc-flyout),
+    // so clicks inside it live outside wrapRef; treat those as in-menu.
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      if (wrapRef.current && !wrapRef.current.contains(t) && !t?.closest?.("[data-cc-flyout]")) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("mousedown", onDown); window.removeEventListener("keydown", onKey); };
@@ -57,7 +61,7 @@ export default function ViewMenu({ onGo, tags, untaggedCount, hidden, onToggle, 
       </button>
       {open && (
         <>
-        <MenuBackdrop onClose={() => { setOpen(false); setTagOpen(false); }} />
+        <MenuBackdrop onClose={() => setOpen(false)} />
         <div className="cc-menu" role="menu">
           {ITEMS.map((it) => (
             <button key={it.level} className="cc-menu-item" onClick={() => { onGo(it.level); setOpen(false); }}>{it.label}<span className="cc-menu-sc">{it.hint}</span></button>
@@ -67,14 +71,9 @@ export default function ViewMenu({ onGo, tags, untaggedCount, hidden, onToggle, 
           <button className="cc-menu-item" role="menuitemcheckbox" aria-checked={dimPast} onClick={onToggleDimPast}>Dim past events<span className="cc-menu-sc">{dimPast ? "✓" : ""}</span></button>
           <button className="cc-menu-item" role="menuitemcheckbox" aria-checked={showHidden} onClick={onToggleShowHidden}>Show hidden events<span className="cc-menu-sc">{showHidden ? "✓" : ""}</span></button>
           <div className="cc-menu-sep" />
-          <div className="cc-menu-sub" onMouseEnter={() => setTagOpen(true)} onMouseLeave={() => setTagOpen(false)}>
-            <button className="cc-menu-item">Tag Filter<span className="cc-menu-sc">{filtering ? "Filtered ›" : "›"}</span></button>
-            {tagOpen && (
-              <div className="cc-submenu cc-tag-submenu" role="menu">
-                <TagFilterPanel tags={tags} untaggedCount={untaggedCount} hidden={hidden} onToggle={onToggle} onShowAll={onShowAll} onHideAll={onHideAll} />
-              </div>
-            )}
-          </div>
+          <MenuFlyout label="Tag Filter" hint={filtering ? "Filtered" : undefined} panelClassName="cc-tag-submenu">
+            <TagFilterPanel tags={tags} untaggedCount={untaggedCount} hidden={hidden} onToggle={onToggle} onShowAll={onShowAll} onHideAll={onHideAll} />
+          </MenuFlyout>
         </div>
         </>
       )}

@@ -139,12 +139,7 @@ export default function EventDrawerShell({ name, onName, color, onColor, onColor
             {externalUrl && (
               <a href={externalUrl} target="_blank" rel="noopener noreferrer">Open at source ↗</a>
             )}
-            {onInternalize && (
-              <>
-                <span className="cc-dw-ro-tag" title="This event is synced from the source — its fields can't be edited here">Read only</span>
-                <button className="cc-dw-source-btn" onClick={onInternalize} title="Make a fully-editable copy you own; the synced original is hidden">Make editable copy</button>
-              </>
-            )}
+            <span className="cc-dw-ro-tag" title="Synced from the source — its fields can't be edited here. Make an editable copy in Configuration.">Read only</span>
           </div>
         )}
 
@@ -177,6 +172,20 @@ export default function EventDrawerShell({ name, onName, color, onColor, onColor
                 <RepeatEditor repeat={repeat} anchorDow={anchorDow} anchorDate={anchorDate} focusOcc={focusOcc} onChange={onRepeat} />
               </div>
               {configChildren}
+              {/* Detach actions — tucked in Configuration so the default view stays minimal. Imported
+                  and manual-recurring are mutually exclusive, so at most one shows. Same style. */}
+              {((imported && onInternalize) || (recurring && !imported && onIsolate)) && (
+                <div className="cc-dw-row cc-dw-detach">
+                  {imported && onInternalize && (
+                    <button type="button" className="cc-dw-actbtn" onClick={onInternalize}
+                      title="Make a fully-editable copy you own; the synced original is hidden">Make editable copy</button>
+                  )}
+                  {recurring && !imported && onIsolate && (
+                    <button type="button" className="cc-dw-actbtn" onClick={onIsolate}
+                      title="Detach this occurrence into its own standalone, editable event (leaves a gap in the series)">Isolate this occurrence</button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -185,20 +194,12 @@ export default function EventDrawerShell({ name, onName, color, onColor, onColor
 
         <div className="cc-dw-noterow">
           <span className="cc-dw-notelabel">Note</span>
-          <div className="cc-dw-noteright">
-            {recurring && onOccNotes && (
-              <div className="cc-seg cc-dw-notetabs" role="group" aria-label="Note scope">
-                <button type="button" className={`cc-seg-btn${noteTab === "series" ? " sel" : ""}`} onClick={() => switchTab("series")}>Series</button>
-                <button type="button" className={`cc-seg-btn${noteTab === "occ" ? " sel" : ""}`} title="Note for this occurrence only" onClick={() => switchTab("occ")}>This event<span className="cc-dw-tab-date"> – {shortDate(focusOcc ?? anchorDate)}</span></button>
-              </div>
-            )}
-            {recurring && onIsolate && !imported && (
-              <button type="button" className="cc-dw-isolate" onClick={onIsolate}
-                title="Detach this occurrence into its own standalone, editable event (leaves a gap in the series)">
-                Isolate
-              </button>
-            )}
-          </div>
+          {recurring && onOccNotes && (
+            <div className="cc-seg cc-dw-notetabs" role="group" aria-label="Note scope">
+              <button type="button" className={`cc-seg-btn${noteTab === "series" ? " sel" : ""}`} onClick={() => switchTab("series")}>Series</button>
+              <button type="button" className={`cc-seg-btn${noteTab === "occ" ? " sel" : ""}`} title="Note for this occurrence only" onClick={() => switchTab("occ")}>This event<span className="cc-dw-tab-date"> – {shortDate(focusOcc ?? anchorDate)}</span></button>
+            </div>
+          )}
         </div>
 
         {view === "edit" ? (

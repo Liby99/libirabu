@@ -47,3 +47,6 @@ next-env.d.ts
 
 # import pure-core test output
 .test-out/
+
+# desktop app build output
+/dist

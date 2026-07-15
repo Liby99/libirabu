@@ -32,8 +32,7 @@ enum SceneRenderer {
     // (it.gutter) clip to the gutter rect — so neither can be drawn over the other,
     // and no occlusion/background is needed.
     private static func contentRect(_ input: SceneInput) -> CGRect {
-        let right = input.z > 2 ? dashboardLeft(input) : input.vp.w
-        return CGRect(x: Layout.labelW, y: 0, width: max(0, right - Layout.labelW), height: input.vp.h)
+        return CGRect(x: Layout.labelW, y: 0, width: max(0, dashboardLeftAnimated(input) - Layout.labelW), height: input.vp.h)
     }
     private static func gutterRect(_ input: SceneInput) -> CGRect {
         // Extends left over the padding so the gutter hover can reach the window edge.
@@ -51,8 +50,8 @@ enum SceneRenderer {
     }
 
     /// Above the events, below the chrome: deadlines (self-clip to the content area).
-    static func drawMid(input: SceneInput, deadlines: [Deadline], selected: String?, in ctx: inout GraphicsContext, theme: Theme) {
-        drawDeadlines(input, deadlines, selected, &ctx, theme)
+    static func drawMid(input: SceneInput, deadlines: [Deadline], selected: String?, drawerOpen: Bool = false, hovered: String? = nil, in ctx: inout GraphicsContext, theme: Theme) {
+        drawDeadlines(input, deadlines, selected, drawerOpen, hovered, &ctx, theme)
     }
 
     /// Chrome, each clipped to its own region so it can't collide with content:
@@ -66,14 +65,89 @@ enum SceneRenderer {
             var layer = gut; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
         drawTrackNames(input, tracks, hideTrack, &gut, theme)
-        // content region: now-line + mouse cursor
-        var content = ctx; content.clip(to: Path(contentRect(input)))
+        // content region: now-line + mouse cursor. Widen a few px past the content edges so the
+        // end-dots (r=4), centered exactly on the left/right boundaries, draw whole instead of halved.
+        // (The cursor time tag is NOT here — it's a SwiftUI overlay, so it isn't clipped at the gutter.)
+        var content = ctx; content.clip(to: Path(contentRect(input).insetBy(dx: -6, dy: 0)))
         for it in items where isForeground(it.kind) && it.opacity > 0.001 {
             var layer = content; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
         drawDashboardChrome(input, &ctx, theme)
         drawYearPull(input, &ctx, theme)
+        drawMonthPull(input, &ctx, theme)
+        drawWeekPull(input, &ctx, theme)
+        drawDayPull(input, &ctx, theme)
         drawScrollDebug(input, &ctx, theme)
+    }
+
+    // Pull-to-flip-month hint (week view, at a month edge). Hugs the pulled left/right edge and
+    // names the neighbor month + how the flip resolves: an ALIGNED boundary (the boundary week is
+    // wholly this month) advances to a fresh "prev/next month"; a SHARED boundary week (already
+    // shows the neighbor's spillover, dimmed) merely "reveal"s it (brightens). Always full month name.
+    private static func drawWeekPull(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
+        guard input.z >= 1.5, input.z < 2.5, let p = input.weekPull, p.over > 4 else { return }
+        let reveal = min(1, p.over / 40)
+        // A vertical (90°-rotated) label that slides IN from the pulled edge as the rubber-band grows,
+        // hugging the gap the overscroll opens — right edge for a next-month pull, left for previous.
+        let edgeX = p.dir > 0 ? input.vp.w - Layout.padLeft : Layout.labelW
+        let depth: CGFloat = 20                            // resting distance in from the edge
+        let slide = lerp(depth - 12, depth, reveal)        // peeks, then slides inward with the pull
+        let cx = p.dir > 0 ? edgeX - slide : edgeX + slide
+        let tl = timelineInfo(input)                       // center on the daily timeline band, not the whole window
+        let cy = (tl.tlTop + tl.tlBottom) * 0.5
+        var layer = ctx
+        layer.opacity = Double(reveal)
+        layer.translateBy(x: cx, y: cy)
+        layer.rotate(by: .degrees(p.dir > 0 ? 90 : -90))   // reads top→bottom (right) / bottom→top (left)
+        // Local frame after the rotate: local-x runs ALONG the edge, local-y is depth. Stack the two
+        // lines across the depth axis, centered on the edge.
+        drawText(MONTH_LONG[p.targetMonth], CGRect(x: -130, y: -16, width: 260, height: 20),
+                 size: 17, align: .center, color: theme.text, weight: .semibold, into: &layer)
+        let cap = p.shared ? "reveal" : (p.dir < 0 ? "prev month" : "next month")
+        drawText(cap, CGRect(x: -130, y: 5, width: 260, height: 13),
+                 size: 10, align: .center, color: p.armed ? theme.nowLine : theme.text.opacity(0.6),
+                 weight: p.armed ? .semibold : .regular, into: &layer)
+    }
+
+    // Pull-to-flip-month hint (day view, at a month edge): names the neighbor month + "prev/next
+    // month". Mirrors drawWeekPull, hugging the pulled edge of the single day column (its left edge /
+    // the dashboard boundary on the right).
+    private static func drawDayPull(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
+        guard input.z >= 2.5, let p = input.dayPull, p.over > 4 else { return }
+        let reveal = min(1, p.over / 40)
+        let edgeX = p.dir > 0 ? dashboardLeft(input) : Layout.labelW
+        let depth: CGFloat = 20
+        let slide = lerp(depth - 12, depth, reveal)
+        let cx = p.dir > 0 ? edgeX - slide : edgeX + slide
+        let tl = timelineInfo(input)
+        let cy = (tl.tlTop + tl.tlBottom) * 0.5
+        var layer = ctx
+        layer.opacity = Double(reveal)
+        layer.translateBy(x: cx, y: cy)
+        layer.rotate(by: .degrees(p.dir > 0 ? 90 : -90))
+        drawText(MONTH_LONG[p.targetMonth], CGRect(x: -130, y: -16, width: 260, height: 20),
+                 size: 17, align: .center, color: theme.text, weight: .semibold, into: &layer)
+        drawText(p.dir < 0 ? "prev month" : "next month", CGRect(x: -130, y: 5, width: 260, height: 13),
+                 size: 10, align: .center, color: p.armed ? theme.nowLine : theme.text.opacity(0.6),
+                 weight: p.armed ? .semibold : .regular, into: &layer)
+    }
+
+    // Pull-to-flip-month hint (month view, at the Jan/Dec boundary): the target month + year,
+    // captioned "Release to switch" once past the flip threshold. Hugs the top/bottom edge.
+    private static func drawMonthPull(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
+        guard input.z >= 0.5, input.z < 1.5, let p = input.monthPull, p.over > 4 else { return }
+        let reveal = min(1, p.over / 40)
+        let cx = (input.vp.w - Layout.padLeft) / 2
+        let cy = p.atTop ? max(21, Layout.topPad - 30) : min(input.vp.h - 21, input.vp.h - 34)
+        var layer = ctx
+        layer.opacity = Double(reveal)
+        let mName = p.atTop ? MONTH_LONG[11] : MONTH_LONG[0]   // prev Dec / next Jan
+        drawText("\(mName) \(p.targetYear)", CGRect(x: cx - 120, y: cy - 17, width: 240, height: 22),
+                 size: 18, align: .center, color: theme.text, weight: .semibold, into: &layer)
+        let cap = p.armed ? "Release to switch" : (p.atTop ? "Previous month" : "Next month")
+        drawText(cap, CGRect(x: cx - 120, y: cy + 5, width: 240, height: 14),
+                 size: 10, align: .center, color: p.armed ? theme.nowLine : theme.text.opacity(0.55),
+                 weight: p.armed ? .semibold : .regular, into: &layer)
     }
 
     // DEBUG: visualize the year-scroll boundaries + flip threshold. Toggle with debugScroll.
@@ -126,54 +200,57 @@ enum SceneRenderer {
 
     // Deadlines: a colored horizontal rule across the day column at the deadline's
     // hour, with end dots + a title/time pill. Clipped to the visible day area.
-    private static func drawDeadlines(_ input: SceneInput, _ deadlines: [Deadline], _ selected: String?, _ ctx: inout GraphicsContext, _ theme: Theme) {
+    private static func drawDeadlines(_ input: SceneInput, _ deadlines: [Deadline], _ selected: String?, _ drawerOpen: Bool, _ hovered: String?, _ ctx: inout GraphicsContext, _ theme: Theme) {
         let anim = input.monthAnim
         // Outgoing (current) month — slides + fades out during a page-turn (anim==nil → resting).
         let outMul = anim.map { outgoingDetailReveal($0.p) } ?? 1
-        drawDeadlineLayer(input, deadlines, selected, &ctx, theme, focus: input.focus, anim: anim, fadeMul: outMul)
+        drawDeadlineLayer(input, deadlines, selected, drawerOpen, hovered, &ctx, theme, focus: input.focus, anim: anim, fadeMul: outMul)
         // Incoming month during a page-turn: its deadlines slide in + fade in with its timeline.
         if let anim {
             let to = input.focus + anim.dir
             if to >= 0, to <= 11 {
-                drawDeadlineLayer(input, deadlines, selected, &ctx, theme, focus: to, anim: anim, fadeMul: incomingDetailReveal(anim.p))
+                drawDeadlineLayer(input, deadlines, selected, drawerOpen, hovered, &ctx, theme, focus: to, anim: anim, fadeMul: incomingDetailReveal(anim.p))
             }
         }
     }
 
-    private static func drawDeadlineLayer(_ input: SceneInput, _ deadlines: [Deadline], _ selected: String?, _ ctx: inout GraphicsContext, _ theme: Theme, focus: Int, anim: PageAnim?, fadeMul: CGFloat) {
+    private static func drawDeadlineLayer(_ input: SceneInput, _ deadlinesIn: [Deadline], _ selected: String?, _ drawerOpen: Bool, _ hovered: String?, _ ctx: inout GraphicsContext, _ theme: Theme, focus: Int, anim: PageAnim?, fadeMul: CGFloat) {
         let tl = timelineInfo(input, focus: focus, anim: anim)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return }
-        let f = frameFor(input.focus, input, anim: anim)
-        let clipRight = input.z > 2 ? f.x0 + CGFloat(input.daily.dom) * f.dayW : input.vp.w
+        // Draw the hovered / selected deadline LAST so its moment line + dots sit on top of neighbors.
+        func rank(_ d: Deadline) -> Int {
+            if d.id == selected { return drawerOpen ? 4 : 3 }
+            if selected.map({ sourceId(of: d.id) == sourceId(of: $0) }) == true { return 2 }
+            return d.id == hovered ? 1 : 0
+        }
+        let deadlines = deadlinesIn.enumerated().sorted { rank($0.element) != rank($1.element) ? rank($0.element) < rank($1.element) : $0.offset < $1.offset }.map(\.element)
+        let clipRight = dashboardLeftAnimated(input)   // clip to the animated dashboard mask
         var clip = ctx
-        clip.clip(to: Path(CGRect(x: Layout.labelW, y: tl.tlTop, width: max(0, clipRight - Layout.labelW), height: tl.tlBottom - tl.tlTop)))
+        // Widen BOTH edges by the end-dot radius so a deadline's left/right dots (centered on the
+        // content boundaries — the gutter and the day-view dashboard mask) draw whole, not halved.
+        let dotR: CGFloat = 4
+        clip.clip(to: Path(CGRect(x: Layout.labelW - dotR, y: tl.tlTop, width: max(0, clipRight - Layout.labelW + 2 * dotR), height: tl.tlBottom - tl.tlTop)))
         var gf = input; gf.focus = focus
         for d in deadlines {
             guard let pos = deadlinePos(d, input, focus: focus, anim: anim) else { continue }
-            let fade = dailyFade(relDomOf(input.year, focus, d.month, d.day) ?? -999, gf) * tl.reveal * fadeMul
+            let rd = relDomOf(input.year, focus, d.year, d.month, d.day) ?? -999
+            let spill = (input.z >= 1.5) ? spillFactor(d.month, gf) : 1   // dim spillover-day deadlines; cross-fade on flip
+            let fade = dailyFade(rd, gf) * tl.reveal * fadeMul * spill
             if fade <= 0.02 { continue }
             var layer = clip
             layer.opacity = Double(fade)
             let color = theme.eventBorder(d.color)
-            let sel = d.id == selected
+            // The moment line stays SOLID at every activation level — only the LABEL (a SwiftUI glass
+            // pill; see DeadlinesOverlay) shows selection styling. Width just bumps a touch when focused.
+            let isMain = d.id == selected
+            let inSeries = selected.map { sourceId(of: d.id) == sourceId(of: $0) } ?? false
+            let lineW: CGFloat = isMain ? (drawerOpen ? 3 : 2.5) : (inSeries ? 2 : 1.5)
             var line = Path()
             line.move(to: CGPoint(x: pos.x, y: pos.y)); line.addLine(to: CGPoint(x: pos.x + pos.w, y: pos.y))
-            layer.stroke(line, with: .color(color), lineWidth: sel ? 2.5 : 1.5)
+            layer.stroke(line, with: .color(color), lineWidth: lineW)
             for cx in [pos.x, pos.x + pos.w] {
                 let dot = Path(ellipseIn: CGRect(x: cx - 3, y: pos.y - 3, width: 6, height: 6))
                 layer.fill(dot, with: .color(theme.bg)); layer.stroke(dot, with: .color(color), lineWidth: 1.5)
-            }
-            let t = Int((d.hour * 60).rounded())
-            let label = "\(d.title)  \(String(format: "%02d:%02d", (t / 60) % 24, t % 60))"
-            let resolved = layer.resolve(Text(label).font(.system(size: 9, weight: .semibold)).foregroundStyle(color))
-            let sz = resolved.measure(in: CGSize(width: 240, height: 20))
-            let pill = CGRect(x: pos.x + 4, y: pos.y - 17, width: min(sz.width + 10, pos.w - 6), height: 15)
-            if pill.width > 12 {
-                layer.fill(Path(roundedRect: pill, cornerRadius: 4), with: .color(theme.bg.opacity(0.85)))
-                layer.stroke(Path(roundedRect: pill, cornerRadius: 4), with: .color(color.opacity(0.7)), lineWidth: 1)
-                var textLayer = layer
-                textLayer.clip(to: Path(pill))
-                textLayer.draw(resolved, at: CGPoint(x: pill.minX + 5, y: pill.midY), anchor: .leading)
             }
         }
     }
@@ -207,7 +284,7 @@ enum SceneRenderer {
             ctx.fill(Path(it.rect), with: .color(theme.nowLine))
             drawEndDots(it, &ctx, color: theme.nowLine, bg: theme.bg)
         case .cursor:
-            ctx.fill(Path(it.rect), with: .color(theme.cursor))
+            if !it.hollow { ctx.fill(Path(it.rect), with: .color(theme.cursor)) }   // hollow → dots only
             drawEndDots(it, &ctx, color: theme.cursor, bg: theme.bg)
         case .monthLabel: drawMonthLabel(it, &ctx, theme)
         case .dayLabel: drawDayLabel(it, &ctx, theme)
@@ -216,9 +293,9 @@ enum SceneRenderer {
         case .weekdayTag:
             drawPillText(it.text ?? "", it.rect, size: it.fontSize ?? 9, color: theme.text, theme: theme, into: &ctx)
         case .nowLabel:
-            drawStackedLabel(it, cap: "CURRENT TIME", size: 13, color: theme.nowLine, border: theme.nowLine, theme: theme, into: &ctx)
+            break   // the CURRENT TIME label is rendered in SwiftUI (EventsOverlay) for real glass
         case .timeTag:
-            drawPillText(it.text ?? "", it.rect, size: 11, color: theme.cursor, theme: theme, into: &ctx, border: theme.cursor)
+            break   // the mouse-cursor time tag is rendered in SwiftUI (EventsOverlay) — see cursorTagView
         case .event: break
         }
     }
@@ -299,27 +376,59 @@ enum SceneRenderer {
     private static func drawDashboardChrome(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         let reveal = clamp(input.z - 2, 0, 1)
         if reveal <= 0.001 { return }
-        let dashLeft = dashboardLeft(input)
-        if dashLeft >= input.vp.w { return }
-        var layer = ctx
-        layer.opacity = Double(reveal)
-        // two thin bars at the band top/bottom, matching the timeline dividers
-        let barX = dashLeft + 25
-        for y in [Layout.topPad, Layout.topPad + Layout.monthH] {
-            var p = Path()
-            p.move(to: CGPoint(x: barX, y: y)); p.addLine(to: CGPoint(x: input.vp.w - 18, y: y))
-            layer.stroke(p, with: .color(theme.sep.opacity(0.58)), lineWidth: 1)
-        }
-        // day title — bottom-aligned in the band region, just above the lower bar
-        // (matches .cc-dd-titlezone { align-items: flex-end }).
-        if let r = resolveDate(input.year, input.focus, input.daily.dom) {
-            let lowerBarY = Layout.topPad + Layout.monthH
-            let w = input.vp.w - barX - 18
-            let name = WD3[dayOfWeek(input.year, r.month, r.day)].uppercased()
-            drawText(name, CGRect(x: barX, y: lowerBarY - 46, width: w, height: 14),
-                     size: 11, align: .left, color: theme.textMuted, tracking: 1, into: &layer)
-            drawText("\(MONTH_LONG[r.month]) \(r.day)", CGRect(x: barX, y: lowerBarY - 33, width: w, height: 26),
+        // The dashboard is a two-layer carousel (mirrors the web's cc-daily-dash / cc-daily-inner-dash):
+        //  • a FIXED mask — the region between `dashLeft` and the right edge. It doesn't move or fade
+        //    with day paging; the timeline is clipped out of it (window glass shows through), and it
+        //    only reveals with the zoom (`reveal`, slid in from the right via dashboardLeftAnimated).
+        //  • per-day PANELS (bars + name + date, and future content) that slide a full panel-width and
+        //    cross-fade like a carousel as you page days — the whole panel moves together, not just the date.
+        let dashLeft = dashboardLeftAnimated(input)
+        if dashLeft >= input.vp.w - 1 { return }
+        let barX = dashLeft + 25                       // matches the web's --dd-pad: 25px
+        let barRight = input.vp.w - 18
+        let lowerBarY = Layout.topPad + Layout.monthH
+        let w = barRight - barX
+        let panelW = max(1, input.vp.w - dashLeft)     // one panel = the full dashboard width
+        let clipRect = Path(CGRect(x: dashLeft, y: 0, width: panelW, height: input.vp.h))
+
+        let cal = Calendar.current
+        let today = cal.dateComponents([.year, .month, .day], from: input.now)
+
+        // One day's panel, translated by `x` (0 = centered) and faded by distance from center.
+        func drawPanel(_ dom: Int, _ x: CGFloat) {
+            let op = max(0, 1 - abs(x) / panelW)       // web: opacity = 1 − |x|/width
+            guard op > 0.01, let r = resolveDate(input.year, input.focus, dom) else { return }
+            var layer = ctx
+            layer.opacity = Double(reveal * op)
+            layer.clip(to: clipRect)
+            // top + bottom bars — matching the band's emphasized edge; slide rigidly with the panel.
+            // The band's top/bottom borders draw at bandY − 1 (see buildMonthBands ftopg/msep), so shift
+            // these up 1px to line up exactly with the timeline track's borders across the boundary.
+            for y in [Layout.topPad - 0.5, lowerBarY - 0.5] {
+                var p = Path()
+                p.move(to: CGPoint(x: barX + x, y: y)); p.addLine(to: CGPoint(x: barRight + x, y: y))
+                layer.stroke(p, with: .color(theme.sep.opacity(Layout.bandEdgeOpacity)), lineWidth: Layout.bandEdgeWidth)
+            }
+            drawText("DAILY DASHBOARD", CGRect(x: barX + x, y: lowerBarY - 46, width: w, height: 14),
+                     size: 10, align: .left, color: theme.textMuted, tracking: 1.5, into: &layer)
+            // date + a (Today/Yesterday/Tomorrow) suffix (muted), like the web's cc-dd-special
+            let base = "\(WD_LONG[dayOfWeek(r.year, r.month, r.day)]), \(MONTH_LONG[r.month]) \(r.day)"
+            var special = ""
+            if let d0 = cal.date(from: DateComponents(year: today.year, month: today.month, day: today.day)),
+               let d1 = cal.date(from: DateComponents(year: r.year, month: r.month + 1, day: r.day)) {
+                switch cal.dateComponents([.day], from: d0, to: d1).day ?? 99 {
+                case 0: special = " (Today)"; case -1: special = " (Yesterday)"; case 1: special = " (Tomorrow)"; default: break
+                }
+            }
+            drawText(base + special, CGRect(x: barX + x, y: lowerBarY - 33, width: w, height: 26),
                      size: 19, align: .left, color: theme.text, weight: .medium, into: &layer)
+        }
+        if let a = input.daily.anim {
+            let dir = CGFloat(a.dir)
+            drawPanel(input.daily.dom, -dir * a.p * panelW)              // current slides out + fades
+            drawPanel(input.daily.dom + a.dir, dir * (1 - a.p) * panelW) // incoming slides in from the other side
+        } else {
+            drawPanel(input.daily.dom, 0)
         }
     }
 
@@ -383,14 +492,6 @@ enum SceneRenderer {
         ctx.draw(resolved, at: CGPoint(x: pill.midX, y: pill.midY), anchor: .center)
     }
 
-    private static func drawStackedLabel(_ it: Item, cap: String, size: CGFloat, color: Color, border: Color, theme: Theme, into ctx: inout GraphicsContext) {
-        let rect = it.rect
-        ctx.fill(Path(roundedRect: rect, cornerRadius: 5), with: .color(theme.bg.opacity(0.82)))
-        ctx.stroke(Path(roundedRect: rect, cornerRadius: 5), with: .color(border.opacity(0.6)), lineWidth: 1.5)
-        let align = it.align
-        drawText(cap, CGRect(x: rect.minX + 4, y: rect.minY + 3, width: rect.width - 8, height: 9), size: 7.5, align: align, color: theme.textMuted, into: &ctx)
-        drawText(it.text ?? "", CGRect(x: rect.minX + 4, y: rect.minY + 12, width: rect.width - 8, height: rect.height - 14), size: size, align: align, color: color, weight: .bold, into: &ctx)
-    }
 
     private static func drawText(_ s: String, _ rect: CGRect, size: CGFloat, align: TextAlign, color: Color, weight: Font.Weight = .regular, tracking: CGFloat = 0, font: Font? = nil, into ctx: inout GraphicsContext, clipToRect: Bool = false) {
         if s.isEmpty { return }

@@ -18,7 +18,51 @@ private func onScreen(_ f: Frame, _ vp: Viewport) -> Bool {
     f.bandY <= vp.h + 20 && f.bandY + 4 * f.trackH >= -20
 }
 
+/// The current-time ("CURRENT TIME") label placements for this frame — the now-line still draws in
+/// the Canvas, but the LABEL is rendered as a real SwiftUI glass view (see EventsOverlay). Derived
+/// from the built scene so it inherits all the month/week/page-turn placement logic for free.
+public struct NowLabelSpec: Sendable, Identifiable {
+    public var id: String
+    public var rect: CGRect
+    public var text: String
+    public var pointsRight: Bool   // caret side: true → label sits left of the column, points right
+    public var opacity: CGFloat
+}
+public func nowLabelSpecs(_ g: SceneInput) -> [NowLabelSpec] {
+    buildScene(g).items.compactMap { it in
+        guard it.kind == .nowLabel, it.opacity > 0.01 else { return nil }
+        return NowLabelSpec(id: it.key, rect: it.rect, text: it.text ?? "", pointsRight: it.align == .right, opacity: it.opacity)
+    }
+}
+
+/// The mouse-cursor time tag, rendered as a SwiftUI glass pill (not in the Canvas) so it isn't clipped
+/// at the gutter edge AND its left/right side can animate smoothly on a flip (e.g. week↔day). Mirrors
+/// nowLabelSpecs: derived from the built scene's `cur-tag` item so it inherits all placement logic.
+public struct CursorTagSpec: Sendable {
+    public var rect: CGRect
+    public var text: String
+    public var pointsRight: Bool   // tag sits left of the column → caret points right (into the line)
+    public var opacity: CGFloat
+}
+public func cursorTagSpec(_ g: SceneInput) -> CursorTagSpec? {
+    guard let it = buildScene(g).items.first(where: { $0.key == "cur-tag" }), it.opacity > 0.01 else { return nil }
+    return CursorTagSpec(rect: it.rect, text: it.text ?? "", pointsRight: it.align == .right, opacity: it.opacity)
+}
+
+// Single-frame memo: buildScene is called 3× per frame (drawBelow, drawAbove, nowLabelSpecs) with
+// the SAME input, and it's the heaviest per-frame function. Cache the last (input → scene) so those
+// calls collapse to one build; across frames the input differs (clock/scroll) and it rebuilds once.
+// Main-thread only (all rendering is on the main actor), hence nonisolated(unsafe).
+nonisolated(unsafe) private var sceneMemo: (input: SceneInput, scene: Scene)?
+
 public func buildScene(_ g: SceneInput) -> Scene {
+    if let m = sceneMemo, m.input == g { return m.scene }
+    let scene = buildSceneUncached(g)
+    sceneMemo = (g, scene)
+    return scene
+}
+
+private func buildSceneUncached(_ g: SceneInput) -> Scene {
     let clock = clockOf(g.now)
     var items: [Item] = []
     if g.monthAnim == nil {
@@ -31,10 +75,11 @@ public func buildScene(_ g: SceneInput) -> Scene {
     let outMul = g.monthAnim.map { outgoingDetailReveal($0.p) } ?? 1
     items += buildDetail(g, clock, focus: g.focus, detailMul: outMul)
     if let anim = g.monthAnim {
-        items += buildToday(g, clock, mul: outMul)        // now-line fades out with the timeline
+        items += buildToday(g, clock, mul: outMul)        // outgoing today column / now-line: slides + fades out
         let to = g.focus + anim.dir
         if to >= 0 && to <= 11 {
             items += buildDetail(g, clock, focus: to, detailMul: incomingDetailReveal(anim.p), keyTag: "~in")
+            items += buildToday(g, clock, mul: incomingDetailReveal(anim.p), fo: to, keyTag: "~in")  // incoming: slides + fades in
         }
     }
     return Scene(items: items)
@@ -48,12 +93,13 @@ private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, fo: I
     let nowFrac = CGFloat(clock.hour) + CGFloat(clock.minute) / 60
     let timeStr = String(format: "%02d:%02d", clock.hour, clock.minute)
 
-    let relDom: Int? = tMonth == g.focus ? tDom
-        : (tMonth == g.focus - 1 ? tDom - daysInMonth(g.year, g.focus - 1)
-        : (tMonth == g.focus + 1 ? daysInMonth(g.year, g.focus) + tDom : nil))
+    // Year-aware focus-relative index of today (nil unless today is the focus month or a neighbor,
+    // incl. across the Dec↔Jan year boundary) — so the boundary-week highlight tracks a neighbor-year
+    // "today" too, not only same-year days.
+    let relDom = relDomOf(g.year, g.focus, clock.year, tMonth, tDom)
 
     func nowLabel(_ key: String, _ x: CGFloat, _ colW: CGFloat, _ lineY: CGFloat, _ active: Bool, gate: CGFloat = 1) -> Item {
-        let W: CGFloat = 84, GAP: CGFloat = 10, H: CGFloat = 30
+        let W: CGFloat = 88, GAP: CGFloat = 10, H: CGFloat = 36   // match the deadline label pill's size
         let onLeft = g.z > 2 || x + colW / 2 >= (Layout.labelW + g.vp.w) / 2
         return Item(key: key, kind: .nowLabel, x: onLeft ? x - GAP - W : x + colW + GAP, y: lineY - H / 2, w: W, h: H,
                     opacity: active ? mul * gate : 0, text: timeStr,
@@ -94,15 +140,21 @@ private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, fo: I
     }
     // Week: today's column when in the visible 7-day window
     do {
-        let startDom = weekStartDOM(g.year, g.focus, Int(g.week.rounded(.down)))
-        let inWeek = relDom != nil && relDom! >= startDom && relDom! < startDom + 7
-        let active = present && g.z >= 1.5 && inWeek
+        // Use the window's FRACTIONAL left edge (matches weekFrame's startDOM) so the highlight
+        // tracks live while scrolling, instead of snapping in only once `week` lands on an integer.
+        let winStart = 1 - CGFloat(firstDOW(g.year, g.focus)) + g.week * 7
+        let inWeek = relDom.map { CGFloat($0) - winStart > -1 && CGFloat($0) - winStart < 7 } ?? false
+        // `relDom` is already year-aware (non-nil only if today is in the visible window, incl. the
+        // neighbor year at a boundary), so `inWeek` alone gates — no same-year `present` requirement.
+        let active = g.z >= 1.5 && inWeek
         let f = frameFor(g.focus, g)
         let colW = f.dayW
         let tlTop = f.bandY + 4 * f.trackH + 18
         let tlBottom = g.vp.h - 8
         let x = f.x0 + (CGFloat(relDom ?? 1) - 1) * colW
-        let tintMul = 1 - clamp((g.z - 2) / 0.6, 0, 1)
+        // The today-column red wash fades OUT as the week view opens (z 1.5→2) and stays gone in week
+        // and day view — today there is marked by the now-line + the highlighted date/weekday labels.
+        let tintMul = 1 - clamp((g.z - 1.5) / 0.5, 0, 1)
         items.append(Item(key: "td-w", kind: .today, x: x, y: f.bandY, w: colW, h: tlBottom - f.bandY, opacity: active ? mul * tintMul : 0, z: 3))
         let m = hourMetrics(tlTop, tlBottom, g.z, g.tlScroll, g.weekHourH)
         let lineY = tlTop + nowFrac * m.hourH - m.scroll
@@ -178,12 +230,18 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         let hf = h.hourFrac ?? 0
         let cy = tlTop + hf * m.hourH - m.scroll
         let curOn = active && h.dom != nil && h.hourFrac != nil && m.hourH > 0 && cy >= tlTop && cy <= tlBottom
-        items.append(Item(key: "cur-line", kind: .cursor, x: x, y: cy, w: colW, h: 2, opacity: curOn ? 1 : 0, z: g.z > 2 ? 16 : 7))
+        // Over a deadline: hide the whole cursor. Over a timed event: keep the end dots + tag but
+        // drop the connecting line (hollow) so it doesn't slice across the event block.
+        let lineOn = curOn && !h.overDeadline
+        let tagOn = curOn && !h.overDeadline
+        items.append(Item(key: "cur-line", kind: .cursor, x: x, y: cy, w: colW, h: 2, opacity: lineOn ? 1 : 0, z: g.z > 2 ? 16 : 7, hollow: h.overTimed))
         let total = Int((hf * 60).rounded())
         let tStr = String(format: "%02d:%02d", (total / 60) % 24, total % 60)
         let tagLeft = g.z > 2 || x + colW / 2 >= (Layout.labelW + g.vp.w) / 2
         let TW: CGFloat = 44, GAP: CGFloat = 10, TH: CGFloat = 20
-        items.append(Item(key: "cur-tag", kind: .timeTag, x: tagLeft ? x - GAP - TW : x + colW + GAP, y: cy - TH / 2, w: TW, h: TH, opacity: curOn ? 1 : 0, text: tStr, align: tagLeft ? .right : .left, z: g.z > 2 ? 16 : 9))
+        // Nudge the tag down ~2px so it reads as hanging just under the cursor moment, and align its
+        // side to the dot it points at (a caret is drawn on the near edge — see drawCursorTag).
+        items.append(Item(key: "cur-tag", kind: .timeTag, x: tagLeft ? x - GAP - TW : x + colW + GAP, y: cy - TH / 2 + 1, w: TW, h: TH, opacity: tagOn ? 1 : 0, text: tStr, align: tagLeft ? .right : .left, z: g.z > 2 ? 16 : 9))
     }
     return items
 }
@@ -221,6 +279,19 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
         if f.opacity < 0.02 || !onScreen(f, g.vp) { continue }
         let dim = daysInMonth(g.year, m)
         let fullW = 31 * f.dayW
+        // Week view: the visible 7-day window can include spillover columns beyond the month's own
+        // 31 cells. Extend the lane grid (dotted verticals + separators) + bottom border to span the
+        // whole content area so spillover days get the same grid as focus days (day-aligned).
+        let rowX: CGFloat, rowW: CGFloat, rowCols: Int
+        if g.z >= 1.5 && g.z <= 2.5 {
+            let iLeft = Int(((Layout.labelW - f.x0) / f.dayW).rounded(.down))
+            let iRight = Int(((g.vp.w - f.x0) / f.dayW).rounded(.up))
+            rowCols = max(1, iRight - iLeft)
+            rowX = f.x0 + CGFloat(iLeft) * f.dayW
+            rowW = CGFloat(rowCols) * f.dayW
+        } else {
+            rowX = f.x0; rowW = fullW; rowCols = g.z > 2.5 ? 1 : 31
+        }
 
         items.append(Item(key: "ml-\(m)", kind: .monthLabel, x: 0, y: f.bandY, w: Layout.mnameW, h: f.trackH * 4, opacity: f.opacity, text: MONTH_NAMES[m], fontSize: 13, align: .center, z: 8, gutter: true))
 
@@ -232,7 +303,7 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
         }
 
         for t in 0..<4 {
-            items.append(Item(key: "row-\(m)-\(t)", kind: .row, x: f.x0, y: f.bandY + CGFloat(t) * f.trackH, w: fullW, h: f.trackH, opacity: f.opacity, color: TRACKS[t].color, cols: g.z > 2.5 ? 1 : 31, inner: t > 0, z: 1))
+            items.append(Item(key: "row-\(m)-\(t)", kind: .row, x: rowX, y: f.bandY + CGFloat(t) * f.trackH, w: rowW, h: f.trackH, opacity: f.opacity, color: TRACKS[t].color, cols: rowCols, inner: t > 0, z: 1))
         }
         if dim < 31 && dimFade > 0.02 {
             items.append(Item(key: "dim-\(m)", kind: .dim, x: f.x0 + CGFloat(dim) * f.dayW, y: f.bandY, w: CGFloat(31 - dim) * f.dayW, h: 4 * f.trackH, opacity: f.opacity * dimFade, z: 3))
@@ -241,7 +312,7 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
         // (month) — same shared edge style, blended in as we zoom into the focus.
         let quarterBottom = m % 3 == 2
         let edge = max(quarterBottom ? 1 : 0, isFocusBand ? detailReveal : 0)
-        items.append(Item(key: "msep-\(m)", kind: .gridline, x: f.x0, y: f.bandY + 4 * f.trackH - 1, w: fullW, h: 1,
+        items.append(Item(key: "msep-\(m)", kind: .gridline, x: rowX, y: f.bandY + 4 * f.trackH - 1, w: rowW, h: 1,
                           opacity: f.opacity * lerp(Layout.bandInnerOpacity, Layout.bandEdgeOpacity, edge), z: 1,
                           lineW: lerp(Layout.bandInnerWidth, Layout.bandEdgeWidth, edge)))
     }
@@ -302,7 +373,7 @@ private func buildDetail(_ g: SceneInput, _ clock: Clock, focus: Int, detailMul:
         guard let r = resolveDate(g.year, focus, dom) else { return }
         let x = f.x0 + (CGFloat(dom) - 1) * colW
         if x + colW < -40 || x > g.vp.w + 40 { return }
-        let dow = dayOfWeek(g.year, r.month, r.day)
+        let dow = dayOfWeek(r.year, r.month, r.day)
         if (dow == 0 || dow == 6) && op * dailyOut > 0.002 {
             let bottom = hasTL ? tlBottom : bandBottom
             items.append(Item(key: "wke-\(dom)", kind: .weekend, x: x, y: f.bandY, w: colW, h: bottom - f.bandY, opacity: op * dailyOut, z: 2))
@@ -315,8 +386,8 @@ private func buildDetail(_ g: SceneInput, _ clock: Clock, focus: Int, detailMul:
                 if y1 > y0 + 0.5 { items.append(Item(key: "nwh-\(dom)-\(h0)", kind: .weekend, x: x, y: y0, w: colW, h: y1 - y0, opacity: nwOp, z: 2)) }
             }
         }
-        let dateText = r.month == focus ? String(r.day) : "\(MONTH_NAMES[r.month]) \(r.day)"
-        let isToday = g.year == clock.year && r.month == clock.month && r.day == clock.day
+        let dateText = (r.year == g.year && r.month == focus) ? String(r.day) : "\(MONTH_NAMES[r.month]) \(r.day)"
+        let isToday = r.year == clock.year && r.month == clock.month && r.day == clock.day
         items.append(Item(key: "date-\(dom)", kind: .dayLabel, x: x, y: f.bandY - 20, w: colW, h: 16, opacity: op, text: dateText, fontSize: wide ? 13 : 10, align: .center, today: isToday, z: 4))
         items.append(Item(key: "wd-\(dom)", kind: .dayLabel, x: x, y: bandBottom + 2, w: colW, h: 14, opacity: op * 0.9, text: wide ? WD3[dow] : WD[dow], fontSize: wide ? 11 : 9, align: .center, today: isToday, z: 4))
         if !hasTL { return }

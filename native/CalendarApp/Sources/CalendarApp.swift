@@ -16,7 +16,7 @@ struct CalendarApp: App {
                 // toolbar (breadcrumb + glass buttons) lives inside CalendarView.
                 .containerBackground(.windowBackground, for: .window)
         }
-        .defaultSize(width: 1280, height: 840)
+        .defaultSize(width: 1440, height: 840)
         .windowToolbarStyle(.unified(showsTitle: false))   // thick, Safari/Finder-style bar
         .commands {
             // Undo/redo route down the responder chain to the calendar input view,
@@ -26,11 +26,6 @@ struct CalendarApp: App {
                     .keyboardShortcut("z", modifiers: .command)
                 Button("Redo") { NSApp.sendAction(Selector(("performRedo:")), to: nil, from: nil) }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
-            }
-            // Phase-0 CloudKit de-risk. Remove once the real sync layer lands.
-            CommandMenu("Debug") {
-                Button("Run CloudKit Round-Trip") { CloudKitSpike.run() }
-                    .keyboardShortcut("k", modifiers: [.command, .option])
             }
         }
     }
