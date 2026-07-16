@@ -55556,6 +55556,10 @@
             { key: "Mod-s", preventDefault: true, stopPropagation: true, run: () => {
               o.onPreview();
               return true;
+            } },
+            { key: "Escape", preventDefault: true, stopPropagation: true, run: () => {
+              o.onExit?.();
+              return true;
             } }
           ])),
           placeholder(o.placeholder ?? "Something to note\u2026"),
@@ -55655,6 +55659,10 @@
   function post(m) {
     window.webkit?.messageHandlers?.ck?.postMessage(m);
   }
+  var scrim = document.createElement("div");
+  scrim.id = "scrim";
+  document.body.appendChild(scrim);
+  scrim.addEventListener("click", () => post({ type: "closeDrawer" }));
   function makePanel() {
     const panel = document.createElement("div");
     panel.className = "cc-dd-panel";
@@ -55935,6 +55943,10 @@
         apply();
       }
     },
+    setInactive(on) {
+      scrim.classList.toggle("on", on);
+    },
+    // drawer open → blur + block the dashboard
     setTheme(vars) {
       const s2 = document.documentElement.style;
       for (const k in vars) s2.setProperty(k, vars[k]);

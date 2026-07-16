@@ -21,6 +21,27 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 #dash { height: 100%; position: relative; overflow: hidden; font-size: 13px; box-sizing: border-box;
   transform-origin: left center; will-change: transform, opacity; }
 :root { --dd-pad: 25px; }
+/* Drawer-open scrim: blurs the dashboard + intercepts pointer events (the app's SwiftUI blur/scrim
+   can't reach this separate WebKit layer). Fades in; a click closes the drawer. */
+#scrim {
+  position: fixed; inset: 3px; z-index: 100; opacity: 0; pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+#scrim.on {
+  opacity: 1; pointer-events: auto;
+  -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  /* Small edge feather so the blur + tint fade out instead of a hard border. Rendering only —
+     pointer-events still cover the whole element. */
+  --f: 6px;
+  -webkit-mask-image:
+    linear-gradient(to right, transparent, #000 var(--f), #000 calc(100% - var(--f)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--f), #000 calc(100% - var(--f)), transparent);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent, #000 var(--f), #000 calc(100% - var(--f)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--f), #000 calc(100% - var(--f)), transparent);
+  mask-composite: intersect;
+}
 #panels, #note-live { position: absolute; inset: 0; }
 /* A day's note rendered statically inside a carousel panel (the .cc-dd-scroll is the scroller).
    Top-aligned; bottom padding clears the native edit/preview toggle at the bottom-right. */

@@ -53,6 +53,22 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         #endif
     }
 
+    // ── Status (for the settings UI) ──────────────────────────────────────────────
+    /// Instance-free connectivity probe. Not entitled → `.localOnly` without ever building a
+    /// CKContainer (which would throw for an unentitled process). Otherwise map the account status.
+    static func iCloudStatus() async -> ICloudStatus {
+        guard isEntitled else { return .localOnly }
+        let status = (try? await CKContainer(identifier: containerID).accountStatus()) ?? .couldNotDetermine
+        switch status {
+        case .available:              return .available
+        case .noAccount:              return .noAccount
+        case .restricted:             return .restricted
+        case .temporarilyUnavailable: return .unavailable
+        case .couldNotDetermine:      return .unknown
+        @unknown default:             return .unknown
+        }
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────────
     func startIfAccountAvailable() async {
         let status = (try? await container.accountStatus()) ?? .couldNotDetermine

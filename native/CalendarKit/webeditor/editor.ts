@@ -16,6 +16,7 @@ const ed = createNoteEditor({
   onPreview: () => post({ type: "preview" }),
   onOpenLink: (url) => post({ type: "openLink", url }),
   onEditAt: (line) => post({ type: "editAt", line }),
+  onExit: () => post({ type: "exit" }),
 });
 
 (window as any).CK = {

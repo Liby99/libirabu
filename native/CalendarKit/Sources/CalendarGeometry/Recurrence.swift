@@ -45,6 +45,16 @@ public func sourceId(of boxId: String) -> String {
     String(boxId.split(separator: "@", maxSplits: 1).first ?? Substring(boxId))
 }
 
+/// Marker appended to a PROMOTED band box id so it's a DISTINCT box from the timeline occurrence it
+/// mirrors (which shares the same `id@Y-M-D` occKey). `sourceId` ignores it (it lives after the `@`),
+/// so both still map to the source. Navigation/selection treat the two as independent items.
+public let PROMOTED_SUFFIX = "~p"
+/// The occurrence-DATE key for a box (strips the promoted marker) — so a promoted bar and its timeline
+/// occurrence share the same per-occurrence note and resolve to the same date.
+public func occurrenceKey(of boxId: String) -> String {
+    boxId.hasSuffix(PROMOTED_SUFFIX) ? String(boxId.dropLast(PROMOTED_SUFFIX.count)) : boxId
+}
+
 /// Provenance/kind markers shown as tiny glyphs on an event box (see the overlay). Derived per box
 /// from the source item's rich fields + the box's nature (ghost = recurrent, promoted-band = promoted).
 public struct EventBadges: OptionSet, Sendable, Equatable {

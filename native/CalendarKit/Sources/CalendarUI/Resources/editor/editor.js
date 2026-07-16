@@ -55314,6 +55314,10 @@
             { key: "Mod-s", preventDefault: true, stopPropagation: true, run: () => {
               o.onPreview();
               return true;
+            } },
+            { key: "Escape", preventDefault: true, stopPropagation: true, run: () => {
+              o.onExit?.();
+              return true;
             } }
           ])),
           placeholder(o.placeholder ?? "Something to note\u2026"),
@@ -55403,7 +55407,8 @@
     onChange: (value) => post({ type: "change", value }),
     onPreview: () => post({ type: "preview" }),
     onOpenLink: (url) => post({ type: "openLink", url }),
-    onEditAt: (line) => post({ type: "editAt", line })
+    onEditAt: (line) => post({ type: "editAt", line }),
+    onExit: () => post({ type: "exit" })
   });
   window.CK = {
     setValue: ed.setValue,

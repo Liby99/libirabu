@@ -29,6 +29,22 @@ final class PassThroughWebView: WKWebView {
     private enum Axis { case undecided, horizontal, vertical }
     private var axis: Axis = .undecided
 
+    // Focus gate (same idea as the notes editor's FocusGatedWebView): the web view does NOT grab first
+    // responder on load, and refuses it until the user actually clicks. Otherwise the dashboard's list
+    // items join the window's key-view loop, so Tab — e.g. while navigating the drawer — would cycle
+    // INTO them. Scrolling doesn't need focus; a real click (checkbox / note) enables it.
+    private var focusAllowed = false
+    override func becomeFirstResponder() -> Bool { focusAllowed ? super.becomeFirstResponder() : false }
+    override func mouseDown(with event: NSEvent) { focusAllowed = true; super.mouseDown(with: event) }
+    /// Re-gate and drop focus off the web content — called when the dashboard goes inactive (drawer
+    /// open), so keyboard navigation in the drawer can never land inside the dashboard.
+    func regateFocus() {
+        focusAllowed = false
+        guard let w = window else { return }
+        let fr = w.firstResponder as? NSView
+        if fr === self || fr?.isDescendant(of: self) == true { w.makeFirstResponder(forwarder?.catcher) }
+    }
+
     override func scrollWheel(with e: NSEvent) {
         // Lock the axis ONCE per gesture (at the first real delta) and route the WHOLE gesture — its
         // zero-delta .ended AND its momentum tail included — to a single target. Routing per-event
@@ -109,6 +125,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
     var data: String                       // engine.dashboardDataJSON() — includes the daily-notes map
     var tab: DashTab                        // TODO/NOTE (Swift is the source of truth)
     var noteMode: NotesMode                 // note edit/preview (the native toggle mirrors the WebView)
+    var inactive: Bool                      // drawer open → in-page scrim blurs + blocks the dashboard
     var theme: Theme
     var onToggle: (_ eventId: String, _ occKey: String?, _ value: String) -> Void
     var onOpen: (_ eventId: String) -> Void
@@ -118,11 +135,12 @@ struct DailyDashboardWebView: NSViewRepresentable {
     var onNoteChange: (_ date: String, _ value: String) -> Void
     var onOpenLink: (URL) -> Void
     var onJumpDay: (_ date: String) -> Void
+    var onCloseDrawer: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(carousel: carousel, onToggle: onToggle, onOpen: onOpen, onDeselect: onDeselect,
                     onTab: onTab, onNoteMode: onNoteMode, onNoteChange: onNoteChange, onOpenLink: onOpenLink,
-                    onJumpDay: onJumpDay)
+                    onJumpDay: onJumpDay, onCloseDrawer: onCloseDrawer)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -144,8 +162,11 @@ struct DailyDashboardWebView: NSViewRepresentable {
         let c = context.coordinator
         c.onToggle = onToggle; c.onOpen = onOpen; c.onDeselect = onDeselect
         c.onTab = onTab; c.onNoteMode = onNoteMode; c.onNoteChange = onNoteChange; c.onOpenLink = onOpenLink
-        c.onJumpDay = onJumpDay
-        c.apply(data: data, tab: tab, noteMode: noteMode, theme: themeVars())
+        c.onJumpDay = onJumpDay; c.onCloseDrawer = onCloseDrawer
+        c.apply(data: data, tab: tab, noteMode: noteMode, inactive: inactive, theme: themeVars())
+        // Drawer open → the dashboard is blocked; make sure it isn't holding keyboard focus so Tab
+        // navigation in the drawer can't cycle into its list items.
+        if inactive { (web as? PassThroughWebView)?.regateFocus() }
     }
 
     static func dismantleNSView(_ web: WKWebView, coordinator: Coordinator) {
@@ -180,36 +201,40 @@ struct DailyDashboardWebView: NSViewRepresentable {
         var onNoteChange: (_ date: String, _ value: String) -> Void
         var onOpenLink: (URL) -> Void
         var onJumpDay: (String) -> Void
+        var onCloseDrawer: () -> Void
         weak var web: WKWebView?
         private var ready = false
         private var lastData = "", lastTab = "", lastMode = ""   // sentinels force first push
-        private var want: (data: String, tab: DashTab, noteMode: NotesMode, theme: [String: String])?
+        private var lastInactive: Bool?
+        private var want: (data: String, tab: DashTab, noteMode: NotesMode, inactive: Bool, theme: [String: String])?
         init(carousel: DashboardCarousel,
              onToggle: @escaping (String, String?, String) -> Void, onOpen: @escaping (String) -> Void,
              onDeselect: @escaping () -> Void, onTab: @escaping (DashTab) -> Void,
              onNoteMode: @escaping (NotesMode) -> Void, onNoteChange: @escaping (String, String) -> Void,
-             onOpenLink: @escaping (URL) -> Void, onJumpDay: @escaping (String) -> Void) {
+             onOpenLink: @escaping (URL) -> Void, onJumpDay: @escaping (String) -> Void,
+             onCloseDrawer: @escaping () -> Void) {
             self.carousel = carousel; self.onToggle = onToggle; self.onOpen = onOpen; self.onDeselect = onDeselect
             self.onTab = onTab; self.onNoteMode = onNoteMode; self.onNoteChange = onNoteChange; self.onOpenLink = onOpenLink
-            self.onJumpDay = onJumpDay
+            self.onJumpDay = onJumpDay; self.onCloseDrawer = onCloseDrawer
         }
 
-        func apply(data: String, tab: DashTab, noteMode: NotesMode, theme: [String: String]) {
-            want = (data, tab, noteMode, theme)
+        func apply(data: String, tab: DashTab, noteMode: NotesMode, inactive: Bool, theme: [String: String]) {
+            want = (data, tab, noteMode, inactive, theme)
             guard ready else { return }
             push(theme)
             if data != lastData { lastData = data; eval("CK.setData(\(jsString(data)))") }
-            pushState(tab: tab, noteMode: noteMode)
+            pushState(tab: tab, noteMode: noteMode, inactive: inactive)
         }
 
-        // Push tab + mode (echo-guarded). Note CONTENT rides the data map. The WebView also changes
-        // mode itself (content-based default / ⌘S / ⌘-click) and posts it back so the native toggle
-        // mirrors; `lastMode` is adopted in the message handler so that post doesn't echo.
-        private func pushState(tab: DashTab, noteMode: NotesMode) {
+        // Push tab + mode + inactive (echo-guarded). Note CONTENT rides the data map. The WebView also
+        // changes mode itself (content-based default / ⌘S / ⌘-click) and posts it back so the native
+        // toggle mirrors; `lastMode` is adopted in the message handler so that post doesn't echo.
+        private func pushState(tab: DashTab, noteMode: NotesMode, inactive: Bool) {
             let t = tab == .note ? "note" : "todo"
             if t != lastTab { lastTab = t; eval("CK.setTab('\(t)')") }
             let m = noteMode == .preview ? "preview" : "edit"
             if m != lastMode { lastMode = m; eval("CK.setNoteMode('\(m)')") }
+            if inactive != lastInactive { lastInactive = inactive; eval("CK.setInactive(\(inactive))") }
         }
 
         func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -219,7 +244,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
                 ready = true
                 if let w = want {
                     push(w.theme); lastData = w.data; eval("CK.setData(\(jsString(w.data)))")
-                    pushState(tab: w.tab, noteMode: w.noteMode)
+                    pushState(tab: w.tab, noteMode: w.noteMode, inactive: w.inactive)
                 }
                 carousel.markReady()   // replay the latest tick so reveal/carousel state lands post-load
             case "toggle":
@@ -242,6 +267,8 @@ struct DailyDashboardWebView: NSViewRepresentable {
                 if let date = body["date"] as? String, let v = body["value"] as? String { onNoteChange(date, v) }
             case "jumpDay":
                 if let date = body["date"] as? String { onJumpDay(date) }
+            case "closeDrawer":
+                onCloseDrawer()   // clicked the in-page scrim while the drawer is open
             case "openLink":
                 if let s = body["url"] as? String, let u = URL(string: s) { onOpenLink(u) }
             default: break
@@ -281,12 +308,14 @@ struct DailyDashboardOverlay: View {
     let forwarder: GestureForwarder
     @Binding var tab: DashTab
     @Binding var noteMode: NotesMode
+    let inactive: Bool                       // drawer open → in-page scrim
     let frac: CGFloat
     let vp: Viewport
     let containerWidth: CGFloat
     let height: CGFloat
     let theme: Theme
     var onOpen: (String) -> Void
+    var onCloseDrawer: () -> Void
 
     var body: some View {
         let contentW = max(1, vp.w - Layout.labelW)
@@ -299,7 +328,7 @@ struct DailyDashboardOverlay: View {
 
         DailyDashboardWebView(
             carousel: carousel, forwarder: forwarder, data: engine.dashboardDataJSON(),
-            tab: tab, noteMode: noteMode, theme: theme,
+            tab: tab, noteMode: noteMode, inactive: inactive, theme: theme,
             onToggle: { id, occKey, value in engine.applyTodoNote(eventId: id, occKey: occKey, value: value) },
             onOpen: onOpen, onDeselect: { engine.deselect() },
             onTab: { tab = $0 }, onNoteMode: { noteMode = $0 },
@@ -310,7 +339,8 @@ struct DailyDashboardOverlay: View {
                 let c = date.split(separator: "-").compactMap { Int($0) }
                 guard c.count == 3 else { return }
                 engine.jumpToDay(c[0], c[1] - 1, c[2], onLand: { tab = .note })
-            }
+            },
+            onCloseDrawer: onCloseDrawer
         )
         .frame(width: w, height: h)
         // The WebView sits above the AppKit catcher and eats mouse-moves, so the catcher never gets to

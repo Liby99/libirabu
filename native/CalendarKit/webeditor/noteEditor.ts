@@ -93,6 +93,7 @@ export interface NoteEditorOpts {
   onPreview: () => void;                 // ⌘S in the editor
   onOpenLink: (url: string) => void;     // ⌘-click a link
   onEditAt: (line: number) => void;      // ⌘-click a preview block → edit at that line
+  onExit?: () => void;                   // Escape in the editor → hand focus back to the host
 }
 
 export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
@@ -127,6 +128,7 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
         openLinks,
         Prec.highest(keymap.of([
           { key: "Mod-s", preventDefault: true, stopPropagation: true, run: () => { o.onPreview(); return true; } },
+          { key: "Escape", preventDefault: true, stopPropagation: true, run: () => { o.onExit?.(); return true; } },
         ])),
         cmPlaceholder(o.placeholder ?? "Something to note…"),
         EditorView.updateListener.of((u) => {

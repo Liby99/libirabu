@@ -20,20 +20,21 @@ struct EventsOverlay: View {
     var draggingId: String? = nil   // event being moved/resized → floats full-width above the day,
                                     // and is excluded from the others' overlap packing (no reflow)
     var perfMode: Bool = false   // flat tinted fills instead of Liquid Glass (global toggle)
+    var onlyBox: String? = nil   // when set, PACK everything as usual but DRAW only this box (the
+                                 // sharp "lifted" copy above the drawer's blur scrim — see CalendarView)
+    var hideBox: String? = nil   // …and the inverse: the blurred main render SKIPS this box (it's drawn
+                                 // sharp by the lifted copy), so there's no blurry halo behind it
     let theme: Theme
 
     static let spilloverDim: CGFloat = 0.45   // opacity of neighbor-month (spillover-day) events
 
     /// A box belongs to the clicked event's series (same source: recurrence occurrence / promoted
     /// bar / original), so it shares the accompanied style.
-    private func inSeries(_ id: String) -> Bool { selected.map { sourceId(of: id) == sourceId(of: $0) } ?? false }
-
-    /// The activation level for a box (see EventActivation). The exact clicked box is focusMain
-    /// (single click) or selected (drawer open); its siblings are accompanied; an unrelated box the
-    /// pointer is over is hover; everything else is plain.
+    /// The activation level for a box (see EventActivation). Only the EXACT selected box is focused
+    /// (single click) or selected (drawer open) — each box is independent, so siblings/source are NOT
+    /// accompanied. An unrelated box under the pointer is hover; everything else is plain.
     private func activation(_ id: String) -> EventActivation {
         if id == selected { return drawerOpen ? .selected : .focusMain }
-        if inSeries(id) { return .accompanied }
         if id == hovered { return .hover }
         return .plain
     }
@@ -76,8 +77,11 @@ struct EventsOverlay: View {
             }
             // Current-time label(s): dark-red glass + a red caret pointing at the now-line. The line
             // itself stays in the Canvas; only this label is SwiftUI (for real glass blur).
-            ForEach(nowLabelSpecs(input)) { spec in
-                nowLabelView(spec)
+            // Suppressed in the lifted copy (onlyBox) — it should show ONLY the selected event.
+            if onlyBox == nil {
+                ForEach(nowLabelSpecs(input)) { spec in
+                    nowLabelView(spec)
+                }
             }
             // Mouse-cursor time tag: SwiftUI (not Canvas) so it isn't clipped at the gutter and its
             // side animates smoothly on a flip (e.g. the week↔day transition) instead of jumping.
@@ -163,12 +167,18 @@ struct EventsOverlay: View {
 
     private struct Item2: Identifiable { let id: String; let rect: CGRect; let fade: Double; let z: Double; let view: AnyView }
 
+    private func drawn(_ items: [Item2]) -> [Item2] {
+        if let box = onlyBox { return items.filter { $0.id == box || $0.id == box + "~in" } }
+        if let box = hideBox { return items.filter { $0.id != box && $0.id != box + "~in" } }
+        return items
+    }
+
     @ViewBuilder private func stickers(_ items: [Item2]) -> some View {
         ZStack(alignment: .topLeading) {
             // Stable identity (event id) so a z-order re-sort keeps the view alive and its
             // hover/select transitions can animate rather than snapping. Draw order is the
             // explicit per-item z (band: 10+startDay baseline, raised on hover/select).
-            ForEach(items) { it in
+            ForEach(drawn(items)) { it in
                 it.view
                     .frame(width: it.rect.width, height: it.rect.height)
                     .position(x: it.rect.midX, y: it.rect.midY)
@@ -300,14 +310,15 @@ struct EventsOverlay: View {
             let z: Double = a.isActive ? a.z : Double(i)
             return Item2(id: id + keyTag, rect: p.rect, fade: p.fade, z: z, view: AnyView(
                 EventSticker(ev: p.ev, height: p.rect.height, showText: input.z >= 1.5,
-                             plain: perfMode, activation: a, badges: eventBadges[id] ?? [], theme: theme)))
+                             plain: perfMode, activation: a, badges: eventBadges[id] ?? [],
+                             editing: editingId != nil && sourceId(of: id) == editingId, theme: theme)))
         }
     }
 
-    // Draw order: later-starting events in front; the selected one always frontmost.
+    // Draw order: later-starting events in front; the selected box always frontmost.
     private func orderTimed(_ a: (ev: TimedEvent, rect: CGRect, fade: Double), _ b: (ev: TimedEvent, rect: CGRect, fade: Double)) -> Bool {
-        let sa = inSeries(a.ev.id), sb = inSeries(b.ev.id)
-        if sa != sb { return sb }                                  // selected series sorts last (front)
+        let sa = a.ev.id == selected, sb = b.ev.id == selected
+        if sa != sb { return sb }                                  // the selected box sorts last (front)
         if a.ev.startHour != b.ev.startHour { return a.ev.startHour < b.ev.startHour }
         return a.ev.endHour > b.ev.endHour
     }
@@ -338,6 +349,7 @@ private struct EventSticker: View {
     var plain: Bool = false      // skip glass (animating, or tiny month sliver)
     let activation: EventActivation
     var badges: EventBadges = [] // provenance/kind marker glyphs (same as bands)
+    var editing: Bool = false    // the inline title editor is open over this box → hide its own title
     let theme: Theme
 
     var body: some View {
@@ -368,6 +380,7 @@ private struct EventSticker: View {
                     .lineLimit(lay.titleLines)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
+                    .opacity(editing ? 0 : 1)   // hidden while the inline editor is open (keeps layout stable)
                 if !(lay.short || lay.tiny) {
                     Text(fmtHourRange(ev.startHour, ev.endHour))
                         .font(.system(size: 8.5))
@@ -410,10 +423,11 @@ struct DeadlinesOverlay: View {
     let drawerOpen: Bool
     let theme: Theme
 
-    private func inSeries(_ id: String) -> Bool { selected.map { sourceId(of: id) == sourceId(of: $0) } ?? false }
     private func activation(_ id: String) -> EventActivation {
+        // Every box is independent — only the EXACT selected box is highlighted (no series-wide
+        // "accompanied" highlight), so selecting a promoted band / one occurrence doesn't light up its
+        // siblings or its source event.
         if id == selected { return drawerOpen ? .selected : .focusMain }
-        if inSeries(id) { return .accompanied }
         if id == hovered { return .hover }
         return .plain
     }

@@ -45,6 +45,13 @@ const panelsEl = document.getElementById("panels")!;           // carousel conte
 const noteLive = document.getElementById("note-live")!;        // live editor overlay (rest + note only)
 function post(m: any) { (window as any).webkit?.messageHandlers?.ck?.postMessage(m); }
 
+// The WKWebView is a separate compositing layer, so the app's SwiftUI blur/scrim can't touch it and
+// its CSS :hover keeps firing while the drawer is open. This in-page scrim blurs the dashboard and
+// intercepts pointer events itself; a click on it closes the drawer (parity with the SwiftUI scrim).
+const scrim = document.createElement("div"); scrim.id = "scrim";
+document.body.appendChild(scrim);
+scrim.addEventListener("click", () => post({ type: "closeDrawer" }));
+
 // Each panel is a carousel/zoom transform layer with a PLAIN inner scroller. The scroller carries no
 // transform/will-change so WebKit gives it native rubber-band overscroll (a transformed scroller is
 // composited and scrolls without the elastic bounce).
@@ -315,6 +322,7 @@ root.addEventListener("click", (e) => {
   setNoteMode(m: "edit" | "preview") {                       // native edit/preview toggle (no echo back)
     if (noteMode !== m) { noteMode = m; liveMode = ""; apply(); }
   },
+  setInactive(on: boolean) { scrim.classList.toggle("on", on); },   // drawer open → blur + block the dashboard
   setTheme(vars: Record<string, string>) { const s = document.documentElement.style; for (const k in vars) s.setProperty(k, vars[k]); },
 };
 post({ type: "ready" });

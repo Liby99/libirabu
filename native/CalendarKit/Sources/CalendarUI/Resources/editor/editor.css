@@ -15,9 +15,6 @@ body { color: var(--accent-dark); -webkit-font-smoothing: antialiased; }
 
 #editor { height: 100%; }
 .cm-editor { height: 100%; }
-/* CodeMirror's default theme draws a 1px dotted focus outline around the editor; drop it so
-   there's no border surrounding the webview when the notes editor has focus. */
-.cm-editor.cm-focused { outline: none; }
 
 /* ── Rendered preview (mirrors .cc-dw-md from the web) ─────────────────────────────── */
 .cc-dw-md {

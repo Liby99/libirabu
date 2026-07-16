@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:libirabu}/native/CalendarKit",
+            "name": "Debug CalendarMac (native/CalendarKit)",
+            "target": "CalendarMac",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug CalendarMac (native/CalendarKit)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:libirabu}/native/CalendarKit",
+            "name": "Release CalendarMac (native/CalendarKit)",
+            "target": "CalendarMac",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release CalendarMac (native/CalendarKit)"
+        }
+    ]
+}

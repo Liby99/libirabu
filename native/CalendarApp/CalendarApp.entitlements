@@ -12,5 +12,10 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
+	<!-- iCloud key-value store: syncs small app preferences (appearance, …) across the
+	     user's devices via NSUbiquitousKeyValueStore. Xcode expands the variables to
+	     <TeamID>.dev.libirabu.calendar. Part of the same iCloud capability already enabled. -->
+	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
+	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 </dict>
 </plist>

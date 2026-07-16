@@ -5,11 +5,69 @@ import Foundation
 import CoreGraphics
 import CalendarGeometry
 
+/// iCloud connectivity as the settings UI needs to describe it. `localOnly` means this
+/// build isn't entitled for CloudKit (the unsigned dev binary), so it never touches iCloud;
+/// the rest mirror `CKAccountStatus` once entitled.
+public enum ICloudStatus: Sendable {
+    case localOnly, available, noAccount, restricted, unavailable, unknown
+}
+
+/// Drives whether the calendar's per-frame `TimelineView` renders. The engine is a plain (non-
+/// @Observable) type redrawn every frame; without this, `TimelineView(.animation)` burns a full-scene
+/// render at display rate even when nothing changes. `awake` is the ONE observable bit the view reads:
+/// `paused: !awake`. The engine wakes it on any input/animation/edit and sleeps it after a short idle.
+@MainActor @Observable public final class RenderClock {
+    public internal(set) var awake = true
+}
+
 // Plain reference type (not @Observable): the view redraws every frame via
 // TimelineView(.animation), which reads a fresh SceneInput and advances the tween
 // from the display clock — so observation isn't needed and can't cause update loops.
 @MainActor
 public final class CalendarEngine {
+    // Render loop: the calendar's TimelineView pauses when `renderClock.awake` is false (idle).
+    public let renderClock = RenderClock()
+    private var sleepWork: DispatchWorkItem?
+    private let idleSleep: TimeInterval = 0.4   // sleep this long after the last activity (covers SwiftUI fades)
+
+    /// Kick the render loop — call at every input / animation-start / edit entry point. Cheap +
+    /// idempotent, so over-calling is fine. Wakes the clock (if asleep) and (re)arms the idle sleep.
+    /// The sleep runs OFF the render pass (a work item, not inside sceneInput) so we never mutate the
+    /// observable `awake` during a SwiftUI view update.
+    public func wake() {
+        dbgWakes += 1; dbgWakeTotal += 1
+        // One-shot: after startup settles (>200 wakes in), dump WHO is calling wake() while nothing
+        // animates (needsRender=false) — that's the spurious wake keeping the loop alive.
+        if dbgWakeTotal > 40, !dbgWakeCaptured {
+            dbgWakeCaptured = true
+            let stack = Thread.callStackSymbols.prefix(20).joined(separator: "\n")
+            try? ("WAKE CALLER (needsRender=\(needsRender) reason=\(awakeReason())):\n" + stack + "\n").write(toFile: "/tmp/cal-wake.log", atomically: true, encoding: .utf8)
+        }
+        if !renderClock.awake { renderClock.awake = true }
+        armSleep()
+    }
+    var dbgWakes = 0
+    var dbgWakeTotal = 0
+    var dbgWakeCaptured = false
+    /// (Re)schedule the idle sleep. While anything is animating the timer keeps deferring; once the
+    /// scene is fully at rest for `idleSleep`, it pauses the TimelineView.
+    private func armSleep() {
+        sleepWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if self.needsRender { self.armSleep() } else { self.renderClock.awake = false }
+        }
+        sleepWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + idleSleep, execute: w)
+    }
+    /// Anything that changes the scene frame-to-frame (so the loop must stay awake). `isAnimating`
+    /// covers the z/scroll/week/day tweens + flips; add the rest of the live/elastic/drag states.
+    private var needsRender: Bool {
+        isAnimating || shiftTween != nil || monthFlip != nil || drag != nil || daily.anim != nil
+        || liveScrolling || liveMonthScrolling || liveWeekScrolling || liveDayScrolling
+        || yearPull != nil || monthPull != nil || weekPull != nil || dayPull != nil
+    }
+
     // View state
     public private(set) var z: CGFloat = 0
     public private(set) var focus: Int
@@ -41,6 +99,19 @@ public final class CalendarEngine {
 
     public private(set) var selectedId: String?
     public private(set) var hoveredEventId: String?   // band/timed/deadline under the cursor
+
+    // ── Keyboard navigation cursor ────────────────────────────────────────────────
+    // `keyboardActive` gates only the CURSOR VISUAL (last-input-wins): a mouse move/click flips it off,
+    // a dispatched nav key flips it on. The position below always persists. Block-cursor position is
+    // interpreted per view (year → month; month → day; week/day → day + hour); grown one view at a time.
+    public private(set) var keyboardActive = false
+    public private(set) var blockMonth = 0
+    public private(set) var blockDay = 1
+    public private(set) var blockHour: CGFloat = 12
+    // Band cursor = the block cursor's time position (blockMonth/blockDay) PLUS a lane. Only these two
+    // extra bits of state: whether we're in band-cursor mode, and which of the 4 lanes.
+    public private(set) var bandCursorActive = false
+    public private(set) var bandCurTrack = 0
     /// The timed event currently being moved/resized/created (an ACTIVE drag). The overlay floats it
     /// full-width above its day and excludes it from the others' overlap packing so they don't reflow
     /// mid-edit; nil at rest, so the normal side-by-side layout resumes on drop.
@@ -55,6 +126,7 @@ public final class CalendarEngine {
     private var tween: Tween?
     private var scrollTween: Tween?            // year-view vertical scroll glide (before a zoom-in)
     private var scrollTweenDone: (() -> Void)?
+    private var tlScrollTween: Tween?          // timeline (hour) scroll glide — keyboard hour-cursor follow
     private var weekTween: Tween?
     private var dayTween: Tween?   // fractional-day glide (day view "scroll to today"): drives daily.dom + anim
     // Drawer canvas-shift: while the detail drawer is open the whole calendar slides left so
@@ -71,7 +143,10 @@ public final class CalendarEngine {
     public var onSetYearScroll: ((CGFloat) -> Void)?
     public var onEditBand: ((_ id: String, _ rect: CGRect) -> Void)?   // open inline title editor
     public var bandEditing = false        // an inline band-title field is open (freezes scroll)
+    public var onEditTimed: ((_ id: String, _ rect: CGRect) -> Void)?  // open inline timed-title editor
+    public var timedEditing = false       // an inline timed-event-title field is open (freezes scroll)
     public var drawerOpen = false         // the detail drawer is open → suppress calendar hover
+    public var assistantOpen = false      // the AI panel is open → suppress calendar hover + hit-testing
     private var didInitialScroll = false     // center the current month once, at first layout
     private var liveScrolling = false        // fingers-down phase of a trackpad gesture
     private var startedAtTop = false         // the drag began already resting at an edge —
@@ -138,7 +213,7 @@ public final class CalendarEngine {
     // Bumped only when the deadline set / positions change at COMMIT (add / move-after / delete /
     // remote) — so the OFFLINE deadline-label side assignment recomputes then, not during a drag.
     private var deadlineGen = 0
-    private var bandCache: (year: Int, gen: Int, bands: [BandEvent], badges: [String: EventBadges])?
+    private var bandCache: (year: Int, gen: Int, bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]])?
     // undo / redo (whole-state snapshots, coalesced per gesture / typing burst). Snapshots the FULL
     // editable set — events/bands/deadlines AND the rich metadata (notes, tags, repeat, promote),
     // per-month track names, and daily notes — so every edit is undoable, matching the web.
@@ -182,6 +257,11 @@ public final class CalendarEngine {
     /// Nudge a cloud fetch (e.g. when the app returns to the foreground).
     public func syncNow() { cloud?.syncNow() }
 
+    /// Current iCloud connectivity, for the settings UI. Instance-free (the settings window
+    /// doesn't share the running engine) — reads the entitlement + CloudKit account status.
+    /// CloudKit types stay contained in CloudSync; this just re-exports the module enum.
+    public static func iCloudStatus() async -> ICloudStatus { await CloudSync.iCloudStatus() }
+
     private enum PointerKind {
         case navigate, move, resizeTop, resizeBottom, create           // timed
         case bandMove, bandResizeL, bandResizeR, bandCreate            // all-day bands
@@ -216,6 +296,7 @@ public final class CalendarEngine {
         year = c.year ?? 2026
         systemYear = c.year ?? 2026
         focus = (c.month ?? 1) - 1
+        blockMonth = focus; blockDay = c.day ?? 1
         daily = DailyState(dom: c.day ?? 1, frac: 0.45)
         seedEvents = Self.makeSeeds(year: year, month: focus, day: c.day ?? 15)
         seedBands = Self.makeSeedBands(year: year, month: focus)
@@ -250,10 +331,12 @@ public final class CalendarEngine {
             createCounter += 1; seedEvents[i].id = "new-\(createCounter)"
         }
         nowTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.now = Date() }
+            Task { @MainActor in self?.now = Date(); self?.wake() }   // refresh the now-line (a render must run)
         }
         pushChrome()
         enableCloudSyncIfEntitled()
+        armSleep()   // an untouched app settles to a paused (idle) render after the initial frame
+        startDbgTimer()
     }
 
     // ── Persistence ─────────────────────────────────────────────────────────────
@@ -304,6 +387,7 @@ public final class CalendarEngine {
     public func applyRemote(events: [TimedEvent] = [], bands: [BandEvent] = [],
                             deadlines: [Deadline] = [], trackNames newNames: [[String]]? = nil,
                             deletedIDs: [String] = [], rich: [String: RichFields] = [:]) {
+        wake()                                       // remote data landed → a render must run
         editGen &+= 1
         deadlineGen &+= 1                            // remote change may add/move/remove deadlines
         for e in events { Self.upsert(&seedEvents, e) }
@@ -355,24 +439,87 @@ public final class CalendarEngine {
         return nil
     }
     private func schedulePersist() {
+        wake()   // universal edit chokepoint (covers non-txn setters: notes, rich fields, daily notes)
         persistWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.persistNow() }
         persistWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
+    /// In keyboard block-cursor mode, the cursor drives the SAME soft highlight the mouse produces
+    /// (year → whole month; month → the day column) — so `hover` is derived from the block position
+    /// instead of the mouse. nil → fall back to the real mouse `hover`.
+    private func blockHoverOverride() -> Hover? {
+        guard keyboardActive, selectedId == nil, !drawerOpen else { return nil }
+        if bandCursorActive {   // band cursor: the month/week crosshair (lane + day)
+            switch level(z) {
+            case 0:  return Hover(month: blockMonth, dom: blockDay, track: bandCurTrack)
+            case 1, 2: return Hover(dom: blockDay, track: bandCurTrack)
+            default: return nil   // day view: ring only
+            }
+        }
+        switch level(z) {
+        case 0:  return Hover(month: blockMonth)
+        case 1:  return Hover(dom: blockDay)
+        case 2, 3:  // day column (soft) + hour cell (strong), matching a mouse hover
+            return Hover(dom: level(z) == 2 ? blockDay : daily.dom, hour: Int(blockHour.rounded()))
+        default: return nil
+        }
+    }
+
     // ── Frame snapshot ──────────────────────────────────────────────────────────
     private func snapshot() -> SceneInput {
         SceneInput(z: z, focus: focus, week: week, vp: viewport, scrollY: scrollY, tlScroll: tlScroll,
-                   now: now, year: year, hover: hover, weekHourH: weekHourH, daily: daily,
+                   now: now, year: year, hover: blockHoverOverride() ?? hover, weekHourH: weekHourH, daily: daily,
                    monthAnim: monthAnim, yearPull: yearPull, flipFade: flipFade,
-                   animating: tween != nil || scrollTween != nil || weekTween != nil || dayTween != nil || flipAnim != nil || monthAnim != nil || weekFlip != nil || dayFlip != nil,
+                   animating: tween != nil || scrollTween != nil || tlScrollTween != nil || weekTween != nil || dayTween != nil || flipAnim != nil || monthAnim != nil || weekFlip != nil || dayFlip != nil,
                    monthPull: monthPull, monthFlipShift: monthFlipShift, weekPull: weekPull,
                    weekFlipDir: weekFlip?.dir ?? 0, weekFlipFade: weekFlipFade, dayPull: dayPull, mainTz: mainTz)
     }
 
+    /// Read-only current scene input (does NOT advance tweens). For a second view that must render the
+    /// same frame the main TimelineView already computed — e.g. the lifted-event copy above the scrim.
+    public func snapshotInput() -> SceneInput { snapshot() }
+
+    // ── Render diagnostics (temporary) ──────────────────────────────────────────────
+    // Logs once/sec while the loop is actively rendering, with the reason it's awake. On true idle the
+    // loop is paused → sceneInput isn't called → silence. If this keeps printing while you're not
+    // touching anything, `reason` names the stuck state; `NONE` means the pause isn't engaging.
+    private var dbgFrames = 0
+    private func renderDiag() { dbgFrames += 1 }
+    private var dbgTimer: Timer?
+    func startDbgTimer() {
+        dbgTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let line = "awake=\(self.renderClock.awake ? "Y" : "N") sceneInput/s=\(self.dbgFrames) wakes/s=\(self.dbgWakes) reason=\(self.awakeReason())\n"
+            self.dbgWakes = 0
+            if let h = FileHandle(forWritingAtPath: "/tmp/cal-diag.log") {
+                h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
+            } else {
+                try? line.write(toFile: "/tmp/cal-diag.log", atomically: true, encoding: .utf8)
+            }
+            self.dbgFrames = 0
+        }
+    }
+    private func awakeReason() -> String {
+        var r: [String] = []
+        if tween != nil { r.append("tween") };                 if scrollTween != nil { r.append("scrollTween") }
+        if tlScrollTween != nil { r.append("tlScrollTween") };  if weekTween != nil { r.append("weekTween") }
+        if dayTween != nil { r.append("dayTween") };            if shiftTween != nil { r.append("shiftTween") }
+        if flipAnim != nil { r.append("flipAnim") };            if monthAnim != nil { r.append("monthAnim") }
+        if monthFlip != nil { r.append("monthFlip") };          if weekFlip != nil { r.append("weekFlip") }
+        if dayFlip != nil { r.append("dayFlip") };              if drag != nil { r.append("drag") }
+        if daily.anim != nil { r.append("daily.anim") };        if liveScrolling { r.append("liveScrolling") }
+        if liveMonthScrolling { r.append("liveMonth") };        if liveWeekScrolling { r.append("liveWeek") }
+        if liveDayScrolling { r.append("liveDay") };            if yearPull != nil { r.append("yearPull") }
+        if monthPull != nil { r.append("monthPull") };          if weekPull != nil { r.append("weekPull") }
+        if dayPull != nil { r.append("dayPull") }
+        return r.isEmpty ? "NONE(pause-not-engaging)" : r.joined(separator: ",")
+    }
+
     /// Advance the tween to `date` and return the immutable input for this frame.
     public func sceneInput(at date: Date, viewport vp: Viewport) -> SceneInput {
+        renderDiag()
         viewport = vp
         if let t = tween {
             z = t.value(at: date)
@@ -394,6 +541,10 @@ public final class CalendarEngine {
                 scrollY = st.to; scrollTween = nil; onSetYearScroll?(scrollY)
                 if let cb = scrollTweenDone { scrollTweenDone = nil; cb() }   // then zoom in
             }
+        }
+        if let tt = tlScrollTween {
+            tlScroll = tt.value(at: date); onSetTlScroll?(tlScroll)
+            if tt.isComplete(at: date) { tlScroll = tt.to; tlScrollTween = nil; onSetTlScroll?(tlScroll) }
         }
         if let wt = weekTween {
             week = wt.value(at: date)
@@ -433,6 +584,7 @@ public final class CalendarEngine {
     }
 
     public func setViewport(_ size: CGSize) {
+        wake()   // window resize / initial layout → re-render the scene
         viewport = Viewport(w: size.width - Layout.padLeft - Layout.padRight, h: size.height)
         if !didInitialScroll, viewport.h > 1 {
             didInitialScroll = true          // once: center today's month (clamped to top/bottom).
@@ -489,6 +641,7 @@ public final class CalendarEngine {
     /// once it finally settles at that day's view — used to open the NOTE tab for a daily-note todo.
     /// Target month `tm` is 0-based; `td` is 1-based day-of-month.
     public func jumpToDay(_ ty: Int, _ tm: Int, _ td: Int, onLand: (() -> Void)? = nil) {
+        wake()
         let tWeek = CGFloat((firstDOW(ty, tm) + td - 1) / 7)
         cancelTween(); flipAnim = nil
         zTweenDone = nil; weekTweenDone = nil; flipDone = nil; scrollTweenDone = nil
@@ -568,6 +721,7 @@ public final class CalendarEngine {
     /// Jump to another calendar year. Resets vertical scroll to the top, like the web's selectYear.
     public func selectYear(_ y: Int) {
         guard y != year, !isFlipping else { return }
+        wake()
         // Don't swap instantly: fade the whole year out, swap the data at the midpoint, fade
         // the new year in (a pure cross-fade, no scroll motion — see advanceFlip's fadeOnly path).
         flipAnim = FlipAnim(dir: 0, fromYear: year, toYear: y, startScroll: scrollY, start: Date(), fadeOnly: true)
@@ -612,6 +766,7 @@ public final class CalendarEngine {
     }
 
     public func tweenZ(to target: CGFloat, dur: TimeInterval? = nil) {
+        wake()
         if zoomAnchorHour == nil { captureZoomAnchor() }   // fresh for a button/click zoom; kept for a pinch settle
         tween = Tween(from: z, to: clamp(target, 0, 3), start: Date(), duration: dur ?? ZOOM_DUR, ease: easeInOut)
         pushChrome(level: level(clamp(target, 0, 3)))
@@ -619,6 +774,7 @@ public final class CalendarEngine {
 
     // ── Gestures ──────────────────────────────────────────────────────────────────
     public func onWheel(dx: CGFloat, dy: CGFloat) {
+        wake()
         let b = level(z)
         if b == 0 {                                // fallback; the NSScrollView normally drives year scroll
             setYearScroll(clamp(scrollY - dy, 0, yearMaxScroll(viewport)))
@@ -658,7 +814,7 @@ public final class CalendarEngine {
 
     /// Mirror the driver's live offset (may be < 0 or > maxScroll during the elastic bounce — that
     /// overscroll is exactly what we render). Only meaningful in week/day view.
-    public func setTlScroll(_ y: CGFloat) { tlScroll = y }
+    public func setTlScroll(_ y: CGFloat) { wake(); tlScroll = y }
 
     // ── Year-view scroll: mirror of the native NSScrollView driver ───────────────────
     public var isYearLevel: Bool { level(z) == 0 }
@@ -667,6 +823,7 @@ public final class CalendarEngine {
     /// a flip is only allowed for a pull that STARTS from the edge (not a fast scroll
     /// from the middle that happens to overshoot into it).
     public func beginYearScrollGesture() {
+        wake()
         liveScrolling = true
         let maxY = yearMaxScroll(viewport)
         startedAtTop = scrollY <= 2
@@ -677,6 +834,7 @@ public final class CalendarEngine {
     /// overscroll, which is exactly what gives the native bounce). Computes the pull
     /// hint only while a finger-driven gesture is live.
     public func setYearScroll(_ y: CGFloat) {
+        wake()
         scrollY = y
         let maxY = yearMaxScroll(viewport)
         let over: CGFloat = y < 0 ? -y : (y > maxY ? y - maxY : 0)
@@ -772,7 +930,7 @@ public final class CalendarEngine {
     public func monthPagerOffset(pageH: CGFloat) -> CGFloat { CGFloat(focus) * pageH }
 
     /// A scroll gesture starts — kill any zoom tween so they don't fight.
-    public func beginMonthGesture() { cancelTween(); liveMonthScrolling = true }
+    public func beginMonthGesture() { wake(); cancelTween(); liveMonthScrolling = true }
 
     // ── Week view: horizontal day/week paging, driven by an invisible SwiftUI ScrollView ──
     // Same construct as the month pager, rotated horizontal: a strip of day cells + a custom
@@ -783,17 +941,18 @@ public final class CalendarEngine {
     /// Day-view split: the timeline's width as a fraction of the content area (the rest is the daily
     /// dashboard). Driven by the drag handle on the timeline↔dashboard boundary; clamped so neither
     /// side collapses.
-    public func setDailyFrac(_ f: CGFloat) { daily.frac = clamp(f, 0.22, 0.82); chrome.dailyResync &+= 1 }
+    public func setDailyFrac(_ f: CGFloat) { wake(); daily.frac = clamp(f, 0.22, 0.82); chrome.dailyResync &+= 1 }
     /// True when the current overscroll pull has passed the flip threshold — peeked on fingers-up so
     /// the catcher can withhold `.ended` from the pager (preventing a stale snap animation).
     public var weekFlipArmed: Bool { isWeekLevel && (weekPull?.armed ?? false) }
+    public var monthFlipArmed: Bool { isMonthLevel && (monthPull?.armed ?? false) }
 
     /// The pager offset that shows the current `week` (fractional weeks × the 7-day grid width).
     public func weekPagerOffset(dayW: CGFloat) -> CGFloat { week * 7 * dayW }
 
-    public func beginWeekGesture() { cancelTween(); weekTween = nil; liveWeekScrolling = true }
+    public func beginWeekGesture() { wake(); cancelTween(); weekTween = nil; liveWeekScrolling = true }
 
-    public func beginDayGesture() { cancelTween(); liveDayScrolling = true }
+    public func beginDayGesture() { wake(); cancelTween(); liveDayScrolling = true }
 
     /// Project the day pager's horizontal offset onto (daily.dom, daily.anim). Each day cell is `dayW`
     /// wide (the day column's own width), so `offsetX / dayW` is a continuous day index: `daily.dom` is
@@ -802,6 +961,7 @@ public final class CalendarEngine {
     /// first/last day sliding in (via the spillover day-page: day 0 / day dim+1) and arm a flip.
     public func setDayProgress(_ offsetX: CGFloat) {
         guard isDayLevel, !isDayFlipping else { return }
+        wake()
         let dayW = daily.frac * (viewport.w - Layout.labelW)
         guard dayW > 0 else { return }
         let dim = daysInMonth(year, focus)
@@ -851,11 +1011,11 @@ public final class CalendarEngine {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: w)
     }
     private func settleDay() {
-        // The 0.1s debounce already proves the scroll is idle, so don't gate on `liveDayScrolling` —
-        // a forwarded gesture that never delivered `.ended` leaves that flag stuck true, which is the
-        // very case we're rescuing. Clear it here too.
-        guard isDayLevel, !isDayFlipping, dayTween == nil else { return }
-        liveDayScrolling = false
+        // Only rescue a residual once the gesture is genuinely OVER — never snap while fingers are still
+        // on the trackpad (a mid-scroll pause). The catcher now marks `liveDayScrolling` for the whole
+        // finger-down phase — direct AND webview-forwarded — and clears it on `.ended` (which also
+        // schedules this settle), so this gate cleanly separates "paused mid-scroll" from "done".
+        guard isDayLevel, !isDayFlipping, dayTween == nil, !liveDayScrolling else { return }
         guard let a = daily.anim else { return }        // already settled → nothing to do
         let dim = daysInMonth(year, focus)
         if a.p > 0.5 {                                  // past halfway → adopt the neighbour day
@@ -875,11 +1035,14 @@ public final class CalendarEngine {
         liveDayScrolling = false
         let pull = dayPull
         dayPull = nil
-        guard let pull, pull.armed, !isDayFlipping, isDayLevel else { return false }
-        let toDom = pull.dir > 0 ? 1 : daysInMonth(pull.targetYear, pull.targetMonth)
-        dayFlip = DayFlip(dir: pull.dir, toYear: pull.targetYear, toFocus: pull.targetMonth,
-                          toDom: toDom, startP: daily.anim?.p ?? 0, start: Date())
-        return true
+        if let pull, pull.armed, !isDayFlipping, isDayLevel {
+            let toDom = pull.dir > 0 ? 1 : daysInMonth(pull.targetYear, pull.targetMonth)
+            dayFlip = DayFlip(dir: pull.dir, toYear: pull.targetYear, toFocus: pull.targetMonth,
+                              toDom: toDom, startP: daily.anim?.p ?? 0, start: Date())
+            return true
+        }
+        scheduleDaySettle()   // fingers up, no flip → settle any residual once the pager's momentum stops
+        return false
     }
 
     /// Per-frame day-flip. `focus` is HELD at the from-month while the day-page eases to completion —
@@ -909,6 +1072,7 @@ public final class CalendarEngine {
     /// overscroll to arm a month flip.
     public func setWeekProgress(_ offsetX: CGFloat, dayW: CGFloat) {
         guard isWeekLevel, !isWeekFlipping, dayW > 0 else { return }
+        wake()
         let span = 7 * dayW
         let maxWeek = CGFloat(max(0, weeksInMonth(year, focus) - 1))
         let maxOff = maxWeek * span
@@ -946,6 +1110,7 @@ public final class CalendarEngine {
     /// offset crosses each page boundary, so a multi-page fling walks through the months in order.
     public func setMonthProgress(_ offsetY: CGFloat, pageH: CGFloat) {
         guard isMonthLevel, !isMonthFlipping, pageH > 0 else { return }
+        wake()
         let startFocus = focus
         var norm = offsetY / pageH - CGFloat(focus)
         while norm >= 1, focus < 11 { focus += 1; norm -= 1 }   // crossed into the next month
@@ -1082,6 +1247,7 @@ public final class CalendarEngine {
     }
 
     public func onMagnify(delta: CGFloat, at p: CGPoint, began: Bool, ended: Bool) {
+        wake()
         if began {
             cancelTween()              // clears any held anchor; recapture fresh for this gesture
             monthAnim = nil            // a pinch overrides an in-flight month page
@@ -1202,6 +1368,7 @@ public final class CalendarEngine {
     // A plain click (down+up, no movement) navigates (drills in). A drag creates,
     // moves, or resizes an event depending on what's under the cursor at down.
     public func onPointerDown(at p: CGPoint) {
+        wake()
         commitTxn()   // flush any pending (e.g. drawer typing) before a new gesture
         cancelTween()
         let g = snapshot()
@@ -1241,6 +1408,7 @@ public final class CalendarEngine {
     }
 
     public func onPointerDrag(at p: CGPoint) {
+        wake()
         guard var d = drag else { return }
         if !d.activated {
             if hypot(p.x - d.startPoint.x, p.y - d.startPoint.y) < 3 { return }
@@ -1264,6 +1432,7 @@ public final class CalendarEngine {
     }
 
     public func onPointerUp(at p: CGPoint) {
+        wake()
         defer { commitTxn(); drag = nil }   // one undo entry per drag
         guard let d = drag else { return }
         // Plain click (no drag) in empty space (create/band-create primed, or navigate):
@@ -1302,7 +1471,7 @@ public final class CalendarEngine {
     }
 
     // ── Undo / redo ───────────────────────────────────────────────────────────────
-    private func beginTxn() { editGen &+= 1; if pendingUndo == nil { pendingUndo = editState } }
+    private func beginTxn() { wake(); editGen &+= 1; if pendingUndo == nil { pendingUndo = editState } }
     private func commitTxn() {
         undoWork?.cancel(); undoWork = nil
         guard let snap = pendingUndo else { return }
@@ -1321,6 +1490,7 @@ public final class CalendarEngine {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
     }
     private func restore(_ s: EditState) {
+        wake()
         editGen &+= 1
         seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines
         richById = s.rich; trackNames = s.trackNames; dailyNotes = s.dailyNotes
@@ -1357,16 +1527,19 @@ public final class CalendarEngine {
     /// Begin (or re-solve) the shift for the item shown in the drawer. `drawerWidth` is the
     /// horizontal space the drawer occupies on the right.
     public func openDrawerShift(id: String, drawerWidth D: CGFloat) {
+        wake()
         shiftTween = Tween(from: drawerShift, to: drawerShiftTarget(id: id, drawerWidth: D),
                            start: Date(), duration: DRAWER_SHIFT_DUR, ease: easeOut)
     }
     /// Slide the calendar back to rest when the drawer closes.
     public func closeDrawerShift() {
+        wake()
         shiftTween = Tween(from: drawerShift, to: 0, start: Date(), duration: DRAWER_SHIFT_DUR, ease: easeOut)
     }
     /// Re-solve the shift immediately (no tween) while the drawer is being resized, so the
     /// canvas tracks the drag frame-for-frame (like the web's `.cc-drawer-resizing`).
     public func updateDrawerShift(id: String, drawerWidth D: CGFloat) {
+        wake()
         shiftTween = nil
         drawerShift = drawerShiftTarget(id: id, drawerWidth: D)
     }
@@ -1398,7 +1571,7 @@ public final class CalendarEngine {
         }
         if z >= 1.5, let e = displayEvents(for: year).first(where: { $0.id == id }) {
             let tl = timelineInfo(g)
-            let sameDay = displayEvents(for: year).filter { $0.month == e.month && $0.day == e.day }
+            let sameDay = eventsOn(year, e.month, e.day)
             if let r = eventRect(e, year, focus, tl, g.vp, layoutDay(sameDay)[e.id]) {
                 return r.minX + r.width / 2 + Layout.padLeft
             }
@@ -1413,8 +1586,347 @@ public final class CalendarEngine {
         return nil
     }
 
-    /// Open the inline title editor for a band, positioned over its rect (geometry space).
-    private func editBand(_ id: String) {
+    /// Open the inline title editor for the timed event `id` (a ghost's source), over its box. The
+    /// keyboard "Enter → edit title" and the click-a-selected-event gesture both route here.
+    public func editTimed(_ id: String) {
+        let g = snapshot()
+        let src = sourceId(of: id)
+        guard z >= 1.5, let e = seedEvents.first(where: { $0.id == src }) else { return }
+        let tl = timelineInfo(g)
+        guard tl.reveal > 0.05, tl.hourH > 0 else { return }
+        let sameDay = eventsOn(year, e.month, e.day)
+        guard let r = eventRect(e, year, focus, tl, g.vp, layoutDay(sameDay)[src]) else { return }
+        let rect = CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
+        onEditTimed?(src, rect)
+    }
+    /// The kind of the selected BOX — every display box (base, occurrence ghost, promoted band) is an
+    /// independent item, so the kind comes from which display array the *exact* box id is in, NOT from
+    /// its source. A promoted band therefore selects as a band even though its source is a timed event.
+    /// Band takes precedence so a promoted-recurring box (whose id can appear as both a band and a timed
+    /// ghost) reads as the band you see. Drives which keyboard state we're in.
+    private enum SelKind { case none, timed, band, deadline }
+    private var selectedKind: SelKind {
+        guard let s = selectedId else { return .none }
+        if viewBands().contains(where: { $0.id == s }) { return .band }
+        if viewEvents().contains(where: { $0.id == s }) { return .timed }
+        if viewDeadlines().contains(where: { $0.id == s }) { return .deadline }
+        return .none
+    }
+    public var selectedIsTimed: Bool { selectedKind == .timed }
+    public var selectedIsBand: Bool { selectedKind == .band }
+    public var selectedIsDeadline: Bool { selectedKind == .deadline }
+
+    // ── Tab cycling between cursors (block ⇄ event; band cursor is a later increment) ──────────────
+    // One-step inverse memory: the last block⇄event pairing. If a Tab is the exact inverse of the last,
+    // we restore the remembered side instead of re-deriving via carry-over — so Tab then ⇧Tab round-trips
+    // exactly even where carry-over is lossy (see docs/prompts/keyboard_control.md).
+    private var tabLink: (month: Int, day: Int, hour: CGFloat, eventId: String)?
+
+    private enum NavDomain { case block, band, event }
+    private var currentDomain: NavDomain { selectedId != nil ? .event : (bandCursorActive ? .band : .block) }
+
+    /// Tab / ⇧Tab cycle the cursor DOMAIN: block → band → event → block (⇧Tab reverses). Each step
+    /// carries the position over (leftmost/earliest anchor) so the cycle round-trips.
+    public func tabCursor(_ forward: Bool) {
+        enterKeyboardMode()
+        let from = currentDomain
+        let to: NavDomain = forward
+            ? (from == .block ? .band : (from == .band ? .event : .block))
+            : (from == .block ? .event : (from == .event ? .band : .block))
+        switch (from, to) {
+        case (.block, .band), (.band, .block):   // block ⇄ band: same time cell, just add/drop the lane
+            bandCursorActive = (to == .band)
+            if to == .band { bandCurTrack = 0 }
+        case (.band, .event):                     // band → the band under the cell (else nearest band)
+            let m = level(z) == 0 ? blockMonth : focus
+            let hit = viewBands().first { $0.month == m && $0.track == bandCurTrack && $0.startDay <= blockDay && $0.endDay >= blockDay }
+            let pick = hit ?? viewBands().filter { $0.month == m }
+                .min(by: { (bandDayDist($0, blockDay), abs($0.track - bandCurTrack)) < (bandDayDist($1, blockDay), abs($1.track - bandCurTrack)) })
+            bandCursorActive = false
+            if let b = pick { selectedId = b.id; scrollToSelected() }
+        case (.event, .band):                     // event → its start cell (band) or (lane 0, its day)
+            if let sel = selectedId {
+                if let b = displayBands(for: year).first(where: { $0.id == sel }) { blockMonth = b.month; bandCurTrack = b.track; blockDay = b.startDay }
+                else if let e = displayEvents(for: year).first(where: { $0.id == sel }) { blockMonth = e.month; bandCurTrack = 0; blockDay = e.day }
+                else if let d = displayDeadlines(for: year).first(where: { $0.id == sel }) { blockMonth = d.month; bandCurTrack = 0; blockDay = d.day }
+            }
+            selectedId = nil; bandCursorActive = true
+            if level(z) == 0 { ensureMonthVisible(blockMonth, animated: true) }
+        case (.event, .block):                    // event → its earliest anchor (with inverse memory)
+            if let sel = selectedId {
+                if let link = tabLink, link.eventId == sel { blockMonth = link.month; blockDay = link.day; blockHour = link.hour }
+                else { setBlockToEventAnchor(sel) }
+                tabLink = (blockMonth, blockDay, blockHour, sel)
+            }
+            selectedId = nil; bandCursorActive = false
+            syncBlockVisible()
+        case (.block, .event):                    // block → nearest event (with inverse memory)
+            if let link = tabLink, link.month == blockMonth, link.day == blockDay,
+               abs(link.hour - blockHour) < 0.01, isVisibleEvent(link.eventId) {
+                selectedId = link.eventId
+            } else if let eid = nearestEventToBlock() {
+                selectedId = eid; tabLink = (blockMonth, blockDay, blockHour, eid)
+            }
+            ensureSelectedEventVisible()
+        default: break
+        }
+    }
+
+    private func isVisibleEvent(_ id: String) -> Bool {
+        viewBands().contains { $0.id == id } || viewEvents().contains { $0.id == id } || viewDeadlines().contains { $0.id == id }
+    }
+
+    /// Land the block cursor on an event's earliest anchor (band → startDay; timed/deadline → day+hour).
+    private func setBlockToEventAnchor(_ id: String) {
+        if let b = displayBands(for: year).first(where: { $0.id == id }) {
+            blockMonth = b.month; blockDay = min(daysInMonth(b.year, b.month), max(1, b.startDay))
+        } else if let e = displayEvents(for: year).first(where: { $0.id == id }) {
+            blockMonth = e.month; blockDay = e.day; blockHour = e.startHour
+        } else if let d = displayDeadlines(for: year).first(where: { $0.id == id }) {
+            blockMonth = d.month; blockDay = d.day; blockHour = d.hour
+        }
+    }
+
+    /// Carry-over: the nearest event to the block cursor, per view.
+    private func nearestEventToBlock() -> String? {
+        switch level(z) {
+        case 0:   // year: a band in/near the cursor month, topmost lane
+            return viewBands().min(by: {
+                (abs($0.month - blockMonth), $0.track, $0.startDay) < (abs($1.month - blockMonth), $1.track, $1.startDay)
+            })?.id
+        case 1:   // month: a band covering/near the cursor day, topmost lane
+            return viewBands().filter { $0.month == focus }
+                .min(by: { (bandDayDist($0, blockDay), $0.track) < (bandDayDist($1, blockDay), $1.track) })?.id
+        case 2, 3:   // week/day: nearest timed/deadline on the day by hour, else a band covering it
+            let d = level(z) == 2 ? blockDay : daily.dom
+            let timeline = viewEvents().filter { $0.month == focus && $0.day == d }.map { ($0.id, $0.startHour) }
+                + viewDeadlines().filter { $0.month == focus && $0.day == d }.map { ($0.id, $0.hour) }
+            if let best = timeline.min(by: { abs($0.1 - blockHour) < abs($1.1 - blockHour) }) { return best.0 }
+            return viewBands().first { $0.month == focus && $0.startDay <= d && $0.endDay >= d }?.id
+        default:
+            return nil
+        }
+    }
+    private func bandDayDist(_ b: BandEvent, _ d: Int) -> Int {
+        d < b.startDay ? b.startDay - d : (d > b.endDay ? d - b.endDay : 0)
+    }
+    private func syncBlockVisible() {
+        switch level(z) {
+        case 0: ensureMonthVisible(blockMonth, animated: true)
+        case 2, 3: ensureHourVisible()
+        default: break
+        }
+    }
+
+    /// Plain-arrow navigation between events (event cursor). Day view: ↑/↓ step through the day's events
+    /// top-to-bottom (bands first, then timed/deadlines by time). Year/month/week use the 2-D focus
+    /// engine — a later increment.
+    // One-step directional memory (see the doc): the last event move, so the exact reverse arrow returns.
+    private var lastEventMove: (from: String, dx: Int, dy: Int, to: String)?
+
+    public func navigateEvent(_ dx: Int, _ dy: Int) {
+        enterKeyboardMode()
+        guard let sel = selectedId else { return }
+        if level(z) == 3 {
+            // Day view: ↑/↓ step the day's events by time; ←/→ switch between side-by-side overlaps.
+            if dy != 0 {
+                let ids = dayEventOrder()
+                guard !ids.isEmpty else { return }
+                let i = ids.firstIndex(of: sel) ?? (dy > 0 ? -1 : ids.count)
+                let j = max(0, min(ids.count - 1, i + dy))
+                if ids.indices.contains(j) { selectedId = ids[j]; ensureSelectedEventVisible() }
+            } else if let n = focusFind(sel, dx, 0) {   // overlaps → the adjacent column
+                selectedId = n; ensureSelectedEventVisible()
+            }
+            return
+        }
+        // Year / month / week: the 2-D focus engine (FocusFinder over on-screen rects).
+        let next: String?
+        if let m = lastEventMove, m.to == sel, m.dx == -dx, m.dy == -dy {
+            next = m.from                                   // exact inverse → return to origin
+        } else if let n = focusFind(sel, dx, dy) {
+            next = n; lastEventMove = (sel, dx, dy, n)
+        } else { next = nil }
+        if let n = next, n != sel { selectedId = n; scrollToSelected() }
+    }
+
+    /// On-screen rects (geometry space) of every visible event box — bands + timed + deadlines.
+    private func visibleEventRects() -> [(id: String, rect: CGRect)] {
+        let g = snapshot()
+        // Month/week/day: only the FOCUS month's events are navigable — otherwise ↑ from the top lane in
+        // month view would jump to an off-screen adjacent-month band. Year view keeps all months (its
+        // ↑/↓ crosses months by design).
+        let sameMonthOnly = level(z) != 0
+        let dayOnly = level(z) == 3 ? daily.dom : nil   // day view: only the shown day's boxes are on screen
+        var out: [(String, CGRect)] = []
+        for b in viewBands() where !b.id.isEmpty {
+            if sameMonthOnly && b.month != focus { continue }
+            if let d = dayOnly, !(b.startDay <= d && b.endDay >= d) { continue }
+            if let r = bandEventRect(b, g, anim: g.monthAnim) {
+                out.append((b.id, CGRect(x: r.x, y: r.y, width: r.w, height: r.h)))
+            }
+        }
+        if z >= 1.5 {
+            let tl = timelineInfo(g)
+            let evs = viewEvents().filter { $0.month == focus && (dayOnly == nil || $0.day == dayOnly) }
+            var byDay: [Int: [TimedEvent]] = [:]
+            for e in evs { byDay[e.day, default: []].append(e) }
+            for e in evs {
+                let layout = layoutDay(byDay[e.day] ?? [])[e.id]
+                if let r = eventRect(e, year, focus, tl, g.vp, layout) {
+                    out.append((e.id, CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)))
+                }
+            }
+            for d in viewDeadlines() where d.month == focus && (dayOnly == nil || d.day == dayOnly) {
+                if let pos = deadlinePos(d, g) { out.append((d.id, CGRect(x: pos.x, y: pos.y - 9, width: pos.w, height: 18))) }
+            }
+        }
+        return out
+    }
+
+    /// FocusFinder: the best event in direction (dx,dy) from `currentId`. Edge distances, beam-preference,
+    /// K≈13 major-axis weight — off-axis allowed but heavily penalized (see docs/prompts/keyboard_control.md).
+    private func focusFind(_ currentId: String, _ dx: Int, _ dy: Int) -> String? {
+        let rects = visibleEventRects()
+        guard let cur = rects.first(where: { $0.id == currentId })?.rect else { return nil }
+        let K: CGFloat = 13, beamPenalty: CGFloat = 1_000_000
+        var best: String?; var bestScore = CGFloat.greatestFiniteMagnitude
+        for (id, r) in rects where id != currentId {
+            let major: CGFloat, minor: CGFloat, beam: Bool
+            if dy != 0 {   // vertical move
+                let centerAhead = dy > 0 ? r.midY - cur.midY : cur.midY - r.midY
+                guard centerAhead > 0.5 else { continue }
+                major = max(0, dy > 0 ? r.minY - cur.maxY : cur.minY - r.maxY)
+                minor = gap(cur.minX, cur.maxX, r.minX, r.maxX)
+                beam = r.maxX > cur.minX && r.minX < cur.maxX
+            } else {       // horizontal move
+                let centerAhead = dx > 0 ? r.midX - cur.midX : cur.midX - r.midX
+                guard centerAhead > 0.5 else { continue }
+                major = max(0, dx > 0 ? r.minX - cur.maxX : cur.minX - r.maxX)
+                minor = gap(cur.minY, cur.maxY, r.minY, r.maxY)
+                beam = r.maxY > cur.minY && r.minY < cur.maxY
+            }
+            let score = K * major * major + minor * minor + (beam ? 0 : beamPenalty)
+            if score < bestScore { bestScore = score; best = id }
+        }
+        return best
+    }
+    /// Edge distance between two 1-D spans [a0,a1] and [b0,b1] (0 if they overlap).
+    private func gap(_ a0: CGFloat, _ a1: CGFloat, _ b0: CGFloat, _ b1: CGFloat) -> CGFloat {
+        b1 < a0 ? a0 - b1 : (b0 > a1 ? b0 - a1 : 0)
+    }
+
+    /// Scroll the view so the SELECTED event stays visible: year → the band's month; week → shift the
+    /// 7-day focus window to the event's day (horizontal) AND scroll the timeline to its hours; day →
+    /// the timeline hours. (Month view shows the whole month — no scroll needed.)
+    private func scrollToSelected() {
+        guard let sel = selectedId else { return }
+        let isBand = displayBands(for: year).contains { $0.id == sel }
+        switch level(z) {
+        case 0:
+            if let b = displayBands(for: year).first(where: { $0.id == sel }) { ensureMonthVisible(b.month, animated: true) }
+        case 2:
+            if let day = selectedEventDay(sel) { ensureDayVisibleWeek(day) }   // week window follows horizontally
+            if !isBand { ensureSelectedEventVisible() }
+        default:
+            if !isBand { ensureSelectedEventVisible() }
+        }
+    }
+    private func selectedEventDay(_ id: String) -> Int? {
+        if let b = displayBands(for: year).first(where: { $0.id == id }) { return b.startDay }
+        if let e = displayEvents(for: year).first(where: { $0.id == id }) { return e.day }
+        if let d = displayDeadlines(for: year).first(where: { $0.id == id }) { return d.day }
+        return nil
+    }
+
+    /// The current day's DISPLAY boxes in top-to-bottom order: bands (by lane) — including recurrence
+    /// ghosts and promoted bars — then timed + deadline boxes by time. Every box is a distinct item;
+    /// duplicate ids (a promoted-recurring box that is both) are collapsed once (band wins, listed first).
+    private func dayEventOrder() -> [String] {
+        let d = daily.dom
+        var ids = viewBands()
+            .filter { $0.month == focus && $0.startDay <= d && $0.endDay >= d }
+            .sorted { $0.track < $1.track }.map { $0.id }
+        let timed = viewEvents().filter { $0.month == focus && $0.day == d }.map { ($0.id, $0.startHour) }
+        let ddls = viewDeadlines().filter { $0.month == focus && $0.day == d }.map { ($0.id, $0.hour) }
+        ids += (timed + ddls).sorted { $0.1 < $1.1 }.map { $0.0 }
+        var seen = Set<String>()
+        return ids.filter { seen.insert($0).inserted }
+    }
+
+    /// Keyboard resize — grow/shrink the SELECTED event with ⇧+arrows, keeping its START fixed.
+    /// Band: ⇧←/⇧→ change the END day (`dx`), clamped to [startDay, month end]. Timed: ⇧↑/⇧↓ change the
+    /// END hour (`dy`: -1 shrink, +1 extend) by 15 min, clamped to [start + 15 min, 24h]. Deadlines have
+    /// no duration → no resize.
+    public func resizeSelected(_ dx: Int, _ dy: Int) {
+        guard let sid = selectedId else { return }
+        let id = sourceId(of: sid)
+        if let b = band(id), dx != 0 {
+            let ne = max(b.startDay, min(daysInMonth(b.year, b.month), b.endDay + dx))
+            guard ne != b.endDay else { return }
+            updateBand(id) { $0.endDay = ne }
+        } else if let e = event(id), dy != 0 {
+            let ne = max(e.startHour + 0.25, min(24, e.endHour + CGFloat(dy) * 0.25))
+            guard ne != e.endHour else { return }
+            update(id) { $0.endHour = ne }
+        }
+    }
+
+    /// Keyboard nudge — move the SELECTED event vertically (cmd+up / cmd+down). `dir` = -1 (up) or +1
+    /// (down). Bands move across the 4 lanes; timed/deadline move by 15 minutes. Moves are clamped: a
+    /// nudge that would leave the valid range (lane 0…3, or the 0…24h day) does nothing.
+    public func nudgeVertical(_ dir: Int) {
+        guard let sid = selectedId else { return }
+        let id = sourceId(of: sid)
+        if let b = band(id) {
+            let t = b.track + dir                       // -1 = up a lane, +1 = down a lane
+            guard t >= 0, t <= 3 else { return }
+            updateBand(id) { $0.track = t }
+        } else if let e = event(id) {
+            let step = CGFloat(dir) * 0.25              // 15 min; -1 = earlier (up), +1 = later (down)
+            let ns = e.startHour + step, ne = e.endHour + step
+            guard ns >= 0, ne <= 24 else { return }     // keep the whole event inside the day
+            update(id) { $0.startHour = ns; $0.endHour = ne }
+        } else if let d = deadline(id) {
+            let nh = d.hour + CGFloat(dir) * 0.25
+            guard nh >= 0, nh <= 24 else { return }
+            updateDeadline(id) { $0.hour = nh }
+        }
+    }
+
+    /// Keyboard nudge — move the SELECTED event horizontally by a day (cmd+left / cmd+right). Bands shift
+    /// the whole span (start fixed relative to end); they CANNOT cross the month boundary. Timed/deadlines
+    /// move their date by a day (across month/year). Follows with a scroll so it stays visible.
+    public func nudgeHorizontal(_ dir: Int) {
+        enterKeyboardMode()
+        guard let sid = selectedId else { return }
+        let id = sourceId(of: sid)
+        if let b = band(id) {
+            let ns = b.startDay + dir, ne = b.endDay + dir
+            guard ns >= 1, ne <= daysInMonth(b.year, b.month) else { return }   // stay within the month
+            updateBand(id) { $0.startDay = ns; $0.endDay = ne }
+        } else if let e = event(id) {
+            let (y, m, dd) = addDays(e.year, e.month, e.day, dir)
+            update(id) { $0.year = y; $0.month = m; $0.day = dd }
+        } else if let d = deadline(id) {
+            let (y, m, dd) = addDays(d.year, d.month, d.day, dir)
+            updateDeadline(id) { $0.year = y; $0.month = m; $0.day = dd }
+        }
+        scrollToSelected()
+    }
+
+    /// Add `delta` days to a (year, 0-based month, day), rolling months/years correctly.
+    private func addDays(_ y: Int, _ m0: Int, _ d: Int, _ delta: Int) -> (Int, Int, Int) {
+        var c = DateComponents(); c.year = y; c.month = m0 + 1; c.day = d
+        let cal = Calendar(identifier: .gregorian)
+        guard let base = cal.date(from: c), let nd = cal.date(byAdding: .day, value: delta, to: base) else { return (y, m0, d) }
+        let x = cal.dateComponents([.year, .month, .day], from: nd)
+        return (x.year ?? y, (x.month ?? 1) - 1, x.day ?? d)
+    }
+
+    /// Open the inline title editor for a band, positioned over its rect (geometry space). The click-a-
+    /// selected-band gesture and the keyboard "Enter → edit title" (via `editSelectedBand`) both route here.
+    public func editBand(_ id: String) {
         let g = snapshot()
         guard let b = seedBands.first(where: { $0.id == id }), let r = bandEventRect(b, g, anim: g.monthAnim) else { return }
         // Let the field extend right to the content edge (like the title's overflow), not
@@ -1454,11 +1966,12 @@ public final class CalendarEngine {
     // only re-expanded when the data changes, not on navigation frames.
     // ── Color preview (hovering a drawer swatch previews the color live on the item) ───────────
     private var colorPreview: (id: String, color: String)?
-    public func setColorPreview(_ id: String, _ color: String) { colorPreview = (id, color) }
+    public func setColorPreview(_ id: String, _ color: String) { wake(); colorPreview = (id, color) }
     /// Clear the preview. If `color` is given, only clears when it's still the active preview — so a
     /// swatch's mouse-leave doesn't wipe a preview a newer swatch just set.
     public func clearColorPreview(_ color: String? = nil) {
         if let color, colorPreview?.color != color { return }
+        wake()
         colorPreview = nil
     }
     /// Overlay the preview color on any box of the previewed series (applied after the cache, so it
@@ -1475,6 +1988,13 @@ public final class CalendarEngine {
     /// glyphs the overlay draws. Same cache as displayBands.
     public func bandBadges(for year: Int) -> [String: EventBadges] { ensureBandCache(year).badges }
 
+    /// Bands (base + recurrence/promoted ghosts) in a specific month — O(1) index lookup, with the live
+    /// color preview applied like `displayBands`. Used by the band hit-test to skip other months.
+    public func bandsInMonth(_ year: Int, _ month: Int) -> [BandEvent] {
+        let items = ensureBandCache(year).byMonth[month] ?? []
+        return withPreview(items, { $0.id }, { $0.color = $1 })
+    }
+
     /// Provenance/kind markers for a box, from its SOURCE item's rich fields + the box's nature.
     /// Shared by the band and timed-event caches so both show the same glyphs.
     private func itemBadges(_ src: String, recurrent: Bool, promoted: Bool) -> EventBadges {
@@ -1488,8 +2008,8 @@ public final class CalendarEngine {
         return b
     }
 
-    private func ensureBandCache(_ year: Int) -> (bands: [BandEvent], badges: [String: EventBadges]) {
-        if let c = bandCache, c.year == year, c.gen == editGen { return (c.bands, c.badges) }
+    private func ensureBandCache(_ year: Int) -> (bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]]) {
+        if let c = bandCache, c.year == year, c.gen == editGen { return (c.bands, c.badges, c.byMonth) }
         func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
         // Markers for a box, from its SOURCE item's rich fields + the box's nature.
         func badges(_ src: String, recurrent: Bool, promoted: Bool) -> EventBadges {
@@ -1528,12 +2048,13 @@ public final class CalendarEngine {
                 // A distinct occurrence-key id (not the raw source id) so the promoted bar is its own
                 // box: selecting the original timeline event highlights it (same source) without also
                 // making it the focused box, and vice-versa. sourceId() maps both back to `id`.
-                let key = occKey(id, YMD(y, m, day))
+                // `~p` so this promoted bar is a DISTINCT box from the timeline occurrence `id@Y-M-D`.
+                let key = occKey(id, YMD(y, m, day)) + PROMOTED_SUFFIX
                 out.append(BandEvent(id: key, year: year, month: m, track: track, startDay: day, endDay: day, title: title, color: color))
                 badgeMap[key] = badges(id, recurrent: r != nil, promoted: true)
             }
             for o in occurrenceDates(YMD(y, m, day), r, year) {
-                let key = occKey(id, o)
+                let key = occKey(id, o) + PROMOTED_SUFFIX
                 out.append(BandEvent(id: key, year: year, month: o.month, track: track,
                                      startDay: o.day, endDay: o.day, title: title, color: color))
                 badgeMap[key] = badges(id, recurrent: true, promoted: true)
@@ -1542,8 +2063,10 @@ public final class CalendarEngine {
         for e in seedEvents { promote(e.id, e.year, e.month, e.day, e.title, e.color) }
         for d in seedDeadlines { promote(d.id, d.year, d.month, d.day, d.title, d.color) }
 
-        bandCache = (year, editGen, out, badgeMap)
-        return (out, badgeMap)
+        var byMonth: [Int: [BandEvent]] = [:]
+        for b in out { byMonth[b.month, default: []].append(b) }
+        bandCache = (year, editGen, out, badgeMap, byMonth)
+        return (out, badgeMap, byMonth)
     }
 
     // ── Derived timed events for the day / detail timeline ──────────────────────────────
@@ -1552,14 +2075,23 @@ public final class CalendarEngine {
     // synthetic occKey id. The timeline only draws the focused day's items, so off-day occurrences
     // are culled downstream; the ghosts just make a recurring event appear on every occurrence day.
     // Cached per (year, editGen) — like displayBands.
-    private var eventCache: (year: Int, gen: Int, events: [TimedEvent], badges: [String: EventBadges])?
+    // `byDay` indexes the expanded events (base + ghosts) by `month*100+day` so hit-testing and per-day
+    // layout packing are O(1) lookups instead of a full-array filter on every hover / rect solve.
+    private var eventCache: (year: Int, gen: Int, events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]])?
     public func displayEvents(for year: Int) -> [TimedEvent] {
         withPreview(ensureEventCache(year).events, { $0.id }, { $0.color = $1 })
     }
     public func eventBadges(for year: Int) -> [String: EventBadges] { ensureEventCache(year).badges }
 
-    private func ensureEventCache(_ year: Int) -> (events: [TimedEvent], badges: [String: EventBadges]) {
-        if let c = eventCache, c.year == year, c.gen == editGen { return (c.events, c.badges) }
+    /// Timed events (base + recurrence ghosts) on a specific calendar day — O(1) index lookup, with the
+    /// live color preview applied like `displayEvents`. Used by hit-testing + per-day layout packing.
+    public func eventsOn(_ year: Int, _ month: Int, _ day: Int) -> [TimedEvent] {
+        let items = ensureEventCache(year).byDay[month * 100 + day] ?? []
+        return withPreview(items, { $0.id }, { $0.color = $1 })
+    }
+
+    private func ensureEventCache(_ year: Int) -> (events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]]) {
+        if let c = eventCache, c.year == year, c.gen == editGen { return (c.events, c.badges, c.byDay) }
         func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
         var out: [TimedEvent] = []
         var badgeMap: [String: EventBadges] = [:]
@@ -1577,8 +2109,10 @@ public final class CalendarEngine {
                 badgeMap[key] = itemBadges(e.id, recurrent: true, promoted: false)
             }
         }
-        eventCache = (year, editGen, out, badgeMap)
-        return (out, badgeMap)
+        var byDay: [Int: [TimedEvent]] = [:]
+        for e in out { byDay[e.month * 100 + e.day, default: []].append(e) }
+        eventCache = (year, editGen, out, badgeMap, byDay)
+        return (out, badgeMap, byDay)
     }
 
     // ── Derived deadlines for the deadline layer ────────────────────────────────────────
@@ -1616,9 +2150,11 @@ public final class CalendarEngine {
         if focus == 11 { return [year + 1] }
         return []
     }
-    public func viewEvents() -> [TimedEvent] { displayEvents(for: year) + boundaryYears.flatMap { displayEvents(for: $0) } }
-    public func viewBands() -> [BandEvent] { displayBands(for: year) + boundaryYears.flatMap { displayBands(for: $0) } }
-    public func viewDeadlines() -> [Deadline] { displayDeadlines(for: year) + boundaryYears.flatMap { displayDeadlines(for: $0) } }
+    // The common case (mid-year focus) has no boundary years, so hand back the cached array directly —
+    // `cached + []` would copy it every frame. Only concatenate when a Jan/Dec spillover column exists.
+    public func viewEvents() -> [TimedEvent] { let b = boundaryYears; return b.isEmpty ? displayEvents(for: year) : displayEvents(for: year) + b.flatMap { displayEvents(for: $0) } }
+    public func viewBands() -> [BandEvent] { let b = boundaryYears; return b.isEmpty ? displayBands(for: year) : displayBands(for: year) + b.flatMap { displayBands(for: $0) } }
+    public func viewDeadlines() -> [Deadline] { let b = boundaryYears; return b.isEmpty ? displayDeadlines(for: year) : displayDeadlines(for: year) + b.flatMap { displayDeadlines(for: $0) } }
     public func viewBandBadges() -> [String: EventBadges] {
         var m = bandBadges(for: year); for y in boundaryYears { m.merge(bandBadges(for: y)) { a, _ in a } }; return m
     }
@@ -1790,6 +2326,7 @@ public final class CalendarEngine {
     /// The occurrence's date: a ghost box carries "id@Y-M-D" (0-based month); the base box uses the
     /// series' own base date.
     private func occurrenceYMD(_ id: String, _ occKey: String) -> YMD? {
+        let occKey = occurrenceKey(of: occKey)   // drop the promoted-band marker if present
         if let at = occKey.firstIndex(of: "@") {
             let p = occKey[occKey.index(after: at)...].split(separator: "-").compactMap { Int($0) }
             if p.count == 3 { return YMD(p[0], p[1], p[2]) }
@@ -1861,6 +2398,10 @@ public final class CalendarEngine {
     private func eventAt(_ p: CGPoint, _ g: SceneInput) -> (id: String, zone: PointerKind)? {
         let tl = timelineInfo(g)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return nil }
+        // Timed events live ONLY in the hour timeline. A scrolled-up event's rect can extend above the
+        // timeline top (into the band/track lanes), but the drawn sticker is clipped there — so clip the
+        // hit-test too, else hovering/dragging empty track space would grab the off-screen event.
+        guard p.y >= tl.tlTop, p.y <= tl.tlBottom else { return nil }
         if z > 2 && p.x >= tl.x0 + CGFloat(daily.dom) * tl.colW { return nil }  // under dashboard
         guard tl.colW > 0 else { return nil }
         // Only the day column under the cursor can contain the point. Resolve that column and hit-test
@@ -1871,11 +2412,10 @@ public final class CalendarEngine {
         // match the drawn rects.
         let relCursor = Int(floor((p.x - tl.x0) / tl.colW)) + 1
         if dailyFade(relCursor, g) <= 0.02 { return nil }
-        // Include the neighbor year so a Dec↔Jan spillover column's events are hit-testable too.
-        var pool = displayEvents(for: year)
-        if focus == 0 { pool += displayEvents(for: year - 1) }
-        if focus == 11 { pool += displayEvents(for: year + 1) }
-        let sameDay = pool.filter { relDomOf(year, focus, $0.year, $0.month, $0.day) == relCursor }
+        // The column maps to one calendar day (resolveDate handles Dec↔Jan spillover into the neighbor
+        // year); the per-day index then returns exactly that day's events (base + ghosts).
+        guard let rd = resolveDate(year, focus, relCursor) else { return nil }
+        let sameDay = eventsOn(rd.year, rd.month, rd.day)
         guard !sameDay.isEmpty else { return nil }
         let layout = layoutDay(sameDay)
         var found: (String, PointerKind)?
@@ -1945,12 +2485,28 @@ public final class CalendarEngine {
         return f.dayW > 0 ? Int((px - f.x0) / f.dayW) + 1 : 1
     }
 
+    /// Months whose band lanes could contain point `p` — a conservative superset that prunes the band
+    /// hit-test to a handful of months instead of the whole year. Week/day view (z≥1.5) positions bands
+    /// relative to the focus window, so the focus month and its two neighbors can spill in. Year/month
+    /// view positions each band in its own month row, so only the row(s) under `p.y` qualify (frameFor is
+    /// anim-aware, so a month page-turn's two overlapping rows are both included).
+    private func candidateBandMonths(_ p: CGPoint, _ g: SceneInput) -> [Int] {
+        if g.z >= 1.5 { return [g.focus - 1, g.focus, g.focus + 1].filter { $0 >= 0 && $0 <= 11 } }
+        var months: [Int] = []
+        for m in 0..<12 {
+            let f = frameFor(m, g, anim: g.monthAnim)
+            if f.opacity >= 0.02, p.y >= f.bandY, p.y < f.bandY + 4 * f.trackH { months.append(m) }
+        }
+        return months
+    }
+
     private func bandAt(_ p: CGPoint, _ g: SceneInput) -> (id: String, zone: PointerKind)? {
         // Return the TOP-most band under the cursor, matching the draw order: selected and
         // hovered are raised to the front; otherwise later start > shorter length > higher id.
         func tier(_ b: BandEvent) -> Int { b.id == selectedId ? 2 : (b.id == hoveredEventId ? 1 : 0) }
         var best: (b: BandEvent, r: BandRect, rect: CGRect)?
-        for b in displayBands(for: year) {   // includes recurrence + promoted ghosts (selectable, read-only)
+        // Only the candidate months' bands can be under the cursor — skip the rest of the year's ghosts.
+        for b in candidateBandMonths(p, g).flatMap({ bandsInMonth(year, $0) }) {   // recurrence + promoted ghosts too
             guard let r = bandEventRect(b, g, anim: g.monthAnim) else { continue }
             let rect = CGRect(x: r.x, y: r.y, width: r.w, height: r.h)
             guard rect.contains(p) else { continue }
@@ -2017,6 +2573,8 @@ public final class CalendarEngine {
     }
 
     private func deadlineAt(_ p: CGPoint, _ g: SceneInput) -> String? {
+        let tl = timelineInfo(g)
+        guard p.y >= tl.tlTop, p.y <= tl.tlBottom else { return nil }   // clip to the timeline (see eventAt)
         let dls = displayDeadlines(for: year)          // includes recurrence ghosts (selectable, read-only)
         let sides = deadlineSides()                     // same base sides the overlay uses
         var hit: String?
@@ -2050,12 +2608,303 @@ public final class CalendarEngine {
 
     public func onEscape() {
         cancelTween()
-        tweenZ(to: CGFloat(max(0, level(z) - 1)))
+        let dest = max(0, level(z) - 1)
+        tweenZ(to: CGFloat(dest))
+        syncBlockToView(dest)   // carry the block cursor to the view we're zooming out to
+    }
+
+    /// Land the block cursor on the sensible cell for a view level (used on zoom-out and mouse→keyboard
+    /// hand-off): year → the focused month; month → the focused day.
+    private func syncBlockToView(_ lvl: Int) {
+        switch lvl {
+        case 0: blockMonth = focus
+        case 1: blockMonth = focus; blockDay = min(daysInMonth(year, focus), max(1, daily.dom))
+        case 2: blockDay = min(daysInMonth(year, focus), max(1, daily.dom))   // week: keep the day + hour
+        default: break
+        }
+    }
+
+    /// Step the block cursor's hour (week/day), clamped to the 0…23 grid, gliding the timeline to follow.
+    private func stepHour(_ dy: Int) {
+        let h = max(0, min(23, Int(blockHour.rounded()) + dy))
+        if CGFloat(h) != blockHour { blockHour = CGFloat(h); ensureHourVisible() }
+    }
+
+    /// Week view: glide the 7-day focus window (`week`) so day `d` stays visible (shifts a day at the edge).
+    private func ensureDayVisibleWeek(_ d: Int) {
+        let target = weekTween?.to ?? week
+        let startDOM = 1 - CGFloat(firstDOW(year, focus)) + target * 7   // the window's Sunday, in DOM
+        var newWeek = target
+        if CGFloat(d) < startDOM { newWeek = target - (startDOM - CGFloat(d)) / 7 }
+        else if CGFloat(d) > startDOM + 6 { newWeek = target + (CGFloat(d) - (startDOM + 6)) / 7 }
+        newWeek = clamp(newWeek, 0, CGFloat(max(0, weeksInMonth(year, focus) - 1)))
+        if abs(newWeek - week) < 0.001 { return }
+        weekTween = Tween(from: week, to: newWeek, start: Date(), duration: 0.25, ease: easeInOut)
+    }
+
+    /// Day view: glide to the prev/next day (same hour). Month boundary is deferred (clamped for now).
+    private func swipeDay(_ dx: Int) {
+        let dim = daysInMonth(year, focus)
+        let base = dayTween.map { Int($0.to.rounded()) } ?? daily.dom   // chain rapid presses off the target
+        let nd = base + dx
+        guard nd >= 1, nd <= dim else { return }
+        blockDay = nd
+        dayTween = Tween(from: CGFloat(daily.dom), to: CGFloat(nd), start: Date(), duration: 0.3, ease: easeInOut)
+    }
+
+    /// Glide the timeline scroll so the SELECTED event is fully on screen (week/day view). A timed event
+    /// uses its hour span; a deadline a small window around its moment; a band needs no timeline scroll.
+    private func ensureSelectedEventVisible() {
+        guard level(z) >= 2, let sel = selectedId else { return }
+        let top: CGFloat, bot: CGFloat
+        if let e = displayEvents(for: year).first(where: { $0.id == sel }) { top = e.startHour; bot = e.endHour }
+        else if let d = displayDeadlines(for: year).first(where: { $0.id == sel }) { top = d.hour - 0.25; bot = d.hour + 0.25 }
+        else { return }
+        scrollTimelineTo(topHour: top, botHour: bot)
+    }
+
+    /// Glide `tlScroll` so the hour range [topHour, botHour] fits in the timeline, preferring to show the
+    /// TOP when the range is taller than the viewport. Animated (tlScrollTween) — never teleports.
+    private func scrollTimelineTo(topHour: CGFloat, botHour: CGFloat) {
+        let tl = timelineInfo(snapshot())
+        guard tl.hourH > 0 else { return }
+        let cellTop = topHour * tl.hourH, cellBot = botHour * tl.hourH
+        let viewH = tl.tlBottom - tl.tlTop
+        var s = tlScrollTween?.to ?? tlScroll
+        if s < cellBot - viewH { s = cellBot - viewH }   // bring the bottom into view…
+        if s > cellTop { s = cellTop }                   // …but prefer the top if the range is tall
+        s = clamp(s, 0, tl.maxScroll)
+        if abs(s - tlScroll) < 0.5 { return }
+        tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: 0.25, ease: easeInOut)
+    }
+
+    /// Glide the timeline scroll so the block cursor's hour cell is fully on screen (week/day view).
+    private func ensureHourVisible() {
+        let g = snapshot()
+        let tl = timelineInfo(g)
+        guard tl.hourH > 0 else { return }
+        let cellTop = blockHour * tl.hourH, cellBot = cellTop + tl.hourH   // content-space (pre-scroll)
+        let viewH = tl.tlBottom - tl.tlTop
+        var s = tlScrollTween?.to ?? tlScroll                  // head toward the in-flight target if any
+        if s > cellTop { s = cellTop }                         // cell would clip above → bring to top
+        if s < cellBot - viewH { s = cellBot - viewH }         // cell below the fold → scroll up
+        s = clamp(s, 0, tl.maxScroll)
+        if abs(s - tlScroll) < 0.5 { return }
+        tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: 0.25, ease: easeInOut)
+    }
+
+    // ── Keyboard navigation cursor: input mode, movement, geometry, zoom ───────────
+    /// True while any view tween/flip is in flight — the cursor ring should follow the geometry each
+    /// frame WITHOUT its own spring (avoids lag during zoom/scroll); it springs only for discrete moves.
+    public var isAnimating: Bool {
+        tween != nil || scrollTween != nil || tlScrollTween != nil || weekTween != nil || dayTween != nil ||
+        flipAnim != nil || monthAnim != nil || weekFlip != nil || dayFlip != nil
+    }
+
+    /// A mouse move/click hides the keyboard cursor visual (state persists).
+    public func enterMouseMode() { if keyboardActive { keyboardActive = false; wake() } }
+    /// A dispatched nav/action key shows the keyboard cursor.
+    public func enterKeyboardMode() { if !keyboardActive { keyboardActive = true; wake() } }
+
+    /// Move the block cursor by an arrow. `dy`: up = -1, down = +1; `dx`: left = -1, right = +1.
+    /// (Year view only for now — up/down step a month, left/right are no-ops.)
+    public func blockArrow(dx: Int, dy: Int) {
+        enterKeyboardMode()
+        switch level(z) {
+        case 0:   // year: up/down = month
+            let m = max(0, min(11, blockMonth + dy))
+            if m != blockMonth { blockMonth = m; ensureMonthVisible(m, animated: true) }
+        case 1:   // month: left/right = day (wraps across weeks); up/down = no-op
+            let d = max(1, min(daysInMonth(year, focus), blockDay + dx))
+            if d != blockDay { blockDay = d }
+        case 2:   // week: up/down = hour; left/right = day (+ glide the focus window to follow)
+            if dy != 0 { stepHour(dy) }
+            if dx != 0 {
+                let d = max(1, min(daysInMonth(year, focus), blockDay + dx))
+                if d != blockDay { blockDay = d; ensureDayVisibleWeek(d) }
+            }
+        case 3:   // day: up/down = hour; left/right = swipe to the prev/next day
+            if dy != 0 { stepHour(dy) }
+            if dx != 0 { swipeDay(dx) }
+        default:
+            break
+        }
+    }
+
+    /// ⌘N — create a new event at the block cursor. Week/day (an hour cell) → a 1-hour timed event on
+    /// that day/hour, selected + its inline title editor opened for immediate naming. Month/year → no-op.
+    public func createEventAtBlock() {
+        enterKeyboardMode()
+        guard selectedId == nil, !drawerOpen else { return }
+        guard level(z) >= 2 else { return }   // month/year → no-op
+        let d = level(z) == 2 ? blockDay : daily.dom
+        let h = blockHour
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        seedEvents.append(TimedEvent(id: id, year: year, month: focus, day: d,
+                                     startHour: h, endHour: min(24, h + 1), title: "New event", color: "blue"))
+        selectedId = id
+        commitTxn()
+        editTimed(id)   // open the inline title editor so the name is focused right away
+    }
+
+    // ── Band cursor (block cursor + a lane) ────────────────────────────────────────
+    /// Move the band cursor. ↑/↓ walk the 4 lanes (in year view, across month/quarter boundaries);
+    /// ←/→ walk days (week/month/year may shift the focus window; day view swipes).
+    public func bandArrow(dx: Int, dy: Int) {
+        enterKeyboardMode()
+        if dy != 0 {
+            if level(z) == 0 {   // year: lanes stack across all months (12 × 4)
+                let flat = max(0, min(11 * 4 + 3, blockMonth * 4 + bandCurTrack + dy))
+                blockMonth = flat / 4; bandCurTrack = flat % 4
+                blockDay = min(daysInMonth(year, blockMonth), max(1, blockDay))
+                ensureMonthVisible(blockMonth, animated: true)
+            } else {
+                bandCurTrack = max(0, min(3, bandCurTrack + dy))
+            }
+        }
+        if dx != 0 {
+            let m = level(z) == 0 ? blockMonth : focus
+            switch level(z) {
+            case 0, 1: blockDay = max(1, min(daysInMonth(year, m), blockDay + dx))
+            case 2:    let d = max(1, min(daysInMonth(year, focus), blockDay + dx)); if d != blockDay { blockDay = d; ensureDayVisibleWeek(d) }
+            default:   swipeDay(dx)   // day view
+            }
+        }
+    }
+
+    /// The band cursor's cell rect (geometry space): one day column × one lane.
+    public func bandCursorRect() -> CGRect? {
+        guard keyboardActive, bandCursorActive, selectedId == nil, !drawerOpen else { return nil }
+        let g = snapshot()
+        let m = level(z) == 0 ? blockMonth : focus
+        let f = frameFor(m, g)
+        let day = min(daysInMonth(year, m), max(1, blockDay))
+        return CGRect(x: f.x0 + CGFloat(day - 1) * f.dayW, y: f.bandY + CGFloat(bandCurTrack) * f.trackH,
+                      width: f.dayW, height: f.trackH)
+    }
+
+    /// ⌘N in band-cursor mode — create a 1-day band at the cursor cell, select it, open its title editor.
+    public func createBandAtCursor() {
+        enterKeyboardMode()
+        guard bandCursorActive, selectedId == nil, !drawerOpen else { return }
+        let m = level(z) == 0 ? blockMonth : focus
+        let day = min(daysInMonth(year, m), max(1, blockDay))
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        seedBands.append(BandEvent(id: id, year: year, month: m, track: bandCurTrack, startDay: day, endDay: day, title: "New event", color: "blue"))
+        selectedId = id
+        bandCursorActive = false
+        commitTxn()
+        editBand(id)
+    }
+
+    /// Space / ⌘= — zoom IN one level, carrying the block cursor with the placement rules.
+    public func blockZoomIn() {
+        enterKeyboardMode()
+        switch level(z) {
+        case 0:   // year → month: focus the cursor's month; land the day on today (if that month) else the 1st.
+            focus = blockMonth
+            let t = Calendar.current.dateComponents([.year, .month, .day], from: now)
+            let isCurMonth = (t.year == year) && ((t.month ?? 0) - 1 == blockMonth)
+            blockDay = isCurMonth ? (t.day ?? 1) : 1
+            ensureMonthVisible(blockMonth, animated: false)   // instant; the zoom repositions immediately after
+            tweenZ(to: 1)
+        case 1:   // month → week: focus the cursor's week; land the hour on now (if the week has today) else noon.
+            week = CGFloat(weekOfDate(year, focus, blockDay))
+            daily.dom = blockDay
+            let t = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: now)
+            let weekHasToday = (t.year == year) && ((t.month ?? 0) - 1 == focus)
+                && weekOfDate(year, focus, t.day ?? 1) == weekOfDate(year, focus, blockDay)
+            blockHour = weekHasToday ? CGFloat(t.hour ?? 12) : 12   // land on the hour cell containing now
+            tweenZ(to: 2)
+        case 2:   // week → day: same hour, on the cursor's day
+            daily.dom = min(daysInMonth(year, focus), max(1, blockDay))
+            tweenZ(to: 3)
+        default:
+            break   // day view is the deepest — Space is a no-op
+        }
+    }
+
+    /// The block cursor's cell rect in geometry space (pre-padLeft), or nil when it shouldn't show
+    /// (mouse mode, an event/drawer is active, or a view without a cursor yet).
+    public func blockCursorRect() -> CGRect? {
+        guard keyboardActive, !bandCursorActive, selectedId == nil, !drawerOpen else { return nil }   // band mode shows its own ring
+        let g = snapshot()
+        switch level(z) {
+        case 0:
+            // Cover the ENTIRE month row — from the left edge (the month-name gutter) to the right.
+            let f = yearFrame(blockMonth, g.vp, scrollY)
+            return CGRect(x: 0, y: f.bandY, width: g.vp.w, height: 4 * f.trackH)
+        case 1:
+            // A day COLUMN: the band cell on top + the day's timeline below it.
+            let f = frameFor(focus, g)
+            let tl = timelineInfo(g)
+            let d = max(1, min(daysInMonth(year, focus), blockDay))
+            let x = f.x0 + CGFloat(d - 1) * f.dayW
+            return CGRect(x: x, y: f.bandY, width: f.dayW, height: max(4 * f.trackH, tl.tlBottom - f.bandY))
+        case 2, 3:
+            // An HOUR cell: the day column × one hour row. (Day view: the shown day is daily.dom.)
+            let tl = timelineInfo(g)
+            guard tl.hourH > 0 else { return nil }
+            let d = level(z) == 2 ? blockDay : daily.dom
+            let x = tl.x0 + CGFloat(d - 1) * tl.colW
+            let y = tl.tlTop + blockHour * tl.hourH - tl.scroll
+            return CGRect(x: x, y: y, width: tl.colW, height: tl.hourH)
+        default:
+            return nil
+        }
+    }
+
+    /// The dashed-ring rect for the SELECTED event box (geometry space, pre-padLeft) — the event-cursor
+    /// visual, shown in keyboard mode. Looks up the exact box in the DISPLAY arrays (so a promoted band /
+    /// occurrence ghost rings its own box, not the whole series).
+    public func selectionRingRect() -> CGRect? {
+        guard keyboardActive, let sel = selectedId, !drawerOpen else { return nil }
+        let g = snapshot()
+        if let b = displayBands(for: year).first(where: { $0.id == sel }), let r = bandEventRect(b, g, anim: g.monthAnim) {
+            return CGRect(x: r.x, y: r.y, width: r.w, height: r.h)
+        }
+        if z >= 1.5, let e = displayEvents(for: year).first(where: { $0.id == sel }) {
+            let tl = timelineInfo(g)
+            let sameDay = eventsOn(year, e.month, e.day)
+            if let r = eventRect(e, year, focus, tl, g.vp, layoutDay(sameDay)[e.id]) {
+                return CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
+            }
+        }
+        if z >= 1.5, let d = displayDeadlines(for: year).first(where: { $0.id == sel }), let pos = deadlinePos(d, g) {
+            return CGRect(x: pos.x, y: pos.y - 9, width: pos.w, height: 18)   // the moment-line band
+        }
+        return nil
+    }
+
+    /// Scroll the year view (if needed) so month `m`'s band is fully on screen. `animated` glides the
+    /// scroll (a `scrollTween`, like jumpToDay) rather than snapping — used when the cursor walks off
+    /// the visible region.
+    private func ensureMonthVisible(_ m: Int, animated: Bool) {
+        let cTop = yearFrame(m, viewport, 0).bandY - Layout.yearTop   // scroll-independent content top
+        let h = 4 * Layout.trackH
+        let viewTop = Layout.yearTop, viewBottom = viewport.h - Layout.bottomPad
+        // On-screen top = viewTop - scrollY + cTop. Keep [top, top+h] within [viewTop, viewBottom].
+        let maxScrollForVisible = cTop                                   // any more → top clips above
+        let minScrollForVisible = cTop + h - (viewBottom - viewTop)      // any less → bottom clips below
+        // Base the clamp on where we're HEADED (an in-flight tween's target) so rapid presses chain.
+        var s = scrollTween?.to ?? scrollY
+        if s > maxScrollForVisible { s = maxScrollForVisible }
+        if s < minScrollForVisible { s = minScrollForVisible }
+        s = clamp(s, 0, yearMaxScroll(viewport))
+        if abs(s - scrollY) < 0.5 { return }                            // already visible enough
+        if animated {
+            scrollTween = Tween(from: scrollY, to: s, start: Date(), duration: 0.3, ease: easeInOut)
+        } else {
+            scrollTween = nil; scrollY = s; onSetYearScroll?(scrollY)
+        }
     }
 
     public func onHover(at p: CGPoint) {
         if drawerOpen { onHoverExit(); return }   // drawer open → no calendar hover highlights
         let g = snapshot()
+        let prevHover = hover, prevHovered = hoveredEventId   // wake the render only if the visual actually changes
         var hv = Hover()
         switch level(z) {
         case 0:
@@ -2093,6 +2942,7 @@ public final class CalendarEngine {
         else if z >= DETAIL_Z, let d = deadlineAt(p, g) { hoveredEventId = d; hv.overDeadline = true }
         else { hoveredEventId = nil }
         hover = hv
+        if hv != prevHover || hoveredEventId != prevHovered { wake() }
     }
 
     private func bandContains(_ id: String, _ p: CGPoint, _ g: SceneInput) -> Bool {
@@ -2103,16 +2953,17 @@ public final class CalendarEngine {
         guard z >= 1.5, let e = seedEvents.first(where: { $0.id == id }) else { return false }
         let tl = timelineInfo(g)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return false }
-        let sameDay = displayEvents(for: year).filter { $0.month == e.month && $0.day == e.day }
+        guard p.y >= tl.tlTop, p.y <= tl.tlBottom else { return false }   // clip to the timeline (see eventAt)
+        let sameDay = eventsOn(year, e.month, e.day)
         guard let r = eventRect(e, year, focus, tl, g.vp, layoutDay(sameDay)[e.id]) else { return false }
         return CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height).contains(p)
     }
 
-    public func onHoverExit() { hover = .none; hoveredEventId = nil }
+    public func onHoverExit() { if hover != .none || hoveredEventId != nil { wake() }; hover = .none; hoveredEventId = nil }
 
     /// Clear the current event selection — the same effect as a plain click on empty calendar space.
     /// Used by the daily-dashboard WebView so clicking its empty content deselects too.
-    public func deselect() { selectedId = nil }
+    public func deselect() { selectedId = nil; bandCursorActive = false }   // Esc from an event → block cursor (home)
 
     public enum CursorHint { case normal, grab, resizeLR, text }
     public func cursorHint(at p: CGPoint) -> CursorHint {

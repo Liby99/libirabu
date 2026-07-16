@@ -8,6 +8,22 @@ import AppKit
 
 enum NotesMode: Hashable { case edit, preview }
 
+/// A WKWebView that does NOT grab first responder when it loads. WKWebView otherwise makes itself
+/// first responder on load — even with no auto-focusing content — so simply putting the notes editor
+/// on screen (e.g. opening the drawer) would steal keyboard focus into it. Here `becomeFirstResponder`
+/// is refused until the user actually clicks the editor (or `enableFocus()` is called, e.g. to Tab into
+/// it); after that it behaves like a normal web view.
+final class FocusGatedWebView: WKWebView {
+    // Readable so the keyboard monitor can tell "user clicked into notes" (real editing → pass keys
+    // through) from "WebKit grabbed focus on load" (its internal WKContentView became first responder
+    // even though we refuse it here — treat as NOT editing so drawer shortcuts still fire).
+    private(set) var focusAllowed = false
+    /// Permit focus (a real click, or an explicit programmatic focus request such as Tab-to-notes).
+    func enableFocus() { focusAllowed = true }
+    override func becomeFirstResponder() -> Bool { focusAllowed ? super.becomeFirstResponder() : false }
+    override func mouseDown(with event: NSEvent) { focusAllowed = true; super.mouseDown(with: event) }
+}
+
 struct MarkdownWebEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var mode: NotesMode
@@ -15,6 +31,12 @@ struct MarkdownWebEditor: NSViewRepresentable {
     // When set (daily-note tab), horizontal scroll + pinch forward to the calendar instead of being
     // eaten by the editor; vertical scroll stays here. Unset in the drawer (no calendar underneath).
     var forwarder: GestureForwarder? = nil
+    // Keyboard integration (drawer): bump `focusPulse` to grab keyboard focus (switch to edit + focus
+    // CodeMirror). `onExit` fires on Escape in the editor; `onSavePreview` on ⌘S — both let the host
+    // return focus to the drawer's field ring.
+    var focusPulse: Int = 0
+    var onExit: () -> Void = {}
+    var onSavePreview: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text, mode: $mode) }
 
@@ -25,7 +47,7 @@ struct MarkdownWebEditor: NSViewRepresentable {
         if let forwarder {
             let pt = PassThroughWebView(frame: .zero, configuration: cfg); pt.forwarder = forwarder; web = pt
         } else {
-            web = WKWebView(frame: .zero, configuration: cfg)
+            web = FocusGatedWebView(frame: .zero, configuration: cfg)   // don't steal focus when the drawer opens
         }
         web.setValue(false, forKey: "drawsBackground")   // transparent → glass shows through
         web.navigationDelegate = context.coordinator     // open link clicks in the system browser
@@ -37,7 +59,10 @@ struct MarkdownWebEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ web: WKWebView, context: Context) {
-        context.coordinator.apply(text: text, mode: mode, theme: themeVars())
+        let c = context.coordinator
+        c.onExit = onExit; c.onSavePreview = onSavePreview
+        c.apply(text: text, mode: mode, theme: themeVars())
+        if focusPulse != c.lastFocusPulse { c.lastFocusPulse = focusPulse; c.grabFocus() }   // keyboard: focus the editor
     }
 
     private var editorRoot: URL? { Bundle.module.resourceURL?.appendingPathComponent("editor", isDirectory: true) }
@@ -65,7 +90,20 @@ struct MarkdownWebEditor: NSViewRepresentable {
         private var lastSent = ""                     // last value pushed to / received from JS (echo guard)
         private var want: (text: String, mode: NotesMode, theme: [String: String])?
         private var pendingCursorLine: Int?           // ⌘-clicked preview line → place caret after mode flip
+        var onExit: () -> Void = {}                    // Escape in the editor → host returns focus to the ring
+        var onSavePreview: () -> Void = {}             // ⌘S → preview → host returns focus to the ring
+        var lastFocusPulse = 0                         // dedup the keyboard focus trigger (see grabFocus)
         init(text: Binding<String>, mode: Binding<NotesMode>) { self.text = text; self.mode = mode }
+
+        /// Keyboard: switch to edit mode and focus CodeMirror. For the drawer's FocusGatedWebView we
+        /// must first allow focus (it refuses it by default) and make it first responder.
+        func grabFocus() {
+            guard let web else { return }
+            (web as? FocusGatedWebView)?.enableFocus()
+            web.window?.makeFirstResponder(web)
+            mode.wrappedValue = .edit
+            eval("CK.setMode('edit'); CK.focus()")
+        }
 
         func apply(text: String, mode: NotesMode, theme: [String: String]) {
             want = (text, mode, theme)
@@ -91,6 +129,9 @@ struct MarkdownWebEditor: NSViewRepresentable {
                 if let line = body["line"] as? Int { pendingCursorLine = line; mode.wrappedValue = .edit }
             case "preview":
                 mode.wrappedValue = .preview   // ⌘S in the editor
+                onSavePreview()                // …and hand focus back to the drawer's field ring
+            case "exit":
+                onExit()                       // Escape in the editor → back to the ring
             default: break
             }
         }

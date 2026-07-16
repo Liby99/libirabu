@@ -6,11 +6,19 @@ import AppKit
 import SwiftUI
 import CalendarUI
 
+// Note: the unhandled-key "funk" beep is silenced inside CalendarView (WindowBeepSilencerView), so
+// it's handled for both this shell and the SwiftUI CalendarApp shell without per-window subclassing.
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
+    var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
+        // Reconcile preferences with iCloud, then apply the saved appearance now that NSApp
+        // exists. Syncs only on the entitled signed app; local-only here (see AppSettings.swift).
+        PrefsSync.shared.start()
+        applyPersistedAppearance()
 
         let size = NSSize(width: 1440, height: 840)
         window = NSWindow(
@@ -42,6 +50,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    // Settings/Preferences (⌘,). Lazily create a single window hosting SettingsView; reuse it on
+    // subsequent invocations so ⌘, just brings the existing window forward (no duplicates).
+    @objc func showSettings(_ sender: Any?) {
+        if settingsWindow == nil {
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 480),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            w.title = "Settings"
+            w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: SettingsView())
+            w.center()
+            settingsWindow = w
+        }
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     // Standard menu bar so Cmd-Q / Cmd-W / Cmd-M work.
     private func buildMenu() {
         let name = "Calendar"
@@ -53,6 +81,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appItem.submenu = appMenu
         appMenu.addItem(withTitle: "About \(name)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
+        // ⌘, — target self explicitly: the app delegate isn't in the responder chain by default.
+        let settings = appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
+        settings.target = self
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide \(name)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(withTitle: "Quit \(name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
@@ -60,9 +92,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
         editItem.submenu = editMenu
-        // nil target → travels the responder chain to the calendar input view.
-        editMenu.addItem(withTitle: "Undo", action: Selector(("performUndo:")), keyEquivalent: "z")
-        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("performRedo:")), keyEquivalent: "z")
+        // Standard undo:/redo: selectors → the responder chain routes them to whoever's focused: a
+        // focused text field / editor does its own text undo; the focused calendar canvas (CatcherView
+        // implements undo:/redo:) does the calendar undo. So ⌘Z works in every focus state.
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(.separator())
         editMenu.addItem(withTitle: "Cut", action: Selector(("cut:")), keyEquivalent: "x")
