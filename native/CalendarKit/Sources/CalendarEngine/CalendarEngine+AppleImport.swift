@@ -63,23 +63,23 @@ extension CalendarEngine {
     /// whether it changed, so the caller can persist. Only mints a rich-fields entry when actually hiding.
     private func setImportedHidden(_ id: String, _ hidden: Bool) -> Bool {
         if hidden {
-            var rf = richById[id] ?? RichFields()
+            var rf = items.richById[id] ?? RichFields()
             if rf.hidden { return false }
-            rf.hidden = true; richById[id] = rf; return true
-        } else if var rf = richById[id], rf.hidden {
-            rf.hidden = false; richById[id] = rf; return true
+            rf.hidden = true; items.richById[id] = rf; return true
+        } else if var rf = items.richById[id], rf.hidden {
+            rf.hidden = false; items.richById[id] = rf; return true
         }
         return false
     }
     /// Set an imported event's note to `fresh` managed block composed with any existing user postfix
     /// (a blank `fresh` drops the managed block, keeping the user's text). Returns whether it changed.
     private func setImportedNote(_ id: String, _ fresh: String) -> Bool {
-        let composed = ManagedNote.replaceManaged(richById[id]?.notes, fresh)
+        let composed = ManagedNote.replaceManaged(items.richById[id]?.notes, fresh)
         let newVal: String? = composed.isEmpty ? nil : composed
-        if (richById[id]?.notes ?? "") == (newVal ?? "") { return false }
-        var rf = richById[id] ?? RichFields()
+        if (items.richById[id]?.notes ?? "") == (newVal ?? "") { return false }
+        var rf = items.richById[id] ?? RichFields()
         rf.notes = newVal
-        richById[id] = rf
+        items.richById[id] = rf
         return true
     }
 
@@ -130,7 +130,7 @@ extension CalendarEngine {
         // Refresh each series' managed note at its series key, preserving the user's postfix; a series with
         // no visible occurrence drops the managed block (keeps any user text). Only series that already have
         // an overlay entry, or that carry detail this import, are touched.
-        for sk in Set(seriesNote.keys).union(richById.keys.filter { Self.isAppleSeriesKey($0) }) {
+        for sk in Set(seriesNote.keys).union(items.richById.keys.filter { Self.isAppleSeriesKey($0) }) {
             let block = seriesVisible.contains(sk) ? (seriesNote[sk] ?? "") : ""
             if setImportedNote(sk, block) { richChanged = true }
         }
@@ -138,11 +138,11 @@ extension CalendarEngine {
         // is gone; series overlays only when NO live occurrence remains AND they carry no user-authored data.
         let live = Set(events.map(\.id))
         let liveSeries = Set(events.map { Self.appleSeriesKey($0.id) })
-        for id in richById.keys where id.hasPrefix("apple-") {
+        for id in items.richById.keys where id.hasPrefix("apple-") {
             if Self.isAppleSeriesKey(id) {
-                if !liveSeries.contains(id), let rf = richById[id], !hasUserOverlay(rf) { richById[id] = nil; richChanged = true }
+                if !liveSeries.contains(id), let rf = items.richById[id], !hasUserOverlay(rf) { items.richById[id] = nil; richChanged = true }
             } else if !live.contains(id) {
-                richById[id] = nil; richChanged = true
+                items.richById[id] = nil; richChanged = true
             }
         }
         imported.events = events
@@ -177,8 +177,8 @@ extension CalendarEngine {
         // Carry the user overlays — notes (managed block + any typed text), tags, promote lane — into a
         // fresh, manual rich-fields entry. They live at the imported SERIES key; the copy is a normal local
         // event from here on (source defaults to "manual"; the vendor color is baked into the event above).
-        if let src = richById[overlayKey(id)] {
-            richById[newId] = RichFields(notes: src.notes, tags: src.tags, promoteTrack: src.promoteTrack)
+        if let src = items.richById[overlayKey(id)] {
+            items.richById[newId] = RichFields(notes: src.notes, tags: src.tags, promoteTrack: src.promoteTrack)
         }
         _ = setImportedHidden(id, true)   // remove the read-only original from view (dedup keeps it hidden after)
         selectedId = newId

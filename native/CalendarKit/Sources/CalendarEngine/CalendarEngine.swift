@@ -113,11 +113,10 @@ public final class CalendarEngine {
     // Read-only events imported from Apple Calendar (EventKit). Kept SEPARATE from the seed arrays so
     // they never persist to disk / push to iCloud (they're re-fetched) and can't be edited — every edit
     // path targets the seed arrays. They're merged into the display caches (see ensureEventCache /
-    // ensureBandCache). User overlays (tags/notes/promote) attach via `richById` by the stable id.
+    // ensureBandCache). User overlays (tags/notes/promote) attach via `items.richById` by the stable id.
     // Imported id → EKEvent.eventIdentifier, rebuilt each merge. Transient (not persisted): only used to
     // build the `ical://ekevent/…` deep-link for "Edit original", which is only offered on a live import.
     let appleImporter = AppleCalendarImporter()   // internal: +AppleImport (stored props can't move to extensions)
-    public private(set) var trackNames = Array(repeating: TRACKS.map { $0.name }, count: 12)  // per month
     public var trackEditing = false        // an inline track-name field is open (freezes scroll)
     public let chrome = CalendarChrome()   // breadcrumb state for the toolbar
 
@@ -232,7 +231,7 @@ public final class CalendarEngine {
     }
     private var editState: EditState {
         EditState(events: items.events, bands: items.bands, deadlines: items.deadlines,
-                  rich: richById, trackNames: trackNames, dailyNotes: dailyNotes)
+                  rich: items.richById, trackNames: items.trackNames, dailyNotes: items.dailyNotes)
     }
     private var undoStack: [EditState] = []
     private var redoStack: [EditState] = []
@@ -243,14 +242,12 @@ public final class CalendarEngine {
     // Full-fidelity fields (notes/tags/recurrence/…) the lean seed arrays don't carry, keyed by
     // item id. Loaded from / saved to the store and mapped to CloudKit by CloudSync; the renderer
     // doesn't read these yet, so they just ride along untouched.
-    var richById: [String: RichFields] = [:]   // internal: shared with the +Extensions files
     // Display-derivation caches — used by CalendarEngine+Display.swift:
     var colorPreview: (id: String, color: String)?   // internal: +Display (stored caches stay in the class)
     // Toolbar-search corpus — a pre-folded, flat index of every item across all years, rebuilt ONLY on a
     // data change (caches.editGen), so each keystroke scans a cached array instead of re-expanding/​re-folding the
     // whole calendar. See CalendarEngine+Search.swift.
     // The daily-dashboard NOTE tab: one markdown note per day, keyed by ISO date "YYYY-MM-DD".
-    var dailyNotes: [String: String] = [:]   // internal: +DashboardData
     // ── Cloud-sync seam (Phase 1) ─────────────────────────────────────────────────
     // The state the sync layer last saw, for computing per-record deltas at persist.
     private var syncedState: PersistedState?
@@ -298,7 +295,7 @@ public final class CalendarEngine {
     public static var demoScene: String { ProcessInfo.processInfo.environment["CC_DEMO"] ?? "" }
     /// Wipe the calendar to an empty state (recording scenes build their own deterministic content).
     public func demoClearEvents() {
-        items.events = []; items.bands = []; items.deadlines = []; richById = [:]
+        items.events = []; items.bands = []; items.deadlines = []; items.richById = [:]
         selectedId = nil; caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
     }
     /// Insert one ambient timed event (recording scenes; not on the undo stack, not selected).
@@ -406,14 +403,14 @@ public final class CalendarEngine {
         // self is now fully initialized — restore persisted edits over the seeds.
         if let s = store.load() {
             items.events = s.events; items.bands = s.bands; items.deadlines = s.deadlines
-            richById = s.rich ?? [:]
-            dailyNotes = s.dailyNotes ?? [:]
+            items.richById = s.rich ?? [:]
+            items.dailyNotes = s.dailyNotes ?? [:]
             // Backfill deadline origin tz from the rich side-map for stores written before Deadline
             // carried its own originTz (migrated data keeps it in rich); the field is canonical once set.
             for i in items.deadlines.indices where items.deadlines[i].originTz == nil {
-                if let tz = richById[items.deadlines[i].id]?.originTz { items.deadlines[i].originTz = tz }
+                if let tz = items.richById[items.deadlines[i].id]?.originTz { items.deadlines[i].originTz = tz }
             }
-            if let names = s.monthTrackNames, names.count == 12, names.allSatisfy({ $0.count == 4 }) { trackNames = names }
+            if let names = s.monthTrackNames, names.count == 12, names.allSatisfy({ $0.count == 4 }) { items.trackNames = names }
         } else {
             persistNow()   // seed the store on first launch
         }
@@ -481,7 +478,7 @@ public final class CalendarEngine {
     }
     // ── Persistence ─────────────────────────────────────────────────────────────
     private func persistNow() {
-        let state = PersistedState(events: items.events, bands: items.bands, deadlines: items.deadlines, monthTrackNames: trackNames, rich: richById, dailyNotes: dailyNotes)
+        let state = PersistedState(events: items.events, bands: items.bands, deadlines: items.deadlines, monthTrackNames: items.trackNames, rich: items.richById, dailyNotes: items.dailyNotes)
         store.save(state)
         emitDelta(to: state)
     }
@@ -532,7 +529,7 @@ public final class CalendarEngine {
     // ── Cloud-sync seam: inbound + accessors (Phase 1) ────────────────────────────
     /// Snapshot of everything the sync layer needs to materialize records.
     public func syncSnapshot() -> PersistedState {
-        PersistedState(events: items.events, bands: items.bands, deadlines: items.deadlines, monthTrackNames: trackNames, rich: richById, dailyNotes: dailyNotes)
+        PersistedState(events: items.events, bands: items.bands, deadlines: items.deadlines, monthTrackNames: items.trackNames, rich: items.richById, dailyNotes: items.dailyNotes)
     }
     /// Capture the current state as the sync baseline (call when the cloud layer attaches,
     /// so the first local edit emits an incremental delta rather than the whole store).
@@ -552,7 +549,7 @@ public final class CalendarEngine {
         items.events.append(contentsOf: events)
         items.bands.append(contentsOf: bands)
         items.deadlines.append(contentsOf: deadlines)
-        for (k, v) in rich { richById[k] = v }
+        for (k, v) in rich { items.richById[k] = v }
         commitTxn()
     }
 
@@ -564,9 +561,9 @@ public final class CalendarEngine {
         redoStack.removeAll()
         wake(); caches.editGen &+= 1; caches.deadlineGen &+= 1
         items.events = s.events; items.bands = s.bands; items.deadlines = s.deadlines
-        richById = s.rich ?? [:]
-        if let tn = s.monthTrackNames { trackNames = tn }
-        dailyNotes = s.dailyNotes ?? [:]
+        items.richById = s.rich ?? [:]
+        if let tn = s.monthTrackNames { items.trackNames = tn }
+        items.dailyNotes = s.dailyNotes ?? [:]
         selectedId = nil
         schedulePersist()
     }
@@ -602,16 +599,16 @@ public final class CalendarEngine {
         for e in events { Self.upsert(&items.events, e) }
         for b in bands { Self.upsert(&items.bands, b) }
         for d in deadlines { Self.upsert(&items.deadlines, d) }
-        for (id, rf) in rich { richById[id] = rf }
-        if let newNames, newNames.count == 12, newNames.allSatisfy({ $0.count == 4 }) { trackNames = newNames }
+        for (id, rf) in rich { items.richById[id] = rf }
+        if let newNames, newNames.count == 12, newNames.allSatisfy({ $0.count == 4 }) { items.trackNames = newNames }
         for id in deletedIDs {
             items.events.removeAll { $0.id == id }
             items.bands.removeAll { $0.id == id }
             items.deadlines.removeAll { $0.id == id }
-            richById[id] = nil
+            items.richById[id] = nil
             if selectedId == id { selectedId = nil }
         }
-        let state = PersistedState(events: items.events, bands: items.bands, deadlines: items.deadlines, monthTrackNames: trackNames, rich: richById, dailyNotes: dailyNotes)
+        let state = PersistedState(events: items.events, bands: items.bands, deadlines: items.deadlines, monthTrackNames: items.trackNames, rich: items.richById, dailyNotes: items.dailyNotes)
         store.save(state)
         syncedState = state   // adopt as baseline so the merge doesn't re-emit as a local delta
         if !deletedIDs.isEmpty { onExternalDataChange?() }   // a remote delete may have removed an open item
@@ -623,10 +620,10 @@ public final class CalendarEngine {
 
     // ── Track names (editable lane labels, per month) ─────────────────────────────
     public func setTrackName(_ month: Int, _ track: Int, _ name: String) {
-        guard month >= 0, month < trackNames.count, track >= 0, track < trackNames[month].count,
-              trackNames[month][track] != name else { return }
+        guard month >= 0, month < items.trackNames.count, track >= 0, track < items.trackNames[month].count,
+              items.trackNames[month][track] != name else { return }
         beginTxn()
-        trackNames[month][track] = name
+        items.trackNames[month][track] = name
         scheduleCommit()
         schedulePersist()
     }
@@ -1731,7 +1728,7 @@ public final class CalendarEngine {
         wake()
         caches.editGen &+= 1
         items.events = s.events; items.bands = s.bands; items.deadlines = s.deadlines
-        richById = s.rich; trackNames = s.trackNames; dailyNotes = s.dailyNotes
+        items.richById = s.rich; items.trackNames = s.trackNames; items.dailyNotes = s.dailyNotes
         selectedId = nil; schedulePersist()
     }
     public var canUndo: Bool { !undoStack.isEmpty || pendingUndo != nil }

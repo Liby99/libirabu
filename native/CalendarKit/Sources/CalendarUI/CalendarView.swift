@@ -204,7 +204,7 @@ public struct CalendarView: View {
             Canvas { ctx, size in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
-                SceneRenderer.drawAbove(input: input, tracks: engine.trackNames,
+                SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames,
                                         hideTrack: ui.editingTrack.map { ($0.month, $0.track) }, in: &c, theme: theme)
             }
             // Keyboard-navigation cursor (dashed sliding ring).

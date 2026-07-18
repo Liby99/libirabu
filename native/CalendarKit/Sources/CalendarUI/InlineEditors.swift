@@ -28,7 +28,7 @@ struct TrackNameEditor: View {
             .frame(width: r.width, height: max(18, r.height - 6), alignment: .leading)
             .position(x: r.midX + Layout.padLeft, y: r.midY)
             .onAppear {
-                let names = target.month < engine.trackNames.count ? engine.trackNames[target.month] : []
+                let names = target.month < engine.items.trackNames.count ? engine.items.trackNames[target.month] : []
                 text = target.track < names.count ? names[target.track] : ""
                 focused = true
             }

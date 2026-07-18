@@ -11,6 +11,16 @@ public struct CalendarItems: Sendable {
     public internal(set) var bands: [BandEvent] = []
     public internal(set) var deadlines: [Deadline] = []
     public init() {}
+
+    /// Rich per-item overlays (tags, notes, repeat config, promote-track, hidden flags),
+    /// keyed by stable item id — including overlay keys for imported items.
+    var richById: [String: RichFields] = [:]
+
+    /// Daily notepad bodies keyed by ISO date ("YYYY-MM-DD"); empty entries are pruned.
+    var dailyNotes: [String: String] = [:]
+
+    /// Per-month lane labels (12 × 4). Read-only outside the engine module.
+    public internal(set) var trackNames = Array(repeating: TRACKS.map { $0.name }, count: 12)
 }
 
 /// Derived-display caches + their invalidation generations — rebuilt on demand, keyed by

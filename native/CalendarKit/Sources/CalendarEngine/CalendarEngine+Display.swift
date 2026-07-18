@@ -54,7 +54,7 @@ extension CalendarEngine {
         if recurrent { b.insert(.recurrent) }
         if promoted { b.insert(.promoted) }
         if isImported(src) { b.insert(.imported) }
-        if let rf = richById[src] {
+        if let rf = items.richById[src] {
             if rf.createdByAI { b.insert(.ai) }
             if rf.source != "manual" { b.insert(.imported) }
         }
@@ -94,19 +94,19 @@ extension CalendarEngine {
     func hasUserOverlay(_ rf: RichFields) -> Bool { Self.hasUserOverlay(rf) }   // internal: +AppleImport
     /// An imported event's effective color: the user's series-level override, else the vendor calendar's.
     func importedDisplayColor(_ e: TimedEvent) -> String {   // internal: +AppleImport
-        richById[Self.appleSeriesKey(e.id)]?.colorOverride ?? e.color
+        items.richById[Self.appleSeriesKey(e.id)]?.colorOverride ?? e.color
     }
 
     private func ensureBandCache(_ year: Int) -> (bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]]) {
         if let c = caches.band, c.year == year, c.gen == caches.editGen { return (c.bands, c.badges, c.byMonth) }
-        func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
+        func repeatOf(_ id: String) -> Repeat? { Repeat.parse(items.richById[id]?.repeatJSON) }
         // Markers for a box, from its SOURCE item's rich fields + the box's nature.
         func badges(_ src: String, recurrent: Bool, promoted: Bool) -> EventBadges {
             var b: EventBadges = []
             if recurrent { b.insert(.recurrent) }
             if promoted { b.insert(.promoted) }
             if isImported(src) { b.insert(.imported) }
-            if let rf = richById[src] {
+            if let rf = items.richById[src] {
                 if rf.createdByAI { b.insert(.ai) }
                 if rf.source != "manual" { b.insert(.imported) }
             }
@@ -144,7 +144,7 @@ extension CalendarEngine {
             }
         }
         func promote(_ id: String, _ y: Int, _ m: Int, _ day: Int, _ title: String, _ color: String) {
-            guard let track = richById[overlayKey(id)]?.promoteTrack else { return }
+            guard let track = items.richById[overlayKey(id)]?.promoteTrack else { return }
             let r = repeatOf(id)
             if y == year && !baseHidden(occDate(YMD(y, m, day)), r) {
                 // A distinct occurrence-key id (not the raw source id) so the promoted bar is its own
@@ -166,7 +166,7 @@ extension CalendarEngine {
         for d in items.deadlines { promote(d.id, d.year, d.month, d.day, d.title, d.color) }
         // Imported events the user promoted (rich.promoteTrack on the series key) → one ghost band per
         // visible occurrence, in its overridden color. Skip hidden (deduped-shadow) occurrences.
-        for e in imported.events where e.year == year && richById[e.id]?.hidden != true {
+        for e in imported.events where e.year == year && items.richById[e.id]?.hidden != true {
             promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e))
         }
         for b in imported.bands where b.year == year {   // Apple Calendar all-day events (read-only)
@@ -252,7 +252,7 @@ extension CalendarEngine {
 
     private func ensureEventCache(_ year: Int) -> (events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]]) {
         if let c = caches.event, c.year == year, c.gen == caches.editGen { return (c.events, c.badges, c.byDay) }
-        func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
+        func repeatOf(_ id: String) -> Repeat? { Repeat.parse(items.richById[id]?.repeatJSON) }
         var out: [TimedEvent] = []
         var badgeMap: [String: EventBadges] = [:]
         // Anchor→main conversion can push an event across the year boundary (±1 day), so we consider
@@ -281,8 +281,8 @@ extension CalendarEngine {
         }
         let revealHidden = showHiddenImported
         for e in imported.events where abs(e.year - year) <= 1 {   // Apple Calendar (read-only, already expanded)
-            if richById[e.id]?.hidden == true { continue }   // deduped shadow of the user's own event → not drawn
-            let userHidden = richById[Self.appleSeriesKey(e.id)]?.userHidden == true
+            if items.richById[e.id]?.hidden == true { continue }   // deduped shadow of the user's own event → not drawn
+            let userHidden = items.richById[Self.appleSeriesKey(e.id)]?.userHidden == true
             if userHidden && !revealHidden { continue }   // user hid this series → hidden unless "Show Hidden" is on
             var ev = e
             ev.color = importedDisplayColor(e)   // apply the user's color override, if any
@@ -305,7 +305,7 @@ extension CalendarEngine {
     // synthetic occKey id. Cached per (year, caches.editGen) — like displayEvents / displayBands.
     public func displayDeadlines(for year: Int) -> [Deadline] {
         if let c = caches.ddl, c.year == year, c.gen == caches.editGen { return withPreview(c.deadlines, { $0.id }, { $0.color = $1 }) }
-        func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
+        func repeatOf(_ id: String) -> Repeat? { Repeat.parse(items.richById[id]?.repeatJSON) }
         var out: [Deadline] = []
         // Same neighbor-year scan + convert-then-filter as ensureEventCache: a moment near midnight can
         // land in an adjacent display year when the anchor differs from the main tz. Identity otherwise.
@@ -404,30 +404,30 @@ extension CalendarEngine {
     // the overlay id is the series key (see `overlayKey`), so a color/promote/note applies series-wide
     // and survives rescheduling. Not on the undo stack yet (EditState only snapshots the lean arrays);
     // they persist + invalidate the display cache.
-    public func richTags(_ id: String) -> [String] { richById[overlayKey(id)]?.tags ?? [] }
-    public func notes(_ id: String) -> String { richById[overlayKey(id)]?.notes ?? "" }
+    public func richTags(_ id: String) -> [String] { items.richById[overlayKey(id)]?.tags ?? [] }
+    public func notes(_ id: String) -> String { items.richById[overlayKey(id)]?.notes ?? "" }
     public func setNotes(_ id: String, _ v: String) {
         let key = overlayKey(id)
-        var rf = richById[key] ?? RichFields()
+        var rf = items.richById[key] ?? RichFields()
         guard rf.notes != v else { return }
-        rf.notes = v; richById[key] = rf
+        rf.notes = v; items.richById[key] = rf
         // NOT in the calendar undo stack: notes are edited in the drawer's CodeMirror, which owns its
         // own undo (Cmd+Z while it's focused). Recording here would let its internal undo re-post the
         // note and pollute the calendar stack. Matches the web (notes are a separate lower layer).
         schedulePersist()
     }
     /// The user's chosen color for an imported event (nil = use the vendor calendar's color).
-    public func colorOverride(_ id: String) -> String? { richById[overlayKey(id)]?.colorOverride }
+    public func colorOverride(_ id: String) -> String? { items.richById[overlayKey(id)]?.colorOverride }
     public func setColorOverride(_ id: String, _ color: String?) { mutateRich(overlayKey(id)) { $0.colorOverride = color } }
     /// Per-occurrence note (recurring events), keyed by the focused box id.
-    public func occNote(_ id: String, _ key: String) -> String { richById[id]?.occurrenceNotes?[key] ?? "" }
+    public func occNote(_ id: String, _ key: String) -> String { items.richById[id]?.occurrenceNotes?[key] ?? "" }
     public func setOccNote(_ id: String, _ key: String, _ v: String) {
-        var rf = richById[id] ?? RichFields()
+        var rf = items.richById[id] ?? RichFields()
         var occ = rf.occurrenceNotes ?? [:]
         guard occ[key] != v else { return }
         occ[key] = v.isEmpty ? nil : v
         rf.occurrenceNotes = occ.isEmpty ? nil : occ
-        richById[id] = rf
+        items.richById[id] = rf
         schedulePersist()   // per-occurrence note: CodeMirror-owned undo, not the calendar stack (see setNotes)
     }
 }

@@ -289,7 +289,7 @@ struct GetTracksTool: AssistantTool {
     func run(_ args: JSONValue, _ ctx: ToolContext) async throws -> JSONValue {
         guard let e = ctx.engine else { return .obj(["error": .str("calendar unavailable")]) }
         // trackNames is [[String]] — one 4-element lane-name array per month (0–11).
-        let byMonth = e.trackNames.map { JSONValue.arr($0.map(JSONValue.str)) }
+        let byMonth = e.items.trackNames.map { JSONValue.arr($0.map(JSONValue.str)) }
         return .obj(["trackNamesByMonth": .arr(byMonth)])
     }
 }

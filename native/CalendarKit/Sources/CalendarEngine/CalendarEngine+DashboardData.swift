@@ -23,7 +23,7 @@ extension CalendarEngine {
     }
     private func todoContexts() -> [TodoContext] {
         func ctx(_ id: String, _ kind: String, _ title: String, _ color: String, _ start: String, _ end: String, _ tz: String? = nil) -> TodoContext {
-            let rf = richById[id]
+            let rf = items.richById[id]
             return TodoContext(id: id, kind: kind, title: title, color: color, tags: rf?.tags ?? [],
                                start: start, end: end, originTz: tz, notes: rf?.notes, occurrenceNotes: rf?.occurrenceNotes)
         }
@@ -43,7 +43,7 @@ extension CalendarEngine {
         let today = String(format: "%04d-%02d-%02d", c.year ?? year, c.month ?? 1, c.day ?? 1)
         let r = resolveDate(year, focus, daily.dom)
         let viewIso = r.map { wall($0.year, $0.month, $0.day) } ?? wall(year, focus, daily.dom)
-        let payload = DashPayload(events: todoContexts(), deadlines: dls, viewIso: viewIso, today: today, dailyNotes: dailyNotes)
+        let payload = DashPayload(events: todoContexts(), deadlines: dls, viewIso: viewIso, today: today, dailyNotes: items.dailyNotes)
         return (try? JSONEncoder().encode(payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
     /// Wall-clock date ("YYYY-MM-DD") for a focus-relative day-of-month, resolving month rollover.
@@ -72,7 +72,7 @@ extension CalendarEngine {
     public func notedItems() -> [(id: String, title: String, kind: ItemKind,
                                   year: Int, month: Int, day: Int, notes: String)] {
         var out: [(String, String, ItemKind, Int, Int, Int, String)] = []
-        for (id, rf) in richById {
+        for (id, rf) in items.richById {
             guard let notes = rf.notes, !notes.isEmpty else { continue }
             if let e = items.events.first(where: { $0.id == id }) {
                 out.append((id, e.title, .timed, e.year, e.month, e.day, notes))
@@ -86,18 +86,18 @@ extension CalendarEngine {
     }
 
     /// Every stored daily note, keyed by ISO date "YYYY-MM-DD".
-    public func allDailyNotes() -> [String: String] { dailyNotes }
+    public func allDailyNotes() -> [String: String] { items.dailyNotes }
 
     // ── Daily note (the dashboard NOTE tab) — one markdown note per ISO date ────────────────────
-    public func dailyNote(_ iso: String) -> String { dailyNotes[iso] ?? "" }
+    public func dailyNote(_ iso: String) -> String { items.dailyNotes[iso] ?? "" }
     public func setDailyNote(_ iso: String, _ v: String) {
-        guard dailyNotes[iso] != v else { return }
-        if v.isEmpty { dailyNotes[iso] = nil } else { dailyNotes[iso] = v }
+        guard items.dailyNotes[iso] != v else { return }
+        if v.isEmpty { items.dailyNotes[iso] = nil } else { items.dailyNotes[iso] = v }
         schedulePersist()
     }
     /// Merge imported daily notes (e.g. migrated from the web server); non-empty values win.
     public func importDailyNotes(_ notes: [String: String]) {
-        for (iso, v) in notes where !v.isEmpty { dailyNotes[iso] = v }
+        for (iso, v) in notes where !v.isEmpty { items.dailyNotes[iso] = v }
         schedulePersist()
     }
 
@@ -163,14 +163,14 @@ extension CalendarEngine {
         guard let base = items.bands.first(where: { $0.id == sourceId(of: id) }) else { return nil }
         return YMD(base.year, base.month, base.startDay)
     }
-    public func repeatConfig(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
-    public func promoteTrack(_ id: String) -> Int? { richById[overlayKey(id)]?.promoteTrack }
+    public func repeatConfig(_ id: String) -> Repeat? { Repeat.parse(items.richById[id]?.repeatJSON) }
+    public func promoteTrack(_ id: String) -> Int? { items.richById[overlayKey(id)]?.promoteTrack }
 
     func mutateRich(_ id: String, _ mutate: (inout RichFields) -> Void) {
         beginTxn()             // tags / repeat / promote are structural edits → one undo step each
-        var rf = richById[id] ?? RichFields()
+        var rf = items.richById[id] ?? RichFields()
         mutate(&rf)
-        richById[id] = rf
+        items.richById[id] = rf
         caches.editGen &+= 1          // repeat / promote change the expanded display set → invalidate the cache
         scheduleCommit()
         schedulePersist()
@@ -230,6 +230,6 @@ extension CalendarEngine {
     }
     /// Whether an imported box's series is currently user-hidden (drives the drawer's Unhide button).
     public func isUserHidden(_ id: String) -> Bool {
-        richById[Self.appleSeriesKey(sourceId(of: id))]?.userHidden == true
+        items.richById[Self.appleSeriesKey(sourceId(of: id))]?.userHidden == true
     }
 }

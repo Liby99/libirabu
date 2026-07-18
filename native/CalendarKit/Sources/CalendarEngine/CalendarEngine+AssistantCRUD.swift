@@ -26,12 +26,12 @@ extension CalendarEngine {
     private func setRich(_ id: String, notes: String?, tags: [String], byAI: Bool,
                          promoteTrack: Int? = nil) {
         guard notes != nil || !tags.isEmpty || byAI || promoteTrack != nil else { return }
-        var rf = richById[id] ?? RichFields()
+        var rf = items.richById[id] ?? RichFields()
         if let notes { rf.notes = notes }
         if !tags.isEmpty { rf.tags = tags }
         if let promoteTrack { rf.promoteTrack = max(0, min(3, promoteTrack)) }
         if byAI { rf.createdByAI = true }
-        richById[id] = rf
+        items.richById[id] = rf
     }
 
     @discardableResult
@@ -145,15 +145,15 @@ extension CalendarEngine {
     public func reshapeBand(id: String, startYear: Int, startMonth: Int, startDay: Int,
                             endYear: Int, endMonth: Int, endDay: Int) -> [String] {
         guard let b = items.bands.first(where: { $0.id == id }) else { return [] }
-        let rich = richById[id]
+        let rich = items.richById[id]
         beginTxn()
         items.bands.removeAll { $0.id == id }
-        richById[id] = nil
+        items.richById[id] = nil
         if selectedId == id { selectedId = nil }
         let ids = appendBandSegments(from: (startYear, startMonth, startDay),
                                      to: (endYear, endMonth, endDay),
                                      track: b.track, title: b.title, color: b.color) { nid in
-            if let rich { richById[nid] = rich }
+            if let rich { items.richById[nid] = rich }
         }
         commitTxn()
         return ids
@@ -199,13 +199,13 @@ extension CalendarEngine {
         }
         if found {
             if notes != nil || tags != nil || byAI || promoteTrack != nil || clearPromote {
-                var rf = richById[id] ?? RichFields()
+                var rf = items.richById[id] ?? RichFields()
                 if let notes { rf.notes = notes }
                 if let tags { rf.tags = tags }
                 if clearPromote { rf.promoteTrack = nil }
                 else if let promoteTrack { rf.promoteTrack = max(0, min(3, promoteTrack)) }
                 if byAI { rf.createdByAI = true }
-                richById[id] = rf
+                items.richById[id] = rf
             }
         }
         commitTxn()
