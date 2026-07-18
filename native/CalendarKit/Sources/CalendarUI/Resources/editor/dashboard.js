@@ -135,7 +135,7 @@
   var START_RE = new RegExp(`(^|\\s)start:(${DATE_VALUE})(?=\\s|$)`);
   var TZ_RE = /(^|\s)tz:(AOE|[A-Za-z][\w/+-]*)(?=\s|$)/;
   var COLOR_RE = /(^|\s)color:([\w-]+)(?=\s|$)/;
-  var DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2})?)(?=\s|$)/;
+  var DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
   var FOLLOWUP_RE = /(^|\s)followup:(\d+[dwmy]|\d{4}-\d{1,2}-\d{1,2})(?=\s|$)/;
   var TAG_RE = /(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)/;
   var ENTITY_RE = /(^|\s)@(?:([A-Za-z][\w-]*):)?([A-Za-z0-9_][\w-]*)(?=\s|$)/;
@@ -55467,6 +55467,41 @@
     };
   }
 
+  // ../../../src/lib/import/managedNote.ts
+  var BEGIN = "libirabu:import:begin";
+  var END = "libirabu:import:end";
+  var BLOCK_RE = new RegExp(`<!--\\s*${BEGIN}[\\s\\S]*?${END}\\s*-->`, "i");
+  function splitNote(notes2) {
+    const text9 = notes2 ?? "";
+    const m = BLOCK_RE.exec(text9);
+    if (!m) return { managed: "", user: text9 };
+    const before = text9.slice(0, m.index);
+    const after = text9.slice(m.index + m[0].length);
+    const user = `${before}${after}`.replace(/^\s+/, "").trimEnd();
+    return { managed: m[0], user };
+  }
+  function flattenManaged(notes2) {
+    return (notes2 ?? "").replace(new RegExp(`[ \\t]*<!--\\s*${BEGIN}[\\s\\S]*?-->[ \\t]*\\n?`, "i"), "").replace(new RegExp(`[ \\t]*<!--\\s*${END}\\s*-->[ \\t]*\\n?`, "i"), "").trim();
+  }
+  var isUrl2 = (s2) => /^https?:\/\//i.test(s2.trim());
+  function parseManaged(managed) {
+    const lines = flattenManaged(managed).split("\n");
+    const fields = [];
+    let i3 = 0;
+    for (; i3 < lines.length; i3++) {
+      const line = lines[i3];
+      if (line.trim() === "") {
+        i3++;
+        break;
+      }
+      const m = line.match(/^([\w ]+?):\s*(.*)$/);
+      if (!m) break;
+      const value = m[2].trim();
+      fields.push({ label: m[1].trim(), value, href: isUrl2(value) ? value : void 0 });
+    }
+    return { fields, description: lines.slice(i3).join("\n").trim() };
+  }
+
   // noteEditor.ts
   var MONO = "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)";
   var cmTheme = EditorView.theme({
@@ -55516,12 +55551,22 @@
     return (tree) => walk(tree);
   }
   var md = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkTodoTokens).use(remarkRehype).use(rehypeKatex).use(rehypeSourceLines).use(rehypeStringify);
-  function renderMarkdown(src) {
+  function mdHtml(src) {
     try {
       return String(md.processSync(src));
     } catch {
       return "";
     }
+  }
+  var escHtml = (s2) => s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  var escAttr = (s2) => escHtml(s2).replace(/"/g, "&quot;");
+  function renderMarkdown(src) {
+    const { managed, user } = splitNote(src);
+    if (!managed) return mdHtml(src);
+    const { fields, description } = parseManaged(managed);
+    const rows = fields.map((f) => `<div class="cc-dw-mi-row"><span class="cc-dw-mi-key">${escHtml(f.label)}</span><span class="cc-dw-mi-val">${f.href ? `<a href="${escAttr(f.href)}" target="_blank" rel="noopener noreferrer">${escHtml(f.value)}</a>` : escHtml(f.value)}</span></div>`).join("");
+    const desc = description ? `<div class="cc-dw-mi-desc">${mdHtml(description)}</div>` : "";
+    return `<div class="cc-dw-mi">${rows}${desc}</div>${mdHtml(user)}`;
   }
   var TASK_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
   function createNoteEditor(o) {
@@ -55572,7 +55617,7 @@
     function renderPreview() {
       const src = view.state.doc.toString();
       try {
-        previewEl.innerHTML = String(md.processSync(src));
+        previewEl.innerHTML = renderMarkdown(src);
       } catch {
         previewEl.textContent = src;
         return;
@@ -55679,21 +55724,35 @@
   panelsEl.append(p0, p1);
   var flatOf = /* @__PURE__ */ new WeakMap();
   var isoOf = /* @__PURE__ */ new WeakMap();
+  var scrollByIso = {};
+  for (const P of [P0, P1]) {
+    P.scroll.addEventListener("scroll", () => {
+      const iso = isoOf.get(P.panel);
+      if (iso) scrollByIso[iso] = P.scroll.scrollTop;
+    }, { passive: true });
+  }
   var tab2 = "todo";
   var noteMode = "edit";
   var notes = {};
   var liveIso = "";
+  var liveText = "";
   var noteEd = createNoteEditor({
     editorEl: document.getElementById("note-editor"),
     previewEl: document.getElementById("note-preview"),
     placeholder: "Daily Note",
     onChange: (value) => {
       notes[liveIso] = value;
+      liveText = value;
       todosDirty = true;
       post({ type: "noteChange", date: liveIso, value });
     },
-    onPreview: () => noteModeUser("preview"),
-    // ⌘S in the editor
+    // ⌘S → preview, and (if we were keyboard-focused via Tab) hand focus back to the calendar's NOTE ring.
+    onPreview: () => {
+      noteModeUser("preview");
+      post({ type: "navNoteExit" });
+    },
+    onExit: () => post({ type: "navNoteExit" }),
+    // Escape in the editor → back to the NOTE ring
     onOpenLink: (url) => post({ type: "openLink", url }),
     onEditAt: (line) => {
       noteModeUser("edit");
@@ -55701,6 +55760,25 @@
     }
     // ⌘-click a preview block
   });
+  var navStop = null;
+  var todoCursor = 0;
+  var editingNote = false;
+  function todoRows() {
+    return Array.from(P0.scroll.querySelectorAll(".cc-dtodo"));
+  }
+  function applyTodoCursor() {
+    const rows = todoRows();
+    rows.forEach((r) => r.classList.remove("cc-nav-cur"));
+    panelsEl.classList.toggle("cc-nav-on", navStop === "todo" && rows.length === 0);
+    if (navStop !== "todo" || !rows.length) return;
+    todoCursor = Math.max(0, Math.min(rows.length - 1, todoCursor));
+    rows[todoCursor].classList.add("cc-nav-cur");
+    rows[todoCursor].scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+  function applyNav() {
+    noteLive.classList.toggle("cc-nav-on", navStop === "note" && !editingNote);
+    applyTodoCursor();
+  }
   function applyTab(t2) {
     tab2 = t2;
     isoOf.delete(p0);
@@ -55715,6 +55793,29 @@
     apply();
   }
   var esc = (s2) => s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  var hLocalOn = false;
+  function hScrollableUnder(x, y) {
+    let el = document.elementFromPoint(x, y);
+    for (let depth = 0; el && el !== document.body && depth < 8; el = el.parentElement, depth++) {
+      const ox = getComputedStyle(el).overflowX;
+      if ((ox === "auto" || ox === "scroll") && el.scrollWidth > el.clientWidth + 1) return true;
+    }
+    return false;
+  }
+  document.addEventListener("pointermove", (e) => {
+    const on = hScrollableUnder(e.clientX, e.clientY);
+    if (on !== hLocalOn) {
+      hLocalOn = on;
+      post({ type: "hlocal", on });
+    }
+  }, { passive: true });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab") return;
+    if (e.target?.closest?.(".cm-editor")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    post({ type: "navTab", shift: e.shiftKey });
+  }, true);
   var pad3 = (n) => String(n).padStart(2, "0");
   var dueDate = (t2) => (t2.due ?? "").slice(0, 10);
   var opDate = (t2) => t2.followup ?? dueDate(t2);
@@ -55751,23 +55852,33 @@
   var SOON_DAYS = 7;
   var FOLLOWUP_WINDOW = 7;
   var RECENT_DONE_DAYS = 7;
+  var tieKey = (t2) => `${t2.raw}\0${t2.source}\0${t2.eventId}\0${t2.occurrenceKey ?? ""}\0${t2.dailyDate ?? ""}\0${String(t2.line).padStart(6, "0")}`;
+  var cmpTie = (a, b) => tieKey(a) < tieKey(b) ? -1 : tieKey(a) > tieKey(b) ? 1 : 0;
   function sectionsForDay(todos, viewIso) {
     const isToday = viewIso === today;
     const shown = todos.filter((t2) => !t2.done && (!t2.start || t2.start <= viewIso));
     const soonEnd = addDays(viewIso, SOON_DAYS), followEnd = addDays(viewIso, FOLLOWUP_WINDOW);
-    const byOp = (a, b) => opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
+    const byOp = (a, b) => {
+      const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
+      return d !== 0 ? d : cmpTie(a, b);
+    };
     const overdue = shown.filter((t2) => opDate(t2) < viewIso).sort(byOp);
     const followups = shown.filter((t2) => t2.followup && t2.followup >= viewIso && t2.followup <= followEnd).sort(byOp);
     const plain = shown.filter((t2) => !t2.followup);
     const dueThisDay = plain.filter((t2) => dueDate(t2) === viewIso).sort(byOp);
     const highSoon = plain.filter((t2) => (t2.priority ?? 0) >= HIGH_PRIORITY && dueDate(t2) > viewIso && dueDate(t2) <= soonEnd).sort(byOp);
+    const lowSoon = plain.filter((t2) => (t2.priority ?? 0) < HIGH_PRIORITY && dueDate(t2) > viewIso && dueDate(t2) <= soonEnd).sort(byOp);
     const recentStart = addDays(viewIso, -RECENT_DONE_DAYS);
-    const completed = todos.filter((t2) => t2.done && t2.doneDate && t2.doneDate.slice(0, 10) >= recentStart && t2.doneDate.slice(0, 10) <= viewIso).sort((a, b) => a.doneDate < b.doneDate ? 1 : a.doneDate > b.doneDate ? -1 : 0).slice(0, 12);
+    const completed = todos.filter((t2) => t2.done && t2.doneDate && t2.doneDate.slice(0, 10) >= recentStart && t2.doneDate.slice(0, 10) <= viewIso).sort((a, b) => {
+      const d = a.doneDate < b.doneDate ? 1 : a.doneDate > b.doneDate ? -1 : 0;
+      return d !== 0 ? d : cmpTie(a, b);
+    }).slice(0, 12);
     return [
       { title: isToday ? "Today\u2019s Items" : "Due This Day", items: dueThisDay },
       { title: "Overdue", items: overdue },
       { title: "Remember to Followup", items: followups },
       { title: "High Priority \xB7 Due Soon", items: highSoon },
+      { title: "Due Soon", items: lowSoon },
       { title: "Recently Completed", items: completed, done: true }
     ].filter((s2) => s2.items.length > 0);
   }
@@ -55786,19 +55897,51 @@
     return `<li class="cc-dtodo${t2.done ? " cc-dtodo-is-done" : ""}">
     <input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t2.done ? " checked" : ""}>
     <span class="cc-dtodo-main" data-open="${idx}" role="button" tabindex="0" title="Go to event">
-      <span class="cc-dtodo-text">${prefix}${text9}</span>
+      <span class="cc-dtodo-text${t2.done ? " cc-struck" : ""}">${prefix}${text9}</span>
       <span class="cc-dtodo-meta">${meta2}</span>
     </span></li>`;
   }
+  var deadlineRange = "d30";
+  var DEADLINE_OPTS = [
+    { v: "week", label: "This week" },
+    { v: "month", label: "This month" },
+    { v: "d30", label: "30 days" },
+    { v: "m3", label: "3 months" },
+    { v: "m6", label: "6 months" }
+  ];
+  function addMonthsIso(iso, n) {
+    const [y, m, d] = iso.split("-").map(Number);
+    const dt2 = new Date(Date.UTC(y, m - 1 + n, d));
+    return `${dt2.getUTCFullYear()}-${pad3(dt2.getUTCMonth() + 1)}-${pad3(dt2.getUTCDate())}`;
+  }
+  function deadlineWindowEnd(viewIso) {
+    const [y, m, d] = viewIso.split("-").map(Number);
+    switch (deadlineRange) {
+      case "week":
+        return addDays(viewIso, 6 - new Date(Date.UTC(y, m - 1, d)).getUTCDay());
+      // through Saturday
+      case "month":
+        return `${y}-${pad3(m)}-${pad3(new Date(Date.UTC(y, m, 0)).getUTCDate())}`;
+      // through month end
+      case "m3":
+        return addMonthsIso(viewIso, 3);
+      case "m6":
+        return addMonthsIso(viewIso, 6);
+      default:
+        return addDays(viewIso, 30);
+    }
+  }
   function deadlineHTML(viewIso) {
-    const upcoming = deadlines.map((d) => ({ d, iso: `${d.year}-${pad3(d.month + 1)}-${pad3(d.day)}` })).filter((x) => x.iso >= viewIso).sort((a, b) => a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : a.d.hour - b.d.hour).slice(0, 10);
-    const head2 = `<div class="cc-dd-sec-head"><span class="cc-dd-sec-title">Upcoming Deadlines</span>${upcoming.length ? `<span class="cc-dd-sec-count">${upcoming.length}</span>` : ""}</div>`;
-    if (!upcoming.length) return `<section class="cc-dd-sec">${head2}<div class="cc-dd-free">No immediate deadline! You are free!</div></section>`;
-    const rows = upcoming.map(({ d, iso }) => `<li class="cc-dd-ddl cc-ev-${esc(d.color)}" data-ddl="${esc(d.id)}" role="button" tabindex="0" title="Go to deadline">
-      <span class="cc-dd-ddl-dot"></span>
-      <span class="cc-dd-ddl-title">${d.title ? esc(d.title) : "<em>(untitled)</em>"}</span>
-      <span class="cc-dd-ddl-when">${esc(relDue(viewIso, iso))} \xB7 ${hhmm(d.hour)}</span></li>`).join("");
-    return `<section class="cc-dd-sec">${head2}<ul class="cc-dd-ddl-list">${rows}</ul></section>`;
+    const end = deadlineWindowEnd(viewIso);
+    const upcoming = deadlines.map((d) => ({ d, iso: `${d.year}-${pad3(d.month + 1)}-${pad3(d.day)}` })).filter((x) => x.iso >= viewIso && x.iso <= end).sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : a.d.hour - b.d.hour) || (a.d.id < b.d.id ? -1 : a.d.id > b.d.id ? 1 : 0)).slice(0, 10);
+    const opts = DEADLINE_OPTS.map((o) => `<option value="${o.v}"${o.v === deadlineRange ? " selected" : ""}>${o.label}</option>`).join("");
+    const select = `<select class="cc-dd-range" title="Deadline window">${opts}</select>`;
+    const head2 = `<div class="cc-dd-sec-head"><span class="cc-dd-sec-title">Upcoming Deadlines</span>${upcoming.length ? `<span class="cc-dd-sec-count">${upcoming.length}</span>` : ""}${select}</div>`;
+    const body3 = upcoming.length ? `<ul class="cc-dd-ddl-list">${upcoming.map(({ d, iso }) => `<li class="cc-dd-ddl cc-ev-${esc(d.color)}" data-ddl="${esc(d.id)}" role="button" tabindex="0" title="Go to deadline">
+          <span class="cc-dd-ddl-dot"></span>
+          <span class="cc-dd-ddl-title">${d.title ? esc(d.title) : "<em>(untitled)</em>"}</span>
+          <span class="cc-dd-ddl-when">${esc(relDue(viewIso, iso))} \xB7 ${hhmm(d.hour)}</span></li>`).join("")}</ul>` : `<div class="cc-dd-free">No deadlines in this window.</div>`;
+    return `<section class="cc-dd-sec cc-dd-ddl-sec" data-iso="${viewIso}">${head2}${body3}</section>`;
   }
   function renderPanel(el, viewIso) {
     const scroll = scrollOf.get(el) ?? el;
@@ -55806,6 +55949,7 @@
     if (tab2 === "note") {
       const text9 = notes[viewIso] || "";
       scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : `<div class="cc-dd-note-empty">Daily Note</div>`;
+      scroll.scrollTop = scrollByIso[viewIso] ?? 0;
       flatOf.delete(el);
       return;
     }
@@ -55817,11 +55961,25 @@
     const secHTML = sections.map((s2) => `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span></div><ul class="cc-dtodo-list">${s2.items.map((t2) => rowHTML(t2, ++i3, viewIso)).join("")}</ul></section>`).join("");
     const body3 = sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list \u2014 you\u2019re clear.</div>`;
     scroll.innerHTML = deadlineHTML(viewIso) + body3;
+    scroll.scrollTop = scrollByIso[viewIso] ?? 0;
   }
   var liveShown = false;
   var liveMode = "";
+  var dayViewShown = false;
   function apply() {
     const { from, to, dir, p: p3, reveal, slide } = last;
+    if (reveal < 0.02) {
+      if (dayViewShown) {
+        dayViewShown = false;
+        scrollByIso = {};
+      }
+    } else if (!dayViewShown) {
+      dayViewShown = true;
+      isoOf.delete(p0);
+      isoOf.delete(p1);
+      P0.scroll.scrollTop = 0;
+      P1.scroll.scrollTop = 0;
+    }
     root5.style.transform = `translateX(${(slide * 100).toFixed(3)}%)`;
     root5.style.opacity = reveal.toFixed(3);
     root5.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
@@ -55846,10 +56004,9 @@
     noteLive.style.display = showLive ? "" : "none";
     p0.style.visibility = showLive ? "hidden" : "";
     if (showLive) {
+      const text9 = notes[from] || "";
       if (liveIso !== from) {
         liveIso = from;
-        const text9 = notes[from] || "";
-        noteEd.setValue(text9);
         const m = text9.trim() ? "preview" : "edit";
         if (m !== noteMode) {
           noteMode = m;
@@ -55857,44 +56014,118 @@
           post({ type: "noteMode", mode: m });
         }
       }
+      if (text9 !== liveText) {
+        liveText = text9;
+        noteEd.setValue(text9);
+      }
       if (!liveShown || liveMode !== noteMode) {
         liveMode = noteMode;
         noteEd.setMode(noteMode);
       }
     }
     liveShown = showLive;
+    applyNav();
   }
-  function toggle(el, t2) {
+  function setRowDone(row2, done) {
+    const cb = row2.querySelector(".cc-dtodo-check");
+    if (cb) cb.checked = done;
+    row2.classList.toggle("cc-dtodo-is-done", done);
+    const textEl = row2.querySelector(".cc-dtodo-text");
+    if (textEl) animateStrike(textEl, done);
+  }
+  var strikeState = /* @__PURE__ */ new WeakMap();
+  function paintStrike(el, s2) {
+    const n = Math.round(s2.full.length * s2.frac);
+    if (n <= 0) {
+      el.innerHTML = s2.clean;
+      el.classList.remove("cc-struck");
+      return;
+    }
+    if (n >= s2.full.length) {
+      el.innerHTML = s2.clean;
+      el.classList.add("cc-struck");
+      return;
+    }
+    el.classList.remove("cc-struck");
+    el.innerHTML = `<span class="cc-strike">${esc(s2.full.slice(0, n))}</span>${esc(s2.full.slice(n))}`;
+  }
+  function animateStrike(el, done) {
+    let s2 = strikeState.get(el);
+    if (s2) cancelAnimationFrame(s2.raf);
+    else s2 = { raf: 0, frac: done ? 0 : 1, clean: el.innerHTML, full: el.textContent ?? "" };
+    strikeState.set(el, s2);
+    const from = s2.frac, target = done ? 1 : 0, t0 = performance.now(), DUR = 260;
+    const step = (now) => {
+      const p3 = Math.min(1, (now - t0) / DUR);
+      s2.frac = from + (target - from) * p3;
+      paintStrike(el, s2);
+      if (p3 < 1) {
+        s2.raf = requestAnimationFrame(step);
+      } else {
+        s2.frac = target;
+        paintStrike(el, s2);
+        if (target === 0) strikeState.delete(el);
+      }
+    };
+    s2.raf = requestAnimationFrame(step);
+  }
+  var selfEditAt = -1e9;
+  var SELF_ECHO_MS = 500;
+  function doneStamp() {
+    const d = /* @__PURE__ */ new Date();
+    const p22 = (n) => String(n).padStart(2, "0");
+    return `${today}T${p22(d.getHours())}:${p22(d.getMinutes())}:${p22(d.getSeconds())}`;
+  }
+  function toggle(panel, idx) {
+    const t2 = (flatOf.get(panel) ?? [])[idx];
+    if (!t2) return;
+    const row2 = panel.querySelector(`.cc-dtodo-check[data-idx="${idx}"]`)?.closest(".cc-dtodo");
+    const wasDone = row2?.classList.contains("cc-dtodo-is-done") ?? t2.done;
+    const stamp = doneStamp();
+    let ok4 = false;
     if (t2.source === "daily") {
       const date = t2.dailyDate ?? "";
-      const next = toggleTodoLine(notes[date] ?? "", t2.line, void 0, today);
-      if (next == null || next === notes[date]) return;
-      notes[date] = next;
-      post({ type: "noteChange", date, value: next });
+      const next = toggleTodoLine(notes[date] ?? "", t2.line, void 0, stamp);
+      if (next != null && next !== notes[date]) {
+        notes[date] = next;
+        post({ type: "noteChange", date, value: next });
+        ok4 = true;
+      }
     } else {
       const ev = events.find((e) => e.id === t2.eventId);
-      if (!ev) return;
-      const isOcc = !!t2.occurrenceKey;
-      const src = isOcc ? ev.occurrenceNotes?.[t2.occurrenceKey] ?? "" : ev.notes ?? "";
-      const next = toggleTodoLine(src, t2.line, void 0, today);
-      if (next == null || next === src) return;
-      if (isOcc) ev.occurrenceNotes = { ...ev.occurrenceNotes ?? {}, [t2.occurrenceKey]: next };
-      else ev.notes = next;
-      post({ type: "toggle", eventId: t2.eventId, occKey: isOcc ? t2.occurrenceKey : null, value: next });
+      if (ev) {
+        const isOcc = !!t2.occurrenceKey;
+        const src = isOcc ? ev.occurrenceNotes?.[t2.occurrenceKey] ?? "" : ev.notes ?? "";
+        const next = toggleTodoLine(src, t2.line, void 0, stamp);
+        if (next != null && next !== src) {
+          if (isOcc) ev.occurrenceNotes = { ...ev.occurrenceNotes ?? {}, [t2.occurrenceKey]: next };
+          else ev.notes = next;
+          post({ type: "toggle", eventId: t2.eventId, occKey: isOcc ? t2.occurrenceKey : null, value: next });
+          ok4 = true;
+        }
+      }
     }
-    todosDirty = true;
-    renderPanel(el, isoOf.get(el) ?? last.from);
+    if (ok4) {
+      todosDirty = true;
+      selfEditAt = performance.now();
+    }
+    if (row2) setRowDone(row2, ok4 ? !wasDone : wasDone);
   }
   function panelOf(e) {
     return e.target.closest(".cc-dd-panel");
   }
   root5.addEventListener("change", (e) => {
     const el = e.target;
+    if (el.classList.contains("cc-dd-range")) {
+      deadlineRange = el.value;
+      const sec = el.closest(".cc-dd-ddl-sec");
+      if (sec) sec.outerHTML = deadlineHTML(sec.dataset.iso ?? last.from);
+      return;
+    }
     if (!el.classList.contains("cc-dtodo-check")) return;
     const panel = panelOf(e);
     if (!panel) return;
-    const t2 = flatOf.get(panel)?.[Number(el.dataset.idx)];
-    if (t2) toggle(panel, t2);
+    toggle(panel, Number(el.dataset.idx));
   });
   root5.addEventListener("click", (e) => {
     const openEl = e.target.closest("[data-open]");
@@ -55912,7 +56143,7 @@
       post({ type: "open", eventId: ddl.dataset.ddl });
       return;
     }
-    if (e.target.closest("input,button,a,textarea,[contenteditable='true'],[data-open],[data-ddl],#note-live,.cm-editor")) return;
+    if (e.target.closest("input,button,a,textarea,select,[contenteditable='true'],[data-open],[data-ddl],#note-live,.cm-editor")) return;
     post({ type: "deselect" });
   });
   window.CK = {
@@ -55924,6 +56155,7 @@
       notes = d.dailyNotes || {};
       todosDirty = true;
       if (!last.from) last.from = d.viewIso || today;
+      if (performance.now() - selfEditAt < SELF_ECHO_MS) return;
       isoOf.delete(p0);
       isoOf.delete(p1);
       apply();
@@ -55950,6 +56182,39 @@
     setTheme(vars) {
       const s2 = document.documentElement.style;
       for (const k in vars) s2.setProperty(k, vars[k]);
+    },
+    // ── Keyboard nav bridge (driven by the calendar's key system) ──
+    navSet(stop) {
+      navStop = stop === "none" ? null : stop;
+      editingNote = false;
+      if (navStop === "todo") todoCursor = 0;
+      applyNav();
+    },
+    navMove(delta) {
+      if (navStop === "todo") {
+        todoCursor += delta;
+        applyTodoCursor();
+      }
+    },
+    // ↑/↓ rows
+    navActivate() {
+      if (navStop === "todo") toggle(p0, todoCursor);
+    },
+    navOpen() {
+      if (navStop !== "todo") return;
+      const t2 = (flatOf.get(p0) ?? [])[todoCursor];
+      if (!t2) return;
+      if (t2.source === "daily") post({ type: "jumpDay", date: t2.dailyDate });
+      else post({ type: "open", eventId: t2.eventId, occKey: t2.occurrenceKey });
+    },
+    noteEdit() {
+      editingNote = true;
+      applyNav();
+      noteModeUser("edit");
+      queueMicrotask(() => {
+        noteEd.setMode("edit");
+        noteEd.focus();
+      });
     }
   };
   post({ type: "ready" });

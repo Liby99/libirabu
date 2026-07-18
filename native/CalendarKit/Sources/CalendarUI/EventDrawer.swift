@@ -15,15 +15,14 @@ public final class CalendarUIState {
     public var editingBand: BandEdit?     // inline band-title editor target
     public var editingTimed: TimedEdit?   // inline timed-event-title editor target
     public var showKeyGuide: Bool = false // Cmd+K shortcut-guide overlay is held open
+    public var showTutorial: Bool = false // the onboarding GIF-carousel overlay is up
+    public var tutorialIndex: Int = 0     // current carousel slide
     public var drawerFocus: DrawerField?  // which drawer control the keyboard has focused (nil = drawer body)
     public var drawerTitleEditing: Bool = false   // the title field is in text-editing mode (vs. ring focus)
     // True while a native inline editor (the date/time NSDatePicker) is active. The key monitor treats
     // this like text-input focus: it passes ALL keys — including Tab — to the native field so it cycles
     // its own components, and the drawer-level Tab cycle does NOT advance until Enter/Esc commits.
     public var drawerFieldEditing: Bool = false
-    // True while the delete confirmation dialog is up. The key monitor yields the keyboard to it so its
-    // native Enter/Escape/arrow handling works (otherwise the monitor would swallow those keys).
-    public var drawerConfirmingDelete: Bool = false
     // The Tab cycle for the open item — published by the drawer on load (it depends on the item kind,
     // e.g. bands have no start/end *time*). Both the drawer and the keyboard model read it.
     public var drawerFieldOrder: [DrawerField] = []
@@ -32,7 +31,27 @@ public final class CalendarUIState {
     // `drawerPulse` always increments so repeated identical actions (e.g. Right, Right) still fire.
     public var drawerPulse: Int = 0
     public var drawerActionKind: DrawerActionKind = .none
+    // The custom delete-confirm dialog, when up. Shown as an app-level overlay so BOTH the drawer trash
+    // button and the hotkey (Delete on a selected event, drawer closed) present the same modal. `focus` is
+    // the keyboard-focused button (index into `choices`); the key monitor drives it while this is non-nil.
+    public var pendingDelete: PendingDelete?
     public init() {}
+
+    /// Raise the delete-confirm dialog for an event. No button is focused yet (no ring shows until the
+    /// user arrows); Enter before that confirms the primary choice.
+    public func requestDelete(id: String, occKey: String, recurring: Bool, imported: Bool, alreadyHidden: Bool = false) {
+        pendingDelete = PendingDelete(id: id, occKey: occKey, recurring: recurring, imported: imported,
+                                      alreadyHidden: alreadyHidden, focus: nil)
+    }
+    /// Move the focus ring. The first arrow reveals it by stepping off the (implicit) primary choice.
+    public func moveDeleteFocus(_ d: Int) {
+        guard var pd = pendingDelete else { return }
+        let n = pd.choices.count
+        let base = pd.focus ?? pd.primaryIndex
+        pd.focus = (base + d + n) % n
+        pendingDelete = pd
+    }
+    public func cancelDelete() { pendingDelete = nil }
 
     /// Post a keyboard action into the open drawer (see `drawerPulse`).
     public func postDrawer(_ kind: DrawerActionKind) { drawerActionKind = kind; drawerPulse += 1 }
@@ -47,11 +66,62 @@ public final class CalendarUIState {
     }
 }
 
+/// One button in the delete-confirm dialog. A non-recurring event offers Cancel + Delete; a recurring
+/// one offers the three web-matching scopes plus Cancel.
+public enum DeleteChoice: Equatable {
+    case cancel, thisEvent, thisAndFuture, deleteAll, hide
+    /// Button label; `deleteAll` reads "Delete" for a lone event, "All Events" for a series.
+    public func label(recurring: Bool) -> String {
+        switch self {
+        case .cancel:        return "Cancel"
+        case .thisEvent:     return "This Event"
+        case .thisAndFuture: return "This & Future"
+        case .deleteAll:     return recurring ? "All Events" : "Delete"
+        case .hide:          return "Hide"
+        }
+    }
+    public var isCancel: Bool { self == .cancel }
+}
+
+/// The live delete-confirm dialog's state. Immutable target + a keyboard `focus` that is nil until the
+/// user first arrows (so no focus ring shows on open); Enter with no focus falls back to `primaryIndex`.
+public struct PendingDelete: Equatable {
+    public let id: String        // source event id
+    public let occKey: String    // focused occurrence-box id (for This-Event / This-&-Future)
+    public let recurring: Bool
+    public let imported: Bool    // an imported (read-only) event → Hide instead of Delete
+    public let alreadyHidden: Bool   // imported + already hidden (revealed via View menu) → info-only, Cancel
+    public var focus: Int?       // nil = not navigating yet (no ring)
+    public var choices: [DeleteChoice] {
+        if alreadyHidden { return [.cancel] }        // nothing to do — Cancel only (no confirm button)
+        if imported { return [.cancel, .hide] }
+        return recurring ? [.cancel, .thisEvent, .thisAndFuture, .deleteAll] : [.cancel, .deleteAll]
+    }
+    /// The default confirm target — the first non-cancel choice (Hide / Delete / This Event). Enter lands
+    /// here before any arrow. Clamped so an info-only dialog (Cancel alone) doesn't index past its end.
+    public var primaryIndex: Int { min(1, choices.count - 1) }
+    public var title: String {
+        if alreadyHidden { return "This imported event is already hidden" }
+        if imported { return "This is an imported event; Hide the event?" }
+        return recurring ? "Delete recurring event?" : "Delete this event?"
+    }
+    /// A secondary note under the title. Already-hidden imported → why + how to re-hide; imported recurring →
+    /// steer to a local copy for a single-occurrence delete.
+    public var note: String? {
+        if alreadyHidden {
+            return "You can't delete an imported event. To hide the revealed hidden events again, turn off Menu Bar ▸ View ▸ Show Hidden Imported Events."
+        }
+        return (imported && recurring)
+            ? "If you want to delete this individual occurrence, try making a local copy of the imported event first."
+            : nil
+    }
+}
+
 /// A keyboard-focusable control in the event drawer. The concrete Tab cycle for a given item is
 /// published in `CalendarUIState.drawerFieldOrder` (it varies by kind). `.date/.start/.end` are the
 /// three "when" parts (for bands, start/end are the start/end *day*; deadlines have date + one time).
 public enum DrawerField: Hashable {
-    case title, date, start, end, color, config, notes, delete
+    case title, date, start, end, color, config, notes, noteScope, delete
     case cfgTags, cfgRepeat, cfgPromote   // controls inside Configuration (only in the cycle while it's open)
     case repEvery, repDays, repUntil, repUntilDate   // repeat sub-controls (shown conditionally by kind)
     case promoteLane   // the lane picker that appears when Promote is on (timed / deadline)
@@ -68,6 +138,7 @@ extension DrawerField {
         case .color:  return "color"
         case .config: return "configuration"
         case .notes:  return "notes"
+        case .noteScope: return "note scope"
         case .delete: return "delete"
         case .cfgTags:      return "tags"
         case .cfgRepeat:    return "repeat"
@@ -153,6 +224,9 @@ private struct FlowLayout: SwiftUI.Layout {
 struct EventDrawer: View {
     let engine: CalendarEngine
     let id: String
+    /// Read-only external event (Apple Calendar): title/time/color are vendor-owned — only local
+    /// overlays (tags, notes, promote-to-band) are editable here; edit the rest in Calendar.app.
+    private var imported: Bool { engine.isImported(id) }
     @Binding var width: CGFloat
     let containerWidth: CGFloat   // window width — the drawer may not grow past it
     let theme: Theme
@@ -199,10 +273,32 @@ struct EventDrawer: View {
     @State private var occKey = ""           // focused occurrence box id (key for occNote)
     @State private var noteScope: NoteScope = .series
     @State private var notesMode: NotesMode = .edit
-    @State private var showDeleteConfirm = false
     @State private var settled = false   // true once the slide-in finishes → fade in native controls
+    // Recurring band: the CURRENT occurrence's date range (read-only) + the base/first occurrence's start
+    // date (the "Started …" jump target). `onBaseOccurrence` = the drawer is already on the first one.
+    @State private var occStart: YMD?
+    @State private var occEnd: YMD?
+    @State private var baseStart: YMD?
+    @State private var onBaseOccurrence = false
 
     private var recurring: Bool { rep.kind != "none" }
+    /// A recurring band shows its occurrence dates read-only (no Tab stop) + a jump-to-first button.
+    private var recurringBand: Bool { kind == .band && recurring }
+    /// The drawer is showing a revealed hidden imported event → the footer button becomes "Unhide".
+    private var isRevealedHidden: Bool { imported && engine.isUserHidden(id) }
+    /// Raise the delete/hide confirm dialog for the open item (the Delete key / delete-ring Enter path).
+    /// Imported events aren't recurring in our model (rep is empty) — their "recurring" is whether the
+    /// series has >1 occurrence. An already-hidden imported event gets the info-only "can't delete" dialog.
+    private func requestDeleteFromDrawer() {
+        let rec = imported ? engine.isImportedSeries(id) : recurring
+        ui.requestDelete(id: id, occKey: occKey, recurring: rec, imported: imported, alreadyHidden: isRevealedHidden)
+    }
+    /// Activating the footer BUTTON (click, or Enter on its focus ring): a revealed hidden event un-hides
+    /// directly; otherwise it's the delete/hide dialog. (Distinct from the raw Delete key, which always
+    /// routes to the dialog — showing the info-only "already hidden" variant for a hidden event.)
+    private func footerButtonAction() {
+        if isRevealedHidden { engine.unhideImportedSeries(id); onClose() } else { requestDeleteFromDrawer() }
+    }
     /// The note the editor is bound to right now: the occurrence note only when recurring + selected.
     private var activeNote: Binding<String> { (recurring && noteScope == .occurrence) ? $occNote : $notes }
 
@@ -239,6 +335,8 @@ struct EventDrawer: View {
                 }
             }
             .onDisappear { engine.clearColorPreview() }   // drop any lingering swatch preview
+            .onChange(of: id) { _, _ in load() }          // re-pointed (e.g. "make local copy") → reload fields
+
             .onChange(of: notes) { _, v in engine.setNotes(id, v) }
             .onChange(of: occNote) { _, v in engine.setOccNote(id, occKey, v) }
             .onChange(of: noteScope) { _, s in   // open each note in the sensible view
@@ -267,7 +365,6 @@ struct EventDrawer: View {
             .onChange(of: whenEditing) { _, _ in updateFieldEditing() }
             .onChange(of: untilFocused) { _, _ in updateFieldEditing() }
             // The confirmation dialog wants the keyboard while it's up (native Enter/Esc/arrows).
-            .onChange(of: showDeleteConfirm) { _, v in ui.drawerConfirmingDelete = v }
             // Configuration open/close re-shapes the Tab cycle (its children join/leave it). If it
             // collapses while a child is focused, pull focus back up to the Configuration header.
             .onChange(of: configOpen) { _, open in
@@ -277,7 +374,7 @@ struct EventDrawer: View {
                     addingTag = false; tagDraft = ""   // don't leave the tag input up (it self-focuses on re-expand)
                 }
             }
-            .onDisappear { ui.drawerFocus = nil; ui.drawerTitleEditing = false; ui.drawerFieldEditing = false; ui.drawerConfirmingDelete = false }
+            .onDisappear { ui.drawerFocus = nil; ui.drawerTitleEditing = false; ui.drawerFieldEditing = false }
             .id(id)
     }
 
@@ -285,9 +382,15 @@ struct EventDrawer: View {
         VStack(spacing: 0) {
             // Top: title / when / color / configuration (compact — Configuration collapses by default).
             VStack(alignment: .leading, spacing: 14) {
+                if imported { importedBanner }
                 VStack(alignment: .leading, spacing: 7) {
-                    titleField
-                    whenControls   // each part carries its own focus ring (see whenPart)
+                    Group {
+                        titleField
+                        whenControls   // each part carries its own focus ring (see whenPart)
+                    }
+                    .disabled(imported)   // title / time are owned by the source calendar
+                    // Color IS editable on imported events — it's stored as a local overlay (colorOverride),
+                    // not written back to Apple Calendar. Tags / notes / promote (in configBox) are too.
                     colorSwatches.drawerRingAnchor(.color)
                 }
                 configBox.drawerRingAnchor(.config)
@@ -362,6 +465,7 @@ struct EventDrawer: View {
         case .color:               return RingSpec(inset: all(-4), radius: 8)
         case .config:              return RingSpec(inset: all(-2), radius: 10)
         case .notes:               return RingSpec(inset: all(0),  radius: 6)
+        case .noteScope:           return RingSpec(inset: all(-3), radius: 7)
         case .delete:              return RingSpec(inset: all(-4), radius: 7)
         // Configuration children (rings sit on the inner controls)
         case .cfgTags:             return RingSpec(inset: all(-3), radius: 7)
@@ -404,7 +508,7 @@ struct EventDrawer: View {
 
     /// Run a keyboard action against the currently-focused field (posted via ui.postDrawer).
     private func handleDrawerAction(_ action: DrawerActionKind) {
-        if action == .confirmDelete { showDeleteConfirm = true; return }   // Delete key → same as the trash button
+        if action == .confirmDelete { requestDeleteFromDrawer(); return }   // Delete key → confirm dialog
         switch ui.drawerFocus {
         case .title:
             if action == .activate { ui.drawerTitleEditing = true }   // Enter → start editing the title
@@ -434,8 +538,10 @@ struct EventDrawer: View {
             if action == .left { stepPromoteLane(-1) } else if action == .right { stepPromoteLane(1) }
         case .notes:
             if action == .activate { notesMode = .edit; notesFocusPulse += 1 }   // edit mode + focus CodeMirror
+        case .noteScope:
+            if action == .left { noteScope = .series } else if action == .right { noteScope = .occurrence }
         case .delete:
-            if action == .activate { showDeleteConfirm = true }
+            if action == .activate { footerButtonAction() }   // Enter on the delete ring = clicking the button
         case .none: break
         }
     }
@@ -495,6 +601,10 @@ struct EventDrawer: View {
             // Inset the controls a touch so the focus rings' outset (see ringSpec, ~3pt) stays inside
             // the DisclosureGroup's content clip — otherwise the ring's left/right edges get cut off.
             .padding(.horizontal, 4)
+            // The config children's anchors don't cross the DisclosureGroup boundary (it resets
+            // preferences), so the sliding ring for them is rendered HERE, inside the content. Only one
+            // ring is ever visible — keyed on ui.drawerFocus — so this never double-draws with the card's.
+            .overlayPreferenceValue(DrawerRingAnchors.self) { drawerRingOverlay($0) }
         } label: {
             // Full-width, vertically-padded header so clicking anywhere across the title row —
             // including a little above/below it — toggles the disclosure (not just the triangle).
@@ -525,6 +635,35 @@ struct EventDrawer: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 7)
+    }
+
+    private var importedBanner: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "calendar").font(.system(size: 11, weight: .semibold))
+            Text("Apple Calendar").font(.system(size: 11, weight: .medium)).fixedSize()
+            Spacer(minLength: 6)
+            // Reveal the event back in Calendar.app (only when we still hold its identifier).
+            if let url = engine.appleOriginalURL(id) {
+                Button { NSWorkspace.shared.open(url) } label: {
+                    Label("Edit original", systemImage: "arrow.up.forward.app")
+                }
+                .help("Open this event in Calendar.app")
+            }
+            // Clone into our own calendar (editable); the read-only original is hidden. Re-point the drawer.
+            Button { if let newId = engine.makeLocalCopy(id) { ui.openEventId = newId } } label: {
+                Label("Make local copy", systemImage: "doc.on.doc")
+            }
+            .help("Duplicate into your calendar so you can edit it")
+        }
+        .labelStyle(.titleAndIcon)
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .font(.system(size: 11, weight: .medium))
+        .lineLimit(1)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 9).padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.12)))
     }
 
     private var titleField: some View {
@@ -594,7 +733,16 @@ struct EventDrawer: View {
     }
 
     private func dateStr(_ d: Int) -> String { "\(month + 1)/\(d)/\(itemYear)" }
+    private func dateStr(_ p: YMD) -> String { "\(p.month + 1)/\(p.day)/\(p.year)" }   // full date (may cross months)
     private var dateText: String { dateStr(day) }
+    /// "Started …" button: navigate to + select the base (first) occurrence, then close and reopen the
+    /// drawer on it. `id` is already the source/base id (the drawer always opens on the source).
+    private func goToFirstOccurrence() {
+        let baseId = id
+        ui.openEventId = nil                    // close the drawer (slides out)
+        engine.revealAndSelect(id: baseId)      // highlight the first occurrence + fly to it
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { ui.openEventId = baseId }   // reopen on it
+    }
     private func timeText(_ h: CGFloat) -> String {
         let hh = min(23, Int(h)); let mm = Int((h - floor(h)) * 60)
         return String(format: "%d:%02d", hh, mm)
@@ -614,6 +762,23 @@ struct EventDrawer: View {
                 Spacer(minLength: 0)
             }
             .font(.callout)
+        case .band where recurringBand:
+            // Recurring band → the CURRENT occurrence's range, read-only (no Tab stop / no editor), then a
+            // "Started <first-occurrence date>" button that jumps to & reopens the drawer on the first one.
+            HStack(spacing: 4) {
+                Text(occStart.map(dateStr) ?? dateStr(startDay))
+                if let s = occStart, let e = occEnd, !(s == e) {
+                    Text("–").foregroundStyle(.secondary)
+                    Text(dateStr(e))
+                }
+                if !onBaseOccurrence, let bs = baseStart {
+                    Text("; Started").foregroundStyle(.secondary)
+                    Button(dateStr(bs)) { goToFirstOccurrence() }
+                        .buttonStyle(.link)
+                }
+                Spacer(minLength: 0)
+            }
+            .font(.callout).foregroundStyle(theme.text)
         case .band:
             HStack(spacing: 5) {
                 whenPart(.start, dateStr(startDay)) { DatePicker("", selection: bandDayBinding(true), in: monthRange, displayedComponents: .date) }
@@ -776,25 +941,19 @@ struct EventDrawer: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 .opacity(settled ? 1 : 0)
+                .drawerRingAnchor(.noteScope)
             }
             Spacer(minLength: 0)
-            Button(role: .destructive) { showDeleteConfirm = true } label: {
-                Image(systemName: "trash").font(.system(size: 14))
+            // The footer button: a revealed hidden imported event → Unhide (eye, direct, non-destructive);
+            // otherwise Delete (trash) / Hide (eye.slash) via the app-level confirm dialog. (The Delete KEY
+            // on a hidden event instead shows the info-only "already hidden" dialog — see requestDeleteFromDrawer.)
+            Button(role: isRevealedHidden ? nil : .destructive) { footerButtonAction() } label: {
+                Image(systemName: isRevealedHidden ? "eye" : (imported ? "eye.slash" : "trash")).font(.system(size: 14))
             }
-            .buttonStyle(.plain).foregroundStyle(theme.eventBorder("red"))
+            .buttonStyle(.plain)
+            .foregroundStyle(isRevealedHidden ? theme.text : theme.eventBorder("red"))
             .drawerRingAnchor(.delete)
-            // Careful delete: recurring events pick a scope (matches the web); others confirm once.
-            .confirmationDialog(recurring ? "Delete recurring event?" : "Delete this event?",
-                                isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-                if recurring {
-                    Button("This event only") { engine.deleteOccurrence(id, occKey); onClose() }
-                    Button("This & all future") { engine.deleteFuture(id, occKey); onClose() }
-                    Button("All events", role: .destructive) { engine.remove(id); onClose() }
-                } else {
-                    Button("Delete", role: .destructive) { engine.remove(id); onClose() }
-                }
-                Button("Cancel", role: .cancel) { }
-            }
+            .help(isRevealedHidden ? "Unhide" : (imported ? "Hide" : "Delete"))
         }
         .padding(.horizontal, footHPad).padding(.top, footTopPad).padding(.bottom, footBottomPad)
     }
@@ -924,7 +1083,7 @@ struct EventDrawer: View {
     // ── Load / commit / sync ─────────────────────────────────────────────────────
     private func load() {
         width = min(max(minWidth, width), maxWidth)
-        if let e = engine.event(id) { kind = .timed; title = e.title; color = e.color; itemYear = engine.year; month = e.month; day = e.day; start = e.startHour; end = e.endHour }
+        if let e = engine.event(id) { kind = .timed; title = e.title; color = engine.colorOverride(id) ?? e.color; itemYear = engine.year; month = e.month; day = e.day; start = e.startHour; end = e.endHour }
         else if let b = engine.band(id) { kind = .band; title = b.title; color = b.color; itemYear = b.year; month = b.month; startDay = b.startDay; endDay = b.endDay; track = b.track }
         else if let d = engine.deadline(id) { kind = .deadline; title = d.title; color = d.color; itemYear = d.year; month = d.month; day = d.day; hour = d.hour }
         else { onClose(); return }
@@ -934,6 +1093,15 @@ struct EventDrawer: View {
         // Focused occurrence box id (the clicked ghost if it belongs to this series, else the base).
         // Strip the promoted-band marker so a promoted bar and its timeline occurrence share one note.
         occKey = occurrenceKey(of: (engine.selectedId.flatMap { sourceId(of: $0) == id ? $0 : nil }) ?? id)
+        // Recurring band: resolve the CURRENT occurrence's date range + the base start (for "Started …").
+        if kind == .band, rep.kind != "none" {
+            let range = engine.bandOccurrenceRange(occKey)
+            occStart = range?.start; occEnd = range?.end
+            baseStart = engine.bandBaseStart(id)
+            onBaseOccurrence = !occKey.contains("@")   // no "@Y-M-D" → the base/first occurrence itself
+        } else {
+            occStart = nil; occEnd = nil; baseStart = nil; onBaseOccurrence = false
+        }
         notes = engine.notes(id)
         occNote = engine.occNote(id, occKey)
         noteScope = .series
@@ -947,7 +1115,8 @@ struct EventDrawer: View {
         var order: [DrawerField]
         switch kind {
         case .timed:    order = [.title, .date, .start, .end, .color, .config]
-        case .band:     order = [.title, .start, .end, .color, .config]   // start/end = start/end day
+        // A recurring band shows its occurrence dates read-only → no .start/.end Tab stops.
+        case .band:     order = recurring ? [.title, .color, .config] : [.title, .start, .end, .color, .config]
         case .deadline: order = [.title, .date, .start, .color, .config]  // start = the time
         }
         if configOpen {
@@ -965,6 +1134,7 @@ struct EventDrawer: View {
             if kind != .band, promote != nil { order.append(.promoteLane) }   // lane picker appears when promoted
         }
         order.append(.notes)    // the markdown editor (always present, below Configuration)
+        if recurring { order.append(.noteScope) }   // All Events / This Event toggle (recurring only)
         order.append(.delete)
         ui.drawerFieldOrder = order
     }
@@ -989,6 +1159,8 @@ struct EventDrawer: View {
         }
     }
     private func commitColor(_ v: String) {
+        // Imported events have no editable body — their color is a local overlay keyed by series.
+        if imported { engine.setColorOverride(id, v); return }
         switch kind {
         case .timed: engine.update(id) { $0.color = v }
         case .band: engine.updateBand(id) { $0.color = v }

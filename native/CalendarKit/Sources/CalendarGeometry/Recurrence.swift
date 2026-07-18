@@ -38,21 +38,34 @@ public struct Repeat: Sendable, Equatable, Codable {
 public func occDate(_ p: YMD) -> String { String(format: "%04d-%02d-%02d", p.year, p.month + 1, p.day) }
 public func occKey(_ id: String, _ p: YMD) -> String { "\(id)@\(p.year)-\(p.month)-\(p.day)" }
 
-/// The real item id behind a display-box id: an occurrence "ghost" carries `realId@Y-M-D` (see
-/// occKey); a base box carries the real id verbatim. Used to highlight a whole series (all
-/// occurrences + the promoted/original box) when any one of its boxes is selected.
+/// The real item id behind a display-box id: an occurrence "ghost" carries `realId@Y-M-D` (see occKey),
+/// optionally with a promoted (`~p`) or month-segment (`#segN`) marker after it; a base box carries the
+/// real id verbatim. Used to highlight a whole series when any one of its boxes is selected.
+///
+/// The occurrence suffix is only ever appended at the END, so we strip a *trailing* `@Y-M-D[marker]` —
+/// NOT the first `@`. An imported id bakes the vendor uid in (`apple-<uid>-<datestamp>`), and Google /
+/// Exchange uids routinely contain `@` (e.g. `…@google.com`); splitting on the first `@` truncated those
+/// so the item couldn't be found and its drawer immediately closed.
 public func sourceId(of boxId: String) -> String {
-    String(boxId.split(separator: "@", maxSplits: 1).first ?? Substring(boxId))
+    let pat = "@[0-9]+-[0-9]+-[0-9]+(\(PROMOTED_SUFFIX)|\(SEGMENT_MARKER)[0-9]+)?$"
+    if let r = boxId.range(of: pat, options: .regularExpression) { return String(boxId[..<r.lowerBound]) }
+    return boxId
 }
 
 /// Marker appended to a PROMOTED band box id so it's a DISTINCT box from the timeline occurrence it
 /// mirrors (which shares the same `id@Y-M-D` occKey). `sourceId` ignores it (it lives after the `@`),
 /// so both still map to the source. Navigation/selection treat the two as independent items.
 public let PROMOTED_SUFFIX = "~p"
-/// The occurrence-DATE key for a box (strips the promoted marker) — so a promoted bar and its timeline
-/// occurrence share the same per-occurrence note and resolve to the same date.
+/// Marker appended to the TAIL bars of a band occurrence that crosses a month boundary (rendered as one
+/// bar per month). Like `PROMOTED_SUFFIX` it lives after the `@`, so `sourceId` ignores it and every
+/// segment maps to the source; `occurrenceKey` strips it so all segments share one occurrence key.
+public let SEGMENT_MARKER = "#seg"
+/// The occurrence-DATE key for a box (strips the promoted + segment markers) — so a promoted bar, a
+/// month-crossing tail segment, and the timeline occurrence all resolve to the same per-occurrence date.
 public func occurrenceKey(of boxId: String) -> String {
-    boxId.hasSuffix(PROMOTED_SUFFIX) ? String(boxId.dropLast(PROMOTED_SUFFIX.count)) : boxId
+    var s = boxId
+    if let r = s.range(of: "\(SEGMENT_MARKER)[0-9]+$", options: .regularExpression) { s = String(s[..<r.lowerBound]) }
+    return s.hasSuffix(PROMOTED_SUFFIX) ? String(s.dropLast(PROMOTED_SUFFIX.count)) : s
 }
 
 /// Provenance/kind markers shown as tiny glyphs on an event box (see the overlay). Derived per box
@@ -64,6 +77,7 @@ public struct EventBadges: OptionSet, Sendable, Equatable {
     public static let promoted  = EventBadges(rawValue: 1 << 1)
     public static let ai        = EventBadges(rawValue: 1 << 2)
     public static let imported  = EventBadges(rawValue: 1 << 3)
+    public static let hidden    = EventBadges(rawValue: 1 << 4)   // user-hidden imported, revealed by "Show Hidden" → dotted bar
 }
 
 // ── Date helpers (UTC, calendar-based add so no DST drift) ────────────────────────────

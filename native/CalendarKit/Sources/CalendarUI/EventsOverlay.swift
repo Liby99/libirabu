@@ -78,10 +78,17 @@ struct EventsOverlay: View {
             // Current-time label(s): dark-red glass + a red caret pointing at the now-line. The line
             // itself stays in the Canvas; only this label is SwiftUI (for real glass blur).
             // Suppressed in the lifted copy (onlyBox) — it should show ONLY the selected event.
+            // Clip to the content region (right edge = the dashboard's animated left edge): the SwiftUI
+            // glass pill would otherwise composite ABOVE the dashboard WebView — unlike the Canvas
+            // now-line, which is clipped there — so in week view a right-side day's label leaked over
+            // the panel while the line sat under it. Clipping here keeps the two layered the same.
             if onlyBox == nil {
-                ForEach(nowLabelSpecs(input)) { spec in
-                    nowLabelView(spec)
+                ZStack(alignment: .topLeading) {
+                    ForEach(nowLabelSpecs(input)) { spec in
+                        nowLabelView(spec)
+                    }
                 }
+                .clipShape(RectClip(rect: CGRect(x: -Layout.labelW, y: 0, width: clipRight + Layout.labelW, height: input.vp.h)))
             }
             // Mouse-cursor time tag: SwiftUI (not Canvas) so it isn't clipped at the gutter and its
             // side animates smoothly on a flip (e.g. the week↔day transition) instead of jumping.
@@ -198,7 +205,7 @@ struct EventsOverlay: View {
     }
 
     private func bandItems() -> [Item2] {
-        var placed: [(ev: BandEvent, rect: CGRect, fade: Double)] = []
+        var placed: [(ev: BandEvent, rect: CGRect, fade: Double, clipStart: Bool, clipEnd: Bool)] = []
         let weekish = input.z >= 1.5
         for b in bands {
             // Month/year layout positions a band by its month alone (frameFor(b.month)), so a
@@ -213,7 +220,7 @@ struct EventsOverlay: View {
             let spill: Double = weekish ? Double(spillFactor(b.month, input, dim: Self.spilloverDim)) : 1
             let rect = CGRect(x: r.x, y: r.y, width: r.w, height: r.h)
             guard f.opacity > 0.004, onScreen(rect) else { continue }   // skip invisible / off-screen months
-            placed.append((b, rect, Double(f.opacity) * spill))
+            placed.append((b, rect, Double(f.opacity) * spill, r.clipStart, r.clipEnd))
         }
         // Fully-overlapping (same month/track/startDay/endDay): collapse to ONE (highest id),
         // hide the rest, and flag the kept one with a warning sign.
@@ -264,6 +271,7 @@ struct EventsOverlay: View {
             return Item2(id: id, rect: p.rect, fade: p.fade, z: z, view: AnyView(
                 BandSticker(ev: p.ev, activation: a, editing: id == editingId,
                             gap: gapBy[id], clipBox: clipBox.contains(id),
+                            clipStart: p.clipStart, clipEnd: p.clipEnd,
                             warn: warn.contains(id), box: p.rect.size,
                             badges: bandBadges[id] ?? [],
                             plain: perfMode,
@@ -329,7 +337,7 @@ private extension View {
     /// that flat fill UNDER the glass (Performance Mode is on), so a flat→glass hover cross-fades:
     /// the fill stays put and the glass materializes over the colored fill instead of tearing the
     /// fill out and flashing the dark backdrop while the glass forms. Non-perf: glass only.
-    @ViewBuilder func eventSurface(_ glass: Glass, plainFill: Color, in shape: RoundedRectangle, flat: Bool, keepFillBase: Bool) -> some View {
+    @ViewBuilder func eventSurface<S: Shape>(_ glass: Glass, plainFill: Color, in shape: S, flat: Bool, keepFillBase: Bool) -> some View {
         self.background {
             ZStack {
                 if flat || keepFillBase { shape.fill(plainFill) }      // stable base in Performance Mode
@@ -354,8 +362,12 @@ private struct EventSticker: View {
 
     var body: some View {
         let lay = eventTextLayout(height)
-        let border = theme.eventBorder(ev.color)
-        let color = theme.eventColor(ev.color)
+        // A revealed hidden imported event reads as "off": a neutral gray fill + gray border/badges, with
+        // ONLY the left (dotted) bar keeping the event's color as its identity.
+        let hidden = badges.contains(.hidden)
+        let barColor = theme.eventBorder(ev.color)                            // left bar — always colorful
+        let border = hidden ? theme.textMuted : barColor                     // border + badge glyphs
+        let color = hidden ? theme.text : theme.eventColor(ev.color)         // glass / fill tint
         let r = BandStyle.cornerRadius
         let active = activation.isActive
         let tint = activation.tint * theme.eventTintScale
@@ -400,11 +412,14 @@ private struct EventSticker: View {
                 badgeRow(badges, border).padding(.top, 3).padding(.trailing, 4)
             }
         }
-        .overlay(alignment: .leading) {   // rounded accent bar, inset + thicker when selected
-            Capsule().fill(border).frame(width: barWidth)
-                .padding(.vertical, barVInset).padding(.leading, BandStyle.accentInset)
+        .overlay(alignment: .leading) {   // left accent bar — DOTTED + the ONLY colorful part when hidden
+            Group {
+                if hidden { DottedBar(width: barWidth, color: barColor) }
+                else { Capsule().fill(barColor).frame(width: barWidth) }
+            }
+            .padding(.vertical, barVInset).padding(.leading, BandStyle.accentInset)
         }
-        .overlay { activationBorder(activation, color: border, radius: r) }
+        .overlay { activationBorder(activation, color: border, in: RoundedRectangle(cornerRadius: r)) }
         .animation(.easeInOut(duration: BandStyle.animation), value: activation)
     }
 }
@@ -534,7 +549,7 @@ private struct DeadlinePill: View {
         // flip the old caret retracts into the pill edge while the new one grows from the opposite side.
         .overlay { sideEdge(pointsRight: true, shown: onLeft, r: r) }
         .overlay { sideEdge(pointsRight: false, shown: !onLeft, r: r) }
-        .overlay { activationBorder(activation, color: color, radius: r) }
+        .overlay { activationBorder(activation, color: color, in: RoundedRectangle(cornerRadius: r)) }
         .animation(.easeInOut(duration: BandStyle.animation), value: activation)
     }
 
@@ -598,6 +613,23 @@ private struct Caret: Shape {
 
 /// A horizontal row of the event's provenance/kind marker glyphs (shared by the in-flow month
 /// layout and the week/day top-right overlay).
+/// A vertical DOTTED accent bar (round dots down a line), used in place of the solid accent bar to mark
+/// a revealed hidden imported event. Dot diameter = `width`; spacing ≈ 2.2× so the dots read as dotted.
+private struct DottedBar: View {
+    let width: CGFloat
+    let color: Color
+    var body: some View {
+        GeometryReader { geo in
+            Path { p in
+                p.move(to: CGPoint(x: width / 2, y: width / 2))
+                p.addLine(to: CGPoint(x: width / 2, y: max(width, geo.size.height - width / 2)))
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: width, lineCap: .round, dash: [0.01, width * 2.2]))
+        }
+        .frame(width: width)
+    }
+}
+
 @ViewBuilder private func badgeRow(_ badges: EventBadges, _ color: Color) -> some View {
     HStack(spacing: 2) {
         ForEach(badgeSymbols(badges), id: \.self) { sym in
@@ -620,14 +652,14 @@ private func badgeSymbols(_ b: EventBadges) -> [String] {
 /// The per-activation border overlay shared by both stickers: normal solid (focus), dashed
 /// (accompanied sibling), thick solid (selected/drawer); nothing for hover/plain.
 @ViewBuilder
-private func activationBorder(_ activation: EventActivation, color: Color, radius: CGFloat) -> some View {
+private func activationBorder<S: InsettableShape>(_ activation: EventActivation, color: Color, in shape: S) -> some View {
     switch activation {
     case .selected:
-        RoundedRectangle(cornerRadius: radius).strokeBorder(color, lineWidth: BandStyle.selectedBorderWidth)
+        shape.strokeBorder(color, lineWidth: BandStyle.selectedBorderWidth)
     case .focusMain:
-        RoundedRectangle(cornerRadius: radius).strokeBorder(color, lineWidth: BandStyle.focusBorderWidth)
+        shape.strokeBorder(color, lineWidth: BandStyle.focusBorderWidth)
     case .accompanied:
-        RoundedRectangle(cornerRadius: radius).strokeBorder(color, style: StrokeStyle(lineWidth: BandStyle.accompaniedBorderWidth, dash: BandStyle.accompaniedDash))
+        shape.strokeBorder(color, style: StrokeStyle(lineWidth: BandStyle.accompaniedBorderWidth, dash: BandStyle.accompaniedDash))
     case .hover, .plain:
         EmptyView()
     }
@@ -642,6 +674,8 @@ private struct BandSticker: View {
     let editing: Bool
     let gap: CGFloat?        // px to the nearest later-starting bar (title clips before it)
     let clipBox: Bool        // clip title to this box's right edge (shorter same-start bar on top)
+    let clipStart: Bool      // band started before the viewport's left edge → square left, no accent bar
+    let clipEnd: Bool        // band ends after the viewport's right edge → square right corners
     let warn: Bool           // fully-overlapping-events warning (this is the kept band)
     let box: CGSize          // band box size (for scrim geometry)
     var badges: EventBadges = []   // provenance/kind marker glyphs at the bottom of the bar
@@ -657,7 +691,15 @@ private struct BandSticker: View {
         let glass: Glass = (active || BandStyle.idleFrosted) ? .regular.tint(color.opacity(tint))
                                                              : .clear.tint(color.opacity(tint))
         let barWidth = activation.accentWide ? BandStyle.accentWidthSelected : BandStyle.accentWidth
-        let lead = BandStyle.accentInset + barWidth + BandStyle.barTextGap
+        // Clipped edges (band runs off-screen): square off that side's corners so it reads as continuing
+        // past the viewport. A left clip also drops the accent bar and pulls the title in a touch, since
+        // the bar's width no longer occupies the lead.
+        let leftR: CGFloat = clipStart ? 0 : r
+        let rightR: CGFloat = clipEnd ? 0 : r
+        let bandShape = UnevenRoundedRectangle(topLeadingRadius: leftR, bottomLeadingRadius: leftR,
+                                               bottomTrailingRadius: rightR, topTrailingRadius: rightR, style: .circular)
+        let lead = clipStart ? BandStyle.accentInset + BandStyle.barTextGap
+                             : BandStyle.accentInset + barWidth + BandStyle.barTextGap
 
         // Only the FOCUSED box (exact click / drawer, or a lone hover) un-truncates to full overflow —
         // NOT the accompanied siblings of a selected series, which stay clipped like normal bars so
@@ -675,23 +717,25 @@ private struct BandSticker: View {
 
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .eventSurface(glass, plainFill: color.opacity(tint), in: RoundedRectangle(cornerRadius: r), flat: plain && !active, keepFillBase: plain)
+            .eventSurface(glass, plainFill: color.opacity(tint), in: bandShape, flat: plain && !active, keepFillBase: plain)
             // Spill scrim: a frosted plate of THIS event's color that sits UNDER the box, shares its
             // two left corners (same radius), and extends right to cover the full un-truncated title.
             // Under the box it's hidden by the glass; past the box it occludes the bar behind the
             // spill. A single rounded rect → no triangular gap at the box's rounded right corner.
             .background(alignment: .leading) {
                 if maskW > 0 {
-                    let shape = RoundedRectangle(cornerRadius: r)
+                    let shape = bandShape
                     Rectangle().fill(theme.bg.opacity(0.55))   // base occlusion under the frost
                         .frame(width: box.width + maskW, height: box.height)
                         .glassEffect(.regular.tint(color.opacity(BandStyle.tintIdle * theme.eventTintScale)), in: shape)
                         .clipShape(shape)
                 }
             }
-            .overlay(alignment: .leading) {   // accent bar
-                Capsule().fill(border).frame(width: barWidth)
-                    .padding(.vertical, BandStyle.accentInset).padding(.leading, BandStyle.accentInset)
+            .overlay(alignment: .leading) {   // accent bar — omitted when the band starts off-screen left
+                if !clipStart {
+                    Capsule().fill(border).frame(width: barWidth)
+                        .padding(.vertical, BandStyle.accentInset).padding(.leading, BandStyle.accentInset)
+                }
             }
             .overlay(alignment: .leading) {   // markers (top) + title, as one vertically-centered block
                 if !editing {
@@ -710,7 +754,7 @@ private struct BandSticker: View {
                     .allowsHitTesting(false)
                 }
             }
-            .overlay { activationBorder(activation, color: border, radius: r) }   // level-specific border
+            .overlay { activationBorder(activation, color: border, in: bandShape) }   // level-specific border
             .overlay(alignment: .topLeading) { // fully-overlapping warning
                 if warn {
                     Image(systemName: "exclamationmark.triangle.fill")

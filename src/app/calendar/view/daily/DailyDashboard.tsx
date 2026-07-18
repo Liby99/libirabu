@@ -217,6 +217,11 @@ function sectionsForDay(todos: ParsedTodo[], viewIso: string, isToday: boolean):
   const highSoon = plain
     .filter((t) => (t.priority ?? 0) >= HIGH_PRIORITY && dueDate(t) > viewIso && dueDate(t) <= soonEnd)
     .sort(byOp);
+  // Everything else due within the soon window (priority below HIGH) — a low-key catch-all so an
+  // upcoming task doesn't vanish just because it isn't p:!!!.
+  const lowSoon = plain
+    .filter((t) => (t.priority ?? 0) < HIGH_PRIORITY && dueDate(t) > viewIso && dueDate(t) <= soonEnd)
+    .sort(byOp);
 
   // Recently completed: done items whose finish date falls in [viewIso − RECENT_DONE_DAYS, viewIso].
   // Most-recent first; only those carrying a done: stamp (so we know when).
@@ -231,6 +236,7 @@ function sectionsForDay(todos: ParsedTodo[], viewIso: string, isToday: boolean):
     { title: "Overdue", items: overdue },
     { title: "Remember to Followup", items: followups },
     { title: "High Priority · Due Soon", items: highSoon },
+    { title: "Due Soon", items: lowSoon },
     { title: "Recently Completed", items: completed, done: true },
   ];
 }

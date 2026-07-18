@@ -18,6 +18,7 @@ import remarkRehype from "remark-rehype";
 import rehypeKatex from "rehype-katex";
 import rehypeStringify from "rehype-stringify";
 import remarkTodoTokens from "../../../src/app/calendar/view/notes/remarkTodoTokens";
+import { splitNote, parseManaged } from "../../../src/lib/import/managedNote";
 
 const MONO = "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)";
 
@@ -72,9 +73,24 @@ const md = unified()
   .use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkTodoTokens)
   .use(remarkRehype).use(rehypeKatex).use(rehypeSourceLines).use(rehypeStringify);
 
-/** Render note markdown → HTML (same pipeline as the editor preview). For static per-day panels. */
+function mdHtml(src: string): string { try { return String(md.processSync(src)); } catch { return ""; } }
+const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escAttr = (s: string) => escHtml(s).replace(/"/g, "&quot;");
+
+/** Render a note → HTML. An imported "managed block" (§7) renders as a read-only key:value table
+ *  (provenance, location, meeting link, organizer, attendees) + description, matching the web drawer;
+ *  the user's own text below it renders as normal markdown. Plain notes render straight through. */
 export function renderMarkdown(src: string): string {
-  try { return String(md.processSync(src)); } catch { return ""; }
+  const { managed, user } = splitNote(src);
+  if (!managed) return mdHtml(src);
+  const { fields, description } = parseManaged(managed);
+  const rows = fields.map((f) =>
+    `<div class="cc-dw-mi-row"><span class="cc-dw-mi-key">${escHtml(f.label)}</span>` +
+    `<span class="cc-dw-mi-val">${f.href
+      ? `<a href="${escAttr(f.href)}" target="_blank" rel="noopener noreferrer">${escHtml(f.value)}</a>`
+      : escHtml(f.value)}</span></div>`).join("");
+  const desc = description ? `<div class="cc-dw-mi-desc">${mdHtml(description)}</div>` : "";
+  return `<div class="cc-dw-mi">${rows}${desc}</div>${mdHtml(user)}`;
 }
 
 export const TASK_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
@@ -140,7 +156,7 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
 
   function renderPreview() {
     const src = view.state.doc.toString();
-    try { previewEl.innerHTML = String(md.processSync(src)); }
+    try { previewEl.innerHTML = renderMarkdown(src); }   // managed block → key:value table (§7)
     catch { previewEl.textContent = src; return; }
     const taskLines: number[] = [];
     src.split("\n").forEach((ln, i) => { if (TASK_RE.test(ln)) taskLines.push(i); });

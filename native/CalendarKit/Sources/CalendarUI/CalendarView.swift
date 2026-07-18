@@ -18,14 +18,33 @@ public struct CalendarView: View {
     @State private var dashFrac: CGFloat = 0.45   // mirrors engine.daily.frac; updated live on resize
     @State private var dashTab: DashTab = .todo   // dashboard TODO/NOTE tab
     @State private var noteMode: NotesMode = .edit // daily-note edit/preview (native toggle mirrors JS)
+    @State private var search = SearchState()      // toolbar event search (⌘F / magnifyingglass)
+    @State private var searchAnchor: CGPoint = .zero   // content stack's window-space origin (for dropdown alignment)
+    @State private var searchCloseWork: DispatchWorkItem?   // pending "unmount the bar after it collapses"
     // Global Performance Mode: render events as flat tinted fills instead of Liquid Glass
     // (glass is one GPU pass per sticker). Persisted; defaults on for now.
     @AppStorage("cc.performanceMode") private var perfMode = true
+    // View ▸ Show Hidden Imported Events. @AppStorage tracks the same UserDefaults key the menu toggles;
+    // the onChange below repaints the calendar when it flips (from either app target's menu).
+    @AppStorage(CalendarEngine.showHiddenImportedKey) private var showHiddenImported = false
+    @AppStorage("cc.tutorial.seen") private var tutorialSeen = false   // auto-show the onboarding carousel once
     @Environment(\.colorScheme) private var scheme
-    @State private var assistant = AssistantState()      // AI panel conversation
-    @State private var showAssistant = false             // AI dropdown visibility
+    @Environment(\.openWindow) private var openWindow    // opens the standalone Calendar AI window
+    // The quick-ask callout's OWN assistant session (app-level; independent of the standalone
+    // window's session, sharing only the conversation store). nil (dev shell) → window only.
+    private let assistant: AssistantState?
+    // The standalone window's session — "Open in window" hands the callout's thread to it.
+    private let windowAssistant: AssistantState?
+    @State private var showAssistantCallout = false
 
-    public init() {}
+    /// Inject a shared engine so another scene (the standalone Calendar AI window) can read the
+    /// same live calendar state. Defaults to a fresh engine when hosted standalone.
+    @MainActor public init(engine: CalendarEngine? = nil, assistant: AssistantState? = nil,
+                           windowAssistant: AssistantState? = nil) {
+        _engine = State(initialValue: engine ?? CalendarEngine())
+        self.assistant = assistant
+        self.windowAssistant = windowAssistant
+    }
 
     /// After an inline editor (title / track name) commits, its text field was first responder; return
     /// first-responder to the calendar canvas so keyboard shortcuts keep working (e.g. Enter → edit
@@ -35,6 +54,106 @@ public struct CalendarView: View {
         DispatchQueue.main.async {
             if let c = gestureForwarder.catcher { c.window?.makeFirstResponder(c) }
         }
+    }
+
+    // ── Delete-confirm dialog ─────────────────────────────────────────────────────
+    /// Carry out a chosen scope, then dismiss the dialog (and the drawer, on an actual delete).
+    private func performDelete(_ choice: DeleteChoice) {
+        guard let pd = ui.pendingDelete else { return }
+        switch choice {
+        case .cancel:        break
+        case .thisEvent:     engine.deleteOccurrence(pd.id, pd.occKey)
+        case .thisAndFuture: engine.deleteFuture(pd.id, pd.occKey)
+        case .deleteAll:     engine.remove(pd.id)
+        case .hide:          engine.hideImportedSeries(pd.id)   // imported → hide (can't truly delete)
+        }
+        ui.pendingDelete = nil
+        if !choice.isCancel { ui.openEventId = nil }   // event gone → close its drawer if open
+        refocusCatcher()                               // keys go back to the calendar
+        engine.wake()
+    }
+    /// The key monitor's ←/→/Enter/Esc while the dialog is up.
+    private func handleDeleteDialogKey(_ key: DeleteDialogKey) {
+        guard let pd = ui.pendingDelete else { return }
+        switch key {
+        case .left:    ui.moveDeleteFocus(-1)
+        case .right:   ui.moveDeleteFocus(1)
+        case .cancel:  performDelete(.cancel)
+        case .confirm: performDelete(pd.choices[pd.focus ?? pd.primaryIndex])
+        }
+        engine.wake()
+    }
+    /// One-time wiring on the calendar's first appearance. Extracted from `body` so the view's long
+    /// modifier chain stays within the Swift type-checker's budget.
+    private func setupOnAppear(size: CGSize) {
+        WindowBeepSilencer.installOnce()   // stop the window beeping on keys the calendar leaves unhandled
+        if !tutorialSeen { tutorialSeen = true; ui.tutorialIndex = 0; ui.showTutorial = true }   // first launch
+        engine.setViewport(size)
+        dashFrac = engine.daily.frac
+        engine.onEditBand = { id, rect in engine.bandEditing = true; ui.editingBand = BandEdit(id: id, rect: rect) }
+        engine.onEditTimed = { id, rect in engine.timedEditing = true; ui.editingTimed = TimedEdit(id: id, rect: rect) }
+        engine.onEditTrackName = { m, t, rect in engine.trackEditing = true; ui.editingTrack = TrackEdit(month: m, track: t, rect: rect) }
+        // An external data change removed the item a drawer / delete-dialog / inline editor was showing
+        // (e.g. deleted in Apple Calendar, then re-imported on foreground) → dismiss it.
+        engine.onExternalDataChange = { [engine] in
+            if let id = ui.openEventId, !engine.itemExists(id) { ui.openEventId = nil }
+            if let pd = ui.pendingDelete, !engine.itemExists(pd.id) { ui.pendingDelete = nil; engine.inputModalUp = false }
+            if let te = ui.editingTimed, !engine.itemExists(sourceId(of: te.id)) { ui.editingTimed = nil; engine.timedEditing = false }
+            if let be = ui.editingBand, !engine.itemExists(sourceId(of: be.id)) { ui.editingBand = nil; engine.bandEditing = false }
+        }
+        // Day-view dashboard Tab stops (TODO / NOTE): the engine's keyboard system drives the WebView's row
+        // cursor + note-editor focus through this bridge, and switches the native TODO/NOTE tab to match.
+        engine.onDashCommand = { [carousel = dashCarousel, tabBinding = $dashTab, engine] cmd in
+            switch cmd {
+            case .focus(let stop):
+                if stop == .todo { tabBinding.wrappedValue = .todo }
+                else if stop == .note { tabBinding.wrappedValue = .note }
+                carousel.navFocus(stop)
+            case .move(let d): carousel.navMove(d)
+            case .activate:   // Space/Enter: note → focus the editor; todo → toggle the row
+                if engine.dashStop == .note { carousel.focusNoteEditor() } else { carousel.navActivate() }
+            case .open: carousel.navOpen()
+            }
+            engine.wake()
+        }
+    }
+
+    /// The key monitor's ←/→/Enter/Esc while the tutorial carousel is up.
+    private func handleTutorialKey(_ key: DeleteDialogKey) {
+        let last = TutorialView.slides.count - 1
+        switch key {
+        case .left:    ui.tutorialIndex = max(0, ui.tutorialIndex - 1)
+        case .right:   ui.tutorialIndex = min(last, ui.tutorialIndex + 1)
+        case .confirm: if ui.tutorialIndex >= last { ui.showTutorial = false } else { ui.tutorialIndex += 1 }
+        case .cancel:  ui.showTutorial = false
+        }
+        engine.wake()
+    }
+
+    // ── Toolbar search ───────────────────────────────────────────────────────────────
+    private func openSearch() {
+        engine.wake()
+        searchCloseWork?.cancel(); searchCloseWork = nil   // cancel a pending collapse (re-open mid-close)
+        if search.open {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { search.expanded = true }   // re-expand
+        } else {
+            search.open = true   // mounts the bar; its onAppear animates the expand from the button
+        }
+    }
+    /// Animate the bar collapsing back to the button, THEN unmount it (swap in the round button). Clearing
+    /// the query first drops the dropdown; the delayed work is cancellable so a quick re-open aborts it.
+    private func closeSearch() {
+        search.query = ""; search.results = []; search.sel = 0
+        withAnimation(.easeOut(duration: 0.24)) { search.expanded = false }
+        searchCloseWork?.cancel()
+        let work = DispatchWorkItem { search.open = false; refocusCatcher() }
+        searchCloseWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: work)
+    }
+    private func commitSearch() {
+        guard search.results.indices.contains(search.sel) else { return }
+        engine.revealAndSelect(id: search.results[search.sel].id)
+        closeSearch()
     }
 
     /// The calendar scene for one frame's `input`. Rendered inside a `TimelineView(.animation)` while
@@ -88,6 +207,10 @@ public struct CalendarView: View {
             CursorRing(rect: engine.bandCursorRect(), theme: theme, cornerRadius: 4,
                        geometryAnimating: engine.isAnimating)
                 .offset(x: Layout.padLeft)
+            // Track-name cursor (month view's extra Tab stops): a dashed cell over the gutter name slot.
+            CursorRing(rect: engine.trackNameCursorRect(), theme: theme, cornerRadius: 4,
+                       geometryAnimating: engine.isAnimating)
+                .offset(x: Layout.padLeft)
             // Event cursor: dashed ring around the SELECTED event box (keyboard mode).
             CursorRing(rect: engine.selectionRingRect().map { $0.insetBy(dx: -2, dy: -2) },
                        theme: theme, cornerRadius: 8, geometryAnimating: engine.isAnimating)
@@ -120,20 +243,20 @@ public struct CalendarView: View {
             .offset(x: Layout.padLeft - engine.drawerShift)
     }
 
-    /// Awake → per-frame TimelineView; idle → a single static frame (no display-cycle observer).
+    /// One stable `TimelineView`: `paused` just toggles whether it ticks per-frame. The view TYPE is the
+    /// same whether awake or idle, so the tree (and the stateful pagers / key monitor hung off it) is
+    /// NEVER rebuilt — only the frame schedule stops. Idle-CPU relief comes from breaking the
+    /// layout→setViewport→wake feedback loop (see setViewport), not from swapping the view out.
     @ViewBuilder
     private func calendarSurface(awake: Bool, vp: Viewport, theme: Theme) -> some View {
-        if awake {
-            TimelineView(.animation) { tl in
-                calendarScene(engine.sceneInput(at: tl.date, viewport: vp), vp: vp, theme: theme)
-            }
-        } else {
-            calendarScene(engine.sceneInput(at: .now, viewport: vp), vp: vp, theme: theme)
+        TimelineView(.animation(paused: !awake)) { tl in
+            calendarScene(engine.sceneInput(at: tl.date, viewport: vp), vp: vp, theme: theme)
         }
     }
 
     public var body: some View {
         let theme = Theme(dark: scheme == .dark)
+        ZStack(alignment: .top) {
         GeometryReader { geo in
             let vp = Viewport(w: geo.size.width - Layout.padLeft - Layout.padRight, h: geo.size.height)
             // Pause the per-frame render loop when idle: reading `awake` (an @Observable bit the engine
@@ -163,7 +286,17 @@ public struct CalendarView: View {
                                   // live engine/ui state each press; returns whether it consumed the key.
                                   onKey: { KeyboardModel(engine: engine, ui: ui).handle($0) },
                                   onKeyGuide: { ui.showKeyGuide = $0 },
-                                  isEditingText: { ui.drawerFieldEditing || ui.drawerConfirmingDelete }))
+                                  isEditingText: { ui.drawerFieldEditing },
+                                  onSearch: { openSearch() },
+                                  isModalDelete: { ui.pendingDelete != nil },
+                                  onDeleteDialogKey: { handleDeleteDialogKey($0) },
+                                  onRequestDelete: {
+                                      if let t = engine.deleteTargetForSelection() {
+                                          ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring, imported: t.imported, alreadyHidden: t.alreadyHidden)
+                                      }
+                                  },
+                                  isTutorialUp: { ui.showTutorial },
+                                  onTutorialKey: { handleTutorialKey($0) }))
             // Day-view daily dashboard: the TODO list + upcoming deadlines, in a transparent
             // WebView (reuses the web's tokenizer + sectioning). Sits in the dashboard content
             // region; shown at day level with the drawer closed (it snaps in — WKWebView doesn't
@@ -181,7 +314,9 @@ public struct CalendarView: View {
                                           frac: dashFrac, vp: vp,
                                           containerWidth: geo.size.width, height: geo.size.height, theme: theme,
                                           onOpen: { ui.openEventId = sourceId(of: $0) },
-                                          onCloseDrawer: { ui.openEventId = nil })
+                                          onCloseDrawer: { ui.openEventId = nil },
+                                          onNoteExit: { engine.dashNoteExit() },
+                                          onNavTab: { fwd in engine.tabCursor(fwd) })
                         // Stay hit-testable while the drawer is open so the in-page scrim can intercept +
                         // close (the WKWebView layer ignores the SwiftUI scrim/allowsHitTesting anyway).
                         .allowsHitTesting(engine.chrome.level == 3)
@@ -248,15 +383,9 @@ public struct CalendarView: View {
             // TimelineView computed (snapshotInput — no double tween-advance) + the live drawer shift.
             .overlay {
                 if ui.openEventId != nil, let sel = engine.selectedId {
-                    Group {
-                        if awake {
-                            TimelineView(.animation) { _ in liftedBox(sel: sel, theme: theme) }
-                        } else {
-                            liftedBox(sel: sel, theme: theme)   // idle → static (no display-cycle observer)
-                        }
-                    }
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
+                    TimelineView(.animation(paused: !awake)) { _ in liftedBox(sel: sel, theme: theme) }
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
                 }
             }
             // 4b. the drawer panel — slides in from the trailing edge
@@ -268,46 +397,48 @@ public struct CalendarView: View {
             }
             .animation(.easeOut(duration: 0.26), value: ui.openEventId)
             // Cmd+K shortcut guide — held-open overlay showing the current state's keys (fades in/out).
+            // Also opened (latched) by Help → Keyboard Shortcuts; a tap anywhere dismisses it (the ⌘K
+            // hold path releases on keyUp as before, so the tap layer is only the exit for the latched case).
             .overlay {
                 if ui.showKeyGuide {
-                    KeyGuideOverlay(model: KeyboardModel(engine: engine, ui: ui), theme: theme)
-                        .transition(.opacity)
+                    ZStack {
+                        Color.black.opacity(0.001).contentShape(Rectangle())
+                            .onTapGesture { ui.showKeyGuide = false; engine.wake() }
+                        KeyGuideOverlay(model: KeyboardModel(engine: engine, ui: ui), theme: theme)
+                    }
+                    .transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: 0.15), value: ui.showKeyGuide)
-            // AI assistant — scrim (tap to close) + frosted dropdown from the top-right (below the toolbar).
+            .onReceive(NotificationCenter.default.publisher(for: .showKeyboardShortcuts)) { _ in
+                ui.showKeyGuide = true; engine.wake()
+            }
+            // A gentle blur on the calendar (only) while the delete dialog is up — added BEFORE the dialog
+            // overlay so the dialog itself stays sharp. Small radius: a soft de-focus, not a heavy frost.
+            .blur(radius: ui.pendingDelete != nil ? 2.5 : 0)
+            // Delete-confirm dialog — topmost, above the drawer. Same modal for the trash button and the
+            // Delete hotkey. Keyboard is routed via the monitor (isModalDelete); buttons are also clickable.
             .overlay {
-                if showAssistant {
-                    Rectangle()
-                        .fill(.black.opacity(0.08))
-                        .contentShape(Rectangle())
-                        .onTapGesture { showAssistant = false }
+                if let pd = ui.pendingDelete {
+                    DeleteConfirmDialog(pending: pd, theme: theme,
+                                        onChoose: { performDelete($0) })
                         .transition(.opacity)
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                if showAssistant {
-                    AssistantPanel(state: assistant, onClose: { showAssistant = false })
-                        // The content ignores the safe area, so offset below the window toolbar
-                        // (~52pt) plus a small gap so the panel drops beneath it, near the button.
-                        .padding(.top, 60).padding(.trailing, 12)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+            .animation(.easeOut(duration: 0.12), value: ui.pendingDelete)
+            .onChange(of: ui.pendingDelete == nil) { _, gone in engine.inputModalUp = !gone }
+            // Tutorial carousel — topmost overlay. Auto-shown once on first launch; re-openable via Help ▸ Tutorial.
+            .overlay {
+                if ui.showTutorial {
+                    TutorialView(theme: theme, ui: ui, onClose: { ui.showTutorial = false })
+                        .transition(.opacity)
                 }
             }
-            // AI panel open → freeze calendar hover/hit-testing behind it (see CatcherView guards).
-            .onChange(of: showAssistant) { _, open in
-                engine.assistantOpen = open
-                if open { engine.onHoverExit() }
+            .animation(.easeOut(duration: 0.15), value: ui.showTutorial)
+            .onReceive(NotificationCenter.default.publisher(for: .showTutorial)) { _ in
+                ui.tutorialIndex = 0; ui.showTutorial = true; engine.wake()
             }
-            .animation(.easeOut(duration: 0.22), value: showAssistant)
-            .onAppear {
-                WindowBeepSilencer.installOnce()   // stop the window beeping on keys the calendar leaves unhandled
-                engine.setViewport(geo.size)
-                assistant.engine = engine          // give the AI panel read access to the calendar
-                dashFrac = engine.daily.frac
-                engine.onEditBand = { id, rect in engine.bandEditing = true; ui.editingBand = BandEdit(id: id, rect: rect) }
-                engine.onEditTimed = { id, rect in engine.timedEditing = true; ui.editingTimed = TimedEdit(id: id, rect: rect) }
-            }
+            .onAppear { setupOnAppear(size: geo.size) }
             .onChange(of: geo.size) { _, s in engine.setViewport(s) }
             .onChange(of: ui.openEventId) { _, v in
                 engine.drawerOpen = v != nil
@@ -336,28 +467,96 @@ public struct CalendarView: View {
             // they change, else the switch would freeze while the calendar is idle.
             .onChange(of: dashTab) { _, _ in engine.wake() }
             .onChange(of: noteMode) { _, _ in engine.wake() }
+            // Apple Calendar import: pull on first appearance, whenever the app returns to the foreground
+            // (auto-refresh), and when the Settings window changes the connection.
+            .onAppear { engine.importAppleCalendar() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                engine.importAppleCalendar()
+                engine.syncNow()   // also pull/push iCloud on foreground (was never wired before)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .appleCalendarSettingsChanged)) { _ in engine.importAppleCalendar() }
+            // "Show Hidden Imported Events" flipped → repaint. onChange catches the SwiftUI menu's @AppStorage
+            // write; the notification catches the AppKit (dev-build) menu's direct UserDefaults write.
+            .onChange(of: showHiddenImported) { _, _ in engine.viewPrefsChanged() }
+            .onReceive(NotificationCenter.default.publisher(for: .calendarViewPrefsChanged)) { _ in engine.viewPrefsChanged() }
         }
         .ignoresSafeArea()
-        .toolbar {
-            ToolbarItem(placement: .navigation) { Breadcrumb(engine: engine) }
-            ToolbarSpacer(.flexible)
-            ToolbarItem(placement: .primaryAction) {
-                Button { } label: { Image(systemName: "magnifyingglass") }
-                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Search")
+            // Search overlays — siblings inside the ZStack, so they respect the toolbar safe-area inset
+            // (the dropdown lands just BELOW the toolbar) while the calendar above stays full-bleed. The
+            // dropdown is right-aligned under the (trailing) search field and styled like the drawer.
+            if search.open {
+                Color.black.opacity(0.001).contentShape(Rectangle())   // click-outside closes search
+                    .onTapGesture { closeSearch() }
             }
-            ToolbarSpacer(.fixed)
-            ToolbarItem(placement: .primaryAction) {
-                Button { showAssistant.toggle() } label: { Image(systemName: "sparkles") }
-                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Assistant")
+            if search.open, !search.query.isEmpty {
+                // Pin the dropdown's top-left to the search bar's bottom-left. Both frames are measured in
+                // the window's content-view space (WindowRectReader), so subtracting this stack's origin
+                // gives the local offset — aligning across the toolbar↔content hierarchy boundary.
+                Color.clear
+                    .background(WindowRectReader { searchAnchor = $0.origin })
+                    .overlay(alignment: .topLeading) {
+                        SearchDropdown(search: search, theme: theme, onPick: { search.sel = $0; commitSearch() })
+                            .fixedSize(horizontal: false, vertical: true)
+                            .offset(x: search.fieldFrame.minX - searchAnchor.x,
+                                    y: search.fieldFrame.maxY - searchAnchor.y + 3)
+                    }
+                    .transition(.opacity)
             }
-            ToolbarSpacer(.fixed)
-            ToolbarItem(placement: .primaryAction) {
-                Button { engine.goToToday() } label: { Text("Today") }
-                    .buttonStyle(.glass).buttonBorderShape(.capsule)
-            }
-        }
+        }   // ZStack
+        .animation(.easeOut(duration: 0.12), value: search.query.isEmpty)
+        .toolbar { mainToolbar }
         // Let the translucent window material show through the toolbar (native tint).
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        // Publish the quick-ask callout binding for the app's ⌘I command: calendar window key →
+        // ⌘I toggles the callout; no calendar window → the command falls back to the full window.
+        .focusedSceneValue(\.assistantCallout, $showAssistantCallout)
+    }
+
+    /// The window toolbar. Extracted to a builder so the type-checker doesn't choke on the whole body,
+    /// and so the search field can swap in for the magnifyingglass button (expanding from it) when open.
+    @ToolbarContentBuilder
+    private var mainToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) { Breadcrumb(engine: engine) }
+        ToolbarSpacer(.flexible)
+        ToolbarItem(placement: .primaryAction) {
+            if search.open {
+                SearchBar(engine: engine, search: search,
+                          onCommit: { commitSearch() }, onClose: { closeSearch() })
+            } else {
+                Button { openSearch() } label: { Image(systemName: "magnifyingglass") }
+                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Search")
+            }
+        }
+        ToolbarSpacer(.fixed)
+        ToolbarItem(placement: .primaryAction) {
+            // With a shared assistant: a quick-ask CALLOUT anchored to this button (an NSPopover —
+            // caret + glass, may extend beyond the window). Without one (dev shell): the window.
+            Button {
+                if assistant != nil { showAssistantCallout.toggle() }
+                else { openWindow(id: "assistant") }
+            } label: { Image(systemName: "sparkles") }
+                .buttonStyle(.glass).buttonBorderShape(.circle).help("Calendar AI (⌘I)")
+                .popover(isPresented: $showAssistantCallout, arrowEdge: .bottom) {
+                    if let assistant {
+                        AssistantCalloutView(state: assistant) {
+                            // Hand the callout's thread to the window: flush it to the store,
+                            // point the window's session at it, close the callout, open the window.
+                            showAssistantCallout = false
+                            assistant.persistNow()
+                            if let id = assistant.currentId { windowAssistant?.selectConversation(id) }
+                            openWindow(id: "assistant")
+                        }
+                        // Publish from INSIDE the popover too, so ⌘I still toggles (closes) while
+                        // the popover itself holds keyboard focus.
+                        .focusedSceneValue(\.assistantCallout, $showAssistantCallout)
+                    }
+                }
+        }
+        ToolbarSpacer(.fixed)
+        ToolbarItem(placement: .primaryAction) {
+            Button { engine.goToToday() } label: { Text("Today") }
+                .buttonStyle(.glass).buttonBorderShape(.capsule)
+        }
     }
 }
 
@@ -556,12 +755,12 @@ private struct Breadcrumb: View {
                     .buttonStyle(.plain)
             }
             if chrome.level >= 1 {
-                sep; crumbButton(MONTH_LONG[chrome.focus], active: chrome.level == 1) { engine.zoomToMonth() }
+                sep; crumbButton(MONTH_LONG[chrome.displayFocus], active: chrome.level == 1) { engine.zoomToMonth() }
             }
             if chrome.level >= 2 {
                 sep; crumbButton("Week \(Int(chrome.week.rounded()) + 1)", active: chrome.level == 2) { engine.zoomToWeek() }
             }
-            if chrome.level >= 3, let r = resolveDate(chrome.year, chrome.focus, chrome.dailyDom) {
+            if chrome.level >= 3, let r = resolveDate(chrome.year, chrome.displayFocus, chrome.displayDom) {
                 sep; crumb("\(WD_LONG[dayOfWeek(r.year, r.month, r.day)]), \(r.day)\(ordinal(r.day))", active: true)
             }
         }
@@ -617,6 +816,12 @@ struct InputCatcher: NSViewRepresentable {
     var onKey: (KeyToken) -> Bool = { _ in false }   // dispatch a key; returns whether it was consumed
     var onKeyGuide: (Bool) -> Void = { _ in }        // Cmd+K held → show/hide the shortcut guide
     var isEditingText: () -> Bool = { false }         // a drawer inline editor owns the keyboard (pass keys to it)
+    var onSearch: () -> Void = { }                    // Cmd+F → open the toolbar search field
+    var isModalDelete: () -> Bool = { false }         // the delete-confirm dialog is up
+    var onDeleteDialogKey: (DeleteDialogKey) -> Void = { _ in }
+    var onRequestDelete: () -> Void = { }             // Delete on a selected event → raise the dialog
+    var isTutorialUp: () -> Bool = { false }          // the tutorial carousel is up
+    var onTutorialKey: (DeleteDialogKey) -> Void = { _ in }
 
     func makeNSView(context: Context) -> CatcherView {
         let v = CatcherView()
@@ -629,6 +834,12 @@ struct InputCatcher: NSViewRepresentable {
         v.onKey = onKey
         v.onKeyGuide = onKeyGuide
         v.isEditingText = isEditingText
+        v.onSearch = onSearch
+        v.isModalDelete = isModalDelete
+        v.onDeleteDialogKey = onDeleteDialogKey
+        v.onRequestDelete = onRequestDelete
+        v.isTutorialUp = isTutorialUp
+        v.onTutorialKey = onTutorialKey
         forwarder?.catcher = v   // let the dashboard web view forward horizontal scroll + pinch here
         v.installYearScrollDriver()
         v.installTimelineScrollDriver()
@@ -638,8 +849,92 @@ struct InputCatcher: NSViewRepresentable {
     func updateNSView(_ v: CatcherView, context: Context) {
         v.engine = engine; v.monthBridge = monthBridge; v.weekBridge = weekBridge; v.dayBridge = dayBridge
         v.onOpenEvent = onOpenEvent; v.onEditTrack = onEditTrack
-        v.onKey = onKey; v.onKeyGuide = onKeyGuide; v.isEditingText = isEditingText
+        v.onKey = onKey; v.onKeyGuide = onKeyGuide; v.isEditingText = isEditingText; v.onSearch = onSearch
+        v.isModalDelete = isModalDelete; v.onDeleteDialogKey = onDeleteDialogKey; v.onRequestDelete = onRequestDelete
+        v.isTutorialUp = isTutorialUp; v.onTutorialKey = onTutorialKey
         forwarder?.catcher = v
+    }
+}
+
+/// The custom delete-confirmation modal. A dimmed backdrop + a centered card with the question and a
+/// horizontal row of buttons. Keyboard focus (the dashed ring) is driven by `pending.focus` via the key
+/// monitor; every button is also mouse-clickable. Esc → Cancel is handled by the monitor; clicking the
+/// backdrop cancels too.
+struct DeleteConfirmDialog: View {
+    let pending: PendingDelete
+    let theme: Theme
+    var onChoose: (DeleteChoice) -> Void
+
+    var body: some View {
+        ZStack {
+            // Full-window scrim: a light dim that (with the CatcherView's modal guards) swallows all mouse
+            // to the canvas. The subtle blur itself is applied to the calendar content, not here. Tap cancels.
+            Color.black.opacity(0.1).ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { onChoose(.cancel) }
+            // The glass card — same frosted-glass + border + shadow treatment as the ⌘K shortcut guide.
+            VStack(spacing: 14) {
+                Text(pending.title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.text)
+                if let note = pending.note {
+                    Text(note)
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.textMuted)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 360)
+                        // Take the FULL wrapped height for that width — without this, the card's outer
+                        // `.fixedSize()` measures the note as one line and clips the buttons below it.
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 12) {
+                    ForEach(Array(pending.choices.enumerated()), id: \.offset) { idx, choice in
+                        DeleteDialogButton(label: choice.label(recurring: pending.recurring),
+                                           destructive: !choice.isCancel,
+                                           focused: pending.focus == idx,   // nil focus → no ring shown yet
+                                           theme: theme) { onChoose(choice) }
+                    }
+                }
+            }
+            .padding(.horizontal, 40).padding(.vertical, 26)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
+            .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
+            .fixedSize()
+        }
+    }
+}
+
+/// One button in the delete dialog: a rounded pill that shows a dashed ring (matching the app's keyboard
+/// focus style) when it's the focused choice, red text for destructive actions.
+private struct DeleteDialogButton: View {
+    let label: String
+    let destructive: Bool
+    let focused: Bool
+    let theme: Theme
+    var action: () -> Void
+    @State private var hover = false
+
+    private var accent: Color { destructive ? theme.eventBorder("red") : theme.text }
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(accent)
+                .padding(.horizontal, 18).padding(.vertical, 9)
+                .frame(minWidth: 76)
+        }
+        .buttonStyle(.plain)
+        .background(Capsule(style: .continuous).fill(theme.text.opacity(hover ? 0.14 : 0.07)))
+        // Focus ring: a dashed capsule, offset slightly outward, shown only for the arrow-focused button.
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(focused ? accent : .clear,
+                              style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                .padding(-3)
+        )
+        .onHover { hover = $0; if $0 { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() } }
     }
 }
 
@@ -665,6 +960,9 @@ final class DriverScrollView: NSScrollView {
     }
 }
 
+/// The four keys the delete-confirm dialog reacts to (routed from the key monitor while the dialog is up).
+enum DeleteDialogKey { case left, right, confirm, cancel }
+
 final class CatcherView: NSView, NSMenuItemValidation {
     weak var engine: CalendarEngine?
     var onOpenEvent: ((String) -> Void)?
@@ -672,6 +970,15 @@ final class CatcherView: NSView, NSMenuItemValidation {
     var onKey: ((KeyToken) -> Bool)?
     var onKeyGuide: ((Bool) -> Void)?
     var isEditingText: (() -> Bool)?    // drawer inline editor owns the keyboard → pass keys through
+    var onSearch: (() -> Void)?         // Cmd+F → open the toolbar search field
+    var isModalDelete: (() -> Bool)?    // the delete-confirm dialog is up → it owns ALL input
+    var onDeleteDialogKey: ((DeleteDialogKey) -> Void)?   // route ←/→/Enter/Esc to the dialog while it's up
+    var onRequestDelete: (() -> Void)?  // Delete on a selected event → raise the confirm dialog (no immediate delete)
+    var isTutorialUp: (() -> Bool)?     // the tutorial carousel is up → also a blocking modal
+    var onTutorialKey: ((DeleteDialogKey) -> Void)?   // route ←/→/Enter/Esc to the carousel
+    /// A blocking modal is up → the canvas ignores every mouse/scroll/pinch event (the modal's backdrop
+    /// captures them) and the key monitor swallows every non-modal key.
+    private var modalActive: Bool { isModalDelete?() == true || isTutorialUp?() == true }
     private var keyGuideShown = false   // Cmd+K guide currently displayed (so we hide once on release)
     private var trackingAreaRef: NSTrackingArea?
     // Invisible NSScrollView used purely as a physics driver: AppKit computes the elastic
@@ -695,6 +1002,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
     private var swallowMonthMomentum = false
     private var swallowWeekMomentum = false   // same, for the week-view month-edge flip
     private var swallowDayMomentum = false    // same, for the day-view month-edge flip
+    // A month boundary flip withholds `.ended` from the pager, so its NSScrollView is left with a stale
+    // (pre-flip) offset that a later scrollTo can't override while the gesture stays "open". On the FIRST
+    // gesture after a flip, snap the SV back to the new focus before forwarding — else it lunges back
+    // toward the old month (Jan → burst toward November).
+    private var monthFlipPendingResync = false
     // Week view has TWO scroll axes (horizontal = week window, vertical = hour timeline). Lock to
     // the dominant axis at gesture start so a diagonal drag doesn't do both at once.
     private enum ScrollAxis { case undecided, horizontal, vertical }
@@ -819,7 +1131,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         engine.setTlScroll(tlDriver.contentView.bounds.origin.y)
     }
 
-    deinit { NotificationCenter.default.removeObserver(self); if let m = keyMonitor { NSEvent.removeMonitor(m) } }
+    deinit { NotificationCenter.default.removeObserver(self); if let m = keyMonitor { NSEvent.removeMonitor(m) }; repeatTimer?.invalidate() }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -832,7 +1144,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
     override func layout() {
         super.layout()
         syncing = true   // suppress the mirror while resizing the clip/document view
-        engine?.setViewport(bounds.size)
+        engine?.setViewport(bounds.size)   // idempotent: a no-op size is ignored inside (no wake / re-render)
         // Size the driver so its scrollable range == the engine's yearMaxScroll:
         // docHeight − clipHeight = maxScroll  ⇒  docHeight = clipHeight + maxScroll.
         yearScroll.frame = bounds
@@ -851,11 +1163,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
 
     override func scrollWheel(with e: NSEvent) {
+        if modalActive { return }   // blocking modal up → no canvas scrolling
         // Year view: hand the event to the NSScrollView driver so AppKit does the elastic
         // physics; its offset is mirrored back via clipBoundsChanged. Deeper levels use
         // the manual timeline/week/day handling.
         guard let engine else { return }
-        if engine.assistantOpen { return }   // AI panel open → don't pan/zoom the calendar behind it
         // Drop leftover momentum from a fling that just flipped the month boundary (a new
         // finger-down gesture cancels the swallow and scrolls normally again).
         if swallowMonthMomentum {
@@ -885,18 +1197,25 @@ final class CatcherView: NSView, NSMenuItemValidation {
         if engine.isYearLevel {
             yearScroll.scrollWheel(with: e)   // DriverScrollView does the physics + begin/end
         } else if engine.isMonthLevel, let sv = monthBridge?.scrollView {
+            // Recover from a prior boundary flip: the SV kept the old month's offset. Snap it to the new
+            // focus on the first touch of the next gesture — BEFORE any event reaches the SV — so the
+            // gesture starts from the right month instead of lunging back toward the old one.
+            if monthFlipPendingResync, e.phase.contains(.began) || e.phase.contains(.mayBegin) {
+                monthFlipPendingResync = false
+                monthBridge?.scrollToFocus(engine.focus)
+            }
             if e.phase.contains(.began) { engine.beginMonthGesture() }
             let ended = e.phase.contains(.ended) || e.phase.contains(.cancelled)
-            // A year-boundary flip is about to commit → do NOT hand `.ended` to the pager. Otherwise its
-            // ScrollTargetBehavior starts a decelerate/snap toward a target in the OLD year's content
-            // coords; the flip re-anchors focus/year, so that stale animation later lands several months
-            // off. Withholding `.ended` means the pager never starts it — the flip drives instead, and
-            // the momentum tail is swallowed (like the week/day flips).
-            let willFlip = ended && engine.monthFlipArmed
-            if !willFlip { sv.scrollWheel(with: e) }   // invisible SwiftUI ScrollView does native .paging
+            // Always forward — INCLUDING `.ended` on a boundary flip. Withholding it (the old approach)
+            // left the SV's gesture stuck OPEN at the overscrolled edge page, so the flip's scrollTo() to
+            // the new focus was a no-op and `setMonthProgress` then walked focus from that stale offset —
+            // the "gentle scroll bursts through to November" bug. Forwarding `.ended` lets the SV settle
+            // (its target is clamped to [0,11], so it can't overshoot the year) and closes the gesture, so
+            // the re-sync sticks. `setMonthProgress` is guarded during the flip; the tail is swallowed.
+            sv.scrollWheel(with: e)   // invisible SwiftUI ScrollView does native .paging
             if ended {
                 engine.endMonthGesture()
-                if engine.isMonthFlipping { swallowMonthMomentum = true }   // eat the fling's tail
+                if engine.isMonthFlipping { swallowMonthMomentum = true; monthFlipPendingResync = true }   // eat the fling's tail + reset the SV next gesture
             }
         } else if engine.isWeekLevel, let sv = weekBridge?.scrollView {
             // The finger touching (.mayBegin) must reach the ScrollView so AppKit lets it CAPTURE an
@@ -962,13 +1281,13 @@ final class CatcherView: NSView, NSMenuItemValidation {
         }
     }
     override func magnify(with e: NSEvent) {
-        if engine?.assistantOpen == true { return }   // AI panel open → no pinch-zoom behind it
+        if modalActive { return }
         let began = e.phase.contains(.began)
         let ended = e.phase.contains(.ended) || e.phase.contains(.cancelled)
         engine?.onMagnify(delta: e.magnification, at: point(e), began: began, ended: ended)
     }
     override func mouseDown(with e: NSEvent) {
-        if engine?.assistantOpen == true { return }   // AI panel open → the scrim owns clicks
+        if modalActive { return }   // blocking modal up → canvas is inert
         engine?.enterMouseMode()   // mouse activity hides the keyboard cursor visual
         let p = point(e)
         // Day view: the daily-dashboard panel (and the band strip hidden behind it) owns its own clicks —
@@ -999,11 +1318,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
         engine?.onPointerDown(at: p)
     }
     override func mouseDragged(with e: NSEvent) {
-        if engine?.assistantOpen == true { return }
+        if modalActive { return }
         engine?.onPointerDrag(at: point(e)); NSCursor.closedHand.set()
     }
     override func mouseUp(with e: NSEvent) {
-        if engine?.assistantOpen == true { return }
+        if modalActive { return }
         engine?.onPointerUp(at: point(e))
     }
     /// The content extends under the (floating) window toolbar, and our tracking area reaches up
@@ -1014,13 +1333,16 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
 
     override func mouseMoved(with e: NSEvent) {
+        if modalActive { return }
         engine?.enterMouseMode()   // mouse activity hides the keyboard cursor visual
         if overToolbar(e) { engine?.onHoverExit(); NSCursor.arrow.set(); return }   // don't hover through the toolbar
         if engine?.drawerOpen == true { return }   // drawer open → SwiftUI owns the cursor (title I-beam, handle resize)
-        if engine?.assistantOpen == true { engine?.onHoverExit(); NSCursor.arrow.set(); return }   // AI panel open → no calendar hover
         if scrolling { return }   // a scroll is in flight — skip hover recompute (perf)
         let p = point(e)
-        if engine?.inDayDashboard(p) == true { engine?.onHoverExit(); NSCursor.arrow.set(); return }   // panel owns its region
+        // The dashboard web view owns its region AND its cursor (CSS drives pointer/hand over clickable
+        // rows). Don't set a cursor here — our tracking area fires even under the overlaying web view, so
+        // forcing .arrow would fight the web view's pointer cursor every move → visible flicker.
+        if engine?.inDayDashboard(p) == true { engine?.onHoverExit(); return }
 
         engine?.onHover(at: p)
         toolTip = engine?.bandWarningTooltip(at: p)   // "Fully overlapping events" over the warn sign
@@ -1049,28 +1371,79 @@ final class CatcherView: NSView, NSMenuItemValidation {
         guard let w = window, e.window === w else { return e }   // only our (key) window's events
         switch e.type {
         case .keyDown:
+            // A blocking modal (delete confirm) owns the ENTIRE keyboard. Route only its nav keys — ←/→ move
+            // the focused button, Enter confirms, Esc cancels — and swallow EVERYTHING else, INCLUDING
+            // ⌘-combos, so ⌘K / ⌘F / ⌘N / etc. are all disabled while it's up. First, so it wins over the
+            // command handlers below. (Menu-driven ⌘-shortcuts in the signed app are gated separately.)
+            if isModalDelete?() == true {
+                if !e.isARepeat, !e.modifierFlags.contains(.command) {
+                    switch e.keyCode {
+                    case 123: onDeleteDialogKey?(.left)
+                    case 124: onDeleteDialogKey?(.right)
+                    case 36, 76: onDeleteDialogKey?(.confirm)
+                    case 53: onDeleteDialogKey?(.cancel)
+                    default: break
+                    }
+                }
+                return nil
+            }
+            // The tutorial carousel likewise owns the keyboard: ←/→ page, Enter next/done, Esc closes.
+            if isTutorialUp?() == true {
+                if !e.isARepeat, !e.modifierFlags.contains(.command) {
+                    switch e.keyCode {
+                    case 123: onTutorialKey?(.left)
+                    case 124: onTutorialKey?(.right)
+                    case 36, 76: onTutorialKey?(.confirm)
+                    case 53: onTutorialKey?(.cancel)
+                    default: break
+                    }
+                }
+                return nil
+            }
             // Cmd+K → hold-to-show the shortcut guide (ignore auto-repeat; released on keyUp/flagsChanged).
             if e.keyCode == 40, e.modifierFlags.contains(.command) {
                 if !keyGuideShown { keyGuideShown = true; onKeyGuide?(true) }
                 return nil
             }
+            // Cmd+F → open the toolbar search field (works from any state; the field then owns the keys).
+            if e.keyCode == 3, e.modifierFlags.contains(.command), !e.isARepeat {
+                onSearch?()
+                return nil
+            }
             if isTextInputFocused() { return e }   // a focused field/editor owns the key (typing, native undo)
+            // ⌘Z / ⌘⇧Z are owned SOLELY by the Edit▸Undo/Redo menu command (one focus-aware handler). We
+            // must NOT act on them here — doing so alongside the menu shortcut fired undo twice (rename +
+            // create both undone on one press) — but we also must not let the catch-all `return nil` below
+            // swallow them, or the menu shortcut never sees the key. So pass them straight through.
+            if e.keyCode == 6, e.modifierFlags.contains(.command),
+               !e.modifierFlags.contains(.option), !e.modifierFlags.contains(.control) {
+                return e
+            }
             engine?.wake()                          // calendar-owned key → drive a render (keyboard cursor/nav)
             if let token = Self.token(for: e) {
-                // Ignore held-key auto-repeats for DISCRETE actions (Enter/Space/Tab/Esc/…): a repeat
-                // would fire the action twice — e.g. toggling Configuration open then shut ("bounce").
-                // Arrows stay repeatable so holding ←/→ can step color / lane.
-                if e.isARepeat, !token.repeats { return nil }
-                // Reveal-vs-move: the first ARROW after mouse mode only wakes the keyboard cursor (at its
-                // remembered position) without moving it, so returning from the mouse never yanks your
-                // place. Non-arrow actions (Space/Enter/Tab/…) act immediately.
-                let isArrow = token == .up || token == .down || token == .left || token == .right
-                if isArrow, engine?.keyboardActive == false { engine?.enterKeyboardMode(); return nil }
+                // ⌘T → "go to today" from ANY navigation state (not just ones whose bindings include it).
+                // Handled here so it's truly global; ignore OS auto-repeat so a held ⌘T flies once.
+                if token == .cmdT {
+                    if !e.isARepeat { engine?.enterKeyboardMode(); engine?.goToToday() }
+                    return nil
+                }
+                // Repeatable keys (arrows, ⌘/⇧-arrows): we drive the auto-repeat OURSELVES (see the held-key
+                // timer below) instead of the OS. macOS only repeats the LAST key pressed and never resumes
+                // an earlier still-held key — so holding ← then tapping ↓ would "stick". Ignoring the OS
+                // repeat and repeating the most-recently-held key ourselves keeps ← going after ↓ releases.
+                if token.repeats {
+                    if e.isARepeat { return nil }   // OS repeat suppressed; our timer drives it
+                    dispatchNav(token)              // fire once on the fresh press (reveal-first handled inside)
+                    trackHeld(e.keyCode, token)
+                    return nil
+                }
+                // Discrete actions (Enter/Space/Tab/Esc/…): ignore OS auto-repeat (would double-fire).
+                if e.isARepeat { return nil }
                 if onKey?(token) == true { engine?.enterKeyboardMode(); return nil }   // dispatched → keyboard mode
             }
             switch e.keyCode {   // fallbacks for keys the current state didn't bind
             case 53: engine?.enterKeyboardMode(); engine?.onEscape()   // Esc → zoom out one level
-            case 51, 117: engine?.deleteSelected()                     // Delete → delete the selection
+            case 51, 117: onRequestDelete?()                           // Delete → raise the confirm dialog
             default: break
             }
             // Swallow any other unhandled key too. With no text field focused, the calendar owns the
@@ -1080,6 +1453,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
             return nil
         case .keyUp:
             if e.keyCode == 40, keyGuideShown { keyGuideShown = false; onKeyGuide?(false); return nil }
+            if releaseHeld(e.keyCode) { return nil }   // a held nav key lifted → update the repeat set
             return e
         case .flagsChanged:
             if keyGuideShown, !e.modifierFlags.contains(.command) { keyGuideShown = false; onKeyGuide?(false) }
@@ -1087,6 +1461,45 @@ final class CatcherView: NSView, NSMenuItemValidation {
         default: return e
         }
     }
+    // ── Custom auto-repeat for held navigation keys ────────────────────────────────────────────────
+    // macOS repeats only the most-recently-pressed key and never resumes a still-held earlier one. We
+    // track held repeatable keys ourselves and repeat the LAST one still down, so holding ← then tapping
+    // ↓ resumes ← after ↓ is released (block & band cursors, event nav, etc.).
+    private var heldOrder: [UInt16] = []          // keyCodes, ordered by press (last = most recent)
+    private var heldToken: [UInt16: KeyToken] = [:]
+    private var repeatTimer: Timer?
+    private let repeatDelay: TimeInterval = 0.30
+    private let repeatInterval: TimeInterval = 0.045
+
+    /// Dispatch a nav token (with reveal-first): the first arrow after mouse mode only wakes the cursor.
+    private func dispatchNav(_ token: KeyToken) {
+        if isTextInputFocused() { return }
+        engine?.wake()
+        let isArrow = token == .up || token == .down || token == .left || token == .right
+        if isArrow, engine?.keyboardActive == false { engine?.enterKeyboardMode(); return }
+        if onKey?(token) == true { engine?.enterKeyboardMode() }
+    }
+    private func trackHeld(_ kc: UInt16, _ token: KeyToken) {
+        heldOrder.removeAll { $0 == kc }; heldOrder.append(kc); heldToken[kc] = token
+        repeatTimer?.invalidate()   // fresh press → restart the delay-then-repeat cycle
+        repeatTimer = Timer.scheduledTimer(withTimeInterval: repeatDelay, repeats: false) { [weak self] _ in self?.beginRepeating() }
+    }
+    private func releaseHeld(_ kc: UInt16) -> Bool {
+        guard heldToken[kc] != nil else { return false }
+        heldOrder.removeAll { $0 == kc }; heldToken[kc] = nil
+        if heldOrder.isEmpty { stopRepeat() }   // keep firing the remaining held key(s)
+        return true
+    }
+    private func beginRepeating() {
+        repeatTimer?.invalidate()
+        repeatTimer = Timer.scheduledTimer(withTimeInterval: repeatInterval, repeats: true) { [weak self] _ in
+            guard let self, self.window?.isKeyWindow == true, let kc = self.heldOrder.last, let token = self.heldToken[kc]
+            else { self?.stopRepeat(); return }
+            self.dispatchNav(token)
+        }
+    }
+    private func stopRepeat() { repeatTimer?.invalidate(); repeatTimer = nil; heldOrder.removeAll(); heldToken.removeAll() }
+
     /// Is a real text-input view the first responder? Then keys belong to it (typing / native undo),
     /// so the shortcut monitor steps aside. Covers the field editor (NSText) and the notes WKWebView.
     private func isTextInputFocused() -> Bool {
@@ -1102,7 +1515,8 @@ final class CatcherView: NSView, NSMenuItemValidation {
         if let v = r as? NSView {
             var node: NSView? = v
             while let cur = node {
-                if let gated = cur as? FocusGatedWebView { return gated.focusAllowed }
+                // Any gated web editor (drawer notes OR the daily-note dashboard) → trust its click-gate.
+                if let gated = cur as? FocusGatedControl { return gated.focusAllowed }
                 node = cur.superview
             }
         }
@@ -1125,7 +1539,10 @@ final class CatcherView: NSView, NSMenuItemValidation {
                 switch e.charactersIgnoringModifiers?.lowercased() {
                 case "s": return .cmdS
                 case "n": return .cmdN
-                default:  return nil   // other ⌘-combos → menu/native
+                case "t": return .cmdT           // ⌘T → go to today (any view)
+                case "=", "+": return .cmdEqual   // ⌘= / ⌘+ → zoom in
+                case "-", "_": return .cmdMinus   // ⌘− → zoom out
+                default:  return nil               // other ⌘-combos → menu/native
                 }
             }
         }

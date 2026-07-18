@@ -8,12 +8,17 @@ import AppKit
 
 enum NotesMode: Hashable { case edit, preview }
 
+/// A gated web editor: exposes whether the user has actually engaged it, so the calendar's key monitor
+/// can tell "typing in the notes editor" (pass keys through) from "the web view grabbed focus on load"
+/// (keys still belong to the calendar). Both the drawer notes and the daily-note editors conform.
+protocol FocusGatedControl: AnyObject { var focusAllowed: Bool { get } }
+
 /// A WKWebView that does NOT grab first responder when it loads. WKWebView otherwise makes itself
 /// first responder on load — even with no auto-focusing content — so simply putting the notes editor
 /// on screen (e.g. opening the drawer) would steal keyboard focus into it. Here `becomeFirstResponder`
 /// is refused until the user actually clicks the editor (or `enableFocus()` is called, e.g. to Tab into
 /// it); after that it behaves like a normal web view.
-final class FocusGatedWebView: WKWebView {
+final class FocusGatedWebView: WKWebView, FocusGatedControl {
     // Readable so the keyboard monitor can tell "user clicked into notes" (real editing → pass keys
     // through) from "WebKit grabbed focus on load" (its internal WKContentView became first responder
     // even though we refuse it here — treat as NOT editing so drawer shortcuts still fire).

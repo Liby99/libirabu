@@ -5,11 +5,12 @@
 import AppKit
 import SwiftUI
 import CalendarUI
+import CalendarEngine
 
 // Note: the unhandled-key "funk" beep is silenced inside CalendarView (WindowBeepSilencerView), so
 // it's handled for both this shell and the SwiftUI CalendarApp shell without per-window subclassing.
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var window: NSWindow!
     var settingsWindow: NSWindow?
 
@@ -104,6 +105,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Paste", action: Selector(("paste:")), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: Selector(("selectAll:")), keyEquivalent: "a")
 
+        let viewItem = NSMenuItem()
+        main.addItem(viewItem)
+        let viewMenu = NSMenu(title: "View")
+        viewItem.submenu = viewMenu
+        // Checkmark toggle; validateMenuItem (below) reflects the current state each time the menu opens.
+        let showHidden = viewMenu.addItem(withTitle: "Show Hidden Imported Events",
+                                          action: #selector(toggleShowHiddenImported(_:)), keyEquivalent: "")
+        showHidden.target = self
+
         let windowItem = NSMenuItem()
         main.addItem(windowItem)
         let windowMenu = NSMenu(title: "Window")
@@ -112,7 +122,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         NSApp.windowsMenu = windowMenu
 
+        let helpItem = NSMenuItem()
+        main.addItem(helpItem)
+        let helpMenu = NSMenu(title: "Help")
+        helpItem.submenu = helpMenu
+        let tut = helpMenu.addItem(withTitle: "Tutorial", action: #selector(showTutorial(_:)), keyEquivalent: "")
+        tut.target = self
+        let ks = helpMenu.addItem(withTitle: "Keyboard Shortcuts", action: #selector(showKeyboardShortcuts(_:)), keyEquivalent: "")
+        ks.target = self
+
         NSApp.mainMenu = main
+    }
+
+    @objc func showTutorial(_ sender: Any?) { NotificationCenter.default.post(name: .showTutorial, object: nil) }
+    @objc func showKeyboardShortcuts(_ sender: Any?) { NotificationCenter.default.post(name: .showKeyboardShortcuts, object: nil) }
+
+    // View ▸ Show Hidden Imported Events — flip the shared UserDefaults key + nudge the running calendar to
+    // repaint. The @AppStorage in CalendarView also observes this key, but the notification is the reliable
+    // cross-actor trigger from this AppKit menu.
+    @objc func toggleShowHiddenImported(_ sender: NSMenuItem) {
+        let key = CalendarEngine.showHiddenImportedKey
+        UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
+        NotificationCenter.default.post(name: .calendarViewPrefsChanged, object: nil)
+    }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(toggleShowHiddenImported(_:)) {
+            item.state = UserDefaults.standard.bool(forKey: CalendarEngine.showHiddenImportedKey) ? .on : .off
+        }
+        return true
     }
 }
 

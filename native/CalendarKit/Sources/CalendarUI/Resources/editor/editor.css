@@ -105,3 +105,14 @@ body { color: var(--accent-dark); -webkit-font-smoothing: antialiased; }
 .cc-ev-purple { --ev-color: rgb(200,128,255); } .cc-ev-orange { --ev-color: rgb(236,152,70); }
 .cc-ev-cyan { --ev-color: rgb(104,196,206); } .cc-ev-darkgreen { --ev-color: rgb(104,146,86); }
 .cc-ev-indigo { --ev-color: rgb(124,150,226); } .cc-ev-default { --ev-color: var(--accent-grey); }
+/* Imported "managed block" (§7) rendered in preview: a key:value table + description (matches the web drawer). */
+.cc-dw-mi {
+  margin: 5px 0 12px; padding: 2px 0 8px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--highlight) 55%, transparent);
+  font-size: 0.8rem; line-height: 1.5; color: var(--accent-dark);
+}
+.cc-dw-mi-row { display: flex; gap: 8px; padding: 1.5px 0; align-items: baseline; }
+.cc-dw-mi-key { flex: none; min-width: 94px; color: var(--accent-grey); }
+.cc-dw-mi-val { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cc-dw-mi-val a { color: var(--highlight); text-decoration: underline; text-underline-offset: 2px; }
+.cc-dw-mi-desc { margin-top: 7px; }

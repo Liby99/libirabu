@@ -39,15 +39,20 @@ public struct RichFields: Codable, Sendable, Equatable {
     public var hidden: Bool         // soft-deleted (imported items)
     public var createdByAI: Bool    // provenance: created/edited by the AI assistant
     public var occurrenceNotes: [String: String]?   // per-occurrence notes (recurring), keyed by box id
+    public var colorOverride: String?   // user-chosen color for an imported (vendor-colored) event; nil = vendor color
+    public var userHidden: Bool     // user chose to HIDE this imported series (persists across re-imports,
+                                    // unlike the dedup `hidden`); keyed by the imported series key
 
     public init(notes: String? = nil, tags: [String] = [], repeatJSON: String? = nil,
                 promoteTrack: Int? = nil, originTz: String? = nil,
                 source: String = "manual", hidden: Bool = false, createdByAI: Bool = false,
-                occurrenceNotes: [String: String]? = nil) {
+                occurrenceNotes: [String: String]? = nil, colorOverride: String? = nil,
+                userHidden: Bool = false) {
         self.notes = notes; self.tags = tags; self.repeatJSON = repeatJSON
         self.promoteTrack = promoteTrack; self.originTz = originTz
         self.source = source; self.hidden = hidden; self.createdByAI = createdByAI
-        self.occurrenceNotes = occurrenceNotes
+        self.occurrenceNotes = occurrenceNotes; self.colorOverride = colorOverride
+        self.userHidden = userHidden
     }
 
     // Tolerant decode: a field absent in an OLDER store just takes its default, so adding a field
@@ -62,6 +67,9 @@ public struct RichFields: Codable, Sendable, Equatable {
         source = try c.decodeIfPresent(String.self, forKey: .source) ?? "manual"
         hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
         createdByAI = try c.decodeIfPresent(Bool.self, forKey: .createdByAI) ?? false
+        occurrenceNotes = try c.decodeIfPresent([String: String].self, forKey: .occurrenceNotes)
+        colorOverride = try c.decodeIfPresent(String.self, forKey: .colorOverride)
+        userHidden = try c.decodeIfPresent(Bool.self, forKey: .userHidden) ?? false
     }
 }
 

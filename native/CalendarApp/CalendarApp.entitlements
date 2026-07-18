@@ -17,5 +17,9 @@
 	     <TeamID>.dev.libirabu.calendar. Part of the same iCloud capability already enabled. -->
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
+	<!-- Hardened Runtime resource access: EventKit (Apple Calendar import). Pairs with the
+	     NSCalendarsFullAccessUsageDescription usage string in the generated Info.plist. -->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
 </dict>
 </plist>

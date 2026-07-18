@@ -22,5 +22,8 @@
 	<!-- iCloud key-value store for synced app preferences (see CalendarApp.entitlements). -->
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
+	<!-- Hardened Runtime resource access: EventKit (Apple Calendar import). -->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
 </dict>
 </plist>

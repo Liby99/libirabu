@@ -29,9 +29,11 @@ let package = Package(
         .target(name: "CalendarGeometry"),
         .target(name: "CalendarEngine", dependencies: ["CalendarGeometry"]),
         .target(name: "CalendarUI", dependencies: ["CalendarGeometry", "CalendarEngine"],
-                resources: [.copy("Resources/editor")]),   // bundled WKWebView notes editor (see webeditor/)
+                resources: [.copy("Resources/editor"),     // bundled WKWebView notes editor (see webeditor/)
+                            .copy("Resources/tutorial")]), // onboarding carousel GIFs (see TutorialView)
         .executableTarget(name: "CalendarMac", dependencies: ["CalendarUI"]),
         .testTarget(name: "CalendarGeometryTests", dependencies: ["CalendarGeometry"]),
+        .testTarget(name: "CalendarEngineTests", dependencies: ["CalendarEngine", "CalendarGeometry"]),
     ],
     swiftLanguageModes: [.v5]
 )

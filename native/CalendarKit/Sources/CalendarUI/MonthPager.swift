@@ -32,6 +32,9 @@ struct MonthPagingBehavior: ScrollTargetBehavior {
         var dest = startPage
         if dragged > page * commitFraction || v > flickVelocity { dest = startPage + 1 }
         else if dragged < -page * commitFraction || v < -flickVelocity { dest = startPage - 1 }
+        dest = min(11, max(0, dest))                          // never target beyond the 12 months (an edge
+                                                              // flick at Jan/Dec must NOT snap to page -1/12,
+                                                              // which is what overshot the year on a flip)
         target.rect.origin.y = dest * page                    // land exactly on a month
     }
 }
@@ -41,12 +44,15 @@ struct MonthPagingBehavior: ScrollTargetBehavior {
 /// binding re-renders the pager while scrolling and re-applies itself, which jumps the offset.
 @MainActor final class MonthPagerBridge {
     weak var scrollView: NSScrollView? { didSet { if let p = pending { pending = nil; scrollTo(p) } } }
+    var pageH: CGFloat = 0   // current page height, so the catcher can re-sync the SV to a focus after a flip
     private var pending: CGFloat?
     func scrollTo(_ y: CGFloat) {
         guard let sv = scrollView else { pending = y; return }
         sv.contentView.scroll(to: NSPoint(x: 0, y: max(0, y)))
         sv.reflectScrolledClipView(sv.contentView)
     }
+    /// Snap the backing scroll view to a month index (used to reset a stale offset left by a boundary flip).
+    func scrollToFocus(_ focus: Int) { if pageH > 0 { scrollTo(CGFloat(focus) * pageH) } }
 }
 
 struct MonthPager: View {
@@ -71,7 +77,8 @@ struct MonthPager: View {
             .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, y in
                 engine.setMonthProgress(y, pageH: pageH)
             }
-            .onAppear { bridge.scrollTo(CGFloat(engine.focus) * pageH) }
+            .onAppear { bridge.pageH = pageH; bridge.scrollTo(CGFloat(engine.focus) * pageH) }
+            .onChange(of: pageH) { _, h in bridge.pageH = h }
             // Entering month view (from year/week): snap the pager to the focused month.
             .onChange(of: engine.chrome.level) { _, lvl in
                 if lvl == 1 { bridge.scrollTo(CGFloat(engine.focus) * pageH) }

@@ -87,8 +87,12 @@ enum LLMClient {
 
     /// Run one non-streaming chat completion. Retries transient failures (5xx/429/network) with
     /// exponential backoff, mirroring jhuGateway.ts. Throws `LLMError` on permanent failure.
-    static func chat(messages: [ChatMessage], model: String, tools: [ToolDef] = []) async throws -> ChatResponse {
-        guard let key = Keychain.get(account: keychainAccount), !key.isEmpty else { throw LLMError.missingKey }
+    static func chat(messages: [ChatMessage], model: String, tools: [ToolDef] = [],
+                     temperature: Double = 1.0, maxTokens: Int = 2048) async throws -> ChatResponse {
+        // Trim defensively: a stored key with trailing whitespace/newline (e.g. from a paste) would
+        // otherwise make setValue silently drop the Authorization header → gateway "API_KEY_REQUIRED".
+        let key = (Keychain.get(account: keychainAccount) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { throw LLMError.missingKey }
 
         var request = URLRequest(url: URL(string: baseURL + "/compat/chat/completions")!)
         request.httpMethod = "POST"
@@ -96,7 +100,7 @@ enum LLMClient {
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 90
         request.httpBody = try JSONEncoder().encode(RequestBody(
-            model: model, messages: messages, temperature: 1.0, maxTokens: 2048,
+            model: model, messages: messages, temperature: temperature, maxTokens: maxTokens,
             tools: tools.isEmpty ? nil : tools.map { ToolWrapper(function: $0) }))
 
         var lastError: Error = LLMError.badResponse

@@ -11,6 +11,7 @@
 		16A2BA359D6134E8A00015F8 /* CalendarApp_iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC56E7EA43E70B5199ACD8ED /* CalendarApp_iOS.swift */; };
 		6824311A9C2A2662CD2252A0 /* SyncHarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C789AA3FD488F088FF6D88E5 /* SyncHarnessView.swift */; };
 		9FBEFB316C1463468E7C3678 /* CalendarUI in Frameworks */ = {isa = PBXBuildFile; productRef = 4621EA362909A0CB306A1505 /* CalendarUI */; };
+		B1AB267A9F80C77C00BCFC97 /* CalendarEngine in Frameworks */ = {isa = PBXBuildFile; productRef = 80D6AD537A21092EBD96D7DE /* CalendarEngine */; };
 		B9DA05E115F5AC57765A91AD /* CalendarEngine in Frameworks */ = {isa = PBXBuildFile; productRef = 3067D902C5A483BC09908066 /* CalendarEngine */; };
 		CF4034CB124E9F778014E50E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CF4DC5ACF24156D3C0AAA974 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -32,6 +33,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9FBEFB316C1463468E7C3678 /* CalendarUI in Frameworks */,
+				B1AB267A9F80C77C00BCFC97 /* CalendarEngine in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -129,6 +131,7 @@
 			name = CalendarApp;
 			packageProductDependencies = (
 				4621EA362909A0CB306A1505 /* CalendarUI */,
+				80D6AD537A21092EBD96D7DE /* CalendarEngine */,
 			);
 			productName = CalendarApp;
 			productReference = 9F26929D3FA8206C874AC575 /* CalendarApp.app */;
@@ -365,6 +368,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Calendar;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Calendar reads your Apple Calendar events so it can show them alongside your libirabu calendar.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Calendar reads your Apple Calendar events so it can show them alongside your libirabu calendar.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -392,6 +397,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Calendar;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Calendar reads your Apple Calendar events so it can show them alongside your libirabu calendar.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Calendar reads your Apple Calendar events so it can show them alongside your libirabu calendar.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -476,6 +483,10 @@
 		4621EA362909A0CB306A1505 /* CalendarUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CalendarUI;
+		};
+		80D6AD537A21092EBD96D7DE /* CalendarEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CalendarEngine;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

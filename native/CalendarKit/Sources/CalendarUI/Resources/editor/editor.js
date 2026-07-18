@@ -55177,7 +55177,7 @@
   var START_RE = new RegExp(`(^|\\s)start:(${DATE_VALUE})(?=\\s|$)`);
   var TZ_RE = /(^|\s)tz:(AOE|[A-Za-z][\w/+-]*)(?=\s|$)/;
   var COLOR_RE = /(^|\s)color:([\w-]+)(?=\s|$)/;
-  var DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2})?)(?=\s|$)/;
+  var DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
   var FOLLOWUP_RE = /(^|\s)followup:(\d+[dwmy]|\d{4}-\d{1,2}-\d{1,2})(?=\s|$)/;
   var TAG_RE = /(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)/;
   var ENTITY_RE = /(^|\s)@(?:([A-Za-z][\w-]*):)?([A-Za-z0-9_][\w-]*)(?=\s|$)/;
@@ -55232,6 +55232,41 @@
     };
   }
 
+  // ../../../src/lib/import/managedNote.ts
+  var BEGIN = "libirabu:import:begin";
+  var END = "libirabu:import:end";
+  var BLOCK_RE = new RegExp(`<!--\\s*${BEGIN}[\\s\\S]*?${END}\\s*-->`, "i");
+  function splitNote(notes) {
+    const text9 = notes ?? "";
+    const m = BLOCK_RE.exec(text9);
+    if (!m) return { managed: "", user: text9 };
+    const before = text9.slice(0, m.index);
+    const after = text9.slice(m.index + m[0].length);
+    const user = `${before}${after}`.replace(/^\s+/, "").trimEnd();
+    return { managed: m[0], user };
+  }
+  function flattenManaged(notes) {
+    return (notes ?? "").replace(new RegExp(`[ \\t]*<!--\\s*${BEGIN}[\\s\\S]*?-->[ \\t]*\\n?`, "i"), "").replace(new RegExp(`[ \\t]*<!--\\s*${END}\\s*-->[ \\t]*\\n?`, "i"), "").trim();
+  }
+  var isUrl2 = (s2) => /^https?:\/\//i.test(s2.trim());
+  function parseManaged(managed) {
+    const lines = flattenManaged(managed).split("\n");
+    const fields = [];
+    let i3 = 0;
+    for (; i3 < lines.length; i3++) {
+      const line = lines[i3];
+      if (line.trim() === "") {
+        i3++;
+        break;
+      }
+      const m = line.match(/^([\w ]+?):\s*(.*)$/);
+      if (!m) break;
+      const value = m[2].trim();
+      fields.push({ label: m[1].trim(), value, href: isUrl2(value) ? value : void 0 });
+    }
+    return { fields, description: lines.slice(i3).join("\n").trim() };
+  }
+
   // noteEditor.ts
   var MONO = "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)";
   var cmTheme = EditorView.theme({
@@ -55281,6 +55316,23 @@
     return (tree) => walk(tree);
   }
   var md = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkTodoTokens).use(remarkRehype).use(rehypeKatex).use(rehypeSourceLines).use(rehypeStringify);
+  function mdHtml(src) {
+    try {
+      return String(md.processSync(src));
+    } catch {
+      return "";
+    }
+  }
+  var escHtml = (s2) => s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  var escAttr = (s2) => escHtml(s2).replace(/"/g, "&quot;");
+  function renderMarkdown(src) {
+    const { managed, user } = splitNote(src);
+    if (!managed) return mdHtml(src);
+    const { fields, description } = parseManaged(managed);
+    const rows = fields.map((f) => `<div class="cc-dw-mi-row"><span class="cc-dw-mi-key">${escHtml(f.label)}</span><span class="cc-dw-mi-val">${f.href ? `<a href="${escAttr(f.href)}" target="_blank" rel="noopener noreferrer">${escHtml(f.value)}</a>` : escHtml(f.value)}</span></div>`).join("");
+    const desc = description ? `<div class="cc-dw-mi-desc">${mdHtml(description)}</div>` : "";
+    return `<div class="cc-dw-mi">${rows}${desc}</div>${mdHtml(user)}`;
+  }
   var TASK_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
   function createNoteEditor(o) {
     const { editorEl, previewEl } = o;
@@ -55330,7 +55382,7 @@
     function renderPreview() {
       const src = view.state.doc.toString();
       try {
-        previewEl.innerHTML = String(md.processSync(src));
+        previewEl.innerHTML = renderMarkdown(src);
       } catch {
         previewEl.textContent = src;
         return;

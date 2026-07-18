@@ -23,7 +23,8 @@ import CalendarGeometry
 
 // ── A normalized key, independent of view/state (mapped from the raw NSEvent by the catcher) ──
 enum KeyToken: Equatable {
-    case enter, space, escape, tab, backTab, left, right, up, down, delete, cmdS, cmdN
+    case enter, space, escape, tab, backTab, left, right, up, down, delete, cmdS, cmdN, cmdT
+    case cmdEqual, cmdMinus                        // ⌘= / ⌘− → zoom in / out (keeps the current focus)
     case cmdUp, cmdDown, cmdLeft, cmdRight         // ⌘+arrows → move the selected event
     case shiftUp, shiftDown, shiftLeft, shiftRight // ⇧+arrows → resize the selected event
     case char(Character)
@@ -54,6 +55,9 @@ enum KeyToken: Equatable {
         case .delete:  return "delete"
         case .cmdS:    return "⌘S"
         case .cmdN:    return "⌘N"
+        case .cmdT:    return "⌘T"
+        case .cmdEqual:return "⌘+"
+        case .cmdMinus:return "⌘−"
         case .cmdUp:   return "⌘↑"
         case .cmdDown: return "⌘↓"
         case .cmdLeft: return "⌘←"
@@ -83,6 +87,8 @@ enum AppKeyState: Equatable {
     case idle
     case block                // block cursor (default/home): navigate time cells, Space/Esc zoom
     case bandCursor           // band cursor: a lane×day grid cell (⌘N creates a band there)
+    case trackName            // month view: a focused track NAME (Enter edits it)
+    case trackNameEditing     // its inline text field is open (the field owns the keys)
     case timedSelected        // a timed event is selected in a detail view (Enter/Space/Escape)
     case timedTitleEditing    // its inline title editor is open (the field owns the keys)
     case bandSelected         // a band (multi-day) event is selected (Enter/Space/Escape)
@@ -91,6 +97,9 @@ enum AppKeyState: Equatable {
     case drawerOpen           // the event drawer is open, no field focused
     case drawerTitleEditing   // the drawer's title field is focused (the field owns the keys)
     case drawerField(DrawerField)   // a drawer field is keyboard-focused (Tab-cycled); sub-keys act on it
+    case dashTodo             // day view: the dashboard TODO list is focused (↑/↓ rows, Space toggles)
+    case dashNote             // day view: the daily NOTE is focused (Enter → edit)
+    case dashNoteEditing      // the daily NOTE editor has focus (the WebView owns the keys)
 
     /// Heading shown at the top of the Cmd+K guide.
     var title: String {
@@ -98,6 +107,8 @@ enum AppKeyState: Equatable {
         case .idle:              return "Calendar"
         case .block:             return "Navigate"
         case .bandCursor:        return "Band cursor"
+        case .trackName:         return "Track name"
+        case .trackNameEditing:  return "Editing track name"
         case .timedSelected:     return "Event selected"
         case .timedTitleEditing: return "Editing title"
         case .bandSelected:      return "Band selected"
@@ -106,6 +117,9 @@ enum AppKeyState: Equatable {
         case .drawerOpen:        return "Event drawer"
         case .drawerTitleEditing:return "Drawer · editing title"
         case .drawerField(let f):return "Drawer · " + f.label
+        case .dashTodo:          return "Dashboard · to-dos"
+        case .dashNote:          return "Daily note"
+        case .dashNoteEditing:   return "Editing daily note"
         }
     }
 }
@@ -120,6 +134,7 @@ enum AppKeyState: Equatable {
     var state: AppKeyState {
         if engine.timedEditing { return .timedTitleEditing }
         if engine.bandEditing { return .bandTitleEditing }
+        if engine.trackEditing { return .trackNameEditing }
         if ui.openEventId != nil {
             if ui.drawerTitleEditing { return .drawerTitleEditing }   // title in text-editing mode
             switch ui.drawerFocus {
@@ -130,6 +145,12 @@ enum AppKeyState: Equatable {
         if engine.selectedIsTimed { return .timedSelected }
         if engine.selectedIsBand { return .bandSelected }
         if engine.selectedIsDeadline { return .deadlineSelected }
+        switch engine.dashStop {   // day-view dashboard Tab stops (checked before the plain cursors)
+        case .todo: return .dashTodo
+        case .note: return engine.dashNoteEditing ? .dashNoteEditing : .dashNote
+        case .none: break
+        }
+        if engine.trackNameCursor != nil { return .trackName }
         if engine.bandCursorActive { return .bandCursor }
         return .block   // nothing selected → the block cursor is home
     }
@@ -156,6 +177,32 @@ enum AppKeyState: Equatable {
         ]
     }
 
+    /// Delete on a selected event → raise the custom confirm dialog (never an immediate delete). Shared by
+    /// the timed / band / deadline selected states; the hotkey monitor has the same fallback for safety.
+    private var deleteBinding: KeyBinding {
+        KeyBinding(.delete, "Delete…") {
+            if let t = engine.deleteTargetForSelection() {
+                ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring, imported: t.imported, alreadyHidden: t.alreadyHidden)
+            }
+        }
+    }
+
+    /// Enter-to-select from the BLOCK cursor — week/day only (per spec); year/month block Enter is a no-op
+    /// (the band cursor gets its own Enter binding inline, valid in every view).
+    private var selectBinding: [KeyBinding] {
+        (engine.isWeekLevel || engine.isDayLevel)
+            ? [KeyBinding(.enter, "Select event") { engine.selectFromCursor() }] : []
+    }
+
+    /// ⌘= / ⌘− zoom in / out from ANY navigation mode, keeping the current focus (event stays selected).
+    private var zoomBindings: [KeyBinding] {
+        [
+            KeyBinding(.cmdEqual, "Zoom in") { engine.cmdZoomIn() },
+            KeyBinding(.cmdMinus, "Zoom out") { engine.cmdZoomOut() },
+            KeyBinding(.cmdT, "Go to today") { engine.goToToday() },
+        ]
+    }
+
     /// Tab cycles the cursor DOMAIN. For now: event cursor → block cursor (band cursor is a later step).
     private var eventTabBindings: [KeyBinding] {
         [
@@ -174,7 +221,7 @@ enum AppKeyState: Equatable {
                 KeyBinding(.escape, "Deselect") { engine.deselect() },
                 KeyBinding(.shiftUp, "Shrink") { engine.resizeSelected(0, -1) },
                 KeyBinding(.shiftDown, "Extend") { engine.resizeSelected(0, 1) },
-            ] + verticalMoveBindings + eventNavBindings + eventTabBindings
+            ] + [deleteBinding] + verticalMoveBindings + eventNavBindings + eventTabBindings + zoomBindings
         case .timedTitleEditing:
             // The inline TextField owns these keys (Enter = commit, Esc = cancel) — listed for the guide.
             return [
@@ -188,7 +235,7 @@ enum AppKeyState: Equatable {
                 KeyBinding(.escape, "Deselect") { engine.deselect() },
                 KeyBinding(.shiftLeft, "Shrink") { engine.resizeSelected(-1, 0) },
                 KeyBinding(.shiftRight, "Extend") { engine.resizeSelected(1, 0) },
-            ] + verticalMoveBindings + eventNavBindings + eventTabBindings
+            ] + [deleteBinding] + verticalMoveBindings + eventNavBindings + eventTabBindings + zoomBindings
         case .bandTitleEditing:
             // The inline TextField owns these keys — listed for the guide.
             return [
@@ -199,7 +246,7 @@ enum AppKeyState: Equatable {
             return [
                 KeyBinding(.space, "Open drawer") { if let s = engine.selectedId { ui.openEventId = sourceId(of: s) } },
                 KeyBinding(.escape, "Deselect") { engine.deselect() },
-            ] + verticalMoveBindings + eventNavBindings + eventTabBindings
+            ] + [deleteBinding] + verticalMoveBindings + eventNavBindings + eventTabBindings + zoomBindings
         case .drawerOpen:
             return [
                 KeyBinding(.enter, "Edit title") { ui.drawerFocus = .title; ui.drawerTitleEditing = true },
@@ -253,6 +300,9 @@ enum AppKeyState: Equatable {
                 b.append(KeyBinding(.right, "Next lane") { ui.postDrawer(.right) })
             case .notes:
                 b.append(KeyBinding(.enter, "Edit notes") { ui.postDrawer(.activate) })
+            case .noteScope:
+                b.append(KeyBinding(.left, "All events") { ui.postDrawer(.left) })
+                b.append(KeyBinding(.right, "This event") { ui.postDrawer(.right) })
             case .delete:
                 b.append(KeyBinding(.enter, "Delete…") { ui.postDrawer(.activate) })
             }
@@ -279,7 +329,7 @@ enum AppKeyState: Equatable {
                 KeyBinding(.cmdN, "New event") { engine.createEventAtBlock() },
                 KeyBinding(.tab, "Band cursor") { engine.tabCursor(true) },
                 KeyBinding(.backTab, "Event cursor") { engine.tabCursor(false) },
-            ]
+            ] + selectBinding + zoomBindings
         case .bandCursor:
             return [
                 KeyBinding(.up, "Prev lane") { engine.bandArrow(dx: 0, dy: -1) },
@@ -291,6 +341,46 @@ enum AppKeyState: Equatable {
                 KeyBinding(.cmdN, "New band") { engine.createBandAtCursor() },
                 KeyBinding(.tab, "Select event") { engine.tabCursor(true) },
                 KeyBinding(.backTab, "Block cursor") { engine.tabCursor(false) },
+                KeyBinding(.enter, "Select event") { engine.selectFromCursor() },
+            ] + zoomBindings
+        case .trackName:
+            return [
+                KeyBinding(.enter, "Edit name") { engine.editFocusedTrackName() },
+                KeyBinding(.space, "Zoom in") { engine.blockZoomIn() },
+                KeyBinding(.escape, "Zoom out") { engine.onEscape() },
+                KeyBinding(.tab, "Next") { engine.tabCursor(true) },
+                KeyBinding(.backTab, "Prev") { engine.tabCursor(false) },
+            ] + zoomBindings
+        case .trackNameEditing:
+            // The inline TextField owns these keys (onSubmit / onExitCommand) — listed for the guide.
+            return [
+                KeyBinding(.enter, "Done"),
+                KeyBinding(.escape, "Done"),
+            ]
+        case .dashTodo:
+            // Day-view dashboard TODO list: a row cursor lives inside the WebView; keys drive it via
+            // the engine's onDashCommand bridge.
+            return [
+                KeyBinding(.up, "↑ item") { engine.dashMove(-1) },
+                KeyBinding(.down, "↓ item") { engine.dashMove(1) },
+                KeyBinding(.space, "Toggle done") { engine.dashActivate() },
+                KeyBinding(.enter, "Open") { engine.dashOpen() },
+                KeyBinding(.escape, "Zoom out") { engine.onEscape() },
+                KeyBinding(.tab, "Daily note") { engine.tabCursor(true) },
+                KeyBinding(.backTab, "Event cursor") { engine.tabCursor(false) },
+            ] + zoomBindings
+        case .dashNote:
+            return [
+                KeyBinding(.enter, "Edit note") { engine.dashActivate() },
+                KeyBinding(.escape, "Zoom out") { engine.onEscape() },
+                KeyBinding(.tab, "Block cursor") { engine.tabCursor(true) },
+                KeyBinding(.backTab, "To-dos") { engine.tabCursor(false) },
+            ] + zoomBindings
+        case .dashNoteEditing:
+            // The daily-note WebView editor owns these (⌘S → preview, Esc → done) — listed for the guide.
+            return [
+                KeyBinding(.cmdS, "Preview"),
+                KeyBinding(.escape, "Done"),
             ]
         case .idle:
             return []

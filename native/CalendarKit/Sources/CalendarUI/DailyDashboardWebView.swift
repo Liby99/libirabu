@@ -24,18 +24,26 @@ import CalendarEngine
 /// The dashboard's WKWebView, which forwards horizontal scroll + pinch to the calendar instead of
 /// eating them. VERTICAL scroll stays here (the TODO list, with native rubber-band); horizontal
 /// scroll pages days and pinch zooms — both handled by the InputCatcher underneath.
-final class PassThroughWebView: WKWebView {
+final class PassThroughWebView: WKWebView, FocusGatedControl {
     weak var forwarder: GestureForwarder?
     private enum Axis { case undecided, horizontal, vertical }
     private var axis: Axis = .undecided
+    /// The pointer is over a horizontally-scrollable element (a code block with a long line). Set from
+    /// JS (pointermove → "hlocal"); read when a scroll gesture's axis locks, to keep it in the web view.
+    var overHScroll = false
+    private var gestureOverHScroll = false   // latched at gesture start so the whole gesture routes one way
 
     // Focus gate (same idea as the notes editor's FocusGatedWebView): the web view does NOT grab first
     // responder on load, and refuses it until the user actually clicks. Otherwise the dashboard's list
     // items join the window's key-view loop, so Tab — e.g. while navigating the drawer — would cycle
-    // INTO them. Scrolling doesn't need focus; a real click (checkbox / note) enables it.
-    private var focusAllowed = false
+    // INTO them. Scrolling doesn't need focus; a real click (checkbox / note) enables it. Readable so the
+    // key monitor treats a clicked-into daily NOTE editor as text input (keys stay in the web view).
+    private(set) var focusAllowed = false
     override func becomeFirstResponder() -> Bool { focusAllowed ? super.becomeFirstResponder() : false }
     override func mouseDown(with event: NSEvent) { focusAllowed = true; super.mouseDown(with: event) }
+    /// Programmatically permit focus — used when the keyboard Tab-stops into the daily NOTE editor (the
+    /// calendar's key system decides to hand keys to the WebView), mirroring a real click.
+    func allowFocus() { focusAllowed = true }
     /// Re-gate and drop focus off the web content — called when the dashboard goes inactive (drawer
     /// open), so keyboard navigation in the drawer can never land inside the dashboard.
     func regateFocus() {
@@ -53,11 +61,12 @@ final class PassThroughWebView: WKWebView {
         if e.phase.contains(.began) || e.phase.contains(.mayBegin) { axis = .undecided }
         if axis == .undecided {
             let dx = abs(e.scrollingDeltaX), dy = abs(e.scrollingDeltaY)
-            if dx > 0 || dy > 0 { axis = dx > dy ? .horizontal : .vertical }
+            if dx > 0 || dy > 0 { axis = dx > dy ? .horizontal : .vertical; gestureOverHScroll = overHScroll }
         }
-        // Horizontal → the calendar (day paging, with native momentum); vertical/undecided → the web
-        // list (native rubber-band).
-        if axis == .horizontal, let c = forwarder?.catcher {
+        // Horizontal → the calendar (day paging, with native momentum); vertical/undecided → the web list
+        // (native rubber-band). EXCEPTION: horizontal over a scrollable code block stays local, so the
+        // block scrolls sideways instead of swiping the day. Latched per-gesture so `.ended` isn't split.
+        if axis == .horizontal, !gestureOverHScroll, let c = forwarder?.catcher {
             c.scrollWheel(with: e)
         } else {
             super.scrollWheel(with: e)
@@ -87,6 +96,28 @@ final class PassThroughWebView: WKWebView {
         if ready { web?.evaluateJavaScript(call) }
     }
     private func js(_ s: String) -> String { (try? String(data: JSONEncoder().encode(s), encoding: .utf8) ?? "\"\"") ?? "\"\"" }
+
+    // ── Keyboard-nav bridge (Tab into the dashboard TODO / NOTE stops) ──
+    private func eval(_ s: String) { if ready { web?.evaluateJavaScript(s) } }
+    /// Set/clear the dashboard's keyboard focus ring (TODO row cursor or NOTE outline).
+    func navFocus(_ stop: CalendarEngine.DashStop?) {
+        eval("CK.navSet(\(js(stop == .todo ? "todo" : (stop == .note ? "note" : "none"))))")
+    }
+    func navMove(_ delta: Int) { eval("CK.navMove(\(delta))") }        // ↑/↓ TODO rows
+    func navActivate() { eval("CK.navActivate()") }                    // Space → toggle the focused TODO
+    func navOpen() { eval("CK.navOpen()") }                            // Enter → open the focused TODO
+    /// Enter on the NOTE stop → let the WebView own the keys (allow focus + first responder) and focus
+    /// the CodeMirror editor.
+    func focusNoteEditor() {
+        guard let w = web as? PassThroughWebView else { return }
+        // Defer to the NEXT runloop tick: this is called from within the Enter keyDown dispatch, and
+        // making the web view first responder synchronously mid-keyDown routes that same Enter into the
+        // freshly-focused CodeMirror as a stray newline. Letting the keyDown finish first avoids that.
+        DispatchQueue.main.async { [weak self] in
+            w.allowFocus(); w.window?.makeFirstResponder(w)
+            self?.eval("CK.noteEdit()")
+        }
+    }
 }
 
 /// Per-frame carousel state for the NATIVE SwiftUI tabs, so they slide + fade in lockstep with the
@@ -136,11 +167,13 @@ struct DailyDashboardWebView: NSViewRepresentable {
     var onOpenLink: (URL) -> Void
     var onJumpDay: (_ date: String) -> Void
     var onCloseDrawer: () -> Void
+    var onNoteExit: () -> Void               // daily NOTE editor handed focus back (Esc / ⌘S)
+    var onNavTab: (Bool) -> Void             // Tab in the web view → app keyboard nav (true = forward)
 
     func makeCoordinator() -> Coordinator {
         Coordinator(carousel: carousel, onToggle: onToggle, onOpen: onOpen, onDeselect: onDeselect,
                     onTab: onTab, onNoteMode: onNoteMode, onNoteChange: onNoteChange, onOpenLink: onOpenLink,
-                    onJumpDay: onJumpDay, onCloseDrawer: onCloseDrawer)
+                    onJumpDay: onJumpDay, onCloseDrawer: onCloseDrawer, onNoteExit: onNoteExit, onNavTab: onNavTab)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -162,7 +195,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
         let c = context.coordinator
         c.onToggle = onToggle; c.onOpen = onOpen; c.onDeselect = onDeselect
         c.onTab = onTab; c.onNoteMode = onNoteMode; c.onNoteChange = onNoteChange; c.onOpenLink = onOpenLink
-        c.onJumpDay = onJumpDay; c.onCloseDrawer = onCloseDrawer
+        c.onJumpDay = onJumpDay; c.onCloseDrawer = onCloseDrawer; c.onNoteExit = onNoteExit; c.onNavTab = onNavTab
         c.apply(data: data, tab: tab, noteMode: noteMode, inactive: inactive, theme: themeVars())
         // Drawer open → the dashboard is blocked; make sure it isn't holding keyboard focus so Tab
         // navigation in the drawer can't cycle into its list items.
@@ -202,6 +235,8 @@ struct DailyDashboardWebView: NSViewRepresentable {
         var onOpenLink: (URL) -> Void
         var onJumpDay: (String) -> Void
         var onCloseDrawer: () -> Void
+        var onNoteExit: () -> Void
+        var onNavTab: (Bool) -> Void
         weak var web: WKWebView?
         private var ready = false
         private var lastData = "", lastTab = "", lastMode = ""   // sentinels force first push
@@ -212,10 +247,11 @@ struct DailyDashboardWebView: NSViewRepresentable {
              onDeselect: @escaping () -> Void, onTab: @escaping (DashTab) -> Void,
              onNoteMode: @escaping (NotesMode) -> Void, onNoteChange: @escaping (String, String) -> Void,
              onOpenLink: @escaping (URL) -> Void, onJumpDay: @escaping (String) -> Void,
-             onCloseDrawer: @escaping () -> Void) {
+             onCloseDrawer: @escaping () -> Void, onNoteExit: @escaping () -> Void,
+             onNavTab: @escaping (Bool) -> Void) {
             self.carousel = carousel; self.onToggle = onToggle; self.onOpen = onOpen; self.onDeselect = onDeselect
             self.onTab = onTab; self.onNoteMode = onNoteMode; self.onNoteChange = onNoteChange; self.onOpenLink = onOpenLink
-            self.onJumpDay = onJumpDay; self.onCloseDrawer = onCloseDrawer
+            self.onJumpDay = onJumpDay; self.onCloseDrawer = onCloseDrawer; self.onNoteExit = onNoteExit; self.onNavTab = onNavTab
         }
 
         func apply(data: String, tab: DashTab, noteMode: NotesMode, inactive: Bool, theme: [String: String]) {
@@ -267,6 +303,20 @@ struct DailyDashboardWebView: NSViewRepresentable {
                 if let date = body["date"] as? String, let v = body["value"] as? String { onNoteChange(date, v) }
             case "jumpDay":
                 if let date = body["date"] as? String { onJumpDay(date) }
+            case "hlocal":
+                // Pointer moved over / off a horizontally-scrollable element (code block) — route the
+                // next horizontal scroll gesture locally vs. to the calendar accordingly.
+                (web as? PassThroughWebView)?.overHScroll = (body["on"] as? Bool) ?? false
+            case "navTab":
+                // Tab pressed while the web view holds focus (not in the note editor) → drop the web
+                // view's focus and hand Tab to the app's keyboard navigation (no native focus rings).
+                (web as? PassThroughWebView)?.regateFocus()
+                onNavTab((body["shift"] as? Bool) != true)   // shift → backward
+            case "navNoteExit":
+                // Esc / ⌘S in the keyboard-focused daily NOTE editor → drop the WebView's focus back to
+                // the calendar catcher, then let the host restore the NOTE ring (engine.dashNoteExit).
+                (web as? PassThroughWebView)?.regateFocus()
+                onNoteExit()
             case "closeDrawer":
                 onCloseDrawer()   // clicked the in-page scrim while the drawer is open
             case "openLink":
@@ -316,6 +366,8 @@ struct DailyDashboardOverlay: View {
     let theme: Theme
     var onOpen: (String) -> Void
     var onCloseDrawer: () -> Void
+    var onNoteExit: () -> Void = {}
+    var onNavTab: (Bool) -> Void = { _ in }
 
     var body: some View {
         let contentW = max(1, vp.w - Layout.labelW)
@@ -340,7 +392,9 @@ struct DailyDashboardOverlay: View {
                 guard c.count == 3 else { return }
                 engine.jumpToDay(c[0], c[1] - 1, c[2], onLand: { tab = .note })
             },
-            onCloseDrawer: onCloseDrawer
+            onCloseDrawer: onCloseDrawer,
+            onNoteExit: onNoteExit,
+            onNavTab: onNavTab
         )
         .frame(width: w, height: h)
         // The WebView sits above the AppKit catcher and eats mouse-moves, so the catcher never gets to

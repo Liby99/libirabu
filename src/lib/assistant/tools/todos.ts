@@ -40,8 +40,8 @@ export const START_RE = new RegExp(`(^|\\s)start:(${DATE_VALUE})(?=\\s|$)`);
 export const TZ_RE = /(^|\s)tz:(AOE|[A-Za-z][\w/+-]*)(?=\s|$)/;
 /** `color:KEY` — a palette key from EVENT_COLORS. */
 export const COLOR_RE = /(^|\s)color:([\w-]+)(?=\s|$)/;
-/** `done:YYYY-MM-DD` — completion timestamp, with an optional `THH:MM` (auto-stamped on tick). */
-export const DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2})?)(?=\s|$)/;
+/** `done:YYYY-MM-DD` — completion timestamp, with an optional `THH:MM[:SS]` (auto-stamped on tick). */
+export const DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
 /**
  * `followup:30d` (a duration off the event's END date) or `followup:2026-7-31` (a literal date,
  * loosely formatted). Resolves to a follow-up date that acts as a due date but is surfaced as

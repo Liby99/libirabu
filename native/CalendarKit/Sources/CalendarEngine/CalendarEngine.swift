@@ -35,20 +35,9 @@ public final class CalendarEngine {
     /// The sleep runs OFF the render pass (a work item, not inside sceneInput) so we never mutate the
     /// observable `awake` during a SwiftUI view update.
     public func wake() {
-        dbgWakes += 1; dbgWakeTotal += 1
-        // One-shot: after startup settles (>200 wakes in), dump WHO is calling wake() while nothing
-        // animates (needsRender=false) — that's the spurious wake keeping the loop alive.
-        if dbgWakeTotal > 40, !dbgWakeCaptured {
-            dbgWakeCaptured = true
-            let stack = Thread.callStackSymbols.prefix(20).joined(separator: "\n")
-            try? ("WAKE CALLER (needsRender=\(needsRender) reason=\(awakeReason())):\n" + stack + "\n").write(toFile: "/tmp/cal-wake.log", atomically: true, encoding: .utf8)
-        }
         if !renderClock.awake { renderClock.awake = true }
         armSleep()
     }
-    var dbgWakes = 0
-    var dbgWakeTotal = 0
-    var dbgWakeCaptured = false
     /// (Re)schedule the idle sleep. While anything is animating the timer keeps deferring; once the
     /// scene is fully at rest for `idleSleep`, it pauses the TimelineView.
     private func armSleep() {
@@ -93,6 +82,15 @@ public final class CalendarEngine {
     public private(set) var seedEvents: [TimedEvent] = []
     public private(set) var seedBands: [BandEvent] = []
     public private(set) var seedDeadlines: [Deadline] = []
+    // Read-only events imported from Apple Calendar (EventKit). Kept SEPARATE from the seed arrays so
+    // they never persist to disk / push to iCloud (they're re-fetched) and can't be edited — every edit
+    // path targets the seed arrays. They're merged into the display caches (see ensureEventCache /
+    // ensureBandCache). User overlays (tags/notes/promote) attach via `richById` by the stable id.
+    public private(set) var importedEvents: [TimedEvent] = []
+    public private(set) var importedBands: [BandEvent] = []
+    // Imported id → EKEvent.eventIdentifier, rebuilt each merge. Transient (not persisted): only used to
+    // build the `ical://ekevent/…` deep-link for "Edit original", which is only offered on a live import.
+    private var appleEventIds: [String: String] = [:]
     public private(set) var trackNames = Array(repeating: TRACKS.map { $0.name }, count: 12)  // per month
     public var trackEditing = false        // an inline track-name field is open (freezes scroll)
     public let chrome = CalendarChrome()   // breadcrumb state for the toolbar
@@ -112,6 +110,22 @@ public final class CalendarEngine {
     // extra bits of state: whether we're in band-cursor mode, and which of the 4 lanes.
     public private(set) var bandCursorActive = false
     public private(set) var bandCurTrack = 0
+    // Month view's extra Tab stops: which of the 4 track NAMES is focused (nil = not on a track name).
+    public private(set) var trackNameCursor: Int?
+    public var onEditTrackName: ((_ month: Int, _ track: Int, _ rect: CGRect) -> Void)?
+
+    // Day view's extra Tab stops: the dashboard TODO list and the daily NOTE become 2 keyboard focus
+    // targets after the event cursor (see tabCursor). `dashStop` is the focused one (nil = not on the
+    // dashboard); `dashNoteEditing` flips true once Enter focuses the note editor (the WebView owns keys
+    // then). The focus ring itself is drawn INSIDE the WebView, driven via `onDashCommand`.
+    public enum DashStop: Equatable { case todo, note }
+    public private(set) var dashStop: DashStop?
+    public private(set) var dashNoteEditing = false
+    private var dashReturnEvent: String?   // the event to re-select when ⇧Tab leaves the TODO stop
+    /// Commands to the dashboard WebView bridge — CalendarView wires this to the native TODO/NOTE tab
+    /// and the carousel's JS `CK.nav*` calls (row cursor, toggle, open, focus-the-editor).
+    public enum DashCmd: Equatable { case focus(DashStop?), move(Int), activate, open }
+    public var onDashCommand: ((DashCmd) -> Void)?
     /// The timed event currently being moved/resized/created (an ACTIVE drag). The overlay floats it
     /// full-width above its day and excludes it from the others' overlap packing so they don't reflow
     /// mid-edit; nil at rest, so the normal side-by-side layout resumes on drop.
@@ -146,7 +160,13 @@ public final class CalendarEngine {
     public var onEditTimed: ((_ id: String, _ rect: CGRect) -> Void)?  // open inline timed-title editor
     public var timedEditing = false       // an inline timed-event-title field is open (freezes scroll)
     public var drawerOpen = false         // the detail drawer is open → suppress calendar hover
-    public var assistantOpen = false      // the AI panel is open → suppress calendar hover + hit-testing
+    // Fired after an EXTERNAL data change (Apple re-import / iCloud remote apply) that may have removed the
+    // item a drawer/dialog is showing. The UI re-validates and closes anything pointing at a vanished item.
+    public var onExternalDataChange: (() -> Void)?
+    // A blocking modal (the delete-confirm dialog) is up. Mirrored from the UI so the signed app's
+    // menu-driven shortcuts (⌘I assistant, ⌘Z undo) — which bypass the calendar's key monitor — can
+    // refuse to fire while it's open, matching the monitor's own block on ⌘K/⌘F/etc.
+    public var inputModalUp = false
     private var didInitialScroll = false     // center the current month once, at first layout
     private var liveScrolling = false        // fingers-down phase of a trackpad gesture
     private var startedAtTop = false         // the drag began already resting at an edge —
@@ -246,6 +266,9 @@ public final class CalendarEngine {
     public var onLocalChange: (([String], [String]) -> Void)?
     public static let trackNamesRecordID = "trackNames"
     private var cloud: CloudSync?
+    /// Observable "last synced" state for the Connectivity menu. Always present (shows "local only" in
+    /// the unentitled dev build); CloudSync writes `markSynced()` on each successful round-trip.
+    public let syncMonitor = SyncMonitor(cloudEnabled: CloudSync.isEntitled)
     /// Start CloudKit sync when this build carries the iCloud entitlement (the signed
     /// CalendarApp). The unsigned CalendarMac dev binary isn't entitled → no-op, local-only.
     private func enableCloudSyncIfEntitled() {
@@ -254,13 +277,216 @@ public final class CalendarEngine {
         cloud = c
         Task { await c.startIfAccountAvailable() }
     }
-    /// Nudge a cloud fetch (e.g. when the app returns to the foreground).
+    /// Nudge a cloud fetch/push (foreground, periodic, or the Connectivity menu's "Sync Now").
     public func syncNow() { cloud?.syncNow() }
+    /// "Sync Now" from the Connectivity menu: refresh BOTH external sources — re-import Apple Calendar and
+    /// fetch/push iCloud — and reflect progress in the monitor. No-op cloud in the local-only dev build.
+    public func refreshConnectivity() {
+        importAppleCalendar()
+        guard cloud != nil else { return }
+        syncMonitor.isSyncing = true
+        cloud?.syncNow()
+    }
 
     /// Current iCloud connectivity, for the settings UI. Instance-free (the settings window
     /// doesn't share the running engine) — reads the entitlement + CloudKit account status.
     /// CloudKit types stay contained in CloudSync; this just re-exports the module enum.
     public static func iCloudStatus() async -> ICloudStatus { await CloudSync.iCloudStatus() }
+
+    // ── Apple Calendar import (EventKit) ──────────────────────────────────────────────
+    // Enabled-state + selected calendars live in UserDefaults so the (separate) Settings window and the
+    // running engine share them without a direct reference; Settings posts `.appleCalendarSettingsChanged`
+    // to nudge an immediate re-import. Imported events are read-only + kept out of persistence/iCloud.
+    public static let appleEnabledKey = "cc.appleCal.enabled"
+    public static let appleCalendarsKey = "cc.appleCal.ids"
+    private let appleImporter = AppleCalendarImporter()
+
+    public var appleSyncEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.appleEnabledKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.appleEnabledKey) }
+    }
+    public var appleCalendarIds: [String] {
+        get { (UserDefaults.standard.array(forKey: Self.appleCalendarsKey) as? [String]) ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.appleCalendarsKey) }
+    }
+    /// Access probe + the calendar list + the TCC prompt — for the Settings picker. Access status is
+    /// static so the isolated Settings window can read it without the engine.
+    public static var appleAccess: AppleCalendarImporter.Access { AppleCalendarImporter.access }
+    public func appleCalendars() -> [AppleCalendarInfo] { appleImporter.calendars() }
+    public func requestAppleAccess() async -> Bool { await appleImporter.requestAccess() }
+
+    /// Re-fetch the enabled Apple calendars for the visible year ±1 and merge them in as read-only
+    /// events (full-window re-fetch; Apple has no incremental cursor). Disabled/unauthorized → clears
+    /// any previously-imported set. Cheap to call on launch, foreground, and settings change.
+    public func importAppleCalendar() {
+        // Proceed unless disabled or access is explicitly DENIED. We don't require `.authorized` here:
+        // the status lags for a beat after a fresh grant, but `fetch()` asks the store directly and
+        // returns real events during that window (empty if truly no access), so the first import right
+        // after connecting isn't lost.
+        guard appleSyncEnabled, AppleCalendarImporter.access != .denied else {
+            if !importedEvents.isEmpty || !importedBands.isEmpty {
+                importedEvents = []; importedBands = []; editGen &+= 1; deadlineGen &+= 1; wake()
+            }
+            return
+        }
+        let cal = Calendar.current
+        let from = cal.date(from: DateComponents(year: year - 1, month: 1, day: 1)) ?? Date()
+        let to   = cal.date(from: DateComponents(year: year + 3, month: 1, day: 1)) ?? Date()
+        mergeAppleEvents(appleImporter.fetch(from: from, to: to, calendarIds: appleCalendarIds))
+    }
+
+    /// Case/punctuation/whitespace-insensitive title key (ported from the web's `normTitle`).
+    static func normTitle(_ s: String) -> String {
+        s.lowercased().replacingOccurrences(of: "[^\\p{L}\\p{N}]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+    }
+    /// Exact dedup key for a timed event: normalized title + calendar day + exact start minute.
+    private func timedKey(_ title: String, _ y: Int, _ m: Int, _ d: Int, _ startHour: CGFloat) -> String {
+        "\(Self.normTitle(title))|\(y)-\(m)-\(d)@\(Int((startHour * 60).rounded()))"
+    }
+    /// Store an imported event's `hidden` flag (a deduped shadow of the user's own event). Returns
+    /// whether it changed, so the caller can persist. Only mints a rich-fields entry when actually hiding.
+    private func setImportedHidden(_ id: String, _ hidden: Bool) -> Bool {
+        if hidden {
+            var rf = richById[id] ?? RichFields()
+            if rf.hidden { return false }
+            rf.hidden = true; richById[id] = rf; return true
+        } else if var rf = richById[id], rf.hidden {
+            rf.hidden = false; richById[id] = rf; return true
+        }
+        return false
+    }
+    /// Set an imported event's note to `fresh` managed block composed with any existing user postfix
+    /// (a blank `fresh` drops the managed block, keeping the user's text). Returns whether it changed.
+    private func setImportedNote(_ id: String, _ fresh: String) -> Bool {
+        let composed = ManagedNote.replaceManaged(richById[id]?.notes, fresh)
+        let newVal: String? = composed.isEmpty ? nil : composed
+        if (richById[id]?.notes ?? "") == (newVal ?? "") { return false }
+        var rf = richById[id] ?? RichFields()
+        rf.notes = newVal
+        richById[id] = rf
+        return true
+    }
+
+    private func mergeAppleEvents(_ fetched: [FetchedAppleEvent]) {
+        let cal = Calendar.current
+        // Dedup: the user's OWN timed events (exact key), so an imported event that shadows one can be
+        // hidden. displayEvents includes recurrence occurrences; exclude imported ids so we compare only
+        // against the user's real calendar, not a prior Apple import.
+        var ownTimed = Set<String>()
+        for y in (year - 1)...(year + 2) {
+            for e in displayEvents(for: y) where !isImported(e.id) { ownTimed.insert(timedKey(e.title, e.year, e.month, e.day, e.startHour)) }
+        }
+        var events: [TimedEvent] = []
+        var seen = Set<String>()       // self-dedup: a copied event can share a UID → collides on our id
+        var richChanged = false
+        var seriesNote: [String: String] = [:]   // series key → freshly-rendered managed block (computed once)
+        var seriesVisible = Set<String>()         // series keys with ≥1 non-hidden occurrence this import
+        appleEventIds.removeAll(keepingCapacity: true)
+        for e in fetched.sorted(by: { $0.start < $1.start }) {
+            if e.allDay { continue }   // never import all-day events (product decision)
+            let sc = cal.dateComponents([.year, .month, .day, .hour, .minute], from: e.start)
+            guard let y = sc.year, let mo1 = sc.month, let d = sc.day else { continue }
+            let m = mo1 - 1
+            let sh = CGFloat(sc.hour ?? 0) + CGFloat(sc.minute ?? 0) / 60
+            let ec = cal.dateComponents([.year, .month, .day, .hour, .minute], from: e.end)
+            var eh = CGFloat(ec.hour ?? 0) + CGFloat(ec.minute ?? 0) / 60
+            if ec.year != y || ec.month != mo1 || ec.day != d || eh <= sh { eh = 24 }   // multi-day / past midnight → clamp to day end
+            let id = "apple-\(e.uid)-\(String(format: "%04d%02d%02d-%02d%02d", y, mo1, d, sc.hour ?? 0, sc.minute ?? 0))"
+            guard seen.insert(id).inserted else { continue }
+            if let eid = e.eventId { appleEventIds[id] = eid }
+            // Exact-match dedup: an imported event that shadows one of the user's OWN events (same title +
+            // same day + same start) is still imported, but flagged HIDDEN on its entry — we prefer the
+            // editable event and don't draw the shadow. The flag is stored/persisted, so re-imports keep it.
+            let hidden = ownTimed.contains(timedKey(e.title, y, m, d, sh))
+            if setImportedHidden(id, hidden) { richChanged = true }   // per-occurrence flag (local-only)
+            // Vendor "managed note" is SERIES-level (provenance, meeting link, location, organizer,
+            // attendees, description don't vary per occurrence). Compute it once per series and remember
+            // whether any occurrence is visible; a fully-shadowed series drops its managed block below.
+            let sk = Self.appleSeriesKey(id)
+            if !hidden { seriesVisible.insert(sk) }
+            if seriesNote[sk] == nil, ManagedNote.hasDetail(url: e.url, location: e.location, organizer: e.organizer, attendees: e.attendees.count, description: e.notes) {
+                seriesNote[sk] = ManagedNote.render(provenance: "Apple · \(e.sourceTitle) · \(e.calendarTitle)", meetingUrl: e.url,
+                                                    location: e.location, organizer: e.organizer,
+                                                    attendees: e.attendees.map { ($0.name, $0.status) }, description: e.notes)
+            }
+            events.append(TimedEvent(id: id, year: y, month: m, day: d, startHour: sh, endHour: max(sh + 0.25, eh), title: e.title, color: Self.nearestEventColor(e.colorHex)))
+        }
+        // Refresh each series' managed note at its series key, preserving the user's postfix; a series with
+        // no visible occurrence drops the managed block (keeps any user text). Only series that already have
+        // an overlay entry, or that carry detail this import, are touched.
+        for sk in Set(seriesNote.keys).union(richById.keys.filter { Self.isAppleSeriesKey($0) }) {
+            let block = seriesVisible.contains(sk) ? (seriesNote[sk] ?? "") : ""
+            if setImportedNote(sk, block) { richChanged = true }
+        }
+        // Prune imported overlays no longer backed upstream: per-occurrence `hidden` flags whose occurrence
+        // is gone; series overlays only when NO live occurrence remains AND they carry no user-authored data.
+        let live = Set(events.map(\.id))
+        let liveSeries = Set(events.map { Self.appleSeriesKey($0.id) })
+        for id in richById.keys where id.hasPrefix("apple-") {
+            if Self.isAppleSeriesKey(id) {
+                if !liveSeries.contains(id), let rf = richById[id], !hasUserOverlay(rf) { richById[id] = nil; richChanged = true }
+            } else if !live.contains(id) {
+                richById[id] = nil; richChanged = true
+            }
+        }
+        importedEvents = events
+        importedBands = []
+        if richChanged { schedulePersist() }   // the hidden flags are stored state (see setImportedHidden)
+        editGen &+= 1; deadlineGen &+= 1
+        if let s = selectedId, !itemExists(sourceId(of: s)) { selectedId = nil }   // selection's event gone
+        onExternalDataChange?()   // an open drawer on a now-removed imported event should close
+        wake()
+    }
+
+    /// Deep-link that reveals an imported event back in Calendar.app ("Edit original"). The `ical://ekevent/`
+    /// scheme opens Calendar.app and selects the event by its EKEvent identifier. Nil if we don't hold the
+    /// identifier (older import) — the UI hides the button then. The UI layer opens it (this module has no AppKit).
+    public func appleOriginalURL(_ id: String) -> URL? {
+        guard let eid = appleEventIds[sourceId(of: id)] else { return nil }
+        return URL(string: "ical://ekevent/\(eid)?method=show&options=more")
+    }
+
+    /// "Make local copy": clone an imported (read-only) event into our own editable calendar, carrying its
+    /// title / time / color / notes / tags, and hide the imported original so the two don't both show. The
+    /// dedup pass on the next import would hide it anyway (same title+day+start now lives in our own set) — we
+    /// just do it immediately. Returns the new editable event's id so the drawer can re-point at it.
+    @discardableResult
+    public func makeLocalCopy(_ id: String) -> String? {
+        guard isImported(id), let e = importedEvents.first(where: { $0.id == id }) else { return nil }
+        beginTxn()
+        let newId = "new-\(UUID().uuidString)"
+        seedEvents.append(TimedEvent(id: newId, year: e.year, month: e.month, day: e.day,
+                                     startHour: e.startHour, endHour: e.endHour, title: e.title, color: importedDisplayColor(e)))
+        // Carry the user overlays — notes (managed block + any typed text), tags, promote lane — into a
+        // fresh, manual rich-fields entry. They live at the imported SERIES key; the copy is a normal local
+        // event from here on (source defaults to "manual"; the vendor color is baked into the event above).
+        if let src = richById[overlayKey(id)] {
+            richById[newId] = RichFields(notes: src.notes, tags: src.tags, promoteTrack: src.promoteTrack)
+        }
+        _ = setImportedHidden(id, true)   // remove the read-only original from view (dedup keeps it hidden after)
+        selectedId = newId
+        commitTxn()
+        return newId
+    }
+
+    /// Nearest named palette color to a `#RRGGBB` hex — imported events adopt their calendar's color.
+    static func nearestEventColor(_ hex: String) -> String {
+        let s = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard s.count == 6, let v = Int(s, radix: 16) else { return "blue" }
+        let r = (v >> 16) & 0xFF, g = (v >> 8) & 0xFF, b = v & 0xFF
+        let palette: [(String, Int, Int, Int)] = [
+            ("blue", 74, 142, 232), ("indigo", 92, 92, 214), ("cyan", 80, 200, 220),
+            ("green", 76, 200, 120), ("darkgreen", 40, 120, 70), ("yellow", 230, 200, 70),
+            ("orange", 240, 150, 70), ("red", 240, 96, 96), ("purple", 170, 100, 220),
+        ]
+        var best = "blue"; var bestD = Int.max
+        for (name, pr, pg, pb) in palette {
+            let dist = (r - pr) * (r - pr) + (g - pg) * (g - pg) + (b - pb) * (b - pb)
+            if dist < bestD { bestD = dist; best = name }
+        }
+        return best
+    }
 
     private enum PointerKind {
         case navigate, move, resizeTop, resizeBottom, create           // timed
@@ -336,7 +562,6 @@ public final class CalendarEngine {
         pushChrome()
         enableCloudSyncIfEntitled()
         armSleep()   // an untouched app settles to a paused (idle) render after the initial frame
-        startDbgTimer()
     }
 
     // ── Persistence ─────────────────────────────────────────────────────────────
@@ -367,6 +592,25 @@ public final class CalendarEngine {
         diff(old?.bands ?? [], new.bands, \.id)
         diff(old?.deadlines ?? [], new.deadlines, \.id)
         if (old?.monthTrackNames ?? []) != (new.monthTrackNames ?? []) { upserts.append(trackNamesRecordID) }
+        // Rich-field changes that DIDN'T move a body (a note/tag/promote/color edit) still need to sync:
+        //   • a normal item id → re-save its body record (rich rides on it)
+        //   • an imported SERIES key → its own standalone "Overlay" record (no body of ours to ride on)
+        //   • an imported PER-OCCURRENCE key (the `hidden` dedup flag) → local-only, never synced
+        let oldRich = old?.rich ?? [:], newRich = new.rich ?? [:]
+        for k in Set(oldRich.keys).union(newRich.keys) where !isApplePerOccurrenceKey(k) {
+            let o = oldRich[k], n = newRich[k]
+            if o == n { continue }
+            if isAppleSeriesKey(k) {
+                // Only user-authored overlays are worth an iCloud record (skip managed-note-only churn).
+                let keep = n.map(hasUserOverlay) ?? false
+                if keep { upserts.append(k) } else { deletes.append(k) }
+            } else {
+                upserts.append(k)   // normal item: re-materialize its body with the new rich
+            }
+        }
+        let delSet = Set(deletes)
+        upserts = Array(Set(upserts).subtracting(delSet))
+        deletes = Array(delSet)
         return (upserts, deletes)
     }
 
@@ -380,6 +624,56 @@ public final class CalendarEngine {
     public func beginSyncTracking() { syncedState = syncSnapshot() }
     public func loadSyncState() -> Data? { store.loadSyncState() }
     public func saveSyncState(_ data: Data?) { store.saveSyncState(data) }
+
+    // ── Bulk import / export (File menu: .ics / .mdc) ──────────────────────────────────
+    /// The full local dataset, for writing a .mdc backup. (Same shape the sync layer snapshots.)
+    public func exportState() -> PersistedState { syncSnapshot() }
+
+    /// Append imported items (e.g. from an .ics file) as editable seed items — ONE undoable step.
+    public func importItems(events: [TimedEvent] = [], bands: [BandEvent] = [],
+                            deadlines: [Deadline] = [], rich: [String: RichFields] = [:]) {
+        guard !events.isEmpty || !bands.isEmpty || !deadlines.isEmpty else { return }
+        beginTxn()
+        seedEvents.append(contentsOf: events)
+        seedBands.append(contentsOf: bands)
+        seedDeadlines.append(contentsOf: deadlines)
+        for (k, v) in rich { richById[k] = v }
+        commitTxn()
+    }
+
+    /// Replace the ENTIRE local dataset (restoring a .mdc backup) — ONE undoable step, so an accidental
+    /// import can be undone. Bumps the caches + persists, exactly like `restore`.
+    public func replaceAll(_ s: PersistedState) {
+        commitTxn()
+        undoStack.append(editState); if undoStack.count > 100 { undoStack.removeFirst() }
+        redoStack.removeAll()
+        wake(); editGen &+= 1; deadlineGen &+= 1
+        seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines
+        richById = s.rich ?? [:]
+        if let tn = s.monthTrackNames { trackNames = tn }
+        dailyNotes = s.dailyNotes ?? [:]
+        selectedId = nil
+        schedulePersist()
+    }
+
+    /// Write the whole calendar to a `.mdc` backup (a zip mirroring the web export). Throws on I/O error.
+    public func exportMDC(to url: URL) throws {
+        let files = try MDCBackup.encode(exportState(), exportedAt: Date())
+        try Zipper.write(files, to: url)
+    }
+    /// Restore a `.mdc` (or the web's `.zip`) backup — replaces the entire local dataset (undoable).
+    public func importMDC(from url: URL) throws {
+        let state = try MDCBackup.decode(try Zipper.read(url))
+        replaceAll(state)
+    }
+    /// Import an `.ics` file's events as editable items. Returns how many were added.
+    @discardableResult
+    public func importICS(from url: URL) throws -> Int {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let (events, bands, rich) = ICSImport.items(from: text, provenance: url.lastPathComponent)
+        importItems(events: events, bands: bands, rich: rich)
+        return events.count + bands.count
+    }
 
     /// Apply records fetched from the cloud. Upserts replace/insert by id; deletes remove.
     /// Deliberately bypasses undo history and the local-delta emit — this IS the synced
@@ -405,6 +699,7 @@ public final class CalendarEngine {
         let state = PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, monthTrackNames: trackNames, rich: richById, dailyNotes: dailyNotes)
         store.save(state)
         syncedState = state   // adopt as baseline so the merge doesn't re-emit as a local delta
+        if !deletedIDs.isEmpty { onExternalDataChange?() }   // a remote delete may have removed an open item
     }
 
     private static func upsert<T: Identifiable>(_ arr: inout [T], _ item: T) where T.ID == String {
@@ -451,6 +746,7 @@ public final class CalendarEngine {
     /// instead of the mouse. nil → fall back to the real mouse `hover`.
     private func blockHoverOverride() -> Hover? {
         guard keyboardActive, selectedId == nil, !drawerOpen else { return nil }
+        if let t = trackNameCursor { return Hover(track: t) }   // track-name cursor: highlight its lane
         if bandCursorActive {   // band cursor: the month/week crosshair (lane + day)
             switch level(z) {
             case 0:  return Hover(month: blockMonth, dom: blockDay, track: bandCurTrack)
@@ -481,45 +777,8 @@ public final class CalendarEngine {
     /// same frame the main TimelineView already computed — e.g. the lifted-event copy above the scrim.
     public func snapshotInput() -> SceneInput { snapshot() }
 
-    // ── Render diagnostics (temporary) ──────────────────────────────────────────────
-    // Logs once/sec while the loop is actively rendering, with the reason it's awake. On true idle the
-    // loop is paused → sceneInput isn't called → silence. If this keeps printing while you're not
-    // touching anything, `reason` names the stuck state; `NONE` means the pause isn't engaging.
-    private var dbgFrames = 0
-    private func renderDiag() { dbgFrames += 1 }
-    private var dbgTimer: Timer?
-    func startDbgTimer() {
-        dbgTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let line = "awake=\(self.renderClock.awake ? "Y" : "N") sceneInput/s=\(self.dbgFrames) wakes/s=\(self.dbgWakes) reason=\(self.awakeReason())\n"
-            self.dbgWakes = 0
-            if let h = FileHandle(forWritingAtPath: "/tmp/cal-diag.log") {
-                h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
-            } else {
-                try? line.write(toFile: "/tmp/cal-diag.log", atomically: true, encoding: .utf8)
-            }
-            self.dbgFrames = 0
-        }
-    }
-    private func awakeReason() -> String {
-        var r: [String] = []
-        if tween != nil { r.append("tween") };                 if scrollTween != nil { r.append("scrollTween") }
-        if tlScrollTween != nil { r.append("tlScrollTween") };  if weekTween != nil { r.append("weekTween") }
-        if dayTween != nil { r.append("dayTween") };            if shiftTween != nil { r.append("shiftTween") }
-        if flipAnim != nil { r.append("flipAnim") };            if monthAnim != nil { r.append("monthAnim") }
-        if monthFlip != nil { r.append("monthFlip") };          if weekFlip != nil { r.append("weekFlip") }
-        if dayFlip != nil { r.append("dayFlip") };              if drag != nil { r.append("drag") }
-        if daily.anim != nil { r.append("daily.anim") };        if liveScrolling { r.append("liveScrolling") }
-        if liveMonthScrolling { r.append("liveMonth") };        if liveWeekScrolling { r.append("liveWeek") }
-        if liveDayScrolling { r.append("liveDay") };            if yearPull != nil { r.append("yearPull") }
-        if monthPull != nil { r.append("monthPull") };          if weekPull != nil { r.append("weekPull") }
-        if dayPull != nil { r.append("dayPull") }
-        return r.isEmpty ? "NONE(pause-not-engaging)" : r.joined(separator: ",")
-    }
-
     /// Advance the tween to `date` and return the immutable input for this frame.
     public func sceneInput(at date: Date, viewport vp: Viewport) -> SceneInput {
-        renderDiag()
         viewport = vp
         if let t = tween {
             z = t.value(at: date)
@@ -584,8 +843,14 @@ public final class CalendarEngine {
     }
 
     public func setViewport(_ size: CGSize) {
-        wake()   // window resize / initial layout → re-render the scene
-        viewport = Viewport(w: size.width - Layout.padLeft - Layout.padRight, h: size.height)
+        let vp = Viewport(w: size.width - Layout.padLeft - Layout.padRight, h: size.height)
+        // No-op guard: AppKit calls CatcherView.layout() (→ setViewport) on EVERY display cycle while the
+        // calendar renders, and `sceneInput` already keeps `viewport` current each frame. Waking on a
+        // same-size call created a layout→wake→render→layout feedback loop that pinned the CPU and
+        // defeated the idle pause. Only act on a real resize (or the first layout).
+        if didInitialScroll, vp.w == viewport.w, vp.h == viewport.h { return }
+        wake()   // genuine resize / initial layout → re-render the scene
+        viewport = vp
         if !didInitialScroll, viewport.h > 1 {
             didInitialScroll = true          // once: center today's month (clamped to top/bottom).
             scrollY = clamp(centerScroll(for: focus), 0, yearMaxScroll(viewport))
@@ -718,6 +983,34 @@ public final class CalendarEngine {
         chrome.monthResync &+= 1; chrome.weekResync &+= 1; chrome.dailyResync &+= 1
     }
 
+    /// Programmatic view navigation for the assistant's `set_view` tool. Mirrors the web set_view:
+    /// optionally switch year, focus a month (0-based), and/or zoom to a named level. Unspecified
+    /// arguments are left unchanged. UI-only — moves the view, never mutates data.
+    public func setView(year targetYear: Int? = nil, zoom: String? = nil, focusedMonth: Int? = nil,
+                        day: Int? = nil) {
+        wake()
+        // A concrete day → fly straight there (jumpToDay handles cross-year travel, focus, and
+        // landing in the day view). The day IS the destination; other args just refine it.
+        if let d = day {
+            let ty = targetYear ?? year
+            let m = max(0, min(11, focusedMonth ?? focus))
+            jumpToDay(ty, m, max(1, min(daysInMonth(ty, m), d)))
+            return
+        }
+        if let ty = targetYear, ty != year { selectYear(ty) }
+        if let m = focusedMonth, (0...11).contains(m) {
+            focus = m
+            chrome.monthResync &+= 1   // land the pager on the newly-focused month
+        }
+        switch zoom?.lowercased() {
+        case "year":  zoomToYear()
+        case "month": zoomToMonth()
+        case "week":  zoomToWeek()
+        case "day":   tweenZ(to: 3)
+        default:      break
+        }
+    }
+
     /// Jump to another calendar year. Resets vertical scroll to the top, like the web's selectYear.
     public func selectYear(_ y: Int) {
         guard y != year, !isFlipping else { return }
@@ -741,6 +1034,13 @@ public final class CalendarEngine {
         if chrome.focus != focus { chrome.focus = focus }
         if chrome.week != Double(week) { chrome.week = Double(week) }
         if chrome.dailyDom != daily.dom { chrome.dailyDom = daily.dom }
+        // Breadcrumb "most visible" month/day: once a month page (or day page) is more than halfway in,
+        // the crumb shows the incoming one — so it updates mid-animation, not on landing. (A year-edge
+        // flip swaps `focus`/`daily.dom` at its own midpoint, so this tracks those too.)
+        let df = monthAnim.map { $0.p >= 0.5 ? min(11, max(0, focus + $0.dir)) : focus } ?? focus
+        if chrome.displayFocus != df { chrome.displayFocus = df }
+        let dd = daily.anim.map { $0.p >= 0.5 ? min(daysInMonth(year, focus), max(1, daily.dom + $0.dir)) : daily.dom } ?? daily.dom
+        if chrome.displayDom != dd { chrome.displayDom = dd }
     }
 
     private func cancelTween() {
@@ -1629,6 +1929,46 @@ public final class CalendarEngine {
     /// carries the position over (leftmost/earliest anchor) so the cycle round-trips.
     public func tabCursor(_ forward: Bool) {
         enterKeyboardMode()
+        // Month view inserts 4 track-name stops between Event and Block (after Event, before wrapping).
+        let inMonth = level(z) == 1
+        if let t = trackNameCursor {
+            if forward { if t < 3 { trackNameCursor = t + 1 } else { trackNameCursor = nil } }   // track 3 → block
+            else if t > 0 { trackNameCursor = t - 1 }
+            else {   // track 0 → event (⇧Tab); no event in view → skip the empty stop to the band cursor
+                trackNameCursor = nil
+                if let eid = nearestEventToBlock() { selectedId = eid; scrollToSelected() }
+                else { bandCursorActive = true; bandCurTrack = 0 }
+            }
+            return
+        }
+        if inMonth {
+            if selectedId != nil && forward { deselect(); trackNameCursor = 0; return }   // event → track 0
+            if currentDomain == .block && !forward { trackNameCursor = 3; return }         // block ← track 3
+        }
+        // Day view inserts 2 dashboard stops (TODO, then NOTE) between Event and Block.
+        let inDay = level(z) == 3
+        if let s = dashStop {
+            if forward {
+                if s == .todo { dashStop = .note; onDashCommand?(.focus(.note)) }
+                else { dashStop = nil; onDashCommand?(.focus(nil)); blockDay = daily.dom }   // note → block (wrap)
+            } else {
+                if s == .note { dashStop = .todo; onDashCommand?(.focus(.todo)) }
+                else {                                                                        // todo → event (back)
+                    dashStop = nil; onDashCommand?(.focus(nil))
+                    if let eid = dashReturnEvent, isVisibleEvent(eid) { selectedId = eid }
+                    else if let eid = nearestEventToBlock() { selectedId = eid }
+                    if selectedId != nil { scrollToSelected() }
+                    else { bandCursorActive = true; bandCurTrack = 0 }   // no event in view → skip the empty stop to band
+                }
+            }
+            return
+        }
+        if inDay {
+            if selectedId != nil && forward {   // event → TODO stop (remember it for the round-trip)
+                dashReturnEvent = selectedId; deselect(); dashStop = .todo; onDashCommand?(.focus(.todo)); return
+            }
+            if currentDomain == .block && !forward { dashStop = .note; onDashCommand?(.focus(.note)); return }   // block ← NOTE
+        }
         let from = currentDomain
         let to: NavDomain = forward
             ? (from == .block ? .band : (from == .band ? .event : .block))
@@ -1637,13 +1977,11 @@ public final class CalendarEngine {
         case (.block, .band), (.band, .block):   // block ⇄ band: same time cell, just add/drop the lane
             bandCursorActive = (to == .band)
             if to == .band { bandCurTrack = 0 }
-        case (.band, .event):                     // band → the band under the cell (else nearest band)
-            let m = level(z) == 0 ? blockMonth : focus
-            let hit = viewBands().first { $0.month == m && $0.track == bandCurTrack && $0.startDay <= blockDay && $0.endDay >= blockDay }
-            let pick = hit ?? viewBands().filter { $0.month == m }
-                .min(by: { (bandDayDist($0, blockDay), abs($0.track - bandCurTrack)) < (bandDayDist($1, blockDay), abs($1.track - bandCurTrack)) })
-            bandCursorActive = false
-            if let b = pick { selectedId = b.id; scrollToSelected() }
+        case (.band, .event):                     // band → the band under the cell, else the nearest timed/
+            bandCursorActive = false              // deadline event (week/day), else skip the empty stop
+            if let b = bandForCursor() { selectedId = b.id }
+            else if let eid = nearestEventToBlock() { selectedId = eid; tabLink = (blockMonth, blockDay, blockHour, eid) }
+            else { skipEventForward() }           // truly no event in view → skip the empty event stop
         case (.event, .band):                     // event → its start cell (band) or (lane 0, its day)
             if let sel = selectedId {
                 if let b = displayBands(for: year).first(where: { $0.id == sel }) { blockMonth = b.month; bandCurTrack = b.track; blockDay = b.startDay }
@@ -1667,13 +2005,72 @@ public final class CalendarEngine {
             } else if let eid = nearestEventToBlock() {
                 selectedId = eid; tabLink = (blockMonth, blockDay, blockHour, eid)
             }
-            ensureSelectedEventVisible()
+            if selectedId == nil { bandCursorActive = true; bandCurTrack = 0 }   // no event in view → skip the empty stop to the band cursor
+        default: break
+        }
+        // Scroll whatever event we landed on into view: a timed/deadline event above or below the
+        // timeline viewport (week/day) glides into sight; a band scrolls to its month/day. (req 2)
+        if selectedId != nil { scrollToSelected() }
+    }
+
+    /// Forward Tab reached the event stop but found nothing to select → advance to the stop that follows
+    /// the (empty) event stop in this view, so Tab never lands on a dead event cursor: month → the first
+    /// track-name stop, day → the TODO stop, week/year → the block cursor (already the state here).
+    private func skipEventForward() {
+        switch level(z) {
+        case 1: trackNameCursor = 0
+        case 3: dashReturnEvent = nil; dashStop = .todo; onDashCommand?(.focus(.todo))
         default: break
         }
     }
 
     private func isVisibleEvent(_ id: String) -> Bool {
         viewBands().contains { $0.id == id } || viewEvents().contains { $0.id == id } || viewDeadlines().contains { $0.id == id }
+    }
+
+    /// The band the band-cursor cell sits on: the band covering `(month, track, day)`, else the nearest
+    /// band in that month. Shared by Tab (band→event) and Enter-to-select.
+    private func bandForCursor() -> BandEvent? {
+        let m = level(z) == 0 ? blockMonth : focus
+        let hit = viewBands().first { $0.month == m && $0.track == bandCurTrack && $0.startDay <= blockDay && $0.endDay >= blockDay }
+        return hit ?? viewBands().filter { $0.month == m }
+            .min(by: { (bandDayDist($0, blockDay), abs($0.track - bandCurTrack)) < (bandDayDist($1, blockDay), abs($1.track - bandCurTrack)) })
+    }
+
+    /// Enter from the band cursor (any view) or the block cursor (week/day) → enter event-cursor mode on
+    /// the relevant event: the band under the band cell, else the nearest event to the block cell. Keeps
+    /// the one-step Tab memory in sync so a following ⇧Tab round-trips back to the originating cell.
+    public func selectFromCursor() {
+        enterKeyboardMode()
+        if bandCursorActive {
+            if let b = bandForCursor() { bandCursorActive = false; selectedId = b.id; scrollToSelected() }
+        } else if trackNameCursor == nil, level(z) >= 2 {   // block cursor — week/day only (per spec)
+            if let eid = nearestEventToBlock() {
+                selectedId = eid; tabLink = (blockMonth, blockDay, blockHour, eid); ensureSelectedEventVisible()
+            }
+        }
+    }
+
+    // ── Day-view dashboard keyboard stops (TODO / NOTE) — dispatched to the WebView bridge ─────────
+    /// Move the TODO row cursor (↑/↓). No-op unless the TODO stop is focused.
+    public func dashMove(_ d: Int) { guard dashStop == .todo else { return }; enterKeyboardMode(); onDashCommand?(.move(d)) }
+    /// Space/Enter on a dashboard stop: TODO → toggle the focused row; NOTE → focus the editor (edit mode).
+    public func dashActivate() {
+        enterKeyboardMode()
+        switch dashStop {
+        case .todo: onDashCommand?(.activate)
+        case .note: dashNoteEditing = true; onDashCommand?(.activate)
+        case nil:   break
+        }
+    }
+    /// Enter on the TODO stop → open the focused row's event (or fly to its daily note).
+    public func dashOpen() { guard dashStop == .todo else { return }; enterKeyboardMode(); onDashCommand?(.open) }
+    /// The note editor handed focus back (Esc or ⌘S in the WebView) → return to the NOTE ring.
+    public func dashNoteExit() { guard dashStop == .note else { return }; dashNoteEditing = false; onDashCommand?(.focus(.note)) }
+    /// Drop any dashboard focus (leaving day view via Esc / ⌘−). Idempotent.
+    private func clearDashStop() {
+        guard dashStop != nil else { return }
+        dashStop = nil; dashNoteEditing = false; dashReturnEvent = nil; onDashCommand?(.focus(nil))
     }
 
     /// Land the block cursor on an event's earliest anchor (band → startDay; timed/deadline → day+hour).
@@ -1728,24 +2125,61 @@ public final class CalendarEngine {
         enterKeyboardMode()
         guard let sel = selectedId else { return }
         if level(z) == 3 {
-            // Day view: ↑/↓ step the day's events by time; ←/→ switch between side-by-side overlaps.
+            // Day view: ↑/↓ step by TIME row; ←/→ switch between side-by-side overlaps.
             if dy != 0 {
                 let ids = dayEventOrder()
                 guard !ids.isEmpty else { return }
-                let i = ids.firstIndex(of: sel) ?? (dy > 0 ? -1 : ids.count)
-                let j = max(0, min(ids.count - 1, i + dy))
-                if ids.indices.contains(j) { selectedId = ids[j]; ensureSelectedEventVisible() }
-            } else if let n = focusFind(sel, dx, 0) {   // overlaps → the adjacent column
+                guard let i = ids.firstIndex(of: sel) else {
+                    selectedId = ids[dy > 0 ? 0 : ids.count - 1]; ensureSelectedEventVisible(); return
+                }
+                var j = i + dy
+                // Skip side-by-side colliders of the current TIMED event — same-time overlaps are reached
+                // with ←/→, so ↑/↓ moves to the next DISTINCT time row (A/B at 10–11 → C at 11–12). General
+                // over any number of colliders and partial overlaps; a no-move is left as-is (no clamp onto
+                // a collider). Bands / deadlines aren't timed boxes, so they end the skip.
+                let evs = viewEvents()
+                if let cur = evs.first(where: { $0.id == sel }) {
+                    while ids.indices.contains(j), let n = evs.first(where: { $0.id == ids[j] }),
+                          n.startHour < cur.endHour, cur.startHour < n.endHour { j += dy }
+                }
+                if ids.indices.contains(j), j != i { selectedId = ids[j]; ensureSelectedEventVisible() }
+            } else if let n = focusFind(sel, dx, 0, rects: visibleEventRects()) {   // overlaps → the adjacent column
                 selectedId = n; ensureSelectedEventVisible()
             }
             return
         }
-        // Year / month / week: the 2-D focus engine (FocusFinder over on-screen rects).
+        // Week view: ←/→ first hops between side-by-side overlapping events (their real time-columns). Only
+        // when there's no such neighbor in that direction does it fall through to day-to-day navigation —
+        // so the timeline's columns are reachable without losing cross-day movement.
+        if level(z) == 2, dx != 0, let n = sideBySideNeighbor(sel, dx) {
+            selectedId = n; lastEventMove = nil; scrollToSelected(); return
+        }
+        // Year / month / week: the 2-D focus engine over LOGICAL rects (so off-screen events are reachable).
+        // Event navigation may cross quarter boundaries in year view (only the band CURSOR is quarter-bound).
+        let allRects = logicalRects()
+        var rects = allRects
+        // Week view: PREFER the visible week — neither a vertical nor a horizontal move should teleport to an
+        // off-screen event in another week's column (focusFind's beam preference would otherwise pick a far,
+        // same-time event over a near, in-view one). ↑/↓ additionally drops the current event's same-time
+        // colliders (those are reached with ←/→). ←/→ falls back to the full set below when the visible week
+        // offers nothing in that direction (e.g. you're on the last visible day) — so you can still cross weeks.
+        if level(z) == 2 {
+            if let win = visibleWeekDOMRange() {
+                // Keep `sel` regardless (focusFind needs its anchor); drop other-week events.
+                rects.removeAll { $0.id != sel && ($0.rect.maxX <= CGFloat(win.lowerBound) || $0.rect.minX >= CGFloat(win.upperBound + 1)) }
+            }
+            if dy != 0 {
+                let colliders = timedColliderIds(of: sel)
+                if !colliders.isEmpty { rects.removeAll { colliders.contains($0.id) } }
+            }
+        }
         let next: String?
         if let m = lastEventMove, m.to == sel, m.dx == -dx, m.dy == -dy {
             next = m.from                                   // exact inverse → return to origin
-        } else if let n = focusFind(sel, dx, dy) {
-            next = n; lastEventMove = (sel, dx, dy, n)
+        } else if let n = focusFind(sel, dx, dy, rects: rects) {
+            next = n; lastEventMove = (sel, dx, dy, n)      // best within the (visible-week) candidate set
+        } else if level(z) == 2, dx != 0, let n = focusFind(sel, dx, dy, rects: allRects) {
+            next = n; lastEventMove = (sel, dx, dy, n)      // nothing left/right in the visible week → cross weeks
         } else { next = nil }
         if let n = next, n != sel { selectedId = n; scrollToSelected() }
     }
@@ -1784,10 +2218,11 @@ public final class CalendarEngine {
         return out
     }
 
-    /// FocusFinder: the best event in direction (dx,dy) from `currentId`. Edge distances, beam-preference,
-    /// K≈13 major-axis weight — off-axis allowed but heavily penalized (see docs/prompts/keyboard_control.md).
-    private func focusFind(_ currentId: String, _ dx: Int, _ dy: Int) -> String? {
-        let rects = visibleEventRects()
+    /// FocusFinder: the best event in direction (dx,dy) from `currentId`, scored over the given rect list.
+    /// Edge distances, beam-preference, K≈13 major-axis weight — off-axis allowed but heavily penalized
+    /// (see docs/prompts/keyboard_control.md). Callers pass LOGICAL rects (year/month/week — scroll-stable,
+    /// so off-screen events are reachable) or geometric rects (day-view overlaps).
+    private func focusFind(_ currentId: String, _ dx: Int, _ dy: Int, rects: [(id: String, rect: CGRect)]) -> String? {
         guard let cur = rects.first(where: { $0.id == currentId })?.rect else { return nil }
         let K: CGFloat = 13, beamPenalty: CGFloat = 1_000_000
         var best: String?; var bestScore = CGFloat.greatestFiniteMagnitude
@@ -1814,6 +2249,85 @@ public final class CalendarEngine {
     /// Edge distance between two 1-D spans [a0,a1] and [b0,b1] (0 if they overlap).
     private func gap(_ a0: CGFloat, _ a1: CGFloat, _ b0: CGFloat, _ b1: CGFloat) -> CGFloat {
         b1 < a0 ? a0 - b1 : (b0 > a1 ? b0 - a1 : 0)
+    }
+
+    /// The nearest TIMED event on the SAME day whose time overlaps the selection — i.e. a genuinely
+    /// side-by-side box in its own layout column — in the horizontal direction `dx`. Uses the real
+    /// per-column geometry (`eventRect` places overlaps at `col * subW`), so partial overlaps (10–11 vs
+    /// 10–12) and 3+ columns all resolve correctly. nil when the selection isn't a timed box or has no such
+    /// neighbor in that direction — the week-view caller then falls back to day-to-day navigation.
+    private func sideBySideNeighbor(_ sel: String, _ dx: Int) -> String? {
+        guard dx != 0, let day = selectedEventDay(sel) else { return nil }
+        let g = snapshot()
+        let tl = timelineInfo(g)
+        guard tl.hourH > 0 else { return nil }
+        let dayEvents = viewEvents().filter { $0.month == focus && $0.day == day }
+        let layout = layoutDay(dayEvents)
+        var rects: [String: CGRect] = [:]
+        for e in dayEvents {
+            if let r = eventRect(e, year, focus, tl, g.vp, layout[e.id]) { rects[e.id] = r }
+        }
+        guard let cur = rects[sel] else { return nil }   // selection must be a timed box on this day
+        var best: String?; var bestAhead = CGFloat.greatestFiniteMagnitude
+        for (id, r) in rects where id != sel {
+            guard r.maxY > cur.minY, r.minY < cur.maxY else { continue }   // must overlap in TIME (side-by-side)
+            let ahead = dx > 0 ? r.midX - cur.midX : cur.midX - r.midX
+            guard ahead > 0.5, ahead < bestAhead else { continue }
+            bestAhead = ahead; best = id
+        }
+        return best
+    }
+
+    /// The day-of-month window (7 days) currently visible in WEEK view, matching `ensureDayVisibleWeek`'s
+    /// geometry. `↑/↓` restricts to this window so a vertical move can't jump to an off-screen event in
+    /// another week (a different day column); `←/→` still crosses weeks (it shifts the window). nil unless
+    /// in week view.
+    private func visibleWeekDOMRange() -> ClosedRange<Int>? {
+        guard level(z) == 2 else { return nil }
+        let wk = (weekTween?.to ?? week).rounded()
+        let startDOM = 1 - CGFloat(firstDOW(year, focus)) + wk * 7
+        let lo = Int(startDOM.rounded())
+        return lo...(lo + 6)
+    }
+
+    /// The ids of the timed events that COLLIDE (overlap in time) with `sel` on the same day — the boxes
+    /// laid out side-by-side with it. `↑/↓` excludes these so a vertical move steps to the next time row
+    /// rather than to a same-time neighbour (which `←/→` reaches). Empty if `sel` isn't a timed box.
+    private func timedColliderIds(of sel: String) -> Set<String> {
+        guard let cur = viewEvents().first(where: { $0.id == sel }) else { return [] }
+        var out = Set<String>()
+        for e in viewEvents() where e.id != sel && e.month == cur.month && e.day == cur.day
+            && e.startHour < cur.endHour && cur.startHour < e.endHour {
+            out.insert(e.id)
+        }
+        return out
+    }
+
+    /// LOGICAL rects for the focus engine — scroll-INDEPENDENT, so off-screen events are still reachable
+    /// (year: bands stacked month×lane, x = day-span; week: bands at y=lane, timeline events below at
+    /// y = 4 + hour; month: bands at y=lane). x is day-of-month, y is lanes/hours.
+    private func logicalRects() -> [(id: String, rect: CGRect)] {
+        func bandRect(_ b: BandEvent, yBase: CGFloat) -> (String, CGRect) {
+            (b.id, CGRect(x: CGFloat(b.startDay), y: yBase + CGFloat(b.track),
+                          width: CGFloat(b.endDay - b.startDay + 1), height: 1))
+        }
+        var out: [(String, CGRect)] = []
+        switch level(z) {
+        case 0:   // year: every month's bands, lanes stacked across months
+            for b in viewBands() { out.append(bandRect(b, yBase: CGFloat(b.month * 4))) }
+        case 1:   // month: the focus month's bands
+            for b in viewBands() where b.month == focus { out.append(bandRect(b, yBase: 0)) }
+        case 2:   // week: focus-month bands (lanes 0–3) + timeline events below (y = 4 + hour)
+            for b in viewBands() where b.month == focus { out.append(bandRect(b, yBase: 0)) }
+            for e in viewEvents() where e.month == focus {
+                out.append((e.id, CGRect(x: CGFloat(e.day), y: 4 + e.startHour, width: 1, height: max(0.25, e.endHour - e.startHour))))
+            }
+            for d in viewDeadlines() where d.month == focus {
+                out.append((d.id, CGRect(x: CGFloat(d.day), y: 4 + d.hour, width: 1, height: 0.25)))
+            }
+        default: break
+        }
+        return out
     }
 
     /// Scroll the view so the SELECTED event stays visible: year → the band's month; week → shift the
@@ -1951,9 +2465,12 @@ public final class CalendarEngine {
         beginTxn(); seedBands[i].title = title; scheduleCommit()
     }
 
-    public func event(_ id: String) -> TimedEvent? { seedEvents.first { $0.id == id } }
-    public func band(_ id: String) -> BandEvent? { seedBands.first { $0.id == id } }
+    public func event(_ id: String) -> TimedEvent? { seedEvents.first { $0.id == id } ?? importedEvents.first { $0.id == id } }
+    public func band(_ id: String) -> BandEvent? { seedBands.first { $0.id == id } ?? importedBands.first { $0.id == id } }
     public func deadline(_ id: String) -> Deadline? { seedDeadlines.first { $0.id == id } }
+    /// Whether a source id still backs a real item — used by the UI to close a drawer whose event just
+    /// vanished (e.g. deleted in Apple Calendar, then re-imported; or removed by an iCloud remote change).
+    public func itemExists(_ id: String) -> Bool { event(id) != nil || band(id) != nil || deadline(id) != nil }
 
     // ── Derived bands for the year / band view ──────────────────────────────────────────
     // What the band lane actually draws, expanded from the lean data + rich fields:
@@ -2001,11 +2518,48 @@ public final class CalendarEngine {
         var b: EventBadges = []
         if recurrent { b.insert(.recurrent) }
         if promoted { b.insert(.promoted) }
+        if isImported(src) { b.insert(.imported) }
         if let rf = richById[src] {
             if rf.createdByAI { b.insert(.ai) }
             if rf.source != "manual" { b.insert(.imported) }
         }
         return b
+    }
+    /// True for a box that came from an external calendar (Apple, …). Imported ids are minted with an
+    /// `apple-` prefix; `sourceId` strips occurrence/promoted suffixes so promoted imported bars match too.
+    public func isImported(_ id: String) -> Bool { sourceId(of: id).hasPrefix("apple-") }
+
+    // ── Overlay keying for imported events ─────────────────────────────────────────────────────
+    // An imported event's own id is per-occurrence + time-derived: `apple-<uid>-<YYYYMMDD-HHMM>`. The
+    // `hidden` dedup flag keys on that full id (it shadows one specific occurrence). But USER-authored
+    // overlays — a chosen color, promote-to-band, extra notes/tags — key on the SERIES (`apple-<uid>`,
+    // datestamp stripped) so they survive the event being rescheduled in Apple Calendar and apply to the
+    // whole series. `sourceId` first, so a promoted/occurrence box resolves back to its imported id.
+    static func applePerOccurrenceSuffix(_ id: String) -> Range<String.Index>? {
+        id.range(of: "-[0-9]{8}-[0-9]{4}$", options: .regularExpression)
+    }
+    /// A full per-occurrence imported id → its series key; any other id unchanged.
+    static func appleSeriesKey(_ id: String) -> String {
+        guard id.hasPrefix("apple-"), let r = applePerOccurrenceSuffix(id) else { return id }
+        return String(id[..<r.lowerBound])
+    }
+    /// True for an imported SERIES key (`apple-<uid>`, no datestamp) — the id user overlays sync under.
+    static func isAppleSeriesKey(_ id: String) -> Bool { id.hasPrefix("apple-") && applePerOccurrenceSuffix(id) == nil }
+    /// True for an imported PER-OCCURRENCE key (`apple-<uid>-<datestamp>`) — the local-only `hidden` flag.
+    static func isApplePerOccurrenceKey(_ id: String) -> Bool { id.hasPrefix("apple-") && applePerOccurrenceSuffix(id) != nil }
+    /// The rich-fields storage key for an item's user overlays: an imported box → its series key; else itself.
+    private func overlayKey(_ id: String) -> String { Self.appleSeriesKey(sourceId(of: id)) }
+    /// True if a rich entry carries USER-authored overlay data (color / promote / tags / a note the user
+    /// typed) — as opposed to only an auto-derived managed block. Gates whether a series overlay is kept
+    /// after its event disappears upstream, and whether it's worth syncing to iCloud.
+    static func hasUserOverlay(_ rf: RichFields) -> Bool {
+        rf.colorOverride != nil || rf.promoteTrack != nil || !rf.tags.isEmpty || rf.userHidden
+            || !ManagedNote.splitNote(rf.notes).user.isEmpty
+    }
+    private func hasUserOverlay(_ rf: RichFields) -> Bool { Self.hasUserOverlay(rf) }
+    /// An imported event's effective color: the user's series-level override, else the vendor calendar's.
+    private func importedDisplayColor(_ e: TimedEvent) -> String {
+        richById[Self.appleSeriesKey(e.id)]?.colorOverride ?? e.color
     }
 
     private func ensureBandCache(_ year: Int) -> (bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]]) {
@@ -2016,6 +2570,7 @@ public final class CalendarEngine {
             var b: EventBadges = []
             if recurrent { b.insert(.recurrent) }
             if promoted { b.insert(.promoted) }
+            if isImported(src) { b.insert(.imported) }
             if let rf = richById[src] {
                 if rf.createdByAI { b.insert(.ai) }
                 if rf.source != "manual" { b.insert(.imported) }
@@ -2032,17 +2587,29 @@ public final class CalendarEngine {
         }
         for b in seedBands {
             guard let r = repeatOf(b.id) else { continue }
-            let span = b.endDay - b.startDay
+            let total = b.endDay - b.startDay + 1   // inclusive number of days the band covers
             for o in occurrenceDates(YMD(b.year, b.month, b.startDay), r, year) {
-                let endDay = min(o.day + span, daysInMonth(year, o.month))
+                // A shifted occurrence can run past the end of its start month — render one bar PER month
+                // it spans (Jan 30–Feb 2 → a Jan 30–31 bar AND a Feb 1–2 bar) instead of clamping it flat
+                // at the boundary. All segments share the occurrence's start-date key; tail segments get a
+                // distinct box id via SEGMENT_MARKER (ignored by sourceId, stripped by occurrenceKey).
                 let key = occKey(b.id, o)
-                out.append(BandEvent(id: key, year: year, month: o.month, track: b.track,
-                                     startDay: o.day, endDay: endDay, title: b.title, color: b.color))
-                badgeMap[key] = badges(b.id, recurrent: true, promoted: false)
+                var y = year, m = o.month, d = o.day, left = total, seg = 0
+                while left > 0, y == year {                 // stop at the year edge (this cache is year-scoped)
+                    let dim = daysInMonth(y, m)
+                    let daysHere = min(left, dim - d + 1)
+                    let segId = seg == 0 ? key : "\(key)\(SEGMENT_MARKER)\(seg)"
+                    out.append(BandEvent(id: segId, year: year, month: m, track: b.track,
+                                         startDay: d, endDay: d + daysHere - 1, title: b.title, color: b.color))
+                    badgeMap[segId] = badges(b.id, recurrent: true, promoted: false)
+                    left -= daysHere
+                    if m == 11 { m = 0; y += 1 } else { m += 1 }
+                    d = 1; seg += 1
+                }
             }
         }
         func promote(_ id: String, _ y: Int, _ m: Int, _ day: Int, _ title: String, _ color: String) {
-            guard let track = richById[id]?.promoteTrack else { return }
+            guard let track = richById[overlayKey(id)]?.promoteTrack else { return }
             let r = repeatOf(id)
             if y == year && !baseHidden(occDate(YMD(y, m, day)), r) {
                 // A distinct occurrence-key id (not the raw source id) so the promoted bar is its own
@@ -2062,6 +2629,15 @@ public final class CalendarEngine {
         }
         for e in seedEvents { promote(e.id, e.year, e.month, e.day, e.title, e.color) }
         for d in seedDeadlines { promote(d.id, d.year, d.month, d.day, d.title, d.color) }
+        // Imported events the user promoted (rich.promoteTrack on the series key) → one ghost band per
+        // visible occurrence, in its overridden color. Skip hidden (deduped-shadow) occurrences.
+        for e in importedEvents where e.year == year && richById[e.id]?.hidden != true {
+            promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e))
+        }
+        for b in importedBands where b.year == year {   // Apple Calendar all-day events (read-only)
+            out.append(b)
+            badgeMap[b.id] = badges(b.id, recurrent: false, promoted: false)
+        }
 
         var byMonth: [Int: [BandEvent]] = [:]
         for b in out { byMonth[b.month, default: []].append(b) }
@@ -2108,6 +2684,18 @@ public final class CalendarEngine {
                                       startHour: e.startHour, endHour: e.endHour, title: e.title, color: e.color))
                 badgeMap[key] = itemBadges(e.id, recurrent: true, promoted: false)
             }
+        }
+        let revealHidden = showHiddenImported
+        for e in importedEvents where e.year == year {   // Apple Calendar (read-only, already expanded)
+            if richById[e.id]?.hidden == true { continue }   // deduped shadow of the user's own event → not drawn
+            let userHidden = richById[Self.appleSeriesKey(e.id)]?.userHidden == true
+            if userHidden && !revealHidden { continue }   // user hid this series → hidden unless "Show Hidden" is on
+            var ev = e
+            ev.color = importedDisplayColor(e)   // apply the user's color override, if any
+            out.append(ev)
+            var b = itemBadges(e.id, recurrent: false, promoted: false)
+            if userHidden { b.insert(.hidden) }   // revealed hidden event → dotted accent bar
+            badgeMap[e.id] = b
         }
         var byDay: [Int: [TimedEvent]] = [:]
         for e in out { byDay[e.month * 100 + e.day, default: []].append(e) }
@@ -2210,20 +2798,26 @@ public final class CalendarEngine {
         beginTxn(); mutate(&seedDeadlines[i]); scheduleCommit()
     }
 
-    // ── Rich fields (tags / repeat / promote), keyed by the item's base id ─────────────────────
-    // The drawer opens with the source (base) id, so these read/write the same key. Not on the undo
-    // stack yet (EditState only snapshots the lean arrays); they persist + invalidate the display cache.
-    public func richTags(_ id: String) -> [String] { richById[id]?.tags ?? [] }
-    public func notes(_ id: String) -> String { richById[id]?.notes ?? "" }
+    // ── Rich fields (tags / repeat / promote / color), keyed by the item's OVERLAY id ──────────
+    // The drawer opens with the source (base) id, so these read/write the same key. For imported events
+    // the overlay id is the series key (see `overlayKey`), so a color/promote/note applies series-wide
+    // and survives rescheduling. Not on the undo stack yet (EditState only snapshots the lean arrays);
+    // they persist + invalidate the display cache.
+    public func richTags(_ id: String) -> [String] { richById[overlayKey(id)]?.tags ?? [] }
+    public func notes(_ id: String) -> String { richById[overlayKey(id)]?.notes ?? "" }
     public func setNotes(_ id: String, _ v: String) {
-        var rf = richById[id] ?? RichFields()
+        let key = overlayKey(id)
+        var rf = richById[key] ?? RichFields()
         guard rf.notes != v else { return }
-        rf.notes = v; richById[id] = rf
+        rf.notes = v; richById[key] = rf
         // NOT in the calendar undo stack: notes are edited in the drawer's CodeMirror, which owns its
         // own undo (Cmd+Z while it's focused). Recording here would let its internal undo re-post the
         // note and pollute the calendar stack. Matches the web (notes are a separate lower layer).
         schedulePersist()
     }
+    /// The user's chosen color for an imported event (nil = use the vendor calendar's color).
+    public func colorOverride(_ id: String) -> String? { richById[overlayKey(id)]?.colorOverride }
+    public func setColorOverride(_ id: String, _ color: String?) { mutateRich(overlayKey(id)) { $0.colorOverride = color } }
     /// Per-occurrence note (recurring events), keyed by the focused box id.
     public func occNote(_ id: String, _ key: String) -> String { richById[id]?.occurrenceNotes?[key] ?? "" }
     public func setOccNote(_ id: String, _ key: String, _ v: String) {
@@ -2292,6 +2886,27 @@ public final class CalendarEngine {
         if let occKey, !occKey.isEmpty { setOccNote(eventId, occKey, value) } else { setNotes(eventId, value) }
     }
 
+    /// All items carrying notes (with their identity + date) — the assistant's TODO scan walks
+    /// these plus the daily notes to reconstruct what the TODO panel shows.
+    public func notedItems() -> [(id: String, title: String, kind: ItemKind,
+                                  year: Int, month: Int, day: Int, notes: String)] {
+        var out: [(String, String, ItemKind, Int, Int, Int, String)] = []
+        for (id, rf) in richById {
+            guard let notes = rf.notes, !notes.isEmpty else { continue }
+            if let e = seedEvents.first(where: { $0.id == id }) {
+                out.append((id, e.title, .timed, e.year, e.month, e.day, notes))
+            } else if let b = seedBands.first(where: { $0.id == id }) {
+                out.append((id, b.title, .band, b.year, b.month, b.startDay, notes))
+            } else if let d = seedDeadlines.first(where: { $0.id == id }) {
+                out.append((id, d.title, .deadline, d.year, d.month, d.day, notes))
+            }
+        }
+        return out
+    }
+
+    /// Every stored daily note, keyed by ISO date "YYYY-MM-DD".
+    public func allDailyNotes() -> [String: String] { dailyNotes }
+
     // ── Daily note (the dashboard NOTE tab) — one markdown note per ISO date ────────────────────
     public func dailyNote(_ iso: String) -> String { dailyNotes[iso] ?? "" }
     public func setDailyNote(_ iso: String, _ v: String) {
@@ -2343,8 +2958,32 @@ public final class CalendarEngine {
         let x = c.dateComponents([.year, .month, .day], from: prev)
         return YMD(x.year ?? p.year, (x.month ?? 1) - 1, x.day ?? p.day)
     }
+    /// `p` shifted by `n` days (0-based month, crossing month/year boundaries). UTC to avoid DST drift.
+    static func addDaysYMD(_ p: YMD, _ n: Int) -> YMD {
+        var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!
+        let d = c.date(from: DateComponents(year: p.year, month: p.month + 1, day: p.day)) ?? Date()
+        let nd = c.date(byAdding: .day, value: n, to: d) ?? d
+        let x = c.dateComponents([.year, .month, .day], from: nd)
+        return YMD(x.year ?? p.year, (x.month ?? 1) - 1, x.day ?? p.day)
+    }
+
+    // ── Band occurrence dates (for the recurring-band drawer) ──────────────────────────────────
+    /// The date range of the occurrence a band BOX currently represents — the shifted occurrence for a
+    /// ghost, or the base band's own range. `occKey` is the selected box's occurrence key. Cross-month
+    /// spans are honoured (start and end may be in different months). nil if not a band.
+    public func bandOccurrenceRange(_ occKey: String) -> (start: YMD, end: YMD)? {
+        let src = sourceId(of: occKey)
+        guard let base = seedBands.first(where: { $0.id == src }) else { return nil }
+        let start = occurrenceYMD(src, occKey) ?? YMD(base.year, base.month, base.startDay)
+        return (start, Self.addDaysYMD(start, base.endDay - base.startDay))
+    }
+    /// A band's base (FIRST) occurrence start date — what the drawer's "Started …" button jumps to.
+    public func bandBaseStart(_ id: String) -> YMD? {
+        guard let base = seedBands.first(where: { $0.id == sourceId(of: id) }) else { return nil }
+        return YMD(base.year, base.month, base.startDay)
+    }
     public func repeatConfig(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
-    public func promoteTrack(_ id: String) -> Int? { richById[id]?.promoteTrack }
+    public func promoteTrack(_ id: String) -> Int? { richById[overlayKey(id)]?.promoteTrack }
 
     private func mutateRich(_ id: String, _ mutate: (inout RichFields) -> Void) {
         beginTxn()             // tags / repeat / promote are structural edits → one undo step each
@@ -2355,8 +2994,8 @@ public final class CalendarEngine {
         scheduleCommit()
         schedulePersist()
     }
-    public func setTags(_ id: String, _ tags: [String]) { mutateRich(id) { $0.tags = tags } }
-    public func setPromoteTrack(_ id: String, _ t: Int?) { mutateRich(id) { $0.promoteTrack = t } }
+    public func setTags(_ id: String, _ tags: [String]) { mutateRich(overlayKey(id)) { $0.tags = tags } }
+    public func setPromoteTrack(_ id: String, _ t: Int?) { mutateRich(overlayKey(id)) { $0.promoteTrack = t } }
     public func setRepeat(_ id: String, _ r: Repeat?) {
         var json: String? = nil
         if let r, r.kind != "none", let data = try? JSONEncoder().encode(r) { json = String(data: data, encoding: .utf8) }
@@ -2369,6 +3008,276 @@ public final class CalendarEngine {
         seedDeadlines.removeAll { $0.id == id }
         if selectedId == id { selectedId = nil }
         commitTxn()
+    }
+
+    /// Everything the delete-confirmation dialog needs about the current selection: the source id, the
+    /// focused occurrence-box id (so a recurring occurrence can be dropped precisely), whether it recurs
+    /// (→ scope choices, or the "make a local copy" note for imported series), and whether it's imported
+    /// (→ the Hide flow instead of Delete). Nil only when nothing is selected.
+    public struct DeleteTarget: Equatable {
+        public let id: String; public let occKey: String; public let recurring: Bool
+        public let imported: Bool
+        public let alreadyHidden: Bool   // imported + already user-hidden → the "can't delete / already hidden" dialog
+    }
+    public func deleteTargetForSelection() -> DeleteTarget? {
+        guard let sel = selectedId else { return nil }
+        let src = sourceId(of: sel)
+        if isImported(src) {
+            return DeleteTarget(id: src, occKey: occurrenceKey(of: sel), recurring: isImportedSeries(src),
+                                imported: true, alreadyHidden: isUserHidden(src))
+        }
+        return DeleteTarget(id: src, occKey: occurrenceKey(of: sel), recurring: repeatConfig(src) != nil,
+                            imported: false, alreadyHidden: false)
+    }
+    /// An imported event is "recurring" when the fetch window holds more than one occurrence sharing its
+    /// series key (EventKit pre-expands recurrences into separate boxes with the same underlying uid).
+    public func isImportedSeries(_ id: String) -> Bool {
+        let key = Self.appleSeriesKey(sourceId(of: id))
+        return importedEvents.filter { Self.appleSeriesKey($0.id) == key }.count > 1
+    }
+    /// "Hide" an imported event (or series): a persistent user overlay on the series key that keeps every
+    /// occurrence out of the view, surviving re-imports (unlike the dedup `hidden`). Undoable + synced.
+    public func hideImportedSeries(_ id: String) {
+        mutateRich(Self.appleSeriesKey(sourceId(of: id))) { $0.userHidden = true }
+        if let sel = selectedId, isImported(sel) { selectedId = nil }
+        deadlineGen &+= 1; wake()
+    }
+    /// Reverse a hide — clear the series' `userHidden` overlay so it draws normally again.
+    public func unhideImportedSeries(_ id: String) {
+        mutateRich(Self.appleSeriesKey(sourceId(of: id))) { $0.userHidden = false }
+        deadlineGen &+= 1; wake()
+    }
+    /// Whether an imported box's series is currently user-hidden (drives the drawer's Unhide button).
+    public func isUserHidden(_ id: String) -> Bool {
+        richById[Self.appleSeriesKey(sourceId(of: id))]?.userHidden == true
+    }
+
+    // ── View preferences ───────────────────────────────────────────────────────────────────────
+    nonisolated public static let showHiddenImportedKey = "cc.view.showHiddenImported"
+    /// The "View ▸ Show Hidden Imported Events" toggle (UserDefaults-backed so the menu's checkmark and
+    /// the renderer share one source of truth). When on, user-hidden imported events draw with a dotted bar.
+    public var showHiddenImported: Bool { UserDefaults.standard.bool(forKey: Self.showHiddenImportedKey) }
+    /// A View-menu preference changed (posted via `.calendarViewPrefsChanged`) → invalidate the display
+    /// cache and repaint. The pref value itself lives in UserDefaults; this just re-derives the scene.
+    public func viewPrefsChanged() { editGen &+= 1; deadlineGen &+= 1; wake() }
+
+    // ── Programmatic CRUD for the AI assistant ─────────────────────────────────────────
+    // Parameterized create/update the cursor-driven UI methods (createEventAtBlock etc.) don't
+    // offer. Each wraps beginTxn/commitTxn so it's one undo step, invalidates the display cache
+    // (beginTxn bumps editGen), and persists (commitTxn → schedulePersist). `byAI` stamps
+    // RichFields.createdByAI for provenance. The assistant's create/update tools call these.
+
+    /// The kind an item id resolves to, for the tools' routing + the auditor's context.
+    public enum ItemKind: String, Sendable { case timed, band, deadline }
+    public func kind(of id: String) -> ItemKind? {
+        if seedEvents.contains(where: { $0.id == id }) { return .timed }
+        if seedBands.contains(where: { $0.id == id }) { return .band }
+        if seedDeadlines.contains(where: { $0.id == id }) { return .deadline }
+        return nil
+    }
+
+    private func setRich(_ id: String, notes: String?, tags: [String], byAI: Bool,
+                         promoteTrack: Int? = nil) {
+        guard notes != nil || !tags.isEmpty || byAI || promoteTrack != nil else { return }
+        var rf = richById[id] ?? RichFields()
+        if let notes { rf.notes = notes }
+        if !tags.isEmpty { rf.tags = tags }
+        if let promoteTrack { rf.promoteTrack = max(0, min(3, promoteTrack)) }
+        if byAI { rf.createdByAI = true }
+        richById[id] = rf
+    }
+
+    @discardableResult
+    public func createTimedEvent(year: Int, month: Int, day: Int, startHour: CGFloat, endHour: CGFloat,
+                                 title: String, color: String, notes: String? = nil,
+                                 tags: [String] = [], promoteTrack: Int? = nil,
+                                 byAI: Bool = false) -> String {
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        seedEvents.append(TimedEvent(id: id, year: year, month: month, day: day,
+                                     startHour: startHour, endHour: endHour, title: title, color: color))
+        setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
+        selectedId = id
+        commitTxn()
+        return id
+    }
+
+    @discardableResult
+    public func createBand(year: Int, month: Int, track: Int, startDay: Int, endDay: Int,
+                           title: String, color: String, notes: String? = nil,
+                           tags: [String] = [], byAI: Bool = false) -> String {
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        seedBands.append(BandEvent(id: id, year: year, month: month, track: max(0, min(3, track)),
+                                   startDay: startDay, endDay: max(startDay, endDay),
+                                   title: title, color: color))
+        setRich(id, notes: notes, tags: tags, byAI: byAI)
+        selectedId = id
+        commitTxn()
+        return id
+    }
+
+    @discardableResult
+    public func createDeadline(year: Int, month: Int, day: Int, hour: CGFloat, title: String,
+                               color: String, originTz: String? = nil, notes: String? = nil,
+                               tags: [String] = [], promoteTrack: Int? = nil,
+                               byAI: Bool = false) -> String {
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        seedDeadlines.append(Deadline(id: id, year: year, month: month, day: day, hour: hour,
+                                      title: title, color: color, originTz: originTz))
+        var rf = richById[id] ?? RichFields()
+        rf.originTz = originTz                      // keep the rich copy in sync (persistence path)
+        richById[id] = rf
+        setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
+        selectedId = id
+        commitTxn()
+        return id
+    }
+
+    /// Create an all-day band that may span multiple months. Bands are stored per-month (a single
+    /// BandEvent lives in one month), so a cross-month range is split into one segment per month —
+    /// each clamped to that month's day range, all sharing the title/color/lane. Returns the segment
+    /// ids in chronological order. A single-month range yields one id (same as `createBand`).
+    @discardableResult
+    public func createBandSpan(startYear: Int, startMonth: Int, startDay: Int,
+                               endYear: Int, endMonth: Int, endDay: Int, track: Int,
+                               title: String, color: String, notes: String? = nil,
+                               tags: [String] = [], byAI: Bool = false) -> [String] {
+        // Order the endpoints so start ≤ end regardless of how they were passed.
+        var (sy, sm, sd) = (startYear, startMonth, startDay)
+        var (ey, em, ed) = (endYear, endMonth, endDay)
+        if (ey, em, ed) < (sy, sm, sd) { swap(&sy, &ey); swap(&sm, &em); swap(&sd, &ed) }
+
+        let lane = max(0, min(3, track))
+        beginTxn()
+        var ids: [String] = []
+        var (y, m) = (sy, sm)
+        while (y, m) <= (ey, em) {
+            let segStart = (y == sy && m == sm) ? max(1, sd) : 1
+            let segEnd = (y == ey && m == em) ? min(daysInMonth(y, m), ed) : daysInMonth(y, m)
+            let id = "new-\(UUID().uuidString)"
+            seedBands.append(BandEvent(id: id, year: y, month: m, track: lane,
+                                       startDay: segStart, endDay: max(segStart, segEnd),
+                                       title: title, color: color))
+            setRich(id, notes: notes, tags: tags, byAI: byAI)
+            ids.append(id)
+            m += 1; if m > 11 { m = 0; y += 1 }
+        }
+        if let last = ids.last { selectedId = last }
+        commitTxn()
+        return ids
+    }
+
+    /// Re-span an existing band to a new (possibly cross-month) range in ONE undo step, preserving
+    /// its title/color/track and rich fields (notes/tags/…). The old id is retired; returns the new
+    /// segment ids in chronological order. Empty if `id` isn't a band.
+    @discardableResult
+    public func reshapeBand(id: String, startYear: Int, startMonth: Int, startDay: Int,
+                            endYear: Int, endMonth: Int, endDay: Int) -> [String] {
+        guard let b = seedBands.first(where: { $0.id == id }) else { return [] }
+        let rich = richById[id]
+        var (sy, sm, sd) = (startYear, startMonth, startDay)
+        var (ey, em, ed) = (endYear, endMonth, endDay)
+        if (ey, em, ed) < (sy, sm, sd) { swap(&sy, &ey); swap(&sm, &em); swap(&sd, &ed) }
+
+        beginTxn()
+        seedBands.removeAll { $0.id == id }
+        richById[id] = nil
+        if selectedId == id { selectedId = nil }
+        var ids: [String] = []
+        var (y, m) = (sy, sm)
+        while (y, m) <= (ey, em) {
+            let segStart = (y == sy && m == sm) ? max(1, sd) : 1
+            let segEnd = (y == ey && m == em) ? min(daysInMonth(y, m), ed) : daysInMonth(y, m)
+            let nid = "new-\(UUID().uuidString)"
+            seedBands.append(BandEvent(id: nid, year: y, month: m, track: b.track,
+                                       startDay: segStart, endDay: max(segStart, segEnd),
+                                       title: b.title, color: b.color))
+            if let rich { richById[nid] = rich }
+            ids.append(nid)
+            m += 1; if m > 11 { m = 0; y += 1 }
+        }
+        if let last = ids.last { selectedId = last }
+        commitTxn()
+        return ids
+    }
+
+    /// Patch an existing item — only the non-nil fields change. Returns false if `id` is unknown.
+    /// `byAI` stamps provenance on edited items too (matches the web's `"ai"` actor).
+    @discardableResult
+    public func updateItem(id: String, title: String? = nil, color: String? = nil,
+                           year: Int? = nil, month: Int? = nil, day: Int? = nil,
+                           startHour: CGFloat? = nil, endHour: CGFloat? = nil,
+                           track: Int? = nil, startDay: Int? = nil, endDay: Int? = nil,
+                           hour: CGFloat? = nil, notes: String? = nil, tags: [String]? = nil,
+                           promoteTrack: Int? = nil, clearPromote: Bool = false,
+                           byAI: Bool = false) -> Bool {
+        beginTxn()
+        var found = true
+        if let i = seedEvents.firstIndex(where: { $0.id == id }) {
+            if let title { seedEvents[i].title = title }
+            if let color { seedEvents[i].color = color }
+            if let year { seedEvents[i].year = year }
+            if let month { seedEvents[i].month = month }
+            if let day { seedEvents[i].day = day }
+            if let startHour { seedEvents[i].startHour = startHour }
+            if let endHour { seedEvents[i].endHour = endHour }
+        } else if let i = seedBands.firstIndex(where: { $0.id == id }) {
+            if let title { seedBands[i].title = title }
+            if let color { seedBands[i].color = color }
+            if let year { seedBands[i].year = year }
+            if let month { seedBands[i].month = month }
+            if let track { seedBands[i].track = max(0, min(3, track)) }
+            if let startDay { seedBands[i].startDay = startDay }
+            if let endDay { seedBands[i].endDay = max(seedBands[i].startDay, endDay) }
+        } else if let i = seedDeadlines.firstIndex(where: { $0.id == id }) {
+            if let title { seedDeadlines[i].title = title }
+            if let color { seedDeadlines[i].color = color }
+            if let year { seedDeadlines[i].year = year }
+            if let month { seedDeadlines[i].month = month }
+            if let day { seedDeadlines[i].day = day }
+            if let hour { seedDeadlines[i].hour = hour }
+        } else {
+            found = false
+        }
+        if found {
+            if notes != nil || tags != nil || byAI || promoteTrack != nil || clearPromote {
+                var rf = richById[id] ?? RichFields()
+                if let notes { rf.notes = notes }
+                if let tags { rf.tags = tags }
+                if clearPromote { rf.promoteTrack = nil }
+                else if let promoteTrack { rf.promoteTrack = max(0, min(3, promoteTrack)) }
+                if byAI { rf.createdByAI = true }
+                richById[id] = rf
+            }
+        }
+        commitTxn()
+        return found
+    }
+
+    /// The (year, month0, day) an item sits on — for the auditor's trusted date context.
+    /// Bands report their start day.
+    public func dateOf(_ id: String) -> (Int, Int, Int)? {
+        if let e = seedEvents.first(where: { $0.id == id }) { return (e.year, e.month, e.day) }
+        if let b = seedBands.first(where: { $0.id == id }) { return (b.year, b.month, b.startDay) }
+        if let d = seedDeadlines.first(where: { $0.id == id }) { return (d.year, d.month, d.day) }
+        return nil
+    }
+
+    /// One-line summaries of every item on a date — the auditor's trusted "what's already here".
+    public func itemsOn(year: Int, month: Int, day: Int) -> [String] {
+        var out: [String] = []
+        for e in displayEvents(for: year) where e.month == month && e.day == day {
+            out.append("timed: \(e.title) \(String(format: "%.0f", e.startHour))–\(String(format: "%.0f", e.endHour))h")
+        }
+        for b in displayBands(for: year) where b.month == month && day >= b.startDay && day <= b.endDay {
+            out.append("band: \(b.title) (lane \(b.track))")
+        }
+        for d in displayDeadlines(for: year) where d.month == month && d.day == day {
+            out.append("deadline: \(d.title)")
+        }
+        return out
     }
 
     private func navigate(at p: CGPoint) {
@@ -2608,6 +3517,8 @@ public final class CalendarEngine {
 
     public func onEscape() {
         cancelTween()
+        trackNameCursor = nil   // leaving month view drops the track-name stops
+        clearDashStop()         // leaving day view drops the dashboard stops
         let dest = max(0, level(z) - 1)
         tweenZ(to: CGFloat(dest))
         syncBlockToView(dest)   // carry the block cursor to the view we're zooming out to
@@ -2639,7 +3550,12 @@ public final class CalendarEngine {
         else if CGFloat(d) > startDOM + 6 { newWeek = target + (CGFloat(d) - (startDOM + 6)) / 7 }
         newWeek = clamp(newWeek, 0, CGFloat(max(0, weeksInMonth(year, focus) - 1)))
         if abs(newWeek - week) < 0.001 { return }
-        weekTween = Tween(from: week, to: newWeek, start: Date(), duration: 0.25, ease: easeInOut)
+        // Pace-locked: ~0.25s per day-step (a day = 1/7 of a week) so the glide covers the SAME distance
+        // per second no matter how many presses are queued — a fixed duration over a growing gap would
+        // keep accelerating. ease OUT (not in-out) so a rapid re-press kicks forward at full speed instead
+        // of restarting in the slow ease-IN ramp. `week` is already live per-frame, so retargets seamlessly.
+        let dur = max(0.12, (0.25 * 7) * Double(abs(newWeek - week)))
+        weekTween = Tween(from: week, to: newWeek, start: Date(), duration: dur, ease: easeOut)
     }
 
     /// Day view: glide to the prev/next day (same hour). Month boundary is deferred (clamped for now).
@@ -2649,7 +3565,16 @@ public final class CalendarEngine {
         let nd = base + dx
         guard nd >= 1, nd <= dim else { return }
         blockDay = nd
-        dayTween = Tween(from: CGFloat(daily.dom), to: CGFloat(nd), start: Date(), duration: 0.3, ease: easeInOut)
+        // Retarget from the LIVE fractional position mid-glide, NOT the last committed integer day: a
+        // rapid second press otherwise snaps the viewport back to `daily.dom` before gliding on (a visible
+        // jump). One animator continuously chases whatever target the latest press set.
+        let current = dayTween?.value(at: Date()) ?? CGFloat(daily.dom)
+        // Duration scales with the remaining distance so the PACE stays constant however many presses are
+        // queued (a fixed duration over a growing gap would keep speeding up). ease OUT, not in-out: it
+        // starts at full speed, so a rapid re-press doesn't restart in the slow ease-IN ramp (which, over
+        // the now-longer duration, would crawl) — it kicks forward immediately and eases into the target.
+        let dur = max(0.14, 0.3 * Double(abs(CGFloat(nd) - current)))
+        dayTween = Tween(from: current, to: CGFloat(nd), start: Date(), duration: dur, ease: easeOut)
     }
 
     /// Glide the timeline scroll so the SELECTED event is fully on screen (week/day view). A timed event
@@ -2754,7 +3679,7 @@ public final class CalendarEngine {
     public func bandArrow(dx: Int, dy: Int) {
         enterKeyboardMode()
         if dy != 0 {
-            if level(z) == 0 {   // year: lanes stack across all months (12 × 4)
+            if level(z) == 0 {   // year: lanes stack across all 12 months (0…47), crossing quarters
                 let flat = max(0, min(11 * 4 + 3, blockMonth * 4 + bandCurTrack + dy))
                 blockMonth = flat / 4; bandCurTrack = flat % 4
                 blockDay = min(daysInMonth(year, blockMonth), max(1, blockDay))
@@ -2799,9 +3724,66 @@ public final class CalendarEngine {
         editBand(id)
     }
 
+    // ── Track-name cursor (month view's extra Tab stops) ───────────────────────────
+    /// The focused track-name gutter cell (geometry space), or nil when not on a track name.
+    public func trackNameCursorRect() -> CGRect? {
+        guard keyboardActive, let t = trackNameCursor, selectedId == nil, !drawerOpen, level(z) == 1 else { return nil }
+        let g = snapshot()
+        let f = frameFor(focus, g)
+        let y = f.bandY + CGFloat(t) * f.trackH
+        return CGRect(x: Layout.mnameW, y: y, width: Layout.labelW - Layout.mnameW - Layout.rightPad, height: f.trackH)
+    }
+
+    /// Enter on a focused track name → open its inline editor (Enter again commits — see TrackNameEditor).
+    public func editFocusedTrackName() {
+        guard let t = trackNameCursor, let rect = trackNameCursorRect() else { return }
+        onEditTrackName?(focus, t, rect)
+    }
+
+    /// The selected event's anchor (month, day, hour) — nil if nothing selected. Bands anchor at their
+    /// start day + noon; timed/deadlines at their day + start hour.
+    private func selectedAnchor() -> (month: Int, day: Int, hour: CGFloat)? {
+        guard let sel = selectedId else { return nil }
+        if let b = displayBands(for: year).first(where: { $0.id == sel }) { return (b.month, b.startDay, 12) }
+        if let e = displayEvents(for: year).first(where: { $0.id == sel }) { return (e.month, e.day, e.startHour) }
+        if let d = displayDeadlines(for: year).first(where: { $0.id == sel }) { return (d.month, d.day, d.hour) }
+        return nil
+    }
+
+    /// ⌘= — zoom IN one level, keeping the current focus. With an event selected, the view lands on that
+    /// event's month/week/day (it stays selected). With a cursor, this is blockZoomIn's placement.
+    public func cmdZoomIn() {
+        enterKeyboardMode()
+        guard let a = selectedAnchor() else { blockZoomIn(); return }
+        trackNameCursor = nil
+        switch level(z) {
+        case 0: focus = a.month; blockMonth = a.month; blockDay = a.day; ensureMonthVisible(a.month, animated: false); tweenZ(to: 1)
+        case 1: week = CGFloat(weekOfDate(year, focus, a.day)); daily.dom = a.day; blockDay = a.day; blockHour = a.hour; tweenZ(to: 2)
+        case 2: daily.dom = a.day; blockHour = a.hour; tweenZ(to: 3)
+        default: break   // day is the deepest
+        }
+    }
+
+    /// ⌘− — zoom OUT one level, keeping the current focus. With an event selected, the higher-level view
+    /// lands on the event so it stays visible; otherwise the block cursor carries over (syncBlockToView).
+    public func cmdZoomOut() {
+        enterKeyboardMode()
+        trackNameCursor = nil
+        clearDashStop()
+        let dest = max(0, level(z) - 1)
+        if let a = selectedAnchor() {
+            focus = a.month
+            week = CGFloat(weekOfDate(year, a.month, a.day)); daily.dom = a.day
+            blockMonth = a.month; blockDay = a.day; blockHour = a.hour
+        }
+        tweenZ(to: CGFloat(dest))
+        if selectedId == nil { syncBlockToView(dest) }
+    }
+
     /// Space / ⌘= — zoom IN one level, carrying the block cursor with the placement rules.
     public func blockZoomIn() {
         enterKeyboardMode()
+        trackNameCursor = nil   // track names are month-only; zooming leaves them → block cursor
         switch level(z) {
         case 0:   // year → month: focus the cursor's month; land the day on today (if that month) else the 1st.
             focus = blockMonth
@@ -2829,7 +3811,7 @@ public final class CalendarEngine {
     /// The block cursor's cell rect in geometry space (pre-padLeft), or nil when it shouldn't show
     /// (mouse mode, an event/drawer is active, or a view without a cursor yet).
     public func blockCursorRect() -> CGRect? {
-        guard keyboardActive, !bandCursorActive, selectedId == nil, !drawerOpen else { return nil }   // band mode shows its own ring
+        guard keyboardActive, !bandCursorActive, trackNameCursor == nil, selectedId == nil, dashStop == nil, !drawerOpen else { return nil }
         let g = snapshot()
         switch level(z) {
         case 0:
@@ -2895,7 +3877,12 @@ public final class CalendarEngine {
         s = clamp(s, 0, yearMaxScroll(viewport))
         if abs(s - scrollY) < 0.5 { return }                            // already visible enough
         if animated {
-            scrollTween = Tween(from: scrollY, to: s, start: Date(), duration: 0.3, ease: easeInOut)
+            // Pace-locked like the day/week glides: duration scales with the scroll distance (~0.3s per
+            // month band) so holding ↑/↓ scrolls at a CONSTANT speed instead of a fixed duration crawling
+            // over a growing gap. ease OUT (not in-out) so each auto-repeat re-press kicks forward at full
+            // speed rather than restarting in the slow ease-IN ramp. `scrollY` is already the live value.
+            let dur = max(0.12, 0.3 * Double(abs(s - scrollY) / Layout.monthH))
+            scrollTween = Tween(from: scrollY, to: s, start: Date(), duration: dur, ease: easeOut)
         } else {
             scrollTween = nil; scrollY = s; onSetYearScroll?(scrollY)
         }
@@ -2964,6 +3951,84 @@ public final class CalendarEngine {
     /// Clear the current event selection — the same effect as a plain click on empty calendar space.
     /// Used by the daily-dashboard WebView so clicking its empty content deselects too.
     public func deselect() { selectedId = nil; bandCursorActive = false }   // Esc from an event → block cursor (home)
+
+    // ── Search (toolbar ⌘F) ─────────────────────────────────────────────────────────
+    /// One match in the toolbar search dropdown. `id` is the display/box id (a recurrence occurrence or
+    /// import carries its own id) — pass it straight to `revealAndSelect(id:)`, which mirrors a click.
+    public struct SearchHit: Identifiable, Equatable, Sendable {
+        public enum Kind: String, Sendable { case timed, band, deadline }
+        public let id: String
+        public let title: String
+        public let color: String
+        public let year: Int
+        public let month: Int      // 0-based
+        public let day: Int
+        public let hour: CGFloat?  // start hour for timed/deadline; nil for all-day bands
+        public let kind: Kind
+    }
+
+    /// Title-substring search over every selectable year's fully-merged event set (seed + recurrence
+    /// occurrences + Apple imports; hidden imports are already excluded from the display caches). Results
+    /// are de-duplicated to one row per underlying event — the occurrence nearest today — then ranked
+    /// prefix-matches-first, then by nearness to today. Capped at `limit`.
+    public func searchEvents(_ query: String, limit: Int = 8) -> [SearchHit] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return [] }
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        func dayDist(_ y: Int, _ m: Int, _ d: Int) -> Int {
+            guard let date = cal.date(from: DateComponents(year: y, month: m + 1, day: d)) else { return .max }
+            return abs(cal.dateComponents([.day], from: today, to: date).day ?? .max)
+        }
+        struct Cand { let hit: SearchHit; let prefix: Bool; let dist: Int }
+        var byBase: [String: Cand] = [:]   // sourceId → best occurrence (collapses recurrences)
+        func consider(_ id: String, _ title: String, _ color: String, _ y: Int, _ m: Int, _ d: Int, _ hour: CGFloat?, _ kind: SearchHit.Kind) {
+            let lt = title.lowercased()
+            guard let r = lt.range(of: q) else { return }
+            let isPrefix = r.lowerBound == lt.startIndex
+            let dist = dayDist(y, m, d)
+            let cand = Cand(hit: SearchHit(id: id, title: title, color: color, year: y, month: m, day: d, hour: hour, kind: kind),
+                            prefix: isPrefix, dist: dist)
+            let base = sourceId(of: id)
+            if let ex = byBase[base] {
+                if dist < ex.dist || (dist == ex.dist && isPrefix && !ex.prefix) { byBase[base] = cand }
+            } else { byBase[base] = cand }
+        }
+        for y in yearOptions {
+            for e in displayEvents(for: y)    { consider(e.id, e.title, e.color, y, e.month, e.day, e.startHour, .timed) }
+            for b in displayBands(for: y)     { consider(b.id, b.title, b.color, y, b.month, b.startDay, nil, .band) }
+            for d in displayDeadlines(for: y) { consider(d.id, d.title, d.color, y, d.month, d.day, d.hour, .deadline) }
+        }
+        return byBase.values
+            .sorted { a, b in
+                if a.prefix != b.prefix { return a.prefix }          // prefix matches first
+                if a.dist != b.dist { return a.dist < b.dist }        // then nearest to today
+                return a.hit.title.count < b.hit.title.count          // then the shorter (tighter) title
+            }
+            .prefix(limit)
+            .map(\.hit)
+    }
+
+    /// Locate a display item by its box id across all years → the concrete date to fly to.
+    private func searchLocate(_ id: String) -> (year: Int, month: Int, day: Int)? {
+        for y in yearOptions {
+            if let e = displayEvents(for: y).first(where: { $0.id == id })    { return (y, e.month, e.day) }
+            if let b = displayBands(for: y).first(where: { $0.id == id })     { return (y, b.month, b.startDay) }
+            if let d = displayDeadlines(for: y).first(where: { $0.id == id }) { return (y, d.month, d.day) }
+        }
+        return nil
+    }
+
+    /// Search-bar commit: fly to the event's day and select/highlight it (as a click would). Bands render
+    /// as all-day items in day view, so every kind lands on its day; `scrollToSelected` reveals the hour
+    /// for timed/deadline once we settle.
+    public func revealAndSelect(id: String) {
+        guard let loc = searchLocate(id) else { return }
+        wake(); enterKeyboardMode()
+        selectedId = id
+        bandCursorActive = false
+        jumpToDay(loc.year, loc.month, loc.day) { [weak self] in self?.scrollToSelected() }
+    }
 
     public enum CursorHint { case normal, grab, resizeLR, text }
     public func cursorHint(at p: CGPoint) -> CursorHint {

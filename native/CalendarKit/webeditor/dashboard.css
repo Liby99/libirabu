@@ -58,7 +58,10 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dd-scroll {
   position: absolute; inset: 0; box-sizing: border-box;
   overflow-y: auto; overflow-x: hidden;
-  padding: 8px 18px 18px var(--dd-pad);          /* left 25 = gutter (matches the Canvas barX) */
+  padding: 8px 18px 34px var(--dd-pad);          /* left 25 = gutter (matches the Canvas barX) */
+  /* Room for the keyboard-nav ring at the scroll edges: scrollIntoView keeps the focused row this far
+     from the top/bottom, so the dashed outline (which overshoots the row) never gets clipped. */
+  scroll-padding: 8px 0 12px;
 }
 
 /* ── NOTE tab: the per-day markdown editor (aligned with the TODO gutter; top-aligned) ───────────
@@ -72,6 +75,15 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dd-sec-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 6px; }
 .cc-dd-sec-title { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; }
 .cc-dd-sec-count { font-size: 11px; opacity: 0.5; }
+.cc-dd-range {
+  margin-left: auto; align-self: center;      /* push to the right edge of the header */
+  font-family: inherit; font-size: 10px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent-grey) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-grey) 25%, transparent);
+  border-radius: 5px; padding: 1px 3px; cursor: pointer;
+}
+.cc-dd-range:hover { border-color: var(--highlight); }
 .cc-dd-free { opacity: 0.6; font-style: italic; }
 .cc-dd-ddl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .cc-dd-ddl { display: flex; align-items: center; gap: 7px; cursor: pointer; border-radius: 5px; padding: 1px 4px; margin: 0 -4px; transition: background-color 0.1s ease; }
@@ -102,7 +114,10 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dtodo-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; cursor: pointer; border-radius: 5px; padding: 1px 4px; margin: -1px -4px; transition: background-color 0.1s ease; }
 .cc-dtodo-main:hover { background: color-mix(in srgb, var(--accent-grey) 14%, transparent); }
 .cc-dtodo-main:hover .cc-dtodo-text { color: var(--highlight); }
-.cc-dtodo-text { font-size: 13px; line-height: 1.4; }
+.cc-dtodo-text { font-size: 13px; line-height: 1.4; transition: color 0.26s ease; }
+/* Real line-through (wraps across lines). `.cc-struck` = the settled done state; `.cc-strike` = the
+   growing/shrinking prefix span the JS paints during the check/uncheck animation (see animateStrike). */
+.cc-dtodo-text.cc-struck, .cc-strike { text-decoration: line-through; }
 .cc-dtodo-event { color: var(--accent-grey); }
 .cc-dtodo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; line-height: 1.5; }
 .cc-dtodo-prio { font-family: var(--font-mono); font-weight: 800; letter-spacing: -0.05em; color: var(--event-red-border); }
@@ -112,7 +127,7 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dtodo-followup { color: #4fb0b0; font-weight: 500; }
 .cc-dtodo-followup.cc-dtodo-due-over { color: var(--event-red-border); }
 .cc-dtodo-tag { color: var(--highlight); opacity: 0.85; }
-.cc-dtodo-is-done .cc-dtodo-text { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--accent-grey) 60%, transparent); color: var(--accent-grey); }
+.cc-dtodo-is-done .cc-dtodo-text { color: var(--accent-grey); }
 .cc-dtodo-is-done .cc-dtodo-main:hover .cc-dtodo-text { color: var(--accent-dark); }
 .cc-dtodo-fin { color: var(--event-darkgreen-border); opacity: 0.85; }
 
@@ -122,3 +137,32 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-ev-purple { --ev-color: rgb(200,128,255); } .cc-ev-orange { --ev-color: rgb(236,152,70); }
 .cc-ev-cyan { --ev-color: rgb(104,196,206); } .cc-ev-darkgreen { --ev-color: rgb(104,146,86); }
 .cc-ev-indigo { --ev-color: rgb(124,150,226); } .cc-ev-default { --ev-color: var(--accent-grey); }
+
+/* Keyboard-nav cursor — Tab into the dashboard from the calendar. Same dashed red ring the calendar
+   uses for its block/band/event cursors, so the whole keyboard layer reads as one system. */
+/* No native focus rings in the dashboard — keyboard focus is the app's job (see the Tab handler). */
+a:focus, .cc-dtodo-main:focus, .cc-dtodo-check:focus, .cc-dd-ddl:focus { outline: none; }
+.cc-dtodo.cc-nav-cur { outline: 1.5px dashed var(--highlight); outline-offset: 0; border-radius: 6px; }
+/* NOTE ring hugs the editor/preview TEXT area, not the whole web view: #note-live spans the full width,
+   but the text sits inside #note-editor's padding (top 8 / right 18 / bottom 40 / left = the gutter), so
+   an outline can't match that asymmetric inset — draw it as a positioned box just outside the content
+   (#note-live is already position:absolute, so ::before anchors to it).
+   #panels gets the SAME full-region ring for the EMPTY TODO case (no rows → nothing to row-cursor), so
+   an empty to-do list reads the same as the note editor when Tab-focused. z-index lifts it above the
+   day panels (which have will-change:transform). */
+#note-live.cc-nav-on::before, #panels.cc-nav-on::before {
+  content: ""; position: absolute; pointer-events: none; z-index: 5;
+  top: 4px; right: 14px; bottom: 36px; left: calc(var(--dd-pad) - 4px);
+  border: 1.5px dashed var(--highlight); border-radius: 10px;
+}
+/* Imported "managed block" (§7) rendered in preview: a key:value table + description (matches the web drawer). */
+.cc-dw-mi {
+  margin: 5px 0 12px; padding: 2px 0 8px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--highlight) 55%, transparent);
+  font-size: 0.8rem; line-height: 1.5; color: var(--accent-dark);
+}
+.cc-dw-mi-row { display: flex; gap: 8px; padding: 1.5px 0; align-items: baseline; }
+.cc-dw-mi-key { flex: none; min-width: 94px; color: var(--accent-grey); }
+.cc-dw-mi-val { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cc-dw-mi-val a { color: var(--highlight); text-decoration: underline; text-underline-offset: 2px; }
+.cc-dw-mi-desc { margin-top: 7px; }
