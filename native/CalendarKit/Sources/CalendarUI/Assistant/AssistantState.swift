@@ -400,6 +400,7 @@ public final class AssistantState {
             "You are the assistant inside Madocal, a research calendar app. You help the user understand and plan their calendar.",
             "Today is \(weekday), \(today).",
             viewContextLine(),
+            timezoneLine(),
         ]
         if let mem = memoryLine() { lines.append(mem) }
         lines += [
@@ -439,6 +440,16 @@ public final class AssistantState {
         let mem = AssistantMemory.recallAll()
         guard !mem.isEmpty else { return nil }
         return "What you remember about this user (reuse it; don't re-derive or re-ask): \(JSONValue.object(mem).jsonString)"
+    }
+
+    /// The timezone every time in the tools + this prompt is expressed in — the user's current view zone.
+    /// (Events are anchored to their own zones internally, but the assistant always reads/writes in this one.)
+    private func timezoneLine() -> String {
+        guard let engine else { return "" }
+        let tz = DeadlineTZ.concrete(engine.mainTz)   // resolve "auto" → the device zone id
+        let name = CalendarTimezones.label(for: tz)
+        let abbr = DeadlineTZ.shortLabel(tz, at: Date())
+        return "All times you read (list_events, get_event) and write (create_event, update_event) are in the user's CURRENT timezone: \(name) (\(abbr)). get_event also returns each item's own 'anchorTz' for reference, but you always work in the current zone."
     }
 
     /// The web's view-context line: year, zoom, focused month (0-based, like ViewContext).

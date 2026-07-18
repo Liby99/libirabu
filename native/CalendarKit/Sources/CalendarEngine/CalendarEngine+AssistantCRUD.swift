@@ -1,0 +1,238 @@
+// Programmatic CRUD for the AI assistant — parameterized create/update/reshape the
+// cursor-driven UI methods (createEventAtBlock etc.) don't offer. Each wraps beginTxn/commitTxn
+// so it's one undo step, invalidates the display cache, and persists. `byAI` stamps
+// RichFields.createdByAI for provenance. Split from CalendarEngine.swift (the god-file diet).
+
+import Foundation
+import CoreGraphics
+import CalendarGeometry
+
+extension CalendarEngine {
+    // ── Programmatic CRUD for the AI assistant ─────────────────────────────────────────
+    // Parameterized create/update the cursor-driven UI methods (createEventAtBlock etc.) don't
+    // offer. Each wraps beginTxn/commitTxn so it's one undo step, invalidates the display cache
+    // (beginTxn bumps editGen), and persists (commitTxn → schedulePersist). `byAI` stamps
+    // RichFields.createdByAI for provenance. The assistant's create/update tools call these.
+
+    /// The kind an item id resolves to, for the tools' routing + the auditor's context.
+    public enum ItemKind: String, Sendable { case timed, band, deadline }
+    public func kind(of id: String) -> ItemKind? {
+        if seedEvents.contains(where: { $0.id == id }) { return .timed }
+        if seedBands.contains(where: { $0.id == id }) { return .band }
+        if seedDeadlines.contains(where: { $0.id == id }) { return .deadline }
+        return nil
+    }
+
+    private func setRich(_ id: String, notes: String?, tags: [String], byAI: Bool,
+                         promoteTrack: Int? = nil) {
+        guard notes != nil || !tags.isEmpty || byAI || promoteTrack != nil else { return }
+        var rf = richById[id] ?? RichFields()
+        if let notes { rf.notes = notes }
+        if !tags.isEmpty { rf.tags = tags }
+        if let promoteTrack { rf.promoteTrack = max(0, min(3, promoteTrack)) }
+        if byAI { rf.createdByAI = true }
+        richById[id] = rf
+    }
+
+    @discardableResult
+    public func createTimedEvent(year: Int, month: Int, day: Int, startHour: CGFloat, endHour: CGFloat,
+                                 title: String, color: String, notes: String? = nil,
+                                 tags: [String] = [], promoteTrack: Int? = nil,
+                                 byAI: Bool = false) -> String {
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        seedEvents.append(TimedEvent(id: id, year: year, month: month, day: day,
+                                     startHour: startHour, endHour: endHour, title: title, color: color,
+                                     anchorTz: anchorNow))
+        setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
+        selectedId = id
+        commitTxn()
+        return id
+    }
+
+    @discardableResult
+    public func createBand(year: Int, month: Int, track: Int, startDay: Int, endDay: Int,
+                           title: String, color: String, notes: String? = nil,
+                           tags: [String] = [], byAI: Bool = false) -> String {
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        seedBands.append(BandEvent(id: id, year: year, month: month, track: max(0, min(3, track)),
+                                   startDay: startDay, endDay: max(startDay, endDay),
+                                   title: title, color: color))
+        setRich(id, notes: notes, tags: tags, byAI: byAI)
+        selectedId = id
+        commitTxn()
+        return id
+    }
+
+    @discardableResult
+    public func createDeadline(year: Int, month: Int, day: Int, hour: CGFloat, title: String,
+                               color: String, originTz: String? = nil, notes: String? = nil,
+                               tags: [String] = [], promoteTrack: Int? = nil,
+                               byAI: Bool = false) -> String {
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        // If a distinct origin zone is given, the deadline is anchored THERE: the caller passes coords in
+        // the main tz, so re-express them as the origin wall-clock and anchor to it. Otherwise anchor to
+        // the current view zone. (Replaces the legacy originTz label — anchorTz now drives positioning.)
+        var (dy, dm, dd, dh) = (year, month, day, hour)
+        let anchor: String
+        if let otz = originTz,
+           !DeadlineTZ.sameOffset(otz, mainTz, at: DeadlineTZ.instant(year, month, day, hour)) {
+            let w = DeadlineTZ.convertWall(year, month, day, hour, from: mainTz, to: otz)
+            (dy, dm, dd, dh) = (w.year, w.month, w.day, w.hour); anchor = DeadlineTZ.concrete(otz)
+        } else {
+            anchor = anchorNow
+        }
+        seedDeadlines.append(Deadline(id: id, year: dy, month: dm, day: dd, hour: dh,
+                                      title: title, color: color, anchorTz: anchor))
+        setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
+        selectedId = id
+        commitTxn()
+        return id
+    }
+
+    /// The one cross-month band segmentation walk (bands are stored per-month, so a range is split
+    /// into one BandEvent per month, clamped to each month's days). Shared by createBandSpan and
+    /// reshapeBand — must run inside an open txn. `seed` stamps per-segment extras (rich fields).
+    private func appendBandSegments(from start: (Int, Int, Int), to end: (Int, Int, Int),
+                                    track: Int, title: String, color: String,
+                                    seed: (String) -> Void) -> [String] {
+        // Order the endpoints so start ≤ end regardless of how they were passed.
+        var (sy, sm, sd) = start
+        var (ey, em, ed) = end
+        if (ey, em, ed) < (sy, sm, sd) { swap(&sy, &ey); swap(&sm, &em); swap(&sd, &ed) }
+
+        var ids: [String] = []
+        var (y, m) = (sy, sm)
+        while (y, m) <= (ey, em) {
+            let segStart = (y == sy && m == sm) ? max(1, sd) : 1
+            let segEnd = (y == ey && m == em) ? min(daysInMonth(y, m), ed) : daysInMonth(y, m)
+            let id = "new-\(UUID().uuidString)"
+            seedBands.append(BandEvent(id: id, year: y, month: m, track: max(0, min(3, track)),
+                                       startDay: segStart, endDay: max(segStart, segEnd),
+                                       title: title, color: color))
+            seed(id)
+            ids.append(id)
+            m += 1; if m > 11 { m = 0; y += 1 }
+        }
+        if let last = ids.last { selectedId = last }
+        return ids
+    }
+
+    /// Create an all-day band that may span multiple months (one segment per month, shared
+    /// title/color/lane). Returns the segment ids in chronological order; a single-month range
+    /// yields one id (same as `createBand`).
+    @discardableResult
+    public func createBandSpan(startYear: Int, startMonth: Int, startDay: Int,
+                               endYear: Int, endMonth: Int, endDay: Int, track: Int,
+                               title: String, color: String, notes: String? = nil,
+                               tags: [String] = [], byAI: Bool = false) -> [String] {
+        beginTxn()
+        let ids = appendBandSegments(from: (startYear, startMonth, startDay),
+                                     to: (endYear, endMonth, endDay),
+                                     track: track, title: title, color: color) { id in
+            setRich(id, notes: notes, tags: tags, byAI: byAI)
+        }
+        commitTxn()
+        return ids
+    }
+
+    /// Re-span an existing band to a new (possibly cross-month) range in ONE undo step, preserving
+    /// its title/color/track and rich fields (notes/tags/…). The old id is retired; returns the new
+    /// segment ids in chronological order. Empty if `id` isn't a band.
+    @discardableResult
+    public func reshapeBand(id: String, startYear: Int, startMonth: Int, startDay: Int,
+                            endYear: Int, endMonth: Int, endDay: Int) -> [String] {
+        guard let b = seedBands.first(where: { $0.id == id }) else { return [] }
+        let rich = richById[id]
+        beginTxn()
+        seedBands.removeAll { $0.id == id }
+        richById[id] = nil
+        if selectedId == id { selectedId = nil }
+        let ids = appendBandSegments(from: (startYear, startMonth, startDay),
+                                     to: (endYear, endMonth, endDay),
+                                     track: b.track, title: b.title, color: b.color) { nid in
+            if let rich { richById[nid] = rich }
+        }
+        commitTxn()
+        return ids
+    }
+
+    /// Patch an existing item — only the non-nil fields change. Returns false if `id` is unknown.
+    /// `byAI` stamps provenance on edited items too (matches the web's `"ai"` actor).
+    @discardableResult
+    public func updateItem(id: String, title: String? = nil, color: String? = nil,
+                           year: Int? = nil, month: Int? = nil, day: Int? = nil,
+                           startHour: CGFloat? = nil, endHour: CGFloat? = nil,
+                           track: Int? = nil, startDay: Int? = nil, endDay: Int? = nil,
+                           hour: CGFloat? = nil, notes: String? = nil, tags: [String]? = nil,
+                           promoteTrack: Int? = nil, clearPromote: Bool = false,
+                           byAI: Bool = false) -> Bool {
+        beginTxn()
+        var found = true
+        if let i = seedEvents.firstIndex(where: { $0.id == id }) {
+            if let title { seedEvents[i].title = title }
+            if let color { seedEvents[i].color = color }
+            if let year { seedEvents[i].year = year }
+            if let month { seedEvents[i].month = month }
+            if let day { seedEvents[i].day = day }
+            if let startHour { seedEvents[i].startHour = startHour }
+            if let endHour { seedEvents[i].endHour = endHour }
+        } else if let i = seedBands.firstIndex(where: { $0.id == id }) {
+            if let title { seedBands[i].title = title }
+            if let color { seedBands[i].color = color }
+            if let year { seedBands[i].year = year }
+            if let month { seedBands[i].month = month }
+            if let track { seedBands[i].track = max(0, min(3, track)) }
+            if let startDay { seedBands[i].startDay = startDay }
+            if let endDay { seedBands[i].endDay = max(seedBands[i].startDay, endDay) }
+        } else if let i = seedDeadlines.firstIndex(where: { $0.id == id }) {
+            if let title { seedDeadlines[i].title = title }
+            if let color { seedDeadlines[i].color = color }
+            if let year { seedDeadlines[i].year = year }
+            if let month { seedDeadlines[i].month = month }
+            if let day { seedDeadlines[i].day = day }
+            if let hour { seedDeadlines[i].hour = hour }
+        } else {
+            found = false
+        }
+        if found {
+            if notes != nil || tags != nil || byAI || promoteTrack != nil || clearPromote {
+                var rf = richById[id] ?? RichFields()
+                if let notes { rf.notes = notes }
+                if let tags { rf.tags = tags }
+                if clearPromote { rf.promoteTrack = nil }
+                else if let promoteTrack { rf.promoteTrack = max(0, min(3, promoteTrack)) }
+                if byAI { rf.createdByAI = true }
+                richById[id] = rf
+            }
+        }
+        commitTxn()
+        return found
+    }
+
+    /// The (year, month0, day) an item sits on — for the auditor's trusted date context.
+    /// Bands report their start day.
+    public func dateOf(_ id: String) -> (Int, Int, Int)? {
+        if let e = seedEvents.first(where: { $0.id == id }) { return (e.year, e.month, e.day) }
+        if let b = seedBands.first(where: { $0.id == id }) { return (b.year, b.month, b.startDay) }
+        if let d = seedDeadlines.first(where: { $0.id == id }) { return (d.year, d.month, d.day) }
+        return nil
+    }
+
+    /// One-line summaries of every item on a date — the auditor's trusted "what's already here".
+    public func itemsOn(year: Int, month: Int, day: Int) -> [String] {
+        var out: [String] = []
+        for e in displayEvents(for: year) where e.month == month && e.day == day {
+            out.append("timed: \(e.title) \(String(format: "%.0f", e.startHour))–\(String(format: "%.0f", e.endHour))h")
+        }
+        for b in displayBands(for: year) where b.month == month && day >= b.startDay && day <= b.endDay {
+            out.append("band: \(b.title) (lane \(b.track))")
+        }
+        for d in displayDeadlines(for: year) where d.month == month && d.day == day {
+            out.append("deadline: \(d.title)")
+        }
+        return out
+    }
+}

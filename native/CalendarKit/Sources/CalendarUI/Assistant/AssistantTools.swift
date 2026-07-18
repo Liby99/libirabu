@@ -193,23 +193,26 @@ struct GetEventTool: AssistantTool {
         var out: [String: JSONValue] = ["id": .str(id), "kind": .str(kind.rawValue)]
         switch kind {
         case .timed:
-            guard let ev = e.event(id) else { break }
+            guard let ev0 = e.event(id) else { break }
+            let ev = e.displayEvent(ev0)   // convert to the current view timezone (matches list_events + the prompt)
             out["title"] = .str(ev.title); out["color"] = .str(ev.color)
             out["date"] = .str(iso(ev.year, ev.month, ev.day))
             out["weekday"] = .str(weekday(ev.year, ev.month, ev.day))
             out["start"] = .str(hhmm(ev.startHour)); out["end"] = .str(hhmm(ev.endHour))
+            if let tz = ev0.anchorTz { out["anchorTz"] = .str(tz) }   // the event's own zone (times above are in the view zone)
         case .band:
             guard let b = e.band(id) else { break }
             out["title"] = .str(b.title); out["color"] = .str(b.color); out["track"] = .num(b.track)
             out["start"] = .str(iso(b.year, b.month, b.startDay))
             out["end"] = .str(iso(b.year, b.month, b.endDay))
         case .deadline:
-            guard let d = e.deadline(id) else { break }
+            guard let d0 = e.deadline(id) else { break }
+            let d = e.displayDeadline(d0)   // convert to the current view timezone
             out["title"] = .str(d.title); out["color"] = .str(d.color)
             out["date"] = .str(iso(d.year, d.month, d.day))
             out["weekday"] = .str(weekday(d.year, d.month, d.day))
             out["time"] = .str(hhmm(d.hour))
-            if let tz = d.originTz { out["originTz"] = .str(tz) }
+            if let tz = d0.anchorTz { out["anchorTz"] = .str(tz) }   // the deadline's own zone (time above is in the view zone)
         }
         let tags = e.richTags(id)
         if !tags.isEmpty { out["tags"] = .arr(tags.map(JSONValue.str)) }
