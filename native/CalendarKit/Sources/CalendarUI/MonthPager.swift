@@ -4,7 +4,7 @@
 // gives velocity-aware, snap-to-page scrolling with the native deceleration curve (the
 // closest thing to iOS's isPagingEnabled). We host 12 empty page cells (one per month),
 // let SwiftUI do all the physics, and observe the absolute content offset via
-// `.onScrollGeometryChange` — projecting it onto the engine's (focus, monthAnim) state that
+// `.onScrollGeometryChange` — projecting it onto the engine's (focus, anim.monthAnim) state that
 // the Canvas already renders. Nothing here is drawn; it's purely an input/physics proxy.
 //
 // The AppKit input catcher sits on top (for clicks/hover/pinch), so it FORWARDS month-view

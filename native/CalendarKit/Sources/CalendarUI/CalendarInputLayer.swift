@@ -387,7 +387,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
             let willFlip = ended && engine.dayFlipArmed
             // Start the gesture on the FIRST fingers-down delta (phase not ended, no momentum), not on
             // `.began` — a forwarded scroll from the dashboard web view may never deliver `.began` here.
-            // This keeps `liveDayScrolling` true for the whole finger-down phase (incl. pauses), so the
+            // This keeps `scroll.liveDayScrolling` true for the whole finger-down phase (incl. pauses), so the
             // settle safety-net can't fire and snap while the user is still scrolling.
             let fingersDown = !ended && e.momentumPhase.isEmpty
             if fingersDown, !dayGestureActive { dayGestureActive = true; dayAxis = .undecided; engine.beginDayGesture() }

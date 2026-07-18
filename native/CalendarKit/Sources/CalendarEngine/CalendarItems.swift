@@ -2,6 +2,7 @@
 // undo snapshots, and the sync layer persists. First step of the engine's field-composition
 // hierarchy (items / caches / cursor / … instead of one flat sea of properties).
 
+import Foundation
 import CoreGraphics
 import CalendarGeometry
 
@@ -55,4 +56,51 @@ public struct CursorState {
     /// One-step directional memory: the last event move, so the exact reverse arrow returns.
     var lastEventMove: (from: String, dx: Int, dy: Int, to: String)?
     public init() {}
+}
+
+/// In-flight animation machinery: active tweens, year/month/week/day flips with their fades,
+/// zoom anchoring, and the one-shot completion callbacks that sequence multi-phase navigations
+/// (e.g. jumpToDay: fly out → flip year → fly in). All transient; never persisted.
+struct AnimState {
+    var tween: Tween?                     // the z (zoom-level) tween
+    var scrollTween: Tween?               // year-view vertical scroll glide (before a zoom-in)
+    var tlScrollTween: Tween?             // timeline (hour) scroll glide
+    var weekTween: Tween?
+    var dayTween: Tween?                  // fractional-day glide (day view "scroll to today")
+    var shiftTween: Tween?                // drawer canvas-shift
+    var zTweenDone: (() -> Void)?
+    var weekTweenDone: (() -> Void)?
+    var scrollTweenDone: (() -> Void)?
+    var flipDone: (() -> Void)?
+    var dayLandDone: (() -> Void)?
+    var zoomAnchorHour: CGFloat?          // hour held at `zoomAnchorY` for the duration of a zoom
+    var zoomAnchorY: CGFloat?             // viewport y to hold it at (nil = viewport centre)
+    var monthAnim: PageAnim?              // vertical month↕month page-turn (nil = settled)
+    var flipAnim: CalendarEngine.FlipAnim?
+    var flipFade: CGFloat = 1
+    var monthFlip: CalendarEngine.MonthFlip?
+    var monthFlipShift: CGFloat = 0
+    var weekFlip: CalendarEngine.WeekFlip?
+    var weekFlipFade: CGFloat = 0         // 0→1 cross-fade of the dim/bright swap
+    var dayFlip: CalendarEngine.DayFlip?
+}
+
+/// Transient scroll-GESTURE bookkeeping: which pager is in its fingers-down phase, edge pulls,
+/// and overscroll flip-arming. Distinct from view position (z/focus/week/scrollY/tlScroll stay
+/// on the engine) — this is only the in-progress gesture state.
+struct ScrollGestureState {
+    var didInitialScroll = false          // center the current month once, at first layout
+    var liveScrolling = false             // fingers-down phase of a trackpad gesture (year view)
+    var liveMonthScrolling = false
+    var liveWeekScrolling = false
+    var liveDayScrolling = false
+    var startedAtTop = false              // the drag began already resting at an edge —
+    var startedAtBottom = false           // only then does an overscroll pull arm a flip
+    var lastOverscroll: (over: CGFloat, atTop: Bool) = (0, false)
+    var wheelAccumX: CGFloat = 0
+    var yearPull: YearPull?               // pull-to-change-year hint (nil when not pulling)
+    var monthPull: YearPull?
+    var weekPull: WeekPull?
+    var dayPull: DayPull?
+    var daySettleWork: DispatchWorkItem?  // safety-net: snap a residual day-page if the pager stalls
 }

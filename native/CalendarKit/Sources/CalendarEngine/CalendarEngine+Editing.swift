@@ -339,7 +339,7 @@ extension CalendarEngine {
 
     /// Week view: glide the 7-day focus window (`week`) so day `d` stays visible (shifts a day at the edge).
     func ensureDayVisibleWeek(_ d: Int) {
-        let target = weekTween?.to ?? week
+        let target = anim.weekTween?.to ?? week
         let startDOM = 1 - CGFloat(firstDOW(year, focus)) + target * 7   // the window's Sunday, in DOM
         var newWeek = target
         if CGFloat(d) < startDOM { newWeek = target - (startDOM - CGFloat(d)) / 7 }
@@ -351,26 +351,26 @@ extension CalendarEngine {
         // keep accelerating. ease OUT (not in-out) so a rapid re-press kicks forward at full speed instead
         // of restarting in the slow ease-IN ramp. `week` is already live per-frame, so retargets seamlessly.
         let dur = max(0.12, (0.25 * 7) * Double(abs(newWeek - week)))
-        weekTween = Tween(from: week, to: newWeek, start: Date(), duration: dur, ease: easeOut)
+        anim.weekTween = Tween(from: week, to: newWeek, start: Date(), duration: dur, ease: easeOut)
     }
 
     /// Day view: glide to the prev/next day (same hour). Month boundary is deferred (clamped for now).
     func swipeDay(_ dx: Int) {
         let dim = daysInMonth(year, focus)
-        let base = dayTween.map { Int($0.to.rounded()) } ?? daily.dom   // chain rapid presses off the target
+        let base = anim.dayTween.map { Int($0.to.rounded()) } ?? daily.dom   // chain rapid presses off the target
         let nd = base + dx
         guard nd >= 1, nd <= dim else { return }
         cursor.blockDay = nd
         // Retarget from the LIVE fractional position mid-glide, NOT the last committed integer day: a
         // rapid second press otherwise snaps the viewport back to `daily.dom` before gliding on (a visible
         // jump). One animator continuously chases whatever target the latest press set.
-        let current = dayTween?.value(at: Date()) ?? CGFloat(daily.dom)
+        let current = anim.dayTween?.value(at: Date()) ?? CGFloat(daily.dom)
         // Duration scales with the remaining distance so the PACE stays constant however many presses are
         // queued (a fixed duration over a growing gap would keep speeding up). ease OUT, not in-out: it
         // starts at full speed, so a rapid re-press doesn't restart in the slow ease-IN ramp (which, over
         // the now-longer duration, would crawl) — it kicks forward immediately and eases into the target.
         let dur = max(0.14, 0.3 * Double(abs(CGFloat(nd) - current)))
-        dayTween = Tween(from: current, to: CGFloat(nd), start: Date(), duration: dur, ease: easeOut)
+        anim.dayTween = Tween(from: current, to: CGFloat(nd), start: Date(), duration: dur, ease: easeOut)
     }
 
     /// Glide the timeline scroll so the SELECTED event is fully on screen (week/day view). A timed event
@@ -391,18 +391,18 @@ extension CalendarEngine {
     }
 
     /// Glide `tlScroll` so the hour range [topHour, botHour] fits in the timeline, preferring to show the
-    /// TOP when the range is taller than the viewport. Animated (tlScrollTween) — never teleports.
+    /// TOP when the range is taller than the viewport. Animated (anim.tlScrollTween) — never teleports.
     private func scrollTimelineTo(topHour: CGFloat, botHour: CGFloat) {
         let tl = timelineInfo(snapshot())
         guard tl.hourH > 0 else { return }
         let cellTop = topHour * tl.hourH, cellBot = botHour * tl.hourH
         let viewH = tl.tlBottom - tl.tlTop
-        var s = tlScrollTween?.to ?? tlScroll
+        var s = anim.tlScrollTween?.to ?? tlScroll
         if s < cellBot - viewH { s = cellBot - viewH }   // bring the bottom into view…
         if s > cellTop { s = cellTop }                   // …but prefer the top if the range is tall
         s = clamp(s, 0, tl.maxScroll)
         if abs(s - tlScroll) < 0.5 { return }
-        tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: 0.25, ease: easeInOut)
+        anim.tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: 0.25, ease: easeInOut)
     }
 
     /// Glide the timeline scroll so the block cursor's hour cell is fully on screen (week/day view).
@@ -412,11 +412,11 @@ extension CalendarEngine {
         guard tl.hourH > 0 else { return }
         let cellTop = cursor.blockHour * tl.hourH, cellBot = cellTop + tl.hourH   // content-space (pre-scroll)
         let viewH = tl.tlBottom - tl.tlTop
-        var s = tlScrollTween?.to ?? tlScroll                  // head toward the in-flight target if any
+        var s = anim.tlScrollTween?.to ?? tlScroll                  // head toward the in-flight target if any
         if s > cellTop { s = cellTop }                         // cell would clip above → bring to top
         if s < cellBot - viewH { s = cellBot - viewH }         // cell below the fold → scroll up
         s = clamp(s, 0, tl.maxScroll)
         if abs(s - tlScroll) < 0.5 { return }
-        tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: 0.25, ease: easeInOut)
+        anim.tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: 0.25, ease: easeInOut)
     }
 }

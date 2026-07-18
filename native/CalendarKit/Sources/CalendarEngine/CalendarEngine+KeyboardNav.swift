@@ -238,7 +238,7 @@ extension CalendarEngine {
     /// in week view.
     private func visibleWeekDOMRange() -> ClosedRange<Int>? {
         guard level(z) == 2 else { return nil }
-        let wk = (weekTween?.to ?? week).rounded()
+        let wk = (anim.weekTween?.to ?? week).rounded()
         let startDOM = 1 - CGFloat(firstDOW(year, focus)) + wk * 7
         let lo = Int(startDOM.rounded())
         return lo...(lo + 6)

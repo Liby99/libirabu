@@ -366,7 +366,7 @@ extension CalendarEngine {
         // During a month page-turn, `focus` is the anchor and `focus+dir` is the incoming month —
         // known the moment scrolling starts. Solve for BOTH so the incoming labels are already
         // assigned when the turn settles (no post-scroll flip). incoming = -1 when not turning.
-        let incoming = monthAnim.flatMap { a -> Int? in let m = focus + a.dir; return (0...11).contains(m) ? m : nil } ?? -1
+        let incoming = anim.monthAnim.flatMap { a -> Int? in let m = focus + a.dir; return (0...11).contains(m) ? m : nil } ?? -1
         if let k = caches.ddlSidesKey, k.focus == focus, k.incoming == incoming, k.year == year, k.gen == caches.deadlineGen, k.detail == detail, k.dayView == dayView {
             return caches.ddlSides
         }
