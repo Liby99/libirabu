@@ -435,3 +435,374 @@ extension CalendarEngine {
     /// vanished (e.g. deleted in Apple Calendar, then re-imported; or removed by an iCloud remote change).
     public func itemExists(_ id: String) -> Bool { event(id) != nil || band(id) != nil || deadline(id) != nil }
 }
+
+// Cursor-domain cycling + block/band cursors + keyboard zoom (moved from CalendarEngine.swift).
+extension CalendarEngine {
+    // ── Tab cycling between cursors (block ⇄ event; band cursor is a later increment) ──────────────
+    // One-step inverse memory: the last block⇄event pairing. If a Tab is the exact inverse of the last,
+    // we restore the remembered side instead of re-deriving via carry-over — so Tab then ⇧Tab round-trips
+    // exactly even where carry-over is lossy (see docs/prompts/keyboard_control.md).
+    private enum NavDomain { case block, band, event }
+    private var currentDomain: NavDomain { selectedId != nil ? .event : (cursor.bandCursorActive ? .band : .block) }
+
+    /// Tab / ⇧Tab cycle the cursor DOMAIN: block → band → event → block (⇧Tab reverses). Each step
+    /// carries the position over (leftmost/earliest anchor) so the cycle round-trips.
+    public func tabCursor(_ forward: Bool) {
+        enterKeyboardMode()
+        // Month view inserts 4 track-name stops between Event and Block (after Event, before wrapping).
+        let inMonth = level(z) == 1
+        if let t = cursor.trackNameCursor {
+            if forward { if t < 3 { cursor.trackNameCursor = t + 1 } else { cursor.trackNameCursor = nil } }   // track 3 → block
+            else if t > 0 { cursor.trackNameCursor = t - 1 }
+            else {   // track 0 → event (⇧Tab); no event in view → skip the empty stop to the band cursor
+                cursor.trackNameCursor = nil
+                if let eid = nearestEventToBlock() { selectedId = eid; scrollToSelected() }
+                else { cursor.bandCursorActive = true; cursor.bandCurTrack = 0 }
+            }
+            return
+        }
+        if inMonth {
+            if selectedId != nil && forward { deselect(); cursor.trackNameCursor = 0; return }   // event → track 0
+            if currentDomain == .block && !forward { cursor.trackNameCursor = 3; return }         // block ← track 3
+        }
+        // Day view inserts 2 dashboard stops (TODO, then NOTE) between Event and Block.
+        let inDay = level(z) == 3
+        if let s = cursor.dashStop {
+            if forward {
+                if s == .todo { cursor.dashStop = .note; onDashCommand?(.focus(.note)) }
+                else { cursor.dashStop = nil; onDashCommand?(.focus(nil)); cursor.blockDay = daily.dom }   // note → block (wrap)
+            } else {
+                if s == .note { cursor.dashStop = .todo; onDashCommand?(.focus(.todo)) }
+                else {                                                                        // todo → event (back)
+                    cursor.dashStop = nil; onDashCommand?(.focus(nil))
+                    if let eid = cursor.dashReturnEvent, isVisibleEvent(eid) { selectedId = eid }
+                    else if let eid = nearestEventToBlock() { selectedId = eid }
+                    if selectedId != nil { scrollToSelected() }
+                    else { cursor.bandCursorActive = true; cursor.bandCurTrack = 0 }   // no event in view → skip the empty stop to band
+                }
+            }
+            return
+        }
+        if inDay {
+            if selectedId != nil && forward {   // event → TODO stop (remember it for the round-trip)
+                cursor.dashReturnEvent = selectedId; deselect(); cursor.dashStop = .todo; onDashCommand?(.focus(.todo)); return
+            }
+            if currentDomain == .block && !forward { cursor.dashStop = .note; onDashCommand?(.focus(.note)); return }   // block ← NOTE
+        }
+        let from = currentDomain
+        let to: NavDomain = forward
+            ? (from == .block ? .band : (from == .band ? .event : .block))
+            : (from == .block ? .event : (from == .event ? .band : .block))
+        switch (from, to) {
+        case (.block, .band), (.band, .block):   // block ⇄ band: same time cell, just add/drop the lane
+            cursor.bandCursorActive = (to == .band)
+            if to == .band { cursor.bandCurTrack = 0 }
+        case (.band, .event):                     // band → the band under the cell, else the nearest timed/
+            cursor.bandCursorActive = false              // deadline event (week/day), else skip the empty stop
+            if let b = bandForCursor() { selectedId = b.id }
+            else if let eid = nearestEventToBlock() { selectedId = eid; tabLink = (cursor.blockMonth, cursor.blockDay, cursor.blockHour, eid) }
+            else { skipEventForward() }           // truly no event in view → skip the empty event stop
+        case (.event, .band):                     // event → its start cell (band) or (lane 0, its day)
+            if let sel = selectedId {
+                if let b = displayBands(for: year).first(where: { $0.id == sel }) { cursor.blockMonth = b.month; cursor.bandCurTrack = b.track; cursor.blockDay = b.startDay }
+                else if let e = displayEvents(for: year).first(where: { $0.id == sel }) { cursor.blockMonth = e.month; cursor.bandCurTrack = 0; cursor.blockDay = e.day }
+                else if let d = displayDeadlines(for: year).first(where: { $0.id == sel }) { cursor.blockMonth = d.month; cursor.bandCurTrack = 0; cursor.blockDay = d.day }
+            }
+            selectedId = nil; cursor.bandCursorActive = true
+            if level(z) == 0 { ensureMonthVisible(cursor.blockMonth, animated: true) }
+        case (.event, .block):                    // event → its earliest anchor (with inverse memory)
+            if let sel = selectedId {
+                if let link = tabLink, link.eventId == sel { cursor.blockMonth = link.month; cursor.blockDay = link.day; cursor.blockHour = link.hour }
+                else { setBlockToEventAnchor(sel) }
+                tabLink = (cursor.blockMonth, cursor.blockDay, cursor.blockHour, sel)
+            }
+            selectedId = nil; cursor.bandCursorActive = false
+            syncBlockVisible()
+        case (.block, .event):                    // block → nearest event (with inverse memory)
+            if let link = tabLink, link.month == cursor.blockMonth, link.day == cursor.blockDay,
+               abs(link.hour - cursor.blockHour) < 0.01, isVisibleEvent(link.eventId) {
+                selectedId = link.eventId
+            } else if let eid = nearestEventToBlock() {
+                selectedId = eid; tabLink = (cursor.blockMonth, cursor.blockDay, cursor.blockHour, eid)
+            }
+            if selectedId == nil { cursor.bandCursorActive = true; cursor.bandCurTrack = 0 }   // no event in view → skip the empty stop to the band cursor
+        default: break
+        }
+        // Scroll whatever event we landed on into view: a timed/deadline event above or below the
+        // timeline viewport (week/day) glides into sight; a band scrolls to its month/day. (req 2)
+        if selectedId != nil { scrollToSelected() }
+    }
+
+    /// Forward Tab reached the event stop but found nothing to select → advance to the stop that follows
+    /// the (empty) event stop in this view, so Tab never lands on a dead event cursor: month → the first
+    /// track-name stop, day → the TODO stop, week/year → the block cursor (already the state here).
+    private func skipEventForward() {
+        switch level(z) {
+        case 1: cursor.trackNameCursor = 0
+        case 3: cursor.dashReturnEvent = nil; cursor.dashStop = .todo; onDashCommand?(.focus(.todo))
+        default: break
+        }
+    }
+
+    private func isVisibleEvent(_ id: String) -> Bool {
+        viewBands().contains { $0.id == id } || viewEvents().contains { $0.id == id } || viewDeadlines().contains { $0.id == id }
+    }
+
+    /// The band the band-cursor cell sits on: the band covering `(month, track, day)`, else the nearest
+    /// band in that month. Shared by Tab (band→event) and Enter-to-select.
+    private func bandForCursor() -> BandEvent? {
+        let m = level(z) == 0 ? cursor.blockMonth : focus
+        let hit = viewBands().first { $0.month == m && $0.track == cursor.bandCurTrack && $0.startDay <= cursor.blockDay && $0.endDay >= cursor.blockDay }
+        return hit ?? viewBands().filter { $0.month == m }
+            .min(by: { (bandDayDist($0, cursor.blockDay), abs($0.track - cursor.bandCurTrack)) < (bandDayDist($1, cursor.blockDay), abs($1.track - cursor.bandCurTrack)) })
+    }
+
+    /// Enter from the band cursor (any view) or the block cursor (week/day) → enter event-cursor mode on
+    /// the relevant event: the band under the band cell, else the nearest event to the block cell. Keeps
+    /// the one-step Tab memory in sync so a following ⇧Tab round-trips back to the originating cell.
+    public func selectFromCursor() {
+        enterKeyboardMode()
+        if cursor.bandCursorActive {
+            if let b = bandForCursor() { cursor.bandCursorActive = false; selectedId = b.id; scrollToSelected() }
+        } else if cursor.trackNameCursor == nil, level(z) >= 2 {   // block cursor — week/day only (per spec)
+            if let eid = nearestEventToBlock() {
+                selectedId = eid; tabLink = (cursor.blockMonth, cursor.blockDay, cursor.blockHour, eid); ensureSelectedEventVisible()
+            }
+        }
+    }
+
+    /// A mouse move/click hides the keyboard cursor visual (state persists).
+    public func enterMouseMode() { if cursor.keyboardActive { cursor.keyboardActive = false; wake() } }
+    /// A dispatched nav/action key shows the keyboard cursor.
+    public func enterKeyboardMode() { if !cursor.keyboardActive { cursor.keyboardActive = true; wake() } }
+
+    /// Move the block cursor by an arrow. `dy`: up = -1, down = +1; `dx`: left = -1, right = +1.
+    /// (Year view only for now — up/down step a month, left/right are no-ops.)
+    public func blockArrow(dx: Int, dy: Int) {
+        enterKeyboardMode()
+        switch level(z) {
+        case 0:   // year: up/down = month
+            let m = max(0, min(11, cursor.blockMonth + dy))
+            if m != cursor.blockMonth { cursor.blockMonth = m; ensureMonthVisible(m, animated: true) }
+        case 1:   // month: left/right = day (wraps across weeks); up/down = no-op
+            let d = max(1, min(daysInMonth(year, focus), cursor.blockDay + dx))
+            if d != cursor.blockDay { cursor.blockDay = d }
+        case 2:   // week: up/down = hour; left/right = day (+ glide the focus window to follow)
+            if dy != 0 { stepHour(dy) }
+            if dx != 0 {
+                let d = max(1, min(daysInMonth(year, focus), cursor.blockDay + dx))
+                if d != cursor.blockDay { cursor.blockDay = d; ensureDayVisibleWeek(d) }
+            }
+        case 3:   // day: up/down = hour; left/right = swipe to the prev/next day
+            if dy != 0 { stepHour(dy) }
+            if dx != 0 { swipeDay(dx) }
+        default:
+            break
+        }
+    }
+
+    /// ⌘N — create a new event at the block cursor. Week/day (an hour cell) → a 1-hour timed event on
+    /// that day/hour, selected + its inline title editor opened for immediate naming. Month/year → no-op.
+    public func createEventAtBlock() {
+        enterKeyboardMode()
+        guard selectedId == nil, !drawerOpen else { return }
+        guard level(z) >= 2 else { return }   // month/year → no-op
+        let d = level(z) == 2 ? cursor.blockDay : daily.dom
+        let h = cursor.blockHour
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        items.events.append(TimedEvent(id: id, year: year, month: focus, day: d,
+                                     startHour: h, endHour: min(24, h + 1), title: "New event", color: "blue",
+                                     anchorTz: anchorNow))
+        selectedId = id
+        commitTxn()
+        editTimed(id)   // open the inline title editor so the name is focused right away
+    }
+
+    // ── Band cursor (block cursor + a lane) ────────────────────────────────────────
+    /// Move the band cursor. ↑/↓ walk the 4 lanes (in year view, across month/quarter boundaries);
+    /// ←/→ walk days (week/month/year may shift the focus window; day view swipes).
+    public func bandArrow(dx: Int, dy: Int) {
+        enterKeyboardMode()
+        if dy != 0 {
+            if level(z) == 0 {   // year: lanes stack across all 12 months (0…47), crossing quarters
+                let flat = max(0, min(11 * 4 + 3, cursor.blockMonth * 4 + cursor.bandCurTrack + dy))
+                cursor.blockMonth = flat / 4; cursor.bandCurTrack = flat % 4
+                cursor.blockDay = min(daysInMonth(year, cursor.blockMonth), max(1, cursor.blockDay))
+                ensureMonthVisible(cursor.blockMonth, animated: true)
+            } else {
+                cursor.bandCurTrack = max(0, min(3, cursor.bandCurTrack + dy))
+            }
+        }
+        if dx != 0 {
+            let m = level(z) == 0 ? cursor.blockMonth : focus
+            switch level(z) {
+            case 0, 1: cursor.blockDay = max(1, min(daysInMonth(year, m), cursor.blockDay + dx))
+            case 2:    let d = max(1, min(daysInMonth(year, focus), cursor.blockDay + dx)); if d != cursor.blockDay { cursor.blockDay = d; ensureDayVisibleWeek(d) }
+            default:   swipeDay(dx)   // day view
+            }
+        }
+    }
+
+    /// The band cursor's cell rect (geometry space): one day column × one lane.
+    public func bandCursorRect() -> CGRect? {
+        guard cursor.keyboardActive, !Self.isDemoMode, cursor.bandCursorActive, selectedId == nil, !drawerOpen else { return nil }
+        let g = snapshot()
+        let m = level(z) == 0 ? cursor.blockMonth : focus
+        let f = frameFor(m, g)
+        let day = min(daysInMonth(year, m), max(1, cursor.blockDay))
+        return CGRect(x: f.x0 + CGFloat(day - 1) * f.dayW, y: f.bandY + CGFloat(cursor.bandCurTrack) * f.trackH,
+                      width: f.dayW, height: f.trackH)
+    }
+
+    /// ⌘N in band-cursor mode — create a 1-day band at the cursor cell, select it, open its title editor.
+    public func createBandAtCursor() {
+        enterKeyboardMode()
+        guard cursor.bandCursorActive, selectedId == nil, !drawerOpen else { return }
+        let m = level(z) == 0 ? cursor.blockMonth : focus
+        let day = min(daysInMonth(year, m), max(1, cursor.blockDay))
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        items.bands.append(BandEvent(id: id, year: year, month: m, track: cursor.bandCurTrack, startDay: day, endDay: day, title: "New event", color: "blue"))
+        selectedId = id
+        cursor.bandCursorActive = false
+        commitTxn()
+        editBand(id)
+    }
+
+    // ── Track-name cursor (month view's extra Tab stops) ───────────────────────────
+    /// The focused track-name gutter cell (geometry space), or nil when not on a track name.
+    public func trackNameCursorRect() -> CGRect? {
+        guard cursor.keyboardActive, !Self.isDemoMode, let t = cursor.trackNameCursor, selectedId == nil, !drawerOpen, level(z) == 1 else { return nil }
+        let g = snapshot()
+        let f = frameFor(focus, g)
+        let y = f.bandY + CGFloat(t) * f.trackH
+        return CGRect(x: Layout.mnameW, y: y, width: Layout.labelW - Layout.mnameW - Layout.rightPad, height: f.trackH)
+    }
+
+    /// Enter on a focused track name → open its inline editor (Enter again commits — see TrackNameEditor).
+    public func editFocusedTrackName() {
+        guard let t = cursor.trackNameCursor, let rect = trackNameCursorRect() else { return }
+        onEditTrackName?(focus, t, rect)
+    }
+
+    /// The selected event's anchor (month, day, hour) — nil if nothing selected. Bands anchor at their
+    /// start day + noon; timed/deadlines at their day + start hour.
+    private func selectedAnchor() -> (month: Int, day: Int, hour: CGFloat)? {
+        guard let sel = selectedId else { return nil }
+        if let b = displayBands(for: year).first(where: { $0.id == sel }) { return (b.month, b.startDay, 12) }
+        if let e = displayEvents(for: year).first(where: { $0.id == sel }) { return (e.month, e.day, e.startHour) }
+        if let d = displayDeadlines(for: year).first(where: { $0.id == sel }) { return (d.month, d.day, d.hour) }
+        return nil
+    }
+
+    /// ⌘= — zoom IN one level, keeping the current focus. With an event selected, the view lands on that
+    /// event's month/week/day (it stays selected). With a cursor, this is blockZoomIn's placement.
+    public func cmdZoomIn() {
+        enterKeyboardMode()
+        guard let a = selectedAnchor() else { blockZoomIn(); return }
+        cursor.trackNameCursor = nil
+        switch level(z) {
+        case 0: focus = a.month; cursor.blockMonth = a.month; cursor.blockDay = a.day; ensureMonthVisible(a.month, animated: false); tweenZ(to: 1)
+        case 1: week = CGFloat(weekOfDate(year, focus, a.day)); daily.dom = a.day; cursor.blockDay = a.day; cursor.blockHour = a.hour; tweenZ(to: 2)
+        case 2: daily.dom = a.day; cursor.blockHour = a.hour; tweenZ(to: 3)
+        default: break   // day is the deepest
+        }
+    }
+
+    /// ⌘− — zoom OUT one level, keeping the current focus. With an event selected, the higher-level view
+    /// lands on the event so it stays visible; otherwise the block cursor carries over (syncBlockToView).
+    public func cmdZoomOut() {
+        enterKeyboardMode()
+        cursor.trackNameCursor = nil
+        clearDashStop()
+        let dest = max(0, level(z) - 1)
+        if let a = selectedAnchor() {
+            focus = a.month
+            week = CGFloat(weekOfDate(year, a.month, a.day)); daily.dom = a.day
+            cursor.blockMonth = a.month; cursor.blockDay = a.day; cursor.blockHour = a.hour
+        }
+        tweenZ(to: CGFloat(dest))
+        if selectedId == nil { syncBlockToView(dest) }
+    }
+
+    /// Space / ⌘= — zoom IN one level, carrying the block cursor with the placement rules.
+    public func blockZoomIn() {
+        enterKeyboardMode()
+        cursor.trackNameCursor = nil   // track names are month-only; zooming leaves them → block cursor
+        switch level(z) {
+        case 0:   // year → month: focus the cursor's month; land the day on today (if that month) else the 1st.
+            focus = cursor.blockMonth
+            let t = Calendar.current.dateComponents([.year, .month, .day], from: now)
+            let isCurMonth = (t.year == year) && ((t.month ?? 0) - 1 == cursor.blockMonth)
+            cursor.blockDay = isCurMonth ? (t.day ?? 1) : 1
+            ensureMonthVisible(cursor.blockMonth, animated: false)   // instant; the zoom repositions immediately after
+            tweenZ(to: 1)
+        case 1:   // month → week: focus the cursor's week; land the hour on now (if the week has today) else noon.
+            week = CGFloat(weekOfDate(year, focus, cursor.blockDay))
+            daily.dom = cursor.blockDay
+            let t = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: now)
+            let weekHasToday = (t.year == year) && ((t.month ?? 0) - 1 == focus)
+                && weekOfDate(year, focus, t.day ?? 1) == weekOfDate(year, focus, cursor.blockDay)
+            cursor.blockHour = weekHasToday ? CGFloat(t.hour ?? 12) : 12   // land on the hour cell containing now
+            tweenZ(to: 2)
+        case 2:   // week → day: same hour, on the cursor's day
+            daily.dom = min(daysInMonth(year, focus), max(1, cursor.blockDay))
+            tweenZ(to: 3)
+        default:
+            break   // day view is the deepest — Space is a no-op
+        }
+    }
+
+    /// The block cursor's cell rect in geometry space (pre-padLeft), or nil when it shouldn't show
+    /// (mouse mode, an event/drawer is active, or a view without a cursor yet).
+    public func blockCursorRect() -> CGRect? {
+        guard cursor.keyboardActive, !Self.isDemoMode, !cursor.bandCursorActive, cursor.trackNameCursor == nil, selectedId == nil, cursor.dashStop == nil, !drawerOpen else { return nil }
+        let g = snapshot()
+        switch level(z) {
+        case 0:
+            // Cover the ENTIRE month row — from the left edge (the month-name gutter) to the right.
+            let f = yearFrame(cursor.blockMonth, g.vp, scrollY)
+            return CGRect(x: 0, y: f.bandY, width: g.vp.w, height: 4 * f.trackH)
+        case 1:
+            // A day COLUMN: the band cell on top + the day's timeline below it.
+            let f = frameFor(focus, g)
+            let tl = timelineInfo(g)
+            let d = max(1, min(daysInMonth(year, focus), cursor.blockDay))
+            let x = f.x0 + CGFloat(d - 1) * f.dayW
+            return CGRect(x: x, y: f.bandY, width: f.dayW, height: max(4 * f.trackH, tl.tlBottom - f.bandY))
+        case 2, 3:
+            // An HOUR cell: the day column × one hour row. (Day view: the shown day is daily.dom.)
+            let tl = timelineInfo(g)
+            guard tl.hourH > 0 else { return nil }
+            let d = level(z) == 2 ? cursor.blockDay : daily.dom
+            let x = tl.x0 + CGFloat(d - 1) * tl.colW
+            let y = tl.tlTop + cursor.blockHour * tl.hourH - tl.scroll
+            return CGRect(x: x, y: y, width: tl.colW, height: tl.hourH)
+        default:
+            return nil
+        }
+    }
+
+    /// The dashed-ring rect for the SELECTED event box (geometry space, pre-padLeft) — the event-cursor
+    /// visual, shown in keyboard mode. Looks up the exact box in the DISPLAY arrays (so a promoted band /
+    /// occurrence ghost rings its own box, not the whole series).
+    public func selectionRingRect() -> CGRect? {
+        guard cursor.keyboardActive, let sel = selectedId, !drawerOpen else { return nil }
+        let g = snapshot()
+        if let b = displayBands(for: year).first(where: { $0.id == sel }), let r = bandEventRect(b, g, anim: g.monthAnim) {
+            return CGRect(x: r.x, y: r.y, width: r.w, height: r.h)
+        }
+        if z >= 1.5, let e = displayEvents(for: year).first(where: { $0.id == sel }) {
+            let tl = timelineInfo(g)
+            let sameDay = eventsOn(year, e.month, e.day)
+            if let r = eventRect(e, year, focus, tl, g.vp, layoutDay(sameDay)[e.id]) {
+                return CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
+            }
+        }
+        if z >= 1.5, let d = displayDeadlines(for: year).first(where: { $0.id == sel }), let pos = deadlinePos(d, g) {
+            return CGRect(x: pos.x, y: pos.y - 9, width: pos.w, height: 18)   // the moment-line band
+        }
+        return nil
+    }
+}
