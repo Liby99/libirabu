@@ -16,10 +16,11 @@ final class SearchState {
     var open = false                 // the bar is mounted (in the toolbar)
     var expanded = false             // the bar is at full width (animates the expand/collapse)
     var query = ""
-    var results: [CalendarEngine.SearchHit] = []
+    var results: [CalendarEngine.SearchHit] = []   // the shown rows (≤ display cap)
+    var total = 0                                   // total matches (may exceed results.count)
     var sel = 0
     var fieldFrame: CGRect = .zero   // the bar's frame in the global space, so the dropdown can align to it
-    func reset() { open = false; expanded = false; query = ""; results = []; sel = 0 }
+    func reset() { open = false; expanded = false; query = ""; results = []; total = 0; sel = 0 }
 }
 
 /// The centered toolbar text field. Owns focus + recompute; the parent supplies commit/close so it can
@@ -30,6 +31,7 @@ struct SearchBar: View {
     var onCommit: () -> Void
     var onClose: () -> Void
     @State private var contentIn = false   // fades the field/close in once the bar has opened
+    @State private var debounce: Task<Void, Never>?   // coalesces fast typing before recompute
 
     private let collapsedWidth: CGFloat = 22   // just the magnifyingglass (button-sized)
     private let expandedWidth: CGFloat = 232    // field + close button
@@ -80,16 +82,28 @@ struct SearchBar: View {
             // Reveal the field/close only after the bar has mostly opened, so the placeholder never
             // renders (and overshoots the capsule clip) while the width is still animating.
             withAnimation(.easeOut(duration: 0.16).delay(0.18)) { contentIn = true }
+            engine.primeSearch()   // warm the corpus now so the first keystroke is already fast
             recompute()
         }
         .onChange(of: search.expanded) { _, exp in
             if !exp { withAnimation(.easeOut(duration: 0.1)) { contentIn = false } }   // collapsing → hide content first
         }
-        .onChange(of: search.query) { _, _ in recompute() }
+        // Debounce: coalesce fast typing so we recompute at most ~once per 80 ms burst.
+        .onChange(of: search.query) { _, _ in
+            debounce?.cancel()
+            let task = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(80))
+                if !Task.isCancelled { recompute() }
+            }
+            debounce = task
+        }
+        .onDisappear { debounce?.cancel() }
     }
 
     private func recompute() {
-        search.results = engine.searchEvents(search.query)
+        let r = engine.searchEvents(search.query)
+        search.results = r.hits
+        search.total = r.total
         search.sel = 0
     }
     private func move(_ d: Int) {
@@ -117,6 +131,15 @@ struct SearchDropdown: View {
                 }
                 .padding(.horizontal, 10).padding(.vertical, 9)
             } else {
+                // Count header: "N matches" (with "· showing M" when capped above the display limit).
+                HStack {
+                    Text(search.total == 1 ? "1 match"
+                         : "\(search.total) matches\(search.total > search.results.count ? " · showing \(search.results.count)" : "")")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.textMuted)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10).padding(.top, 5).padding(.bottom, 4)
                 ForEach(Array(search.results.enumerated()), id: \.element.id) { i, hit in
                     row(i, hit)
                     if i < search.results.count - 1 {

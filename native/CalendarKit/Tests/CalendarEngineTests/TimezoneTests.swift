@@ -42,15 +42,52 @@ final class TimezoneTests: XCTestCase {
     }
 }
 
+/// Point the calendar store at a throwaway temp dir so tests never read or write the user's real
+/// calendar (the engine persists on commit / migration). Set before any CalendarEngine() is created.
+func redirectStoreToTemp() {
+    let dir = NSTemporaryDirectory() + "cktest-\(UUID().uuidString)"
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    setenv("CC_DEMO_DATADIR", dir, 1)
+}
+
 @MainActor
 final class AnchorTZTests: XCTestCase {
+    override func setUp() { super.setUp(); redirectStoreToTemp() }
     private func setMain(_ tz: String, _ e: CalendarEngine) {
         UserDefaults.standard.set(tz, forKey: CalendarEngine.mainTzKey)
         e.viewPrefsChanged()   // re-reads mainTz AND bumps editGen so the display cache re-converts
     }
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: CalendarEngine.mainTzKey)
+        unsetenv("CC_DEMO_DATADIR")   // don't leak the temp-store redirect into other test classes
         super.tearDown()
+    }
+
+    /// A drag edit works in the view (main-tz) grid then folds back to the anchor — the round-trip must
+    /// preserve the event exactly (date, times, anchor), so editing an event viewed in another zone can't
+    /// corrupt it.
+    func testWriteBackRoundTripPreservesAnchor() {
+        let e = CalendarEngine()
+        e.mainTz = "America/Los_Angeles"        // viewing in a different zone than the event's anchor
+        let ev = TimedEvent(id: "e", year: 2026, month: 6, day: 20, startHour: 14, endHour: 15.5,
+                            title: "x", color: "blue", anchorTz: "America/New_York")
+        let back = e.anchorEvent(e.displayEvent(ev))   // to-grid then back (what a mouse drag does)
+        XCTAssertEqual(back.year, ev.year); XCTAssertEqual(back.month, ev.month); XCTAssertEqual(back.day, ev.day)
+        XCTAssertEqual(Double(back.startHour), 14, accuracy: 0.001)
+        XCTAssertEqual(Double(back.endHour), 15.5, accuracy: 0.001)
+        XCTAssertEqual(back.anchorTz, "America/New_York")
+    }
+
+    /// Day-column arithmetic behind day-aware resize/create: whole-day differences across month/year
+    /// boundaries (this is what stops the tail-edge resize from collapsing).
+    func testDayAwareArithmetic() {
+        let e = CalendarEngine()
+        XCTAssertEqual(e.dayDiff(2026, 6, 20, 2026, 6, 21), 1)
+        XCTAssertEqual(e.dayDiff(2026, 6, 21, 2026, 6, 20), -1)
+        XCTAssertEqual(e.dayDiff(2026, 5, 30, 2026, 6, 1), 1)    // Jun 30 → Jul 1 (0-based months)
+        XCTAssertEqual(e.dayDiff(2025, 11, 31, 2026, 0, 1), 1)   // Dec 31 → Jan 1 (year rollover)
+        let nd = e.addDays(2026, 5, 30, 1)
+        XCTAssertEqual(nd.0, 2026); XCTAssertEqual(nd.1, 6); XCTAssertEqual(nd.2, 1)
     }
 
     /// A timed event anchored in ET renders 3h earlier when the view switches to PT (same instant), and
@@ -109,6 +146,8 @@ final class AnchorTZTests: XCTestCase {
 
 @MainActor
 final class DeadlineCreateTests: XCTestCase {
+    override func setUp() { super.setUp(); redirectStoreToTemp() }
+    override func tearDown() { unsetenv("CC_DEMO_DATADIR"); super.tearDown() }
     /// The "+" click path: createDeadline mints an id, selects it, and it shows on the timeline.
     func testCreateDeadline() {
         let e = CalendarEngine()
@@ -119,5 +158,38 @@ final class DeadlineCreateTests: XCTestCase {
         let ddls = e.displayDeadlines(for: 2026)
         XCTAssertEqual(ddls.count, before + 1)
         XCTAssertTrue(ddls.contains { $0.id == id && $0.hour == 9 && $0.day == 20 && $0.title == "New Deadline" })
+    }
+}
+
+@MainActor
+final class AnchorMigrationTests: XCTestCase {
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: CalendarEngine.mainTzKey)
+        unsetenv("CC_DEMO_DATADIR")   // don't leak the temp-store redirect into other test classes
+        super.tearDown()
+    }
+
+    /// A legacy store (items written before anchoring, so no `anchorTz`) is migrated on load: timed events
+    /// are stamped with the resolved main tz (hours untouched), and a deadline that carried a legacy
+    /// `originTz` is re-anchored to that origin — preserving its instant — with `originTz` cleared.
+    func testMigrationOnLoad() throws {
+        let dir = NSTemporaryDirectory() + "mig-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        setenv("CC_DEMO_DATADIR", dir, 1)
+        UserDefaults.standard.set("America/New_York", forKey: CalendarEngine.mainTzKey)
+
+        // Legacy items: no anchorTz. The deadline's hour (11:00) is the stored main-tz value + an AOE origin.
+        let legacy = PersistedState(
+            events: [TimedEvent(id: "e1", year: 2026, month: 6, day: 20, startHour: 9, endHour: 10, title: "x", color: "blue")],
+            bands: [],
+            deadlines: [Deadline(id: "d1", year: 2026, month: 6, day: 20, hour: 11, title: "cfp", color: "red", originTz: "AOE")],
+            monthTrackNames: nil, rich: nil, dailyNotes: nil)
+        try JSONEncoder().encode(legacy).write(to: URL(fileURLWithPath: dir + "/data.json"))
+
+        let e = CalendarEngine()   // init loads the store and runs the anchor migration
+        XCTAssertEqual(e.seedEvents.first?.anchorTz, "America/New_York")             // stamped to the main tz
+        XCTAssertEqual(Double(e.seedEvents.first?.startHour ?? -1), 9, accuracy: 0.001)  // hour unchanged
+        XCTAssertEqual(e.seedDeadlines.first?.anchorTz, "AOE")                       // re-anchored to its origin
+        XCTAssertNil(e.seedDeadlines.first?.originTz)                                // legacy field folded in + cleared
     }
 }

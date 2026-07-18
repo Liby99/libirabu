@@ -23,73 +23,108 @@ extension CalendarEngine {
         public let context: String // why it matched, when a tag or notes hit (a "#tag" or notes snippet); "" for title/date
     }
 
-    /// Fuzzy, multi-field search over every selectable year's merged event set (seed + recurrence
-    /// occurrences + Apple imports; hidden imports already excluded). The query splits into space-separated
-    /// TERMS — every term must match (AND). A term matches an event if EITHER its DATE reading
-    /// (`2026-09-01`, `8/1`, `jul`/`july`, `wed`/`weds`/`wednesday`, a 4-digit year) OR a fuzzy TEXT match
-    /// (title & tags: subsequence; notes: substring) hits — the stronger score wins. Recurrences collapse to
-    /// one row; results rank by text relevance blended with nearness to today (a match years away sinks
-    /// beneath a nearby one). Capped at `limit`.
-    public func searchEvents(_ query: String, limit: Int = 8) -> [SearchHit] {
-        let terms = query.split(whereSeparator: { $0.isWhitespace }).map { Self.searchFold(String($0)) }.filter { !$0.isEmpty }
-        guard !terms.isEmpty else { return [] }
+    /// A pre-folded search-index entry — one per display item across all years. Built once per data change
+    /// (see `ensureSearchCorpus`), so a keystroke only scans this array with cheap string ops.
+    struct SearchDoc {
+        let id, title, color: String
+        let year, month, day: Int        // month 0-based
+        let hour: CGFloat?
+        let kind: SearchHit.Kind
+        let base: String                 // sourceId → collapses recurrence occurrences
+        let foldedTitle: String
+        let origTags: [String]
+        let foldedTags: [String]
+        let origNotes: String
+        let foldedNotes: String
+        let weekday: Int?                // Calendar weekday 1…7
+        let signedDist: Int              // days from today at build time (− = past)
+    }
+
+    /// Build the search corpus if stale, else reuse it. Iterating every year here IS the expensive part
+    /// (recurrence expansion + import merge + folding) — but it runs once per edit, not once per keystroke.
+    func ensureSearchCorpus() -> [SearchDoc] {
+        if let c = searchCorpus, c.gen == editGen { return c.docs }
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
-        func signedDist(_ y: Int, _ m: Int, _ d: Int) -> Int {
-            guard let date = cal.date(from: DateComponents(year: y, month: m + 1, day: d)) else { return .max }
-            return cal.dateComponents([.day], from: today, to: cal.startOfDay(for: date)).day ?? .max
+        func meta(_ y: Int, _ m: Int, _ d: Int) -> (wd: Int?, dist: Int) {
+            guard let date = cal.date(from: DateComponents(year: y, month: m + 1, day: d)) else { return (nil, .max) }
+            return (cal.component(.weekday, from: date),
+                    cal.dateComponents([.day], from: today, to: cal.startOfDay(for: date)).day ?? .max)
         }
-        struct Cand { let hit: SearchHit; let rank: Double; let dist: Int }
-        var byBase: [String: Cand] = [:]   // sourceId → best occurrence (collapses recurrences)
-
-        func consider(_ id: String, _ title: String, _ color: String, _ y: Int, _ m: Int, _ d: Int, _ hour: CGFloat?, _ kind: SearchHit.Kind) {
-            let foldedTitle = Self.searchFold(title)
-            let origTags = richTags(id)
-            let foldedTags = origTags.map { Self.searchFold($0) }
-            let origNotes = notes(id)
-            let wd = cal.date(from: DateComponents(year: y, month: m + 1, day: d)).map { cal.component(.weekday, from: $0) }
-
-            var total = 0.0
-            var ctxNote: String?, ctxTag: String?
-            for term in terms {
-                let dateS = Self.dateMatchScore(term, year: y, month0: m, day: d, weekday: wd)
-                let titleS = Self.fuzzyScore(term, foldedTitle)
-                var tagS = 0.0, tagHit: String?
-                for (i, ft) in foldedTags.enumerated() {
-                    let s = Self.fuzzyScore(term, ft)
-                    if s > tagS { tagS = s; tagHit = origTags[i] }
-                }
-                let noteHit = origNotes.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-                let noteS = noteHit ? 0.55 : 0.0
-
-                let best = max(dateS, max(titleS, max(tagS * 0.9, noteS)))
-                if best <= 0 { return }        // this term matched nothing → event excluded
-                total += best
-                if noteHit, ctxNote == nil { ctxNote = Self.searchSnippet(origNotes, term) }
-                if tagS > 0, ctxTag == nil, let th = tagHit { ctxTag = "#" + th }
-            }
-
-            let signed = signedDist(y, m, d)
-            let dist = abs(signed)
-            let rank = 0.7 * (total / Double(terms.count)) + 0.3 * Self.recencyScore(signed)
-            let hit = SearchHit(id: id, title: title, color: color, year: y, month: m, day: d, hour: hour, kind: kind,
-                                context: ctxNote ?? ctxTag ?? "")
-            let base = sourceId(of: id)
-            if let ex = byBase[base] {
-                if rank > ex.rank || (rank == ex.rank && dist < ex.dist) { byBase[base] = Cand(hit: hit, rank: rank, dist: dist) }
-            } else {
-                byBase[base] = Cand(hit: hit, rank: rank, dist: dist)
-            }
+        func doc(_ id: String, _ title: String, _ color: String, _ y: Int, _ m: Int, _ d: Int, _ hour: CGFloat?, _ kind: SearchHit.Kind) -> SearchDoc {
+            let tags = richTags(id), note = notes(id)
+            let (wd, dist) = meta(y, m, d)
+            return SearchDoc(id: id, title: title, color: color, year: y, month: m, day: d, hour: hour, kind: kind,
+                             base: sourceId(of: id),
+                             foldedTitle: Self.searchFold(title),
+                             origTags: tags, foldedTags: tags.map { Self.searchFold($0) },
+                             origNotes: note, foldedNotes: Self.searchFold(note),
+                             weekday: wd, signedDist: dist)
         }
+        var docs: [SearchDoc] = []
         for y in yearOptions {
-            for e in displayEvents(for: y)    { consider(e.id, e.title, e.color, y, e.month, e.day, e.startHour, .timed) }
-            for b in displayBands(for: y)     { consider(b.id, b.title, b.color, y, b.month, b.startDay, nil, .band) }
-            for d in displayDeadlines(for: y) { consider(d.id, d.title, d.color, y, d.month, d.day, d.hour, .deadline) }
+            for e in displayEvents(for: y)    { docs.append(doc(e.id, e.title, e.color, y, e.month, e.day, e.startHour, .timed)) }
+            for b in displayBands(for: y)     { docs.append(doc(b.id, b.title, b.color, y, b.month, b.startDay, nil, .band)) }
+            for d in displayDeadlines(for: y) { docs.append(doc(d.id, d.title, d.color, y, d.month, d.day, d.hour, .deadline)) }
         }
-        return byBase.values
-            .sorted { $0.rank > $1.rank || ($0.rank == $1.rank && $0.dist < $1.dist) }
-            .prefix(limit)
-            .map(\.hit)
+        searchCorpus = (editGen, docs)
+        return docs
+    }
+
+    /// Warm the corpus — call when the search bar opens (⌘F), so the first keystroke is already fast.
+    public func primeSearch() { _ = ensureSearchCorpus() }
+
+    /// Fuzzy, multi-field, date-aware search over the cached corpus. Space-separated TERMS all must match
+    /// (AND); a term matches by DATE reading (`2026-09-01`, `8/1`, `jul`, `wed`, a 4-digit year) OR a fuzzy
+    /// TEXT match (title & tags: subsequence; notes: substring). Recurrences collapse to one row; ranked by
+    /// text relevance blended with nearness to today. Returns the top `limit` rows plus the TOTAL match count.
+    public func searchEvents(_ query: String, limit: Int = 30) -> (hits: [SearchHit], total: Int) {
+        let terms = query.split(whereSeparator: { $0.isWhitespace }).map { Self.searchFold(String($0)) }.filter { !$0.isEmpty }
+        guard !terms.isEmpty else { return ([], 0) }
+
+        struct Cand { let doc: SearchDoc; let rank: Double; let dist: Int; let tag: String?; let noteTerm: String? }
+        var byBase: [String: Cand] = [:]   // sourceId → best occurrence
+
+        for doc in ensureSearchCorpus() {
+            var total = 0.0
+            var tagHit: String?, noteTerm: String?
+            var matched = true
+            for term in terms {
+                let dateS = Self.dateMatchScore(term, year: doc.year, month0: doc.month, day: doc.day, weekday: doc.weekday)
+                let titleS = Self.fuzzyScore(term, doc.foldedTitle)
+                var tagS = 0.0, thisTag: String?
+                for (i, ft) in doc.foldedTags.enumerated() {
+                    let s = Self.fuzzyScore(term, ft)
+                    if s > tagS { tagS = s; thisTag = doc.origTags[i] }
+                }
+                let noteHit = !doc.foldedNotes.isEmpty && doc.foldedNotes.contains(term)   // fast folded substring
+                let best = max(dateS, max(titleS, max(tagS * 0.9, noteHit ? 0.55 : 0)))
+                if best <= 0 { matched = false; break }        // this term matched nothing → event excluded
+                total += best
+                if tagS > 0, tagHit == nil { tagHit = thisTag }
+                if noteHit, noteTerm == nil { noteTerm = term }
+            }
+            guard matched else { continue }
+            let rank = 0.7 * (total / Double(terms.count)) + 0.3 * Self.recencyScore(doc.signedDist)
+            let dist = abs(doc.signedDist)
+            if let ex = byBase[doc.base] {
+                if rank > ex.rank || (rank == ex.rank && dist < ex.dist) {
+                    byBase[doc.base] = Cand(doc: doc, rank: rank, dist: dist, tag: tagHit, noteTerm: noteTerm)
+                }
+            } else {
+                byBase[doc.base] = Cand(doc: doc, rank: rank, dist: dist, tag: tagHit, noteTerm: noteTerm)
+            }
+        }
+
+        let ranked = byBase.values.sorted { $0.rank > $1.rank || ($0.rank == $1.rank && $0.dist < $1.dist) }
+        // Context ("why it matched") — computed only for the SHOWN rows: a notes snippet, else a #tag.
+        let hits = ranked.prefix(limit).map { c -> SearchHit in
+            let snippet = c.noteTerm.map { Self.searchSnippet(c.doc.origNotes, $0) } ?? ""
+            let context = !snippet.isEmpty ? snippet : (c.tag.map { "#" + $0 } ?? "")
+            return SearchHit(id: c.doc.id, title: c.doc.title, color: c.doc.color, year: c.doc.year,
+                             month: c.doc.month, day: c.doc.day, hour: c.doc.hour, kind: c.doc.kind, context: context)
+        }
+        return (Array(hits), ranked.count)
     }
 
     // ── Search helpers ────────────────────────────────────────────────────────────

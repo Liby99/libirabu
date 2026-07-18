@@ -284,6 +284,10 @@ public final class CalendarEngine {
     var ddlCache: (year: Int, gen: Int, deadlines: [Deadline])?   // internal: +Display (stored caches stay in the class)
     var ddlSides: [String: Bool] = [:]   // internal: +Display (stored caches stay in the class)
     var ddlSidesKey: (focus: Int, incoming: Int, year: Int, gen: Int, detail: Bool, dayView: Bool)?   // internal: +Display (stored caches stay in the class)
+    // Toolbar-search corpus — a pre-folded, flat index of every item across all years, rebuilt ONLY on a
+    // data change (editGen), so each keystroke scans a cached array instead of re-expanding/​re-folding the
+    // whole calendar. See CalendarEngine+Search.swift.
+    var searchCorpus: (gen: Int, docs: [SearchDoc])?   // internal: +Search (stored caches stay in the class)
     // The daily-dashboard NOTE tab: one markdown note per day, keyed by ISO date "YYYY-MM-DD".
     var dailyNotes: [String: String] = [:]   // internal: +DashboardData
     // ── Cloud-sync seam (Phase 1) ─────────────────────────────────────────────────
