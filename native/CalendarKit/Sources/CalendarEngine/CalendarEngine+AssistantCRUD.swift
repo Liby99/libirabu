@@ -11,15 +11,15 @@ extension CalendarEngine {
     // ── Programmatic CRUD for the AI assistant ─────────────────────────────────────────
     // Parameterized create/update the cursor-driven UI methods (createEventAtBlock etc.) don't
     // offer. Each wraps beginTxn/commitTxn so it's one undo step, invalidates the display cache
-    // (beginTxn bumps editGen), and persists (commitTxn → schedulePersist). `byAI` stamps
+    // (beginTxn bumps caches.editGen), and persists (commitTxn → schedulePersist). `byAI` stamps
     // RichFields.createdByAI for provenance. The assistant's create/update tools call these.
 
     /// The kind an item id resolves to, for the tools' routing + the auditor's context.
     public enum ItemKind: String, Sendable { case timed, band, deadline }
     public func kind(of id: String) -> ItemKind? {
-        if seedEvents.contains(where: { $0.id == id }) { return .timed }
-        if seedBands.contains(where: { $0.id == id }) { return .band }
-        if seedDeadlines.contains(where: { $0.id == id }) { return .deadline }
+        if items.events.contains(where: { $0.id == id }) { return .timed }
+        if items.bands.contains(where: { $0.id == id }) { return .band }
+        if items.deadlines.contains(where: { $0.id == id }) { return .deadline }
         return nil
     }
 
@@ -41,7 +41,7 @@ extension CalendarEngine {
                                  byAI: Bool = false) -> String {
         beginTxn()
         let id = "new-\(UUID().uuidString)"
-        seedEvents.append(TimedEvent(id: id, year: year, month: month, day: day,
+        items.events.append(TimedEvent(id: id, year: year, month: month, day: day,
                                      startHour: startHour, endHour: endHour, title: title, color: color,
                                      anchorTz: anchorNow))
         setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
@@ -56,7 +56,7 @@ extension CalendarEngine {
                            tags: [String] = [], byAI: Bool = false) -> String {
         beginTxn()
         let id = "new-\(UUID().uuidString)"
-        seedBands.append(BandEvent(id: id, year: year, month: month, track: max(0, min(3, track)),
+        items.bands.append(BandEvent(id: id, year: year, month: month, track: max(0, min(3, track)),
                                    startDay: startDay, endDay: max(startDay, endDay),
                                    title: title, color: color))
         setRich(id, notes: notes, tags: tags, byAI: byAI)
@@ -84,7 +84,7 @@ extension CalendarEngine {
         } else {
             anchor = anchorNow
         }
-        seedDeadlines.append(Deadline(id: id, year: dy, month: dm, day: dd, hour: dh,
+        items.deadlines.append(Deadline(id: id, year: dy, month: dm, day: dd, hour: dh,
                                       title: title, color: color, anchorTz: anchor))
         setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
         selectedId = id
@@ -109,7 +109,7 @@ extension CalendarEngine {
             let segStart = (y == sy && m == sm) ? max(1, sd) : 1
             let segEnd = (y == ey && m == em) ? min(daysInMonth(y, m), ed) : daysInMonth(y, m)
             let id = "new-\(UUID().uuidString)"
-            seedBands.append(BandEvent(id: id, year: y, month: m, track: max(0, min(3, track)),
+            items.bands.append(BandEvent(id: id, year: y, month: m, track: max(0, min(3, track)),
                                        startDay: segStart, endDay: max(segStart, segEnd),
                                        title: title, color: color))
             seed(id)
@@ -144,10 +144,10 @@ extension CalendarEngine {
     @discardableResult
     public func reshapeBand(id: String, startYear: Int, startMonth: Int, startDay: Int,
                             endYear: Int, endMonth: Int, endDay: Int) -> [String] {
-        guard let b = seedBands.first(where: { $0.id == id }) else { return [] }
+        guard let b = items.bands.first(where: { $0.id == id }) else { return [] }
         let rich = richById[id]
         beginTxn()
-        seedBands.removeAll { $0.id == id }
+        items.bands.removeAll { $0.id == id }
         richById[id] = nil
         if selectedId == id { selectedId = nil }
         let ids = appendBandSegments(from: (startYear, startMonth, startDay),
@@ -171,29 +171,29 @@ extension CalendarEngine {
                            byAI: Bool = false) -> Bool {
         beginTxn()
         var found = true
-        if let i = seedEvents.firstIndex(where: { $0.id == id }) {
-            if let title { seedEvents[i].title = title }
-            if let color { seedEvents[i].color = color }
-            if let year { seedEvents[i].year = year }
-            if let month { seedEvents[i].month = month }
-            if let day { seedEvents[i].day = day }
-            if let startHour { seedEvents[i].startHour = startHour }
-            if let endHour { seedEvents[i].endHour = endHour }
-        } else if let i = seedBands.firstIndex(where: { $0.id == id }) {
-            if let title { seedBands[i].title = title }
-            if let color { seedBands[i].color = color }
-            if let year { seedBands[i].year = year }
-            if let month { seedBands[i].month = month }
-            if let track { seedBands[i].track = max(0, min(3, track)) }
-            if let startDay { seedBands[i].startDay = startDay }
-            if let endDay { seedBands[i].endDay = max(seedBands[i].startDay, endDay) }
-        } else if let i = seedDeadlines.firstIndex(where: { $0.id == id }) {
-            if let title { seedDeadlines[i].title = title }
-            if let color { seedDeadlines[i].color = color }
-            if let year { seedDeadlines[i].year = year }
-            if let month { seedDeadlines[i].month = month }
-            if let day { seedDeadlines[i].day = day }
-            if let hour { seedDeadlines[i].hour = hour }
+        if let i = items.events.firstIndex(where: { $0.id == id }) {
+            if let title { items.events[i].title = title }
+            if let color { items.events[i].color = color }
+            if let year { items.events[i].year = year }
+            if let month { items.events[i].month = month }
+            if let day { items.events[i].day = day }
+            if let startHour { items.events[i].startHour = startHour }
+            if let endHour { items.events[i].endHour = endHour }
+        } else if let i = items.bands.firstIndex(where: { $0.id == id }) {
+            if let title { items.bands[i].title = title }
+            if let color { items.bands[i].color = color }
+            if let year { items.bands[i].year = year }
+            if let month { items.bands[i].month = month }
+            if let track { items.bands[i].track = max(0, min(3, track)) }
+            if let startDay { items.bands[i].startDay = startDay }
+            if let endDay { items.bands[i].endDay = max(items.bands[i].startDay, endDay) }
+        } else if let i = items.deadlines.firstIndex(where: { $0.id == id }) {
+            if let title { items.deadlines[i].title = title }
+            if let color { items.deadlines[i].color = color }
+            if let year { items.deadlines[i].year = year }
+            if let month { items.deadlines[i].month = month }
+            if let day { items.deadlines[i].day = day }
+            if let hour { items.deadlines[i].hour = hour }
         } else {
             found = false
         }
@@ -215,9 +215,9 @@ extension CalendarEngine {
     /// The (year, month0, day) an item sits on — for the auditor's trusted date context.
     /// Bands report their start day.
     public func dateOf(_ id: String) -> (Int, Int, Int)? {
-        if let e = seedEvents.first(where: { $0.id == id }) { return (e.year, e.month, e.day) }
-        if let b = seedBands.first(where: { $0.id == id }) { return (b.year, b.month, b.startDay) }
-        if let d = seedDeadlines.first(where: { $0.id == id }) { return (d.year, d.month, d.day) }
+        if let e = items.events.first(where: { $0.id == id }) { return (e.year, e.month, e.day) }
+        if let b = items.bands.first(where: { $0.id == id }) { return (b.year, b.month, b.startDay) }
+        if let d = items.deadlines.first(where: { $0.id == id }) { return (d.year, d.month, d.day) }
         return nil
     }
 

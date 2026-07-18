@@ -55,7 +55,7 @@ final class AnchorTZTests: XCTestCase {
     override func setUp() { super.setUp(); redirectStoreToTemp() }
     private func setMain(_ tz: String, _ e: CalendarEngine) {
         UserDefaults.standard.set(tz, forKey: CalendarEngine.mainTzKey)
-        e.viewPrefsChanged()   // re-reads mainTz AND bumps editGen so the display cache re-converts
+        e.viewPrefsChanged()   // re-reads mainTz AND bumps caches.editGen so the display cache re-converts
     }
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: CalendarEngine.mainTzKey)
@@ -187,9 +187,9 @@ final class AnchorMigrationTests: XCTestCase {
         try JSONEncoder().encode(legacy).write(to: URL(fileURLWithPath: dir + "/data.json"))
 
         let e = CalendarEngine()   // init loads the store and runs the anchor migration
-        XCTAssertEqual(e.seedEvents.first?.anchorTz, "America/New_York")             // stamped to the main tz
-        XCTAssertEqual(Double(e.seedEvents.first?.startHour ?? -1), 9, accuracy: 0.001)  // hour unchanged
-        XCTAssertEqual(e.seedDeadlines.first?.anchorTz, "AOE")                       // re-anchored to its origin
-        XCTAssertNil(e.seedDeadlines.first?.originTz)                                // legacy field folded in + cleared
+        XCTAssertEqual(e.items.events.first?.anchorTz, "America/New_York")             // stamped to the main tz
+        XCTAssertEqual(Double(e.items.events.first?.startHour ?? -1), 9, accuracy: 0.001)  // hour unchanged
+        XCTAssertEqual(e.items.deadlines.first?.anchorTz, "AOE")                       // re-anchored to its origin
+        XCTAssertNil(e.items.deadlines.first?.originTz)                                // legacy field folded in + cleared
     }
 }

@@ -30,14 +30,14 @@ extension CalendarEngine {
         var out: [TodoContext] = []
         // Timed events + deadlines are converted anchor→view tz (like the timeline) so the dashboard's
         // schedule matches what's drawn. Bands are all-day → no conversion.
-        for e0 in seedEvents { let e = displayEvent(e0); out.append(ctx(e0.id, "timed", e.title, e.color, wall(e.year, e.month, e.day, e.startHour), wall(e.year, e.month, e.day, min(e.endHour, 24)))) }
-        for b in seedBands { out.append(ctx(b.id, "band", b.title, b.color, wall(b.year, b.month, b.startDay), wall(b.year, b.month, b.endDay))) }
-        for d0 in seedDeadlines { let d = displayDeadline(d0); let w = wall(d.year, d.month, d.day, d.hour); out.append(ctx(d0.id, "deadline", d.title, d.color, w, w)) }
+        for e0 in items.events { let e = displayEvent(e0); out.append(ctx(e0.id, "timed", e.title, e.color, wall(e.year, e.month, e.day, e.startHour), wall(e.year, e.month, e.day, min(e.endHour, 24)))) }
+        for b in items.bands { out.append(ctx(b.id, "band", b.title, b.color, wall(b.year, b.month, b.startDay), wall(b.year, b.month, b.endDay))) }
+        for d0 in items.deadlines { let d = displayDeadline(d0); let w = wall(d.year, d.month, d.day, d.hour); out.append(ctx(d0.id, "deadline", d.title, d.color, w, w)) }
         return out
     }
     /// The JSON the dashboard WebView consumes: contexts + deadlines + the viewed day + real today.
     public func dashboardDataJSON() -> String {
-        let dls = seedDeadlines.map { d0 -> DashDeadline in let d = displayDeadline(d0)
+        let dls = items.deadlines.map { d0 -> DashDeadline in let d = displayDeadline(d0)
             return DashDeadline(id: d0.id, year: d.year, month: d.month, day: d.day, hour: Double(d.hour), title: d.title, color: d.color) }
         let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
         let today = String(format: "%04d-%02d-%02d", c.year ?? year, c.month ?? 1, c.day ?? 1)
@@ -74,11 +74,11 @@ extension CalendarEngine {
         var out: [(String, String, ItemKind, Int, Int, Int, String)] = []
         for (id, rf) in richById {
             guard let notes = rf.notes, !notes.isEmpty else { continue }
-            if let e = seedEvents.first(where: { $0.id == id }) {
+            if let e = items.events.first(where: { $0.id == id }) {
                 out.append((id, e.title, .timed, e.year, e.month, e.day, notes))
-            } else if let b = seedBands.first(where: { $0.id == id }) {
+            } else if let b = items.bands.first(where: { $0.id == id }) {
                 out.append((id, b.title, .band, b.year, b.month, b.startDay, notes))
-            } else if let d = seedDeadlines.first(where: { $0.id == id }) {
+            } else if let d = items.deadlines.first(where: { $0.id == id }) {
                 out.append((id, d.title, .deadline, d.year, d.month, d.day, notes))
             }
         }
@@ -127,9 +127,9 @@ extension CalendarEngine {
             let p = occKey[occKey.index(after: at)...].split(separator: "-").compactMap { Int($0) }
             if p.count == 3 { return YMD(p[0], p[1], p[2]) }
         }
-        if let b = seedBands.first(where: { $0.id == id }) { return YMD(b.year, b.month, b.startDay) }
-        if let d = seedDeadlines.first(where: { $0.id == id }) { return YMD(d.year, d.month, d.day) }
-        if let e = seedEvents.first(where: { $0.id == id }) { return YMD(year, e.month, e.day) }
+        if let b = items.bands.first(where: { $0.id == id }) { return YMD(b.year, b.month, b.startDay) }
+        if let d = items.deadlines.first(where: { $0.id == id }) { return YMD(d.year, d.month, d.day) }
+        if let e = items.events.first(where: { $0.id == id }) { return YMD(year, e.month, e.day) }
         return nil
     }
     private func dayBefore(_ p: YMD) -> YMD {
@@ -154,13 +154,13 @@ extension CalendarEngine {
     /// spans are honoured (start and end may be in different months). nil if not a band.
     public func bandOccurrenceRange(_ occKey: String) -> (start: YMD, end: YMD)? {
         let src = sourceId(of: occKey)
-        guard let base = seedBands.first(where: { $0.id == src }) else { return nil }
+        guard let base = items.bands.first(where: { $0.id == src }) else { return nil }
         let start = occurrenceYMD(src, occKey) ?? YMD(base.year, base.month, base.startDay)
         return (start, Self.addDaysYMD(start, base.endDay - base.startDay))
     }
     /// A band's base (FIRST) occurrence start date — what the drawer's "Started …" button jumps to.
     public func bandBaseStart(_ id: String) -> YMD? {
-        guard let base = seedBands.first(where: { $0.id == sourceId(of: id) }) else { return nil }
+        guard let base = items.bands.first(where: { $0.id == sourceId(of: id) }) else { return nil }
         return YMD(base.year, base.month, base.startDay)
     }
     public func repeatConfig(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
@@ -171,7 +171,7 @@ extension CalendarEngine {
         var rf = richById[id] ?? RichFields()
         mutate(&rf)
         richById[id] = rf
-        editGen &+= 1          // repeat / promote change the expanded display set → invalidate the cache
+        caches.editGen &+= 1          // repeat / promote change the expanded display set → invalidate the cache
         scheduleCommit()
         schedulePersist()
     }
@@ -184,9 +184,9 @@ extension CalendarEngine {
     }
     public func remove(_ id: String) {
         beginTxn()
-        seedEvents.removeAll { $0.id == id }
-        seedBands.removeAll { $0.id == id }
-        seedDeadlines.removeAll { $0.id == id }
+        items.events.removeAll { $0.id == id }
+        items.bands.removeAll { $0.id == id }
+        items.deadlines.removeAll { $0.id == id }
         if selectedId == id { selectedId = nil }
         commitTxn()
     }
@@ -221,12 +221,12 @@ extension CalendarEngine {
     public func hideImportedSeries(_ id: String) {
         mutateRich(Self.appleSeriesKey(sourceId(of: id))) { $0.userHidden = true }
         if let sel = selectedId, isImported(sel) { selectedId = nil }
-        deadlineGen &+= 1; wake()
+        caches.deadlineGen &+= 1; wake()
     }
     /// Reverse a hide — clear the series' `userHidden` overlay so it draws normally again.
     public func unhideImportedSeries(_ id: String) {
         mutateRich(Self.appleSeriesKey(sourceId(of: id))) { $0.userHidden = false }
-        deadlineGen &+= 1; wake()
+        caches.deadlineGen &+= 1; wake()
     }
     /// Whether an imported box's series is currently user-hidden (drives the drawer's Unhide button).
     public func isUserHidden(_ id: String) -> Bool {

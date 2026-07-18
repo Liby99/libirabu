@@ -111,7 +111,7 @@ extension CalendarEngine {
     }
 
     func applyMove(_ d: Drag, _ p: CGPoint, _ tl: TimelineInfo) {
-        guard let orig = d.orig, let idx = seedEvents.firstIndex(where: { $0.id == d.eventId }) else { return }
+        guard let orig = d.orig, let idx = items.events.firstIndex(where: { $0.id == d.eventId }) else { return }
         beginTxn()
         // The grid is in the main (view) timezone, so compute the move in DISPLAY space against the
         // display-converted original, then fold the result back into the event's anchor zone to store.
@@ -120,14 +120,14 @@ extension CalendarEngine {
         let ns = max(0, min(24 - dur, snap(ev.startHour + (p.y - d.startPoint.y) / tl.hourH, 15)))
         ev.startHour = ns; ev.endHour = ns + dur
         if let dom = pointToSlot(p.x, p.y, tl).dom, let r = resolveDate(year, focus, dom) { ev.year = r.year; ev.month = r.month; ev.day = r.day }
-        seedEvents[idx] = anchorEvent(ev)
+        items.events[idx] = anchorEvent(ev)
     }
 
     func applyResize(_ d: Drag, _ p: CGPoint, _ tl: TimelineInfo, top: Bool) {
-        guard let idx = seedEvents.firstIndex(where: { $0.id == d.eventId }) else { return }
+        guard let idx = items.events.firstIndex(where: { $0.id == d.eventId }) else { return }
         beginTxn()
         let slot = pointToSlot(p.x, p.y, tl)
-        var ev = displayEvent(seedEvents[idx])
+        var ev = displayEvent(items.events[idx])
         // Day-column aware: the pointer's hour is relative to WHICH day it's over, so `abs` is hours since
         // the event's start-day midnight — it may be <0 (edge dragged into an earlier day) or >24 (dragged
         // into a later day), letting a resize span midnight instead of collapsing to the minimum.
@@ -148,7 +148,7 @@ extension CalendarEngine {
         } else {
             ev.endHour = max(ev.startHour + 0.25, abs)     // may exceed 24 → multi-day span (drawn as segments)
         }
-        seedEvents[idx] = anchorEvent(ev)
+        items.events[idx] = anchorEvent(ev)
     }
 
     func applyCreate(_ p: CGPoint, _ tl: TimelineInfo) {
@@ -159,10 +159,10 @@ extension CalendarEngine {
             // UUID (not the counter) so ids are globally unique — two devices creating
             // offline must never mint the same recordName. Prefix kept for readability.
             let id = "new-\(UUID().uuidString)"
-            seedEvents.append(TimedEvent(id: id, year: d.createYear ?? year, month: mo, day: dy, startHour: a, endHour: min(24, a + 0.25), title: "New event", color: "blue", anchorTz: anchorNow))
+            items.events.append(TimedEvent(id: id, year: d.createYear ?? year, month: mo, day: dy, startHour: a, endHour: min(24, a + 0.25), title: "New event", color: "blue", anchorTz: anchorNow))
             d.eventId = id; drag = d; selectedId = id
         }
-        guard let id = d.eventId, let idx = seedEvents.firstIndex(where: { $0.id == id }), let a = d.anchorHour,
+        guard let id = d.eventId, let idx = items.events.firstIndex(where: { $0.id == id }), let a = d.anchorHour,
               let cm = d.createMonth, let cd = d.createDay else { return }
         // Day-column aware create: the drag anchor sits at (createDate, anchorHour); the pointer may now be
         // over another day. Measure both endpoints as hours since the create-day midnight, so dragging into
@@ -178,11 +178,11 @@ extension CalendarEngine {
         if hi - lo < 0.25 { hi = lo + 0.25 }
         let k = Int(floor(lo / 24))
         let nd = addDays(cy, cm, cd, k)
-        var ev = seedEvents[idx]
+        var ev = items.events[idx]
         ev.year = nd.0; ev.month = nd.1; ev.day = nd.2
         ev.startHour = lo - CGFloat(k) * 24
         ev.endHour = hi - CGFloat(k) * 24
-        seedEvents[idx] = ev
+        items.events[idx] = ev
     }
 
     // ── Band + deadline editing ─────────────────────────────────────────────────
@@ -229,9 +229,9 @@ extension CalendarEngine {
             if onTop { best = (b, r, rect) }
         }
         guard let bb = best else { return nil }
-        // Ghost / promoted bars aren't in seedBands → they're read-only (move/resize no-op); only a
+        // Ghost / promoted bars aren't in items.bands → they're read-only (move/resize no-op); only a
         // real, already-selected band exposes resize edges. Otherwise it's a move/select.
-        let isReal = seedBands.contains { $0.id == bb.b.id }
+        let isReal = items.bands.contains { $0.id == bb.b.id }
         let zone: PointerKind = (isReal && bb.b.id == selectedId)
             ? ((p.x - bb.rect.minX < 6 && !bb.r.clipStart) ? .bandResizeL
                : (bb.rect.maxX - p.x < 6 && !bb.r.clipEnd ? .bandResizeR : .bandMove))
@@ -240,7 +240,7 @@ extension CalendarEngine {
     }
 
     func applyBandMove(_ d: Drag, _ p: CGPoint, _ g: SceneInput) {
-        guard let orig = d.origBand, let idx = seedBands.firstIndex(where: { $0.id == d.eventId }),
+        guard let orig = d.origBand, let idx = items.bands.firstIndex(where: { $0.id == d.eventId }),
               let slot = bandSlotAtPoint(p.x, p.y, g) else { return }   // follow the lane under the cursor
         beginTxn()
         let len = orig.endDay - orig.startDay
@@ -248,18 +248,18 @@ extension CalendarEngine {
         // dragged across months/tracks in year view — not just within its own month.
         let grab = (bandSlotAtPoint(d.startPoint.x, d.startPoint.y, g)?.day ?? orig.startDay) - orig.startDay
         let start = max(1, min(daysInMonth(year, slot.month) - len, slot.day - grab))
-        var b = seedBands[idx]
+        var b = items.bands[idx]
         b.month = slot.month; b.track = slot.track; b.startDay = start; b.endDay = start + len
-        seedBands[idx] = b
+        items.bands[idx] = b
     }
 
     func applyBandResize(_ d: Drag, _ p: CGPoint, _ g: SceneInput, left: Bool) {
-        guard let orig = d.origBand, let idx = seedBands.firstIndex(where: { $0.id == d.eventId }) else { return }
+        guard let orig = d.origBand, let idx = items.bands.firstIndex(where: { $0.id == d.eventId }) else { return }
         beginTxn()
         let day = max(1, min(daysInMonth(year, orig.month), bandDay(p.x, orig.month, g)))
-        var b = seedBands[idx]
+        var b = items.bands[idx]
         if left { b.startDay = min(b.endDay, day) } else { b.endDay = max(b.startDay, day) }
-        seedBands[idx] = b
+        items.bands[idx] = b
     }
 
     func applyBandCreate(_ p: CGPoint, _ g: SceneInput) {
@@ -268,14 +268,14 @@ extension CalendarEngine {
         if d.eventId == nil {
             guard let mo = d.bandMonth, let tr = d.bandTrack, let a = d.bandAnchorDay else { return }
             let id = "newb-\(UUID().uuidString)"   // globally unique (see applyCreate)
-            seedBands.append(BandEvent(id: id, year: year, month: mo, track: tr, startDay: a, endDay: a, title: "New event", color: "blue"))
+            items.bands.append(BandEvent(id: id, year: year, month: mo, track: tr, startDay: a, endDay: a, title: "New event", color: "blue"))
             d.eventId = id; drag = d; selectedId = id
         }
-        guard let id = d.eventId, let idx = seedBands.firstIndex(where: { $0.id == id }), let mo = d.bandMonth, let a = d.bandAnchorDay else { return }
+        guard let id = d.eventId, let idx = items.bands.firstIndex(where: { $0.id == id }), let mo = d.bandMonth, let a = d.bandAnchorDay else { return }
         let cur = max(1, min(daysInMonth(year, mo), bandDay(p.x, mo, g)))
-        var b = seedBands[idx]
+        var b = items.bands[idx]
         b.startDay = min(a, cur); b.endDay = max(a, cur)
-        seedBands[idx] = b
+        items.bands[idx] = b
     }
 
     func deadlineAt(_ p: CGPoint, _ g: SceneInput) -> String? {
@@ -295,7 +295,7 @@ extension CalendarEngine {
     }
 
     func applyDdlMove(_ d: Drag, _ p: CGPoint, _ g: SceneInput) {
-        guard let orig = d.origDdl, let idx = seedDeadlines.firstIndex(where: { $0.id == d.eventId }) else { return }
+        guard let orig = d.origDdl, let idx = items.deadlines.firstIndex(where: { $0.id == d.eventId }) else { return }
         beginTxn()
         let tl = timelineInfo(g)
         // Delta-based, in DISPLAY (main-tz) space: move relative to where the deadline was shown at
@@ -308,7 +308,7 @@ extension CalendarEngine {
            let r = resolveDate(year, focus, origRd + dayDelta) {
             dd.year = r.year; dd.month = r.month; dd.day = r.day
         }
-        seedDeadlines[idx] = anchorDeadline(dd)
+        items.deadlines[idx] = anchorDeadline(dd)
     }
 
     public func onEscape() {

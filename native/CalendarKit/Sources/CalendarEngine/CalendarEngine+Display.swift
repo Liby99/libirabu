@@ -1,6 +1,6 @@
 // Display derivation: what the renderer actually draws, expanded from the lean seed data +
 // rich fields — recurrence-expanded bands/timed events/deadlines with badges (cached per
-// (year, editGen)), Apple-import overlay keying, live color preview, cross-year spillover
+// (year, caches.editGen)), Apple-import overlay keying, live color preview, cross-year spillover
 // sets, and the offline deadline-label side assignment. Split from CalendarEngine.swift.
 
 import Foundation
@@ -15,7 +15,7 @@ extension CalendarEngine {
     //   • timed/deadline events promoted (rich.promoteTrack) to 1-day ghost bands on their lane,
     //     on the base day AND every recurrence occurrence
     // Read-only copies get a synthetic occKey id; the base band / promoted base keep their real id
-    // (so a click still resolves to the source item). Cached per (year, editGen) — recurrence is
+    // (so a click still resolves to the source item). Cached per (year, caches.editGen) — recurrence is
     // only re-expanded when the data changes, not on navigation frames.
     // ── Color preview (hovering a drawer swatch previews the color live on the item) ───────────
     public func setColorPreview(_ id: String, _ color: String) { wake(); colorPreview = (id, color) }
@@ -98,7 +98,7 @@ extension CalendarEngine {
     }
 
     private func ensureBandCache(_ year: Int) -> (bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]]) {
-        if let c = bandCache, c.year == year, c.gen == editGen { return (c.bands, c.badges, c.byMonth) }
+        if let c = caches.band, c.year == year, c.gen == caches.editGen { return (c.bands, c.badges, c.byMonth) }
         func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
         // Markers for a box, from its SOURCE item's rich fields + the box's nature.
         func badges(_ src: String, recurrent: Bool, promoted: Bool) -> EventBadges {
@@ -115,12 +115,12 @@ extension CalendarEngine {
         var out: [BandEvent] = []
         var badgeMap: [String: EventBadges] = [:]
 
-        for b in seedBands where b.year == year {
+        for b in items.bands where b.year == year {
             if baseHidden(occDate(YMD(b.year, b.month, b.startDay)), repeatOf(b.id)) { continue }
             out.append(b)
             badgeMap[b.id] = badges(b.id, recurrent: repeatOf(b.id) != nil, promoted: false)
         }
-        for b in seedBands {
+        for b in items.bands {
             guard let r = repeatOf(b.id) else { continue }
             let total = b.endDay - b.startDay + 1   // inclusive number of days the band covers
             for o in occurrenceDates(YMD(b.year, b.month, b.startDay), r, year) {
@@ -162,8 +162,8 @@ extension CalendarEngine {
                 badgeMap[key] = badges(id, recurrent: true, promoted: true)
             }
         }
-        for e in seedEvents { promote(e.id, e.year, e.month, e.day, e.title, e.color) }
-        for d in seedDeadlines { promote(d.id, d.year, d.month, d.day, d.title, d.color) }
+        for e in items.events { promote(e.id, e.year, e.month, e.day, e.title, e.color) }
+        for d in items.deadlines { promote(d.id, d.year, d.month, d.day, d.title, d.color) }
         // Imported events the user promoted (rich.promoteTrack on the series key) → one ghost band per
         // visible occurrence, in its overridden color. Skip hidden (deduped-shadow) occurrences.
         for e in importedEvents where e.year == year && richById[e.id]?.hidden != true {
@@ -176,7 +176,7 @@ extension CalendarEngine {
 
         var byMonth: [Int: [BandEvent]] = [:]
         for b in out { byMonth[b.month, default: []].append(b) }
-        bandCache = (year, editGen, out, badgeMap, byMonth)
+        caches.band = (year, caches.editGen, out, badgeMap, byMonth)
         return (out, badgeMap, byMonth)
     }
 
@@ -185,7 +185,7 @@ extension CalendarEngine {
     // occurrences on their occurrence days (holes = exdates), each a copy with the same hours and a
     // synthetic occKey id. The timeline only draws the focused day's items, so off-day occurrences
     // are culled downstream; the ghosts just make a recurring event appear on every occurrence day.
-    // Cached per (year, editGen) — like displayBands.
+    // Cached per (year, caches.editGen) — like displayBands.
     // `byDay` indexes the expanded events (base + ghosts) by `month*100+day` so hit-testing and per-day
     // layout packing are O(1) lookups instead of a full-array filter on every hover / rect solve.
     public func displayEvents(for year: Int) -> [TimedEvent] {
@@ -228,7 +228,7 @@ extension CalendarEngine {
     }
     /// Inverse of `displayEvent`: fold a DISPLAY (main-tz) event back into its stored anchor zone. Mouse
     /// drags work in the on-screen (main-tz) grid, so a moved/resized event is converted back here before
-    /// it's written to `seedEvents`. Preserves the anchorTz and the (tz-invariant) duration.
+    /// it's written to `items.events`. Preserves the anchorTz and the (tz-invariant) duration.
     func anchorEvent(_ e: TimedEvent) -> TimedEvent {
         guard let anchor = e.anchorTz,
               !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(e.year, e.month, e.day, e.startHour))
@@ -251,7 +251,7 @@ extension CalendarEngine {
     }
 
     private func ensureEventCache(_ year: Int) -> (events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]]) {
-        if let c = eventCache, c.year == year, c.gen == editGen { return (c.events, c.badges, c.byDay) }
+        if let c = caches.event, c.year == year, c.gen == caches.editGen { return (c.events, c.badges, c.byDay) }
         func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
         var out: [TimedEvent] = []
         var badgeMap: [String: EventBadges] = [:]
@@ -264,11 +264,11 @@ extension CalendarEngine {
             guard d.year == year else { return }
             out.append(d); badgeMap[d.id] = badge
         }
-        for e in seedEvents where abs(e.year - year) <= 1 {
+        for e in items.events where abs(e.year - year) <= 1 {
             if baseHidden(occDate(YMD(e.year, e.month, e.day)), repeatOf(e.id)) { continue }
             take(e, itemBadges(e.id, recurrent: repeatOf(e.id) != nil, promoted: false))
         }
-        for e in seedEvents {
+        for e in items.events {
             guard let r = repeatOf(e.id) else { continue }
             for yy in (year - 1)...(year + 1) {
                 for o in occurrenceDates(YMD(e.year, e.month, e.day), r, yy) {
@@ -295,16 +295,16 @@ extension CalendarEngine {
         // matching how the overlay renders it. `out` itself stays whole (search / scroll want the full span).
         var byDay: [Int: [TimedEvent]] = [:]
         for e in out { for s in timedSegments(e) { byDay[s.event.month * 100 + s.event.day, default: []].append(s.event) } }
-        eventCache = (year, editGen, out, badgeMap, byDay)
+        caches.event = (year, caches.editGen, out, badgeMap, byDay)
         return (out, badgeMap, byDay)
     }
 
     // ── Derived deadlines for the deadline layer ────────────────────────────────────────
     // Base deadlines (a base deleted via exdate / past `until` is dropped) + recurring ghost
     // occurrences on their occurrence days (holes = exdates), each a copy at the same hour with a
-    // synthetic occKey id. Cached per (year, editGen) — like displayEvents / displayBands.
+    // synthetic occKey id. Cached per (year, caches.editGen) — like displayEvents / displayBands.
     public func displayDeadlines(for year: Int) -> [Deadline] {
-        if let c = ddlCache, c.year == year, c.gen == editGen { return withPreview(c.deadlines, { $0.id }, { $0.color = $1 }) }
+        if let c = caches.ddl, c.year == year, c.gen == caches.editGen { return withPreview(c.deadlines, { $0.id }, { $0.color = $1 }) }
         func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
         var out: [Deadline] = []
         // Same neighbor-year scan + convert-then-filter as ensureEventCache: a moment near midnight can
@@ -313,11 +313,11 @@ extension CalendarEngine {
             let dd = displayDeadline(d)
             if dd.year == year { out.append(dd) }
         }
-        for d in seedDeadlines where abs(d.year - year) <= 1 {
+        for d in items.deadlines where abs(d.year - year) <= 1 {
             if baseHidden(occDate(YMD(d.year, d.month, d.day)), repeatOf(d.id)) { continue }
             take(d)
         }
-        for d in seedDeadlines {
+        for d in items.deadlines {
             guard let r = repeatOf(d.id) else { continue }
             for yy in (year - 1)...(year + 1) {
                 for o in occurrenceDates(YMD(d.year, d.month, d.day), r, yy) {
@@ -326,7 +326,7 @@ extension CalendarEngine {
                 }
             }
         }
-        ddlCache = (year, editGen, out)
+        caches.ddl = (year, caches.editGen, out)
         return withPreview(out, { $0.id }, { $0.color = $1 })
     }
 
@@ -367,18 +367,18 @@ extension CalendarEngine {
         // known the moment scrolling starts. Solve for BOTH so the incoming labels are already
         // assigned when the turn settles (no post-scroll flip). incoming = -1 when not turning.
         let incoming = monthAnim.flatMap { a -> Int? in let m = focus + a.dir; return (0...11).contains(m) ? m : nil } ?? -1
-        if let k = ddlSidesKey, k.focus == focus, k.incoming == incoming, k.year == year, k.gen == deadlineGen, k.detail == detail, k.dayView == dayView {
-            return ddlSides
+        if let k = caches.ddlSidesKey, k.focus == focus, k.incoming == incoming, k.year == year, k.gen == caches.deadlineGen, k.detail == detail, k.dayView == dayView {
+            return caches.ddlSides
         }
         if detail {
             var s = deadlineSidesForMonth(focus)
             if incoming >= 0 { for (id, v) in deadlineSidesForMonth(incoming) where s[id] == nil { s[id] = v } }
-            ddlSides = s
+            caches.ddlSides = s
         } else {
-            ddlSides = [:]
+            caches.ddlSides = [:]
         }
-        ddlSidesKey = (focus, incoming, year, deadlineGen, detail, dayView)
-        return ddlSides
+        caches.ddlSidesKey = (focus, incoming, year, caches.deadlineGen, detail, dayView)
+        return caches.ddlSides
     }
     /// Overlap-minimising side assignment for ONE month's deadlines, at that month's resting layout.
     private func deadlineSidesForMonth(_ month: Int) -> [String: Bool] {
@@ -387,16 +387,16 @@ extension CalendarEngine {
     }
 
     public func update(_ id: String, _ mutate: (inout TimedEvent) -> Void) {
-        guard let i = seedEvents.firstIndex(where: { $0.id == id }) else { return }
-        beginTxn(); mutate(&seedEvents[i]); scheduleCommit()
+        guard let i = items.events.firstIndex(where: { $0.id == id }) else { return }
+        beginTxn(); mutate(&items.events[i]); scheduleCommit()
     }
     public func updateBand(_ id: String, _ mutate: (inout BandEvent) -> Void) {
-        guard let i = seedBands.firstIndex(where: { $0.id == id }) else { return }
-        beginTxn(); mutate(&seedBands[i]); scheduleCommit()
+        guard let i = items.bands.firstIndex(where: { $0.id == id }) else { return }
+        beginTxn(); mutate(&items.bands[i]); scheduleCommit()
     }
     public func updateDeadline(_ id: String, _ mutate: (inout Deadline) -> Void) {
-        guard let i = seedDeadlines.firstIndex(where: { $0.id == id }) else { return }
-        beginTxn(); mutate(&seedDeadlines[i]); scheduleCommit()
+        guard let i = items.deadlines.firstIndex(where: { $0.id == id }) else { return }
+        beginTxn(); mutate(&items.deadlines[i]); scheduleCommit()
     }
 
     // ── Rich fields (tags / repeat / promote / color), keyed by the item's OVERLAY id ──────────

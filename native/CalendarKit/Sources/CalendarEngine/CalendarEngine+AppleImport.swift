@@ -40,7 +40,7 @@ extension CalendarEngine {
         // after connecting isn't lost.
         guard appleSyncEnabled, AppleCalendarImporter.access != .denied else {
             if !importedEvents.isEmpty || !importedBands.isEmpty {
-                importedEvents = []; importedBands = []; editGen &+= 1; deadlineGen &+= 1; wake()
+                importedEvents = []; importedBands = []; caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
             }
             return
         }
@@ -148,7 +148,7 @@ extension CalendarEngine {
         importedEvents = events
         importedBands = []
         if richChanged { schedulePersist() }   // the hidden flags are stored state (see setImportedHidden)
-        editGen &+= 1; deadlineGen &+= 1
+        caches.editGen &+= 1; caches.deadlineGen &+= 1
         if let s = selectedId, !itemExists(sourceId(of: s)) { selectedId = nil }   // selection's event gone
         onExternalDataChange?()   // an open drawer on a now-removed imported event should close
         wake()
@@ -171,7 +171,7 @@ extension CalendarEngine {
         guard isImported(id), let e = importedEvents.first(where: { $0.id == id }) else { return nil }
         beginTxn()
         let newId = "new-\(UUID().uuidString)"
-        seedEvents.append(TimedEvent(id: newId, year: e.year, month: e.month, day: e.day,
+        items.events.append(TimedEvent(id: newId, year: e.year, month: e.month, day: e.day,
                                      startHour: e.startHour, endHour: e.endHour, title: e.title, color: importedDisplayColor(e),
                                      anchorTz: DeadlineTZ.concrete("auto")))   // imported events are device-local wall-clock
         // Carry the user overlays — notes (managed block + any typed text), tags, promote lane — into a

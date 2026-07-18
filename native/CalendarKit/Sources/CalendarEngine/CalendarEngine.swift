@@ -96,9 +96,13 @@ public final class CalendarEngine {
     }
     public private(set) var weekHourH: CGFloat = 60   // set via setWeekHourH (clamped + persisted)
     public private(set) var viewport: Viewport = Viewport(w: 1, h: 1)
-    public internal(set) var seedEvents: [TimedEvent] = []      // internal(set): +Extensions files
-    public internal(set) var seedBands: [BandEvent] = []        // internal(set): +Extensions files
-    public internal(set) var seedDeadlines: [Deadline] = []     // internal(set): +Extensions files
+    /// The user's calendar DATA — the single mutable source of truth that edits mutate, undo
+    /// snapshots, and the sync layer persists. (Historically the flat `items.events`/`items.bands`/
+    /// `items.deadlines` fields; composed here so the engine's state has visible structure.)
+    public internal(set) var items = CalendarItems()
+
+    /// Derived-display caches + invalidation generations (see DisplayCaches).
+    var caches = DisplayCaches()
     // Read-only events imported from Apple Calendar (EventKit). Kept SEPARATE from the seed arrays so
     // they never persist to disk / push to iCloud (they're re-fetched) and can't be edited — every edit
     // path targets the seed arrays. They're merged into the display caches (see ensureEventCache /
@@ -252,11 +256,8 @@ public final class CalendarEngine {
     // Bumped on every mutation (edits + remote merges) so the derived-band cache (displayBands)
     // invalidates precisely — navigation frames (scroll/zoom/flip) don't touch it, so recurrence
     // expansion runs only when the data actually changed.
-    var editGen = 0        // internal: +Extensions files bump the display-cache generation
     // Bumped only when the deadline set / positions change at COMMIT (add / move-after / delete /
     // remote) — so the OFFLINE deadline-label side assignment recomputes then, not during a drag.
-    var deadlineGen = 0    // internal: +Extensions files re-solve deadline label sides
-    var bandCache: (year: Int, gen: Int, bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]])?
     // undo / redo (whole-state snapshots, coalesced per gesture / typing burst). Snapshots the FULL
     // editable set — events/bands/deadlines AND the rich metadata (notes, tags, repeat, promote),
     // per-month track names, and daily notes — so every edit is undoable, matching the web.
@@ -265,7 +266,7 @@ public final class CalendarEngine {
         var rich: [String: RichFields]; var trackNames: [[String]]; var dailyNotes: [String: String]
     }
     private var editState: EditState {
-        EditState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines,
+        EditState(events: items.events, bands: items.bands, deadlines: items.deadlines,
                   rich: richById, trackNames: trackNames, dailyNotes: dailyNotes)
     }
     private var undoStack: [EditState] = []
@@ -280,14 +281,9 @@ public final class CalendarEngine {
     var richById: [String: RichFields] = [:]   // internal: shared with the +Extensions files
     // Display-derivation caches — used by CalendarEngine+Display.swift:
     var colorPreview: (id: String, color: String)?   // internal: +Display (stored caches stay in the class)
-    var eventCache: (year: Int, gen: Int, events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]])?   // internal: +Display (stored caches stay in the class)
-    var ddlCache: (year: Int, gen: Int, deadlines: [Deadline])?   // internal: +Display (stored caches stay in the class)
-    var ddlSides: [String: Bool] = [:]   // internal: +Display (stored caches stay in the class)
-    var ddlSidesKey: (focus: Int, incoming: Int, year: Int, gen: Int, detail: Bool, dayView: Bool)?   // internal: +Display (stored caches stay in the class)
     // Toolbar-search corpus — a pre-folded, flat index of every item across all years, rebuilt ONLY on a
-    // data change (editGen), so each keystroke scans a cached array instead of re-expanding/​re-folding the
+    // data change (caches.editGen), so each keystroke scans a cached array instead of re-expanding/​re-folding the
     // whole calendar. See CalendarEngine+Search.swift.
-    var searchCorpus: (gen: Int, docs: [SearchDoc])?   // internal: +Search (stored caches stay in the class)
     // The daily-dashboard NOTE tab: one markdown note per day, keyed by ISO date "YYYY-MM-DD".
     var dailyNotes: [String: String] = [:]   // internal: +DashboardData
     // ── Cloud-sync seam (Phase 1) ─────────────────────────────────────────────────
@@ -337,23 +333,23 @@ public final class CalendarEngine {
     public static var demoScene: String { ProcessInfo.processInfo.environment["CC_DEMO"] ?? "" }
     /// Wipe the calendar to an empty state (recording scenes build their own deterministic content).
     public func demoClearEvents() {
-        seedEvents = []; seedBands = []; seedDeadlines = []; richById = [:]
-        selectedId = nil; editGen &+= 1; deadlineGen &+= 1; wake()
+        items.events = []; items.bands = []; items.deadlines = []; richById = [:]
+        selectedId = nil; caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
     }
     /// Insert one ambient timed event (recording scenes; not on the undo stack, not selected).
     @discardableResult
     public func demoAddTimed(month: Int, day: Int, startHour: CGFloat, endHour: CGFloat, title: String, color: String) -> String {
-        let id = "demo-\(seedEvents.count)"
-        seedEvents.append(TimedEvent(id: id, year: year, month: month, day: day, startHour: startHour, endHour: endHour, title: title, color: color))
-        editGen &+= 1; deadlineGen &+= 1; wake()
+        let id = "demo-\(items.events.count)"
+        items.events.append(TimedEvent(id: id, year: year, month: month, day: day, startHour: startHour, endHour: endHour, title: title, color: color))
+        caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
         return id
     }
     /// Insert one ambient all-day band (recording scenes; not selected).
     @discardableResult
     public func demoAddBand(month: Int, track: Int, startDay: Int, endDay: Int, title: String, color: String) -> String {
-        let id = "demob-\(seedBands.count)"
-        seedBands.append(BandEvent(id: id, year: year, month: month, track: track, startDay: startDay, endDay: endDay, title: title, color: color))
-        editGen &+= 1; deadlineGen &+= 1; wake()
+        let id = "demob-\(items.bands.count)"
+        items.bands.append(BandEvent(id: id, year: year, month: month, track: track, startDay: startDay, endDay: endDay, title: title, color: color))
+        caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
         return id
     }
     // Drive the REAL pointer/create path from VIEW-local points (GeometryReader space, 0,0 = top-left), so a
@@ -365,20 +361,20 @@ public final class CalendarEngine {
     public func demoPointerUp(atView p: CGPoint)   { onPointerUp(at: demoViewToGeometry(p)) }
     /// Rename the currently-selected event (recording scenes give a freshly drag-created event a real title).
     public func demoRenameSelected(_ title: String) {
-        guard let id = selectedId, let i = seedEvents.firstIndex(where: { $0.id == id }) else { return }
-        seedEvents[i].title = title; editGen &+= 1; wake()
+        guard let id = selectedId, let i = items.events.firstIndex(where: { $0.id == id }) else { return }
+        items.events[i].title = title; caches.editGen &+= 1; wake()
     }
     /// Rename the currently-selected BAND (band scenes name their freshly drag-created band).
     public func demoRenameSelectedBand(_ title: String) {
-        guard let id = selectedId, let i = seedBands.firstIndex(where: { $0.id == id }) else { return }
-        seedBands[i].title = title; editGen &+= 1; wake()
+        guard let id = selectedId, let i = items.bands.firstIndex(where: { $0.id == id }) else { return }
+        items.bands[i].title = title; caches.editGen &+= 1; wake()
     }
     /// Snap the view to year level, scrolled so `centerMonth` is visible (deterministic scene setup).
     public func demoGoToYear(centerMonth: Int) {
         cancelTween()
         z = 0; focus = centerMonth
         ensureMonthVisible(centerMonth, animated: false)
-        editGen &+= 1; deadlineGen &+= 1; wake()
+        caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
     }
     /// Drive the REAL pinch path (`onMagnify`) from a view point, so the month/week/day under `v` is exactly
     /// what fills the screen (`captureFocus` anchors on the pinch point — unlike the keyboard/block zoom,
@@ -395,11 +391,11 @@ public final class CalendarEngine {
         guard let id = itemId(at: demoViewToGeometry(v)) else { return nil }
         selectedId = id
         onRequestOpenDrawer?(id, false)
-        editGen &+= 1; wake()
+        caches.editGen &+= 1; wake()
         return id
     }
     /// Select an item by id (highlight it), e.g. a just-created event in the AI scene.
-    public func demoSelect(_ id: String?) { selectedId = id; editGen &+= 1; wake() }
+    public func demoSelect(_ id: String?) { selectedId = id; caches.editGen &+= 1; wake() }
 
 
     enum PointerKind {
@@ -441,16 +437,16 @@ public final class CalendarEngine {
         daily = DailyState(dom: c.day ?? 1, frac: 0.45)
         // No placeholder seed events (regular OR recording mode) — a fresh install starts with an empty
         // calendar; the recording scenes seed their own ambient data. Existing users load from the store below.
-        seedEvents = []; seedBands = []; seedDeadlines = []
+        items.events = []; items.bands = []; items.deadlines = []
         // self is now fully initialized — restore persisted edits over the seeds.
         if let s = store.load() {
-            seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines
+            items.events = s.events; items.bands = s.bands; items.deadlines = s.deadlines
             richById = s.rich ?? [:]
             dailyNotes = s.dailyNotes ?? [:]
             // Backfill deadline origin tz from the rich side-map for stores written before Deadline
             // carried its own originTz (migrated data keeps it in rich); the field is canonical once set.
-            for i in seedDeadlines.indices where seedDeadlines[i].originTz == nil {
-                if let tz = richById[seedDeadlines[i].id]?.originTz { seedDeadlines[i].originTz = tz }
+            for i in items.deadlines.indices where items.deadlines[i].originTz == nil {
+                if let tz = richById[items.deadlines[i].id]?.originTz { items.deadlines[i].originTz = tz }
             }
             if let names = s.monthTrackNames, names.count == 12, names.allSatisfy({ $0.count == 4 }) { trackNames = names }
         } else {
@@ -465,18 +461,18 @@ public final class CalendarEngine {
         }
         // Resume the create-counter past any persisted new-/newb- ids so fresh items don't
         // collide with reloaded ones (which produced duplicate SwiftUI ForEach ids).
-        for id in seedEvents.map(\.id) + seedBands.map(\.id) {
+        for id in items.events.map(\.id) + items.bands.map(\.id) {
             for pre in ["newb-", "new-"] where id.hasPrefix(pre) {
                 if let n = Int(id.dropFirst(pre.count)) { createCounter = max(createCounter, n) }
             }
         }
         // Repair any duplicate ids already on disk (from the earlier collision bug).
         var seenIds = Set<String>()
-        for i in seedBands.indices where !seenIds.insert(seedBands[i].id).inserted {
-            createCounter += 1; seedBands[i].id = "newb-\(createCounter)"
+        for i in items.bands.indices where !seenIds.insert(items.bands[i].id).inserted {
+            createCounter += 1; items.bands[i].id = "newb-\(createCounter)"
         }
-        for i in seedEvents.indices where !seenIds.insert(seedEvents[i].id).inserted {
-            createCounter += 1; seedEvents[i].id = "new-\(createCounter)"
+        for i in items.events.indices where !seenIds.insert(items.events[i].id).inserted {
+            createCounter += 1; items.events[i].id = "new-\(createCounter)"
         }
         nowTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.now = Date(); self?.wake() }   // refresh the now-line (a render must run)
@@ -499,28 +495,28 @@ public final class CalendarEngine {
     private func migrateAnchors() {
         let main = DeadlineTZ.concrete(mainTz)
         var changed = false
-        for i in seedEvents.indices where seedEvents[i].anchorTz == nil {
-            seedEvents[i].anchorTz = main; changed = true
+        for i in items.events.indices where items.events[i].anchorTz == nil {
+            items.events[i].anchorTz = main; changed = true
         }
-        for i in seedDeadlines.indices where seedDeadlines[i].anchorTz == nil {
-            let d = seedDeadlines[i]
+        for i in items.deadlines.indices where items.deadlines[i].anchorTz == nil {
+            let d = items.deadlines[i]
             if let origin = d.originTz,
                !DeadlineTZ.sameOffset(origin, mainTz, at: DeadlineTZ.instant(d.year, d.month, d.day, d.hour)) {
                 let w = DeadlineTZ.convertWall(d.year, d.month, d.day, d.hour, from: mainTz, to: origin)
-                seedDeadlines[i].year = w.year; seedDeadlines[i].month = w.month
-                seedDeadlines[i].day = w.day; seedDeadlines[i].hour = w.hour
-                seedDeadlines[i].anchorTz = DeadlineTZ.concrete(origin)
+                items.deadlines[i].year = w.year; items.deadlines[i].month = w.month
+                items.deadlines[i].day = w.day; items.deadlines[i].hour = w.hour
+                items.deadlines[i].anchorTz = DeadlineTZ.concrete(origin)
             } else {
-                seedDeadlines[i].anchorTz = main
+                items.deadlines[i].anchorTz = main
             }
-            seedDeadlines[i].originTz = nil   // folded into anchorTz; the legacy field is retired
+            items.deadlines[i].originTz = nil   // folded into anchorTz; the legacy field is retired
             changed = true
         }
         if changed { persistNow() }
     }
     // ── Persistence ─────────────────────────────────────────────────────────────
     private func persistNow() {
-        let state = PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, monthTrackNames: trackNames, rich: richById, dailyNotes: dailyNotes)
+        let state = PersistedState(events: items.events, bands: items.bands, deadlines: items.deadlines, monthTrackNames: trackNames, rich: richById, dailyNotes: dailyNotes)
         store.save(state)
         emitDelta(to: state)
     }
@@ -571,7 +567,7 @@ public final class CalendarEngine {
     // ── Cloud-sync seam: inbound + accessors (Phase 1) ────────────────────────────
     /// Snapshot of everything the sync layer needs to materialize records.
     public func syncSnapshot() -> PersistedState {
-        PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, monthTrackNames: trackNames, rich: richById, dailyNotes: dailyNotes)
+        PersistedState(events: items.events, bands: items.bands, deadlines: items.deadlines, monthTrackNames: trackNames, rich: richById, dailyNotes: dailyNotes)
     }
     /// Capture the current state as the sync baseline (call when the cloud layer attaches,
     /// so the first local edit emits an incremental delta rather than the whole store).
@@ -588,9 +584,9 @@ public final class CalendarEngine {
                             deadlines: [Deadline] = [], rich: [String: RichFields] = [:]) {
         guard !events.isEmpty || !bands.isEmpty || !deadlines.isEmpty else { return }
         beginTxn()
-        seedEvents.append(contentsOf: events)
-        seedBands.append(contentsOf: bands)
-        seedDeadlines.append(contentsOf: deadlines)
+        items.events.append(contentsOf: events)
+        items.bands.append(contentsOf: bands)
+        items.deadlines.append(contentsOf: deadlines)
         for (k, v) in rich { richById[k] = v }
         commitTxn()
     }
@@ -601,8 +597,8 @@ public final class CalendarEngine {
         commitTxn()
         undoStack.append(editState); if undoStack.count > 100 { undoStack.removeFirst() }
         redoStack.removeAll()
-        wake(); editGen &+= 1; deadlineGen &+= 1
-        seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines
+        wake(); caches.editGen &+= 1; caches.deadlineGen &+= 1
+        items.events = s.events; items.bands = s.bands; items.deadlines = s.deadlines
         richById = s.rich ?? [:]
         if let tn = s.monthTrackNames { trackNames = tn }
         dailyNotes = s.dailyNotes ?? [:]
@@ -636,21 +632,21 @@ public final class CalendarEngine {
                             deadlines: [Deadline] = [], trackNames newNames: [[String]]? = nil,
                             deletedIDs: [String] = [], rich: [String: RichFields] = [:]) {
         wake()                                       // remote data landed → a render must run
-        editGen &+= 1
-        deadlineGen &+= 1                            // remote change may add/move/remove deadlines
-        for e in events { Self.upsert(&seedEvents, e) }
-        for b in bands { Self.upsert(&seedBands, b) }
-        for d in deadlines { Self.upsert(&seedDeadlines, d) }
+        caches.editGen &+= 1
+        caches.deadlineGen &+= 1                            // remote change may add/move/remove deadlines
+        for e in events { Self.upsert(&items.events, e) }
+        for b in bands { Self.upsert(&items.bands, b) }
+        for d in deadlines { Self.upsert(&items.deadlines, d) }
         for (id, rf) in rich { richById[id] = rf }
         if let newNames, newNames.count == 12, newNames.allSatisfy({ $0.count == 4 }) { trackNames = newNames }
         for id in deletedIDs {
-            seedEvents.removeAll { $0.id == id }
-            seedBands.removeAll { $0.id == id }
-            seedDeadlines.removeAll { $0.id == id }
+            items.events.removeAll { $0.id == id }
+            items.bands.removeAll { $0.id == id }
+            items.deadlines.removeAll { $0.id == id }
             richById[id] = nil
             if selectedId == id { selectedId = nil }
         }
-        let state = PersistedState(events: seedEvents, bands: seedBands, deadlines: seedDeadlines, monthTrackNames: trackNames, rich: richById, dailyNotes: dailyNotes)
+        let state = PersistedState(events: items.events, bands: items.bands, deadlines: items.deadlines, monthTrackNames: trackNames, rich: richById, dailyNotes: dailyNotes)
         store.save(state)
         syncedState = state   // adopt as baseline so the merge doesn't re-emit as a local delta
         if !deletedIDs.isEmpty { onExternalDataChange?() }   // a remote delete may have removed an open item
@@ -1636,20 +1632,20 @@ public final class CalendarEngine {
         if let hit = bandAt(p, g) {
             selectedId = hit.id
             drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id,
-                        origBand: seedBands.first { $0.id == hit.id }, priorSelection: prior)
+                        origBand: items.bands.first { $0.id == hit.id }, priorSelection: prior)
             return
         }
         // 2. timed events (on the timeline)
         if z >= 1.5, let hit = eventAt(p, g) {
             selectedId = hit.id
-            drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id, orig: seedEvents.first { $0.id == hit.id },
+            drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id, orig: items.events.first { $0.id == hit.id },
                         priorSelection: prior, titleHit: hit.overTitle)
             return
         }
         // 3. deadlines (on the timeline)
         if z >= DETAIL_Z, let id = deadlineAt(p, g) {
             selectedId = id
-            drag = Drag(kind: .ddlMove, startPoint: p, eventId: id, origDdl: seedDeadlines.first { $0.id == id })
+            drag = Drag(kind: .ddlMove, startPoint: p, eventId: id, origDdl: items.deadlines.first { $0.id == id })
             return
         }
         // 3b. deadline quick-add "+" (near a day's left edge, on an hour line) → create a deadline and
@@ -1726,12 +1722,12 @@ public final class CalendarEngine {
             return
         }
         // discard a too-small created timed event
-        if d.kind == .create, let id = d.eventId, let e = seedEvents.first(where: { $0.id == id }), e.endHour - e.startHour < 0.25 {
-            seedEvents.removeAll { $0.id == id }
+        if d.kind == .create, let id = d.eventId, let e = items.events.first(where: { $0.id == id }), e.endHour - e.startHour < 0.25 {
+            items.events.removeAll { $0.id == id }
             if selectedId == id { selectedId = nil }
         }
         // a freshly drag-created band → open its title editor so the name is focused for typing
-        if d.kind == .bandCreate, let id = d.eventId, seedBands.contains(where: { $0.id == id }) {
+        if d.kind == .bandCreate, let id = d.eventId, items.bands.contains(where: { $0.id == id }) {
             editBand(id)
         }
     }
@@ -1739,22 +1735,22 @@ public final class CalendarEngine {
     public func deleteSelected() {
         guard let id = selectedId else { return }
         beginTxn()
-        seedEvents.removeAll { $0.id == id }
-        seedBands.removeAll { $0.id == id }
-        seedDeadlines.removeAll { $0.id == id }
+        items.events.removeAll { $0.id == id }
+        items.bands.removeAll { $0.id == id }
+        items.deadlines.removeAll { $0.id == id }
         selectedId = nil
         commitTxn()
     }
 
     // ── Undo / redo ───────────────────────────────────────────────────────────────
     // internal (not private): the CalendarEngine+*.swift extension files open/commit txns too.
-    func beginTxn() { wake(); editGen &+= 1; if pendingUndo == nil { pendingUndo = editState } }
+    func beginTxn() { wake(); caches.editGen &+= 1; if pendingUndo == nil { pendingUndo = editState } }
     func commitTxn() {   // internal: +Extensions files commit txns too
         undoWork?.cancel(); undoWork = nil
         guard let snap = pendingUndo else { return }
         pendingUndo = nil
         guard snap != editState else { return }     // no-op edit → no entry
-        deadlineGen &+= 1                            // an edit committed → re-solve deadline label sides
+        caches.deadlineGen &+= 1                            // an edit committed → re-solve deadline label sides
         undoStack.append(snap)
         if undoStack.count > 100 { undoStack.removeFirst() }
         redoStack.removeAll()
@@ -1768,8 +1764,8 @@ public final class CalendarEngine {
     }
     private func restore(_ s: EditState) {
         wake()
-        editGen &+= 1
-        seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines
+        caches.editGen &+= 1
+        items.events = s.events; items.bands = s.bands; items.deadlines = s.deadlines
         richById = s.rich; trackNames = s.trackNames; dailyNotes = s.dailyNotes
         selectedId = nil; schedulePersist()
     }
@@ -2059,7 +2055,7 @@ public final class CalendarEngine {
     public func viewPrefsChanged() {
         mainTz = UserDefaults.standard.string(forKey: Self.mainTzKey) ?? "auto"   // View ▸ Current Timezone
         altTz = UserDefaults.standard.string(forKey: Self.altTzKey) ?? "none"     // View ▸ Alternative Timezone
-        editGen &+= 1; deadlineGen &+= 1; wake()
+        caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
     }
 
     private func navigate(at p: CGPoint) {
@@ -2127,7 +2123,7 @@ public final class CalendarEngine {
         let h = blockHour
         beginTxn()
         let id = "new-\(UUID().uuidString)"
-        seedEvents.append(TimedEvent(id: id, year: year, month: focus, day: d,
+        items.events.append(TimedEvent(id: id, year: year, month: focus, day: d,
                                      startHour: h, endHour: min(24, h + 1), title: "New event", color: "blue",
                                      anchorTz: anchorNow))
         selectedId = id
@@ -2179,7 +2175,7 @@ public final class CalendarEngine {
         let day = min(daysInMonth(year, m), max(1, blockDay))
         beginTxn()
         let id = "new-\(UUID().uuidString)"
-        seedBands.append(BandEvent(id: id, year: year, month: m, track: bandCurTrack, startDay: day, endDay: day, title: "New event", color: "blue"))
+        items.bands.append(BandEvent(id: id, year: year, month: m, track: bandCurTrack, startDay: day, endDay: day, title: "New event", color: "blue"))
         selectedId = id
         bandCursorActive = false
         commitTxn()
@@ -2403,11 +2399,11 @@ public final class CalendarEngine {
     }
 
     private func bandContains(_ id: String, _ p: CGPoint, _ g: SceneInput) -> Bool {
-        guard let b = seedBands.first(where: { $0.id == id }), let r = bandEventRect(b, g, anim: g.monthAnim) else { return false }
+        guard let b = items.bands.first(where: { $0.id == id }), let r = bandEventRect(b, g, anim: g.monthAnim) else { return false }
         return CGRect(x: r.x, y: r.y, width: r.w, height: r.h).contains(p)
     }
     private func timedContains(_ id: String, _ p: CGPoint, _ g: SceneInput) -> Bool {
-        guard z >= 1.5, let e = seedEvents.first(where: { $0.id == id }) else { return false }
+        guard z >= 1.5, let e = items.events.first(where: { $0.id == id }) else { return false }
         let tl = timelineInfo(g)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return false }
         guard p.y >= tl.tlTop, p.y <= tl.tlBottom else { return false }   // clip to the timeline (see eventAt)
@@ -2453,34 +2449,5 @@ public final class CalendarEngine {
         return .normal   // empty calendar → plain arrow (no create "+" cursor)
     }
 
-    // ── Seed data (display only, until the sync layer lands) ─────────────────────
-    private static func makeSeeds(year: Int, month: Int, day: Int) -> [TimedEvent] {
-        let d0 = max(1, min(daysInMonth(year, month) - 2, day))
-        return [
-            TimedEvent(id: "s1", year: year, month: month, day: d0, startHour: 9, endHour: 10, title: "Standup", color: "blue"),
-            TimedEvent(id: "s2", year: year, month: month, day: d0, startHour: 11, endHour: 12.5, title: "Design review", color: "green"),
-            TimedEvent(id: "s3", year: year, month: month, day: d0, startHour: 11.5, endHour: 13, title: "1:1 with Alex", color: "yellow"),
-            TimedEvent(id: "s4", year: year, month: month, day: d0, startHour: 14, endHour: 15, title: "Lecture", color: "red"),
-            TimedEvent(id: "s5", year: year, month: month, day: min(daysInMonth(year, month), d0 + 1), startHour: 10, endHour: 11.5, title: "Research sync", color: "blue"),
-            TimedEvent(id: "s6", year: year, month: month, day: min(daysInMonth(year, month), d0 + 1), startHour: 16, endHour: 18, title: "Seminar", color: "purple"),
-        ]
-    }
 
-    private static func makeSeedBands(year: Int, month: Int) -> [BandEvent] {
-        let dim = daysInMonth(year, month)
-        func clampD(_ d: Int) -> Int { max(1, min(dim, d)) }
-        return [
-            BandEvent(id: "b1", year: year, month: month, track: 0, startDay: clampD(3), endDay: clampD(7), title: "Intro to AI", color: "red"),
-            BandEvent(id: "b2", year: year, month: month, track: 1, startDay: clampD(10), endDay: clampD(14), title: "NSF grant", color: "blue"),
-            BandEvent(id: "b3", year: year, month: month, track: 3, startDay: clampD(18), endDay: clampD(21), title: "Conf travel", color: "green"),
-        ]
-    }
-
-    private static func makeSeedDeadlines(year: Int, month: Int, day: Int) -> [Deadline] {
-        let d0 = max(1, min(daysInMonth(year, month), day))
-        return [
-            Deadline(id: "d1", year: year, month: month, day: d0, hour: 17, title: "Paper due", color: "red"),
-            Deadline(id: "d2", year: year, month: month, day: min(daysInMonth(year, month), d0 + 2), hour: 12.5, title: "Reviews", color: "purple"),
-        ]
-    }
 }

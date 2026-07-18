@@ -24,34 +24,34 @@ struct SyncHarnessView: View {
                         Button("Sync now") { engine.syncNow() }
                     }
 
-                    Section("Bands (\(engine.seedBands.count))") {
-                        ForEach(engine.seedBands, id: \.id) { b in
+                    Section("Bands (\(engine.items.bands.count))") {
+                        ForEach(engine.items.bands, id: \.id) { b in
                             row(title: b.title,
                                 subtitle: "\(b.year)-\(b.month + 1) · lane \(b.track) · \(b.startDay)–\(b.endDay)",
                                 color: b.color,
                                 bump: { engine.setBandTitle(b.id, b.title + "·") })
                         }
-                        .onDelete { idx in idx.map { engine.seedBands[$0].id }.forEach(engine.remove) }
+                        .onDelete { idx in idx.map { engine.items.bands[$0].id }.forEach(engine.remove) }
                     }
 
-                    Section("Timed (\(engine.seedEvents.count))") {
-                        ForEach(engine.seedEvents, id: \.id) { e in
+                    Section("Timed (\(engine.items.events.count))") {
+                        ForEach(engine.items.events, id: \.id) { e in
                             row(title: e.title,
                                 subtitle: "m\(e.month + 1) d\(e.day) · \(fmt(e.startHour))–\(fmt(e.endHour))",
                                 color: e.color,
                                 bump: { engine.update(e.id) { $0.title += "·" } })
                         }
-                        .onDelete { idx in idx.map { engine.seedEvents[$0].id }.forEach(engine.remove) }
+                        .onDelete { idx in idx.map { engine.items.events[$0].id }.forEach(engine.remove) }
                     }
 
-                    Section("Deadlines (\(engine.seedDeadlines.count))") {
-                        ForEach(engine.seedDeadlines, id: \.id) { d in
+                    Section("Deadlines (\(engine.items.deadlines.count))") {
+                        ForEach(engine.items.deadlines, id: \.id) { d in
                             row(title: d.title,
                                 subtitle: "\(d.year)-\(d.month + 1)-\(d.day) · \(fmt(d.hour))",
                                 color: d.color,
                                 bump: { engine.updateDeadline(d.id) { $0.title += "·" } })
                         }
-                        .onDelete { idx in idx.map { engine.seedDeadlines[$0].id }.forEach(engine.remove) }
+                        .onDelete { idx in idx.map { engine.items.deadlines[$0].id }.forEach(engine.remove) }
                     }
                 }
             }

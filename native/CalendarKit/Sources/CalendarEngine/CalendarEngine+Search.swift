@@ -43,7 +43,7 @@ extension CalendarEngine {
     /// Build the search corpus if stale, else reuse it. Iterating every year here IS the expensive part
     /// (recurrence expansion + import merge + folding) — but it runs once per edit, not once per keystroke.
     func ensureSearchCorpus() -> [SearchDoc] {
-        if let c = searchCorpus, c.gen == editGen { return c.docs }
+        if let c = caches.search, c.gen == caches.editGen { return c.docs }
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
         func meta(_ y: Int, _ m: Int, _ d: Int) -> (wd: Int?, dist: Int) {
@@ -67,7 +67,7 @@ extension CalendarEngine {
             for b in displayBands(for: y)     { docs.append(doc(b.id, b.title, b.color, y, b.month, b.startDay, nil, .band)) }
             for d in displayDeadlines(for: y) { docs.append(doc(d.id, d.title, d.color, y, d.month, d.day, d.hour, .deadline)) }
         }
-        searchCorpus = (editGen, docs)
+        caches.search = (caches.editGen, docs)
         return docs
     }
 

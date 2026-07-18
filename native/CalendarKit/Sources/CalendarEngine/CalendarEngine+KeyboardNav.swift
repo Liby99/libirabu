@@ -405,7 +405,7 @@ extension CalendarEngine {
     /// selected-band gesture and the keyboard "Enter → edit title" (via `editSelectedBand`) both route here.
     public func editBand(_ id: String) {
         let g = snapshot()
-        guard let b = seedBands.first(where: { $0.id == id }), let r = bandEventRect(b, g, anim: g.monthAnim) else { return }
+        guard let b = items.bands.first(where: { $0.id == id }), let r = bandEventRect(b, g, anim: g.monthAnim) else { return }
         // Let the field extend right to the content edge (like the title's overflow), not
         // just the box width.
         onEditBand?(id, CGRect(x: r.x, y: r.y, width: max(r.w, g.vp.w - r.x), height: r.h))
@@ -414,7 +414,7 @@ extension CalendarEngine {
     /// the kept band). Fully overlapping = same month/track/startDay/endDay.
     public func bandWarningTooltip(at p: CGPoint) -> String? {
         var groups: [String: [BandEvent]] = [:]
-        for b in seedBands { groups["\(b.month)-\(b.track)-\(b.startDay)-\(b.endDay)", default: []].append(b) }
+        for b in items.bands { groups["\(b.month)-\(b.track)-\(b.startDay)-\(b.endDay)", default: []].append(b) }
         let g = snapshot()
         for (_, arr) in groups where arr.count > 1 {
             guard let keep = arr.max(by: { $0.id < $1.id }), let r = bandEventRect(keep, g, anim: g.monthAnim) else { continue }
@@ -424,13 +424,13 @@ extension CalendarEngine {
     }
 
     public func setBandTitle(_ id: String, _ title: String) {
-        guard let i = seedBands.firstIndex(where: { $0.id == id }), seedBands[i].title != title else { return }
-        beginTxn(); seedBands[i].title = title; scheduleCommit()
+        guard let i = items.bands.firstIndex(where: { $0.id == id }), items.bands[i].title != title else { return }
+        beginTxn(); items.bands[i].title = title; scheduleCommit()
     }
 
-    public func event(_ id: String) -> TimedEvent? { seedEvents.first { $0.id == id } ?? importedEvents.first { $0.id == id } }
-    public func band(_ id: String) -> BandEvent? { seedBands.first { $0.id == id } ?? importedBands.first { $0.id == id } }
-    public func deadline(_ id: String) -> Deadline? { seedDeadlines.first { $0.id == id } }
+    public func event(_ id: String) -> TimedEvent? { items.events.first { $0.id == id } ?? importedEvents.first { $0.id == id } }
+    public func band(_ id: String) -> BandEvent? { items.bands.first { $0.id == id } ?? importedBands.first { $0.id == id } }
+    public func deadline(_ id: String) -> Deadline? { items.deadlines.first { $0.id == id } }
     /// Whether a source id still backs a real item — used by the UI to close a drawer whose event just
     /// vanished (e.g. deleted in Apple Calendar, then re-imported; or removed by an iCloud remote change).
     public func itemExists(_ id: String) -> Bool { event(id) != nil || band(id) != nil || deadline(id) != nil }

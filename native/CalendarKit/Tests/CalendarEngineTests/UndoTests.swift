@@ -5,7 +5,7 @@ import XCTest
 final class UndoTests: XCTestCase {
     // Hermetic store: redirect ItemStore to a throwaway dir (the CC_DEMO_DATADIR hook), so the
     // engine seeds its demo events deterministically instead of loading the REAL user calendar —
-    // these tests need seedEvents and must not depend on (or touch) live data.
+    // these tests need items.events and must not depend on (or touch) live data.
     override func setUp() {
         super.setUp()
         setenv("CC_DEMO_DATADIR", NSTemporaryDirectory() + "cc-undo-tests-" + UUID().uuidString, 1)
