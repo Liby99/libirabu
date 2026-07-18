@@ -541,6 +541,7 @@ public final class CalendarEngine {
         } else {
             persistNow()   // seed the store on first launch
         }
+        mainTz = UserDefaults.standard.string(forKey: Self.mainTzKey) ?? "auto"   // View ▸ Current Timezone
         // Resume the create-counter past any persisted new-/newb- ids so fresh items don't
         // collide with reloaded ones (which produced duplicate SwiftUI ForEach ids).
         for id in seedEvents.map(\.id) + seedBands.map(\.id) {
@@ -3054,12 +3055,17 @@ public final class CalendarEngine {
 
     // ── View preferences ───────────────────────────────────────────────────────────────────────
     nonisolated public static let showHiddenImportedKey = "cc.view.showHiddenImported"
+    /// View ▸ Current Timezone — the main tz for deadline origin-time labels. "auto" = device zone.
+    nonisolated public static let mainTzKey = "cc.view.mainTz"
     /// The "View ▸ Show Hidden Imported Events" toggle (UserDefaults-backed so the menu's checkmark and
     /// the renderer share one source of truth). When on, user-hidden imported events draw with a dotted bar.
     public var showHiddenImported: Bool { UserDefaults.standard.bool(forKey: Self.showHiddenImportedKey) }
     /// A View-menu preference changed (posted via `.calendarViewPrefsChanged`) → invalidate the display
     /// cache and repaint. The pref value itself lives in UserDefaults; this just re-derives the scene.
-    public func viewPrefsChanged() { editGen &+= 1; deadlineGen &+= 1; wake() }
+    public func viewPrefsChanged() {
+        mainTz = UserDefaults.standard.string(forKey: Self.mainTzKey) ?? "auto"   // View ▸ Current Timezone
+        editGen &+= 1; deadlineGen &+= 1; wake()
+    }
 
     // ── Programmatic CRUD for the AI assistant ─────────────────────────────────────────
     // Parameterized create/update the cursor-driven UI methods (createEventAtBlock etc.) don't

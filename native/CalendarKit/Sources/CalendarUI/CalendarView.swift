@@ -27,6 +27,7 @@ public struct CalendarView: View {
     // View ▸ Show Hidden Imported Events. @AppStorage tracks the same UserDefaults key the menu toggles;
     // the onChange below repaints the calendar when it flips (from either app target's menu).
     @AppStorage(CalendarEngine.showHiddenImportedKey) private var showHiddenImported = false
+    @AppStorage(CalendarEngine.mainTzKey) private var mainTzPref = "auto"   // View ▸ Current Timezone
     @AppStorage("cc.tutorial.seen") private var tutorialSeen = false   // auto-show the onboarding carousel once
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openWindow) private var openWindow    // opens the standalone Calendar AI window
@@ -413,31 +414,9 @@ public struct CalendarView: View {
             .onReceive(NotificationCenter.default.publisher(for: .showKeyboardShortcuts)) { _ in
                 ui.showKeyGuide = true; engine.wake()
             }
-            // A gentle blur on the calendar (only) while the delete dialog is up — added BEFORE the dialog
-            // overlay so the dialog itself stays sharp. Small radius: a soft de-focus, not a heavy frost.
-            .blur(radius: ui.pendingDelete != nil ? 2.5 : 0)
-            // Delete-confirm dialog — topmost, above the drawer. Same modal for the trash button and the
-            // Delete hotkey. Keyboard is routed via the monitor (isModalDelete); buttons are also clickable.
-            .overlay {
-                if let pd = ui.pendingDelete {
-                    DeleteConfirmDialog(pending: pd, theme: theme,
-                                        onChoose: { performDelete($0) })
-                        .transition(.opacity)
-                }
-            }
-            .animation(.easeOut(duration: 0.12), value: ui.pendingDelete)
-            .onChange(of: ui.pendingDelete == nil) { _, gone in engine.inputModalUp = !gone }
-            // Tutorial carousel — topmost overlay. Auto-shown once on first launch; re-openable via Help ▸ Tutorial.
-            .overlay {
-                if ui.showTutorial {
-                    TutorialView(theme: theme, ui: ui, onClose: { ui.showTutorial = false })
-                        .transition(.opacity)
-                }
-            }
-            .animation(.easeOut(duration: 0.15), value: ui.showTutorial)
-            .onReceive(NotificationCenter.default.publisher(for: .showTutorial)) { _ in
-                ui.tutorialIndex = 0; ui.showTutorial = true; engine.wake()
-            }
+            // Blocking-modal overlays (delete-confirm dialog + onboarding tutorial) bundled into one
+            // modifier so the body's modifier chain stays within the type-checker's budget.
+            .modifier(ModalOverlays(ui: ui, engine: engine, theme: theme, onDelete: { performDelete($0) }))
             .onAppear { setupOnAppear(size: geo.size) }
             .onChange(of: geo.size) { _, s in engine.setViewport(s) }
             .onChange(of: ui.openEventId) { _, v in
@@ -478,6 +457,7 @@ public struct CalendarView: View {
             // "Show Hidden Imported Events" flipped → repaint. onChange catches the SwiftUI menu's @AppStorage
             // write; the notification catches the AppKit (dev-build) menu's direct UserDefaults write.
             .onChange(of: showHiddenImported) { _, _ in engine.viewPrefsChanged() }
+            .onChange(of: mainTzPref) { _, _ in engine.viewPrefsChanged() }   // Current Timezone picker → repaint
             .onReceive(NotificationCenter.default.publisher(for: .calendarViewPrefsChanged)) { _ in engine.viewPrefsChanged() }
         }
         .ignoresSafeArea()
@@ -507,6 +487,12 @@ public struct CalendarView: View {
         .toolbar { mainToolbar }
         // Let the translucent window material show through the toolbar (native tint).
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        // Full screen: hide the toolbar entirely (full-bleed calendar); it slides in with the
+        // menu bar when the mouse reaches the top, Safari-style.
+        .windowToolbarFullScreenVisibility(.onHover)
+        // …and re-assert transparency across fullscreen transitions, where AppKit re-applies its
+        // own toolbar backdrop that the SwiftUI modifier doesn't reach (see TransparentTitlebar).
+        .background(TransparentTitlebar())
         // Publish the quick-ask callout binding for the app's ⌘I command: calendar window key →
         // ⌘I toggles the callout; no calendar window → the command falls back to the full window.
         .focusedSceneValue(\.assistantCallout, $showAssistantCallout)
@@ -935,6 +921,41 @@ private struct DeleteDialogButton: View {
                 .padding(-3)
         )
         .onHover { hover = $0; if $0 { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() } }
+    }
+}
+
+/// The blocking-modal overlays: the delete-confirm dialog (with its blur + modal-flag plumbing) and the
+/// onboarding tutorial carousel. Bundled into a ViewModifier so CalendarView's `body` chain stays short
+/// enough for the Swift type-checker.
+private struct ModalOverlays: ViewModifier {
+    let ui: CalendarUIState
+    let engine: CalendarEngine
+    let theme: Theme
+    var onDelete: (DeleteChoice) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            // Gentle blur on the calendar while the delete dialog is up (before the dialog overlay, so the
+            // dialog stays sharp).
+            .blur(radius: ui.pendingDelete != nil ? 2.5 : 0)
+            .overlay {
+                if let pd = ui.pendingDelete {
+                    DeleteConfirmDialog(pending: pd, theme: theme, onChoose: onDelete)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: ui.pendingDelete)
+            .onChange(of: ui.pendingDelete == nil) { _, gone in engine.inputModalUp = !gone }
+            .overlay {   // tutorial carousel — topmost
+                if ui.showTutorial {
+                    TutorialView(theme: theme, ui: ui, onClose: { ui.showTutorial = false })
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: ui.showTutorial)
+            .onReceive(NotificationCenter.default.publisher(for: .showTutorial)) { _ in
+                ui.tutorialIndex = 0; ui.showTutorial = true; engine.wake()
+            }
     }
 }
 

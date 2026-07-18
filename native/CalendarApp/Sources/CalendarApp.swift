@@ -48,6 +48,10 @@ struct CalendarApp: App {
                     applyPersistedAppearance()
                     quickAssistant.engine = engine   // the callout's session needs the engine too
                     assistant.engine = engine
+                    // The calendar is a single-window app — no window tabs. Turning off automatic
+                    // tabbing removes the View/Window menu's "Show Tab Bar / Show All Tabs / Move Tab…"
+                    // items. Idempotent; safe to set on every appearance.
+                    NSWindow.allowsAutomaticWindowTabbing = false
                 }
         }
         .defaultSize(width: 1440, height: 840)
@@ -77,8 +81,11 @@ struct CalendarApp: App {
                 Button("Redo") { routeUndoRedo(redo: true, engine: engine) }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
             }
-            // A top-level "View" menu — display preferences (stored in UserDefaults, shared with the renderer).
-            CommandMenu("View") {
+            // Display preferences (stored in UserDefaults, shared with the renderer), placed INTO the
+            // native View menu. REPLACING the .toolbar group also strips its "Show/Customize Toolbar"
+            // items — the calendar's toolbar is fixed, so those don't apply. (Window-tab items are
+            // removed separately by disabling automatic window tabbing; see the window's onAppear.)
+            CommandGroup(replacing: .toolbar) {
                 ViewMenu()
             }
             // A top-level "AI" menu — new/current conversation, model selection, API keys. Its contents
@@ -154,8 +161,15 @@ struct CalendarApp: App {
 /// the UserDefaults key the renderer reads; CalendarView's own @AppStorage onChange repaints on flip.
 private struct ViewMenu: View {
     @AppStorage(CalendarEngine.showHiddenImportedKey) private var showHidden = false
+    @AppStorage(CalendarEngine.mainTzKey) private var mainTz = CalendarTimezones.autoId
     var body: some View {
         Toggle("Show Hidden Imported Events", isOn: $showHidden)
+        Divider()
+        // Renders as a "Current Timezone ▸" submenu (checkmark on the active zone). Drives deadline
+        // origin-time labels; the renderer re-reads it via engine.viewPrefsChanged().
+        Picker("Current Timezone", selection: $mainTz) {
+            ForEach(CalendarTimezones.all) { Text($0.label).tag($0.id) }
+        }
     }
 }
 
