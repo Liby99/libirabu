@@ -12,16 +12,14 @@ extension CalendarEngine {
     // Enabled-state + selected calendars live in UserDefaults so the (separate) Settings window and the
     // running engine share them without a direct reference; Settings posts `.appleCalendarSettingsChanged`
     // to nudge an immediate re-import. Imported events are read-only + kept out of persistence/iCloud.
-    public static let appleEnabledKey = "cc.appleCal.enabled"
-    public static let appleCalendarsKey = "cc.appleCal.ids"
 
     public var appleSyncEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.appleEnabledKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.appleEnabledKey) }
+        get { UserDefaults.standard.bool(forKey: PrefKeys.appleEnabled) }
+        set { UserDefaults.standard.set(newValue, forKey: PrefKeys.appleEnabled) }
     }
     public var appleCalendarIds: [String] {
-        get { (UserDefaults.standard.array(forKey: Self.appleCalendarsKey) as? [String]) ?? [] }
-        set { UserDefaults.standard.set(newValue, forKey: Self.appleCalendarsKey) }
+        get { (UserDefaults.standard.array(forKey: PrefKeys.appleCalendars) as? [String]) ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: PrefKeys.appleCalendars) }
     }
     /// Access probe + the calendar list + the TCC prompt — for the Settings picker. Access status is
     /// static so the isolated Settings window can read it without the engine.

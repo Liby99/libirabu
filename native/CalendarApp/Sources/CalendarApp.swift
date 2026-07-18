@@ -172,9 +172,9 @@ struct CalendarApp: App {
 /// The "View" menu's contents. A Toggle bound to @AppStorage renders as a checkmark menu item and shares
 /// the UserDefaults key the renderer reads; CalendarView's own @AppStorage onChange repaints on flip.
 private struct ViewMenu: View {
-    @AppStorage(CalendarEngine.showHiddenImportedKey) private var showHidden = false
-    @AppStorage(CalendarEngine.mainTzKey) private var mainTz = CalendarTimezones.autoId
-    @AppStorage(CalendarEngine.altTzKey) private var altTz = "none"
+    @AppStorage(PrefKeys.showHiddenImported) private var showHidden = false
+    @AppStorage(PrefKeys.mainTz) private var mainTz = CalendarTimezones.autoId
+    @AppStorage(PrefKeys.altTz) private var altTz = "none"
     var body: some View {
         Toggle(isOn: $showHidden) { Label("Show Hidden Imported Events", systemImage: "eye.slash") }
         Divider()

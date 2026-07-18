@@ -27,9 +27,9 @@ public struct CalendarView: View {
     @AppStorage("cc.performanceMode") private var perfMode = true
     // View ▸ Show Hidden Imported Events. @AppStorage tracks the same UserDefaults key the menu toggles;
     // the onChange below repaints the calendar when it flips (from either app target's menu).
-    @AppStorage(CalendarEngine.showHiddenImportedKey) private var showHiddenImported = false
-    @AppStorage(CalendarEngine.mainTzKey) private var mainTzPref = "auto"   // View ▸ Current Timezone
-    @AppStorage(CalendarEngine.altTzKey) private var altTzPref = "none"     // View ▸ Alternative Timezone
+    @AppStorage(PrefKeys.showHiddenImported) private var showHiddenImported = false
+    @AppStorage(PrefKeys.mainTz) private var mainTzPref = "auto"   // View ▸ Current Timezone
+    @AppStorage(PrefKeys.altTz) private var altTzPref = "none"     // View ▸ Alternative Timezone
     @AppStorage("cc.tutorial.seen") private var tutorialSeen = false   // auto-show the onboarding carousel once
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openWindow) private var openWindow    // opens the standalone Calendar AI window

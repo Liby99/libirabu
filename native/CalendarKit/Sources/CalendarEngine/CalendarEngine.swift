@@ -28,7 +28,6 @@ public final class CalendarEngine {
     // Render loop: the calendar's TimelineView pauses when `renderClock.awake` is false (idle).
     public let renderClock = RenderClock()
     private var sleepWork: DispatchWorkItem?
-    private let idleSleep: TimeInterval = 0.4   // sleep this long after the last activity (covers SwiftUI fades)
 
     /// Kick the render loop — call at every input / animation-start / edit entry point. Cheap +
     /// idempotent, so over-calling is fine. Wakes the clock (if asleep) and (re)arms the idle sleep.
@@ -39,7 +38,7 @@ public final class CalendarEngine {
         armSleep()
     }
     /// (Re)schedule the idle sleep. While anything is animating the timer keeps deferring; once the
-    /// scene is fully at rest for `idleSleep`, it pauses the TimelineView.
+    /// scene is fully at rest for `Motion.idleSleep`, it pauses the TimelineView.
     private func armSleep() {
         sleepWork?.cancel()
         let w = DispatchWorkItem { [weak self] in
@@ -47,7 +46,7 @@ public final class CalendarEngine {
             if self.needsRender { self.armSleep() } else { self.renderClock.awake = false }
         }
         sleepWork = w
-        DispatchQueue.main.asyncAfter(deadline: .now() + idleSleep, execute: w)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Motion.idleSleep, execute: w)
     }
     /// Anything that changes the scene frame-to-frame (so the loop must stay awake). `isAnimating`
     /// covers the z/scroll/week/day tweens + flips; add the rest of the live/elastic/drag states.
@@ -69,8 +68,6 @@ public final class CalendarEngine {
     public private(set) var pointerPos: CGPoint?   // last hover point (calendar space) → is the cursor on the deadline "+"?
     /// The cursor is near the timeline's left border (week/day) → reveal the scale bar.
     public private(set) var nearTlEdge = false
-    /// How close (px, either side of the border) the cursor must be to reveal the scale bar.
-    private static let tlEdgeRevealDist: CGFloat = 80
     public private(set) var year: Int
     public let systemYear: Int          // the real "today" year at launch — anchors the picker range
     public var mainTz: String = "auto"  // deadline main timezone (for origin-tz labels); "auto" = device zone
@@ -157,7 +154,6 @@ public final class CalendarEngine {
     // the selected item centers in the free area beside the drawer (ports the web's
     // .cc-drawer-open .app-shell transform). Tweened per-frame like z / week.
     public private(set) var drawerShift: CGFloat = 0
-    private let DRAWER_SHIFT_DUR: TimeInterval = 0.28
     private var snapWork: DispatchWorkItem?
     // Year-view scroll is driven by a real NSScrollView (native elastic bounce + momentum).
     // The input bridge forwards wheel events to it and mirrors its offset back here via
@@ -183,23 +179,17 @@ public final class CalendarEngine {
     // slides in from the opposite edge + fades in. Driven by the per-frame clock.
     struct FlipAnim { var dir: Int; var fromYear: Int; var toYear: Int; var startScroll: CGFloat; var start: Date; var fadeOnly: Bool = false }
     public var isFlipping: Bool { anim.flipAnim != nil }
-    private let FLIP_DUR: TimeInterval = 1.0
-    private let FADE_SWAP_DUR: TimeInterval = 0.5   // selectYear cross-fade (out → swap → in), no scroll motion
     // Month-view boundary flip: at Jan/Dec, an overscroll pull past the edge flips to the
     // adjacent year's Dec/Jan. Two-phase like the year flip, but at month level: the current
     // month exits + fades (phase 1), then the cross-year month enters from the opposite edge
     // + fades in (phase 2). Reuses `anim.flipFade` for the fade; `anim.monthFlipShift` for the movement.
     struct MonthFlip { var dir: Int; var fromYear: Int; var fromFocus: Int; var toYear: Int; var toFocus: Int; var startShift: CGFloat; var start: Date }
     public var isMonthFlipping: Bool { anim.monthFlip != nil }
-    private let MONTH_FLIP_DUR: TimeInterval = 0.8
     // week-view boundary flip (overscroll past a month edge in week view). The 7-day window
     // rubber-bands past the edge; on release, if armed, focus/week re-anchor to the neighbor month
     // and the dim/bright split cross-fades (`anim.weekFlipFade`). See setWeekProgress / endWeekGesture.
     struct WeekFlip { var dir: Int; var startWeek: CGFloat; var toWeek: CGFloat; var start: Date }
     public var isWeekFlipping: Bool { anim.weekFlip != nil }
-    private let WEEK_FLIP_DUR: TimeInterval = 0.5
-    private let weekFlipOver: CGFloat = 34   // on-screen overscroll (px) that arms a week flip
-    private let weekOverMul: CGFloat = 1.9   // amplify the rubber-band travel past a month edge
     // day-view boundary flip (overscroll past a month edge in day view). Like the week flip, but a
     // single day: the day page previews the neighbor month's first/last day (via the spillover
     // day-page), and on release, if armed, it completes and focus/day re-anchor to that neighbor day.
@@ -207,9 +197,6 @@ public final class CalendarEngine {
     struct DayFlip { var dir: Int; var toYear: Int; var toFocus: Int; var toDom: Int; var startP: CGFloat; var start: Date }
     public var isDayFlipping: Bool { anim.dayFlip != nil }
     public var dayFlipArmed: Bool { isDayLevel && (scroll.dayPull?.armed ?? false) }
-    private let DAY_FLIP_DUR: TimeInterval = 0.42
-    private let dayFlipOver: CGFloat = 40    // on-screen overscroll (px) that arms a day flip
-    private let dayOverMul: CGFloat = 1.4    // maps rubber-band px → day-page progress (preview)
     // pinch state
     private var magStartZ: CGFloat = 0
     private var magAccum: CGFloat = 0
@@ -341,7 +328,7 @@ public final class CalendarEngine {
     /// Drive the REAL pinch path (`onMagnify`) from a view point, so the month/week/day under `v` is exactly
     /// what fills the screen (`captureFocus` anchors on the pinch point — unlike the keyboard/block zoom,
     /// which snaps to the block cursor / today). The recording's pinch visual is drawn at this same point, so
-    /// the gesture and the zoom target always line up. `delta` is trackpad-style magnification (PINCH_SENS
+    /// the gesture and the zoom target always line up. `delta` is trackpad-style magnification (Motion.pinchSens
     /// scales it into z); a full single-level pinch accumulates ≈0.7 (see DemoController.pinch).
     public func demoMagnify(delta: CGFloat, atView v: CGPoint, began: Bool, ended: Bool) {
         onMagnify(delta: delta, at: demoViewToGeometry(v), began: began, ended: ended)
@@ -384,11 +371,6 @@ public final class CalendarEngine {
         var activated = false
     }
 
-    private let ZOOM_DUR: TimeInterval = 0.52
-    private let PINCH_SENS: CGFloat = 1.6
-    // Deadlines/timed events are hittable once the day-detail timeline is revealed (month-detail and
-    // deeper), not just week/day — so a deadline can be interacted with in the monthly view too.
-    let DETAIL_Z: CGFloat = 0.82
 
     public init() {
         let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
@@ -414,12 +396,12 @@ public final class CalendarEngine {
         } else {
             persistNow()   // seed the store on first launch
         }
-        mainTz = UserDefaults.standard.string(forKey: Self.mainTzKey) ?? "auto"   // View ▸ Current Timezone
-        altTz = UserDefaults.standard.string(forKey: Self.altTzKey) ?? "none"     // View ▸ Alternative Timezone
+        mainTz = UserDefaults.standard.string(forKey: PrefKeys.mainTz) ?? "auto"   // View ▸ Current Timezone
+        altTz = UserDefaults.standard.string(forKey: PrefKeys.altTz) ?? "none"     // View ▸ Alternative Timezone
         migrateAnchors()   // stamp anchorTz on legacy items (needs mainTz resolved above)
         // The timeline scale-bar's chosen hour height survives restarts.
-        if UserDefaults.standard.object(forKey: Self.weekHourHKey) != nil {
-            weekHourH = clampHourH(CGFloat(UserDefaults.standard.double(forKey: Self.weekHourHKey)))
+        if UserDefaults.standard.object(forKey: PrefKeys.weekHourH) != nil {
+            weekHourH = clampHourH(CGFloat(UserDefaults.standard.double(forKey: PrefKeys.weekHourH)))
         }
         // Resume the create-counter past any persisted new-/newb- ids so fresh items don't
         // collide with reloaded ones (which produced duplicate SwiftUI ForEach ids).
@@ -581,8 +563,12 @@ public final class CalendarEngine {
     /// Import an `.ics` file's events as editable items. Returns how many were added.
     @discardableResult
     public func importICS(from url: URL) throws -> Int {
-        let text = try String(contentsOf: url, encoding: .utf8)
-        let (events, bands, rich) = ICSImport.items(from: text, provenance: url.lastPathComponent)
+        try importICS(text: String(contentsOf: url, encoding: .utf8), provenance: url.lastPathComponent)
+    }
+    /// Import `.ics` TEXT (e.g. from the clipboard) as editable items. Returns how many were added.
+    @discardableResult
+    public func importICS(text: String, provenance: String) throws -> Int {
+        let (events, bands, rich) = ICSImport.items(from: text, provenance: provenance)
         importItems(events: events, bands: bands, rich: rich)
         return events.count + bands.count
     }
@@ -832,16 +818,16 @@ public final class CalendarEngine {
             self.placeDayAtYear(ty, tm, td, tWeek)
             let target = clamp(self.centerScroll(for: tm), 0, yearMaxScroll(self.viewport))
             if abs(target - self.scrollY) < 1 {
-                self.tweenZ(to: 3, dur: 1.05)                    // already centred → zoom straight in
+                self.tweenZ(to: 3, dur: Motion.flyInFarDur)                    // already centred → zoom straight in
             } else {
-                self.anim.scrollTween = Tween(from: self.scrollY, to: target, start: Date(), duration: 0.5, ease: easeInOut)
-                self.anim.scrollTweenDone = { [weak self] in self?.tweenZ(to: 3, dur: 1.05) }
+                self.anim.scrollTween = Tween(from: self.scrollY, to: target, start: Date(), duration: Motion.yearGlideDur, ease: easeInOut)
+                self.anim.scrollTweenDone = { [weak self] in self?.tweenZ(to: 3, dur: Motion.flyInFarDur) }
             }
         }
         let flyOutThenIn: () -> Void = { [weak self] in   // zoom OUT to the year, then fly in
             guard let self else { return }
             if self.level(self.z) == 0 { flyFromYear() }
-            else { self.anim.zTweenDone = flyFromYear; self.tweenZ(to: 0, dur: 0.58) }
+            else { self.anim.zTweenDone = flyFromYear; self.tweenZ(to: 0, dur: Motion.flyOutDur) }
         }
 
         // ── Cross-year: out to the year, ONE flip to the target year (skips intervening years), then in. ──
@@ -853,7 +839,7 @@ public final class CalendarEngine {
                 self.anim.flipAnim = FlipAnim(dir: dir, fromYear: self.year, toYear: ty, startScroll: self.scrollY, start: Date())
             }
             if level(z) == 0 { startFlip() }
-            else { anim.zTweenDone = startFlip; tweenZ(to: 0, dur: 0.58) }
+            else { anim.zTweenDone = startFlip; tweenZ(to: 0, dur: Motion.flyOutDur) }
             return
         }
 
@@ -865,22 +851,22 @@ public final class CalendarEngine {
                 if daily.dom == td { fireDayLand(); break }
                 let dist = abs(td - daily.dom)
                 anim.dayTween = Tween(from: CGFloat(daily.dom), to: CGFloat(td), start: Date(),
-                                 duration: min(0.7, 0.2 + 0.035 * Double(dist)), ease: easeInOut)
+                                 duration: min(Motion.dayGlideMax, Motion.dayGlideBase + Motion.dayGlidePerDay * Double(dist)), ease: easeInOut)
             } else { flyOutThenIn() }
         case 2:   // week view
             if weekContains(tm, td) {            // target is on screen → zoom straight into it
                 daily.dom = td; pushChrome(); chrome.dailyResync &+= 1
-                tweenZ(to: 3, dur: 0.7)
+                tweenZ(to: 3, dur: Motion.flyInNearDur)
             } else if sameMonth {                // scroll to its week, then zoom in
                 daily.dom = td
-                anim.weekTween = Tween(from: week, to: tWeek, start: Date(), duration: 0.32, ease: easeInOut)
-                anim.weekTweenDone = { [weak self] in self?.tweenZ(to: 3, dur: 0.7) }
+                anim.weekTween = Tween(from: week, to: tWeek, start: Date(), duration: Motion.weekGlideDur, ease: easeInOut)
+                anim.weekTweenDone = { [weak self] in self?.tweenZ(to: 3, dur: Motion.flyInNearDur) }
             } else { flyOutThenIn() }
         case 1:   // month view
             if sameMonth {                       // zoom in through the week into the day
                 week = tWeek; daily.dom = td
                 pushChrome(); chrome.weekResync &+= 1; chrome.dailyResync &+= 1
-                tweenZ(to: 3, dur: 0.9)
+                tweenZ(to: 3, dur: Motion.flyInMidDur)
             } else { flyOutThenIn() }
         default:  // year view → straight in
             flyFromYear()
@@ -972,7 +958,7 @@ public final class CalendarEngine {
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             let target = clamp((self.week * 7).rounded() / 7, 0, maxWeek)
-            self.anim.weekTween = Tween(from: self.week, to: target, start: Date(), duration: 0.2, ease: easeInOut)
+            self.anim.weekTween = Tween(from: self.week, to: target, start: Date(), duration: Motion.weekSnapDur, ease: easeInOut)
         }
         snapWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: work)
@@ -981,7 +967,7 @@ public final class CalendarEngine {
     public func tweenZ(to target: CGFloat, dur: TimeInterval? = nil) {
         wake()
         if anim.zoomAnchorHour == nil { captureZoomAnchor() }   // fresh for a button/click zoom; kept for a pinch settle
-        anim.tween = Tween(from: z, to: clamp(target, 0, 3), start: Date(), duration: dur ?? ZOOM_DUR, ease: easeInOut)
+        anim.tween = Tween(from: z, to: clamp(target, 0, 3), start: Date(), duration: dur ?? Motion.zoomDur, ease: easeInOut)
         pushChrome(level: level(clamp(target, 0, 3)))
     }
 
@@ -1087,7 +1073,7 @@ public final class CalendarEngine {
         // fade the outgoing year to 0, swap year + reset scroll at the midpoint, fade the
         // incoming year back to 1.
         if fa.fadeOnly {
-            let t = clamp(CGFloat(date.timeIntervalSince(fa.start) / FADE_SWAP_DUR), 0, 1)
+            let t = clamp(CGFloat(date.timeIntervalSince(fa.start) / Motion.yearFadeSwapDur), 0, 1)
             if t >= 1 {
                 year = fa.toYear; anim.flipFade = 1; anim.flipAnim = nil
                 pushChrome()
@@ -1111,7 +1097,7 @@ public final class CalendarEngine {
         let maxY = yearMaxScroll(viewport)
         let dir = CGFloat(fa.dir)
         let rest: CGFloat = fa.dir > 0 ? 0 : maxY        // where the new year settles
-        let t = clamp(CGFloat(date.timeIntervalSince(fa.start) / FLIP_DUR), 0, 1)
+        let t = clamp(CGFloat(date.timeIntervalSince(fa.start) / Motion.yearFlipDur), 0, 1)
         if t >= 1 {
             year = fa.toYear; scrollY = rest; anim.flipFade = 1; anim.flipAnim = nil
             pushChrome(); onSetYearScroll?(rest)         // resync the scroll-view driver
@@ -1187,9 +1173,9 @@ public final class CalendarEngine {
         // At the edges, map the rubber-band to a day-page PREVIEW: the neighbor month's day (day dim+1
         // resolves to next month's 1st; day 0 to prev month's last) slides in via the spillover day-page.
         if daily.dom >= dim, overRight > 0 {
-            norm = min(0.999, overRight / dayW * dayOverMul)
+            norm = min(0.999, overRight / dayW * Motion.dayOverMul)
         } else if daily.dom <= 1, overLeft > 0 {
-            norm = -min(0.999, overLeft / dayW * dayOverMul)
+            norm = -min(0.999, overLeft / dayW * Motion.dayOverMul)
         } else {
             if daily.dom >= dim { norm = min(0, norm) }
             if daily.dom <= 1 { norm = max(0, norm) }
@@ -1201,7 +1187,7 @@ public final class CalendarEngine {
             let over = dir > 0 ? overRight : overLeft
             let tm = dir > 0 ? (focus + 1) % 12 : (focus + 11) % 12
             let ty = dir > 0 ? (focus == 11 ? year + 1 : year) : (focus == 0 ? year - 1 : year)
-            scroll.dayPull = DayPull(dir: dir, over: over, armed: over >= dayFlipOver, targetMonth: tm, targetYear: ty)
+            scroll.dayPull = DayPull(dir: dir, over: over, armed: over >= Motion.dayFlipOver, targetMonth: tm, targetYear: ty)
         } else {
             scroll.dayPull = nil
         }
@@ -1263,7 +1249,7 @@ public final class CalendarEngine {
     /// real neighbor date. At p=1 we commit: swap focus/year/day to the neighbor and re-sync the pager
     /// (and the year-view scroll, so zooming out lands on the new month).
     private func advanceDayFlip(_ df: DayFlip, at date: Date) {
-        let t = clamp(CGFloat(date.timeIntervalSince(df.start) / DAY_FLIP_DUR), 0, 1)
+        let t = clamp(CGFloat(date.timeIntervalSince(df.start) / Motion.dayFlipDur), 0, 1)
         if t >= 1 {
             year = df.toYear; focus = df.toFocus; daily.dom = df.toDom
             daily.anim = nil; daily.over = 0; anim.dayFlip = nil   // END the flip (else it re-commits every frame)
@@ -1294,8 +1280,8 @@ public final class CalendarEngine {
         // more generous, tactile pull. Arming/indicator use the raw px `over`, so the flip threshold
         // feel is unchanged; only the on-screen travel grows.
         let raw = offsetX / span
-        if raw < 0 { week = clamp(raw * weekOverMul, -1.6, 0) }
-        else if raw > maxWeek { week = clamp(maxWeek + (raw - maxWeek) * weekOverMul, maxWeek, maxWeek + 1.6) }
+        if raw < 0 { week = clamp(raw * Motion.weekOverMul, -1.6, 0) }
+        else if raw > maxWeek { week = clamp(maxWeek + (raw - maxWeek) * Motion.weekOverMul, maxWeek, maxWeek + 1.6) }
         else { week = raw }
         let overLeft = offsetX < 0 ? -offsetX : 0
         let overRight = offsetX > maxOff ? offsetX - maxOff : 0
@@ -1309,7 +1295,7 @@ public final class CalendarEngine {
             let shared = dir > 0 ? ((fdow + dim - 1) % 7 != 6) : (fdow != 0)
             let tm = dir > 0 ? (focus + 1) % 12 : (focus + 11) % 12
             let ty = dir > 0 ? (focus == 11 ? year + 1 : year) : (focus == 0 ? year - 1 : year)
-            scroll.weekPull = WeekPull(dir: dir, over: over, armed: over >= weekFlipOver,
+            scroll.weekPull = WeekPull(dir: dir, over: over, armed: over >= Motion.weekFlipOver,
                                 shared: shared, targetMonth: tm, targetYear: ty)
         } else {
             scroll.weekPull = nil
@@ -1375,7 +1361,7 @@ public final class CalendarEngine {
     private func advanceMonthFlip(_ mf: MonthFlip, at date: Date) {
         let dir = CGFloat(mf.dir)
         let OFF = viewport.h + Layout.monthH
-        let t = clamp(CGFloat(date.timeIntervalSince(mf.start) / MONTH_FLIP_DUR), 0, 1)
+        let t = clamp(CGFloat(date.timeIntervalSince(mf.start) / Motion.monthFlipDur), 0, 1)
         if t >= 1 {
             year = mf.toYear; focus = mf.toFocus
             anim.monthFlipShift = 0; anim.flipFade = 1; anim.monthFlip = nil
@@ -1444,7 +1430,7 @@ public final class CalendarEngine {
     /// window just eases from the overscrolled `startWeek` back to `toWeek` while `anim.weekFlipFade` 0→1
     /// drives `spillFactor`'s dim/bright cross-fade. At t=1 we settle and re-sync the pager.
     private func advanceWeekFlip(_ wf: WeekFlip, at date: Date) {
-        let t = clamp(CGFloat(date.timeIntervalSince(wf.start) / WEEK_FLIP_DUR), 0, 1)
+        let t = clamp(CGFloat(date.timeIntervalSince(wf.start) / Motion.weekFlipDur), 0, 1)
         if t >= 1 {
             week = wf.toWeek
             anim.weekFlipFade = 0; anim.weekFlip = nil
@@ -1481,7 +1467,7 @@ public final class CalendarEngine {
             tweenZ(to: z.rounded())    // keeps the pinch's anchor through the settle
         } else {
             magAccum += delta
-            z = clamp(magStartZ + magAccum * PINCH_SENS, 0, 3)
+            z = clamp(magStartZ + magAccum * Motion.pinchSens, 0, 3)
             applyZoomAnchor(at: z)     // hold the centre/now hour across the pinch (no jump)
             pushChrome()
         }
@@ -1605,7 +1591,7 @@ public final class CalendarEngine {
             return
         }
         // 3. deadlines (on the timeline)
-        if z >= DETAIL_Z, let id = deadlineAt(p, g) {
+        if z >= ViewConst.detailZ, let id = deadlineAt(p, g) {
             selectedId = id
             drag = Drag(kind: .ddlMove, startPoint: p, eventId: id, origDdl: items.deadlines.first { $0.id == id })
             return
@@ -1751,7 +1737,7 @@ public final class CalendarEngine {
         let g = snapshot()
         if let h = bandAt(p, g) { return h.id }
         if z >= 1.5, let h = eventAt(p, g) { return h.id }
-        if z >= DETAIL_Z, let id = deadlineAt(p, g) { return id }
+        if z >= ViewConst.detailZ, let id = deadlineAt(p, g) { return id }
         return nil
     }
 
@@ -1764,12 +1750,12 @@ public final class CalendarEngine {
     public func openDrawerShift(id: String, drawerWidth D: CGFloat) {
         wake()
         anim.shiftTween = Tween(from: drawerShift, to: drawerShiftTarget(id: id, drawerWidth: D),
-                           start: Date(), duration: DRAWER_SHIFT_DUR, ease: easeOut)
+                           start: Date(), duration: Motion.drawerShiftDur, ease: easeOut)
     }
     /// Slide the calendar back to rest when the drawer closes.
     public func closeDrawerShift() {
         wake()
-        anim.shiftTween = Tween(from: drawerShift, to: 0, start: Date(), duration: DRAWER_SHIFT_DUR, ease: easeOut)
+        anim.shiftTween = Tween(from: drawerShift, to: 0, start: Date(), duration: Motion.drawerShiftDur, ease: easeOut)
     }
     /// Re-solve the shift immediately (no anim.tween) while the drawer is being resized, so the
     /// canvas tracks the drag frame-for-frame (like the web's `.cc-drawer-resizing`).
@@ -1993,11 +1979,6 @@ public final class CalendarEngine {
     }
 
     // ── View preferences ───────────────────────────────────────────────────────────────────────
-    nonisolated public static let showHiddenImportedKey = "cc.view.showHiddenImported"
-    /// View ▸ Current Timezone — the main tz for deadline origin-time labels. "auto" = device zone.
-    nonisolated public static let mainTzKey = "cc.view.mainTz"
-    /// The timeline scale-bar's per-hour height (week/day views). Persisted across launches.
-    nonisolated public static let weekHourHKey = "cc.view.weekHourH"
 
     /// Set the week/day timeline's per-hour height (the scale-bar's zoom). Clamped + persisted.
     public func setWeekHourH(_ h: CGFloat) {
@@ -2005,18 +1986,16 @@ public final class CalendarEngine {
         let clamped = clampHourH(h)
         guard clamped != weekHourH else { return }
         weekHourH = clamped
-        UserDefaults.standard.set(Double(clamped), forKey: Self.weekHourHKey)
+        UserDefaults.standard.set(Double(clamped), forKey: PrefKeys.weekHourH)
     }
-    /// View ▸ Alternative Timezone — the second hour column on the timeline. "none" = off.
-    nonisolated public static let altTzKey = "cc.view.altTz"
     /// The "View ▸ Show Hidden Imported Events" toggle (UserDefaults-backed so the menu's checkmark and
     /// the renderer share one source of truth). When on, user-hidden imported events draw with a dotted bar.
-    public var showHiddenImported: Bool { UserDefaults.standard.bool(forKey: Self.showHiddenImportedKey) }
+    public var showHiddenImported: Bool { UserDefaults.standard.bool(forKey: PrefKeys.showHiddenImported) }
     /// A View-menu preference changed (posted via `.calendarViewPrefsChanged`) → invalidate the display
     /// cache and repaint. The pref value itself lives in UserDefaults; this just re-derives the scene.
     public func viewPrefsChanged() {
-        mainTz = UserDefaults.standard.string(forKey: Self.mainTzKey) ?? "auto"   // View ▸ Current Timezone
-        altTz = UserDefaults.standard.string(forKey: Self.altTzKey) ?? "none"     // View ▸ Alternative Timezone
+        mainTz = UserDefaults.standard.string(forKey: PrefKeys.mainTz) ?? "auto"   // View ▸ Current Timezone
+        altTz = UserDefaults.standard.string(forKey: PrefKeys.altTz) ?? "none"     // View ▸ Alternative Timezone
         caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
     }
 
@@ -2301,7 +2280,7 @@ public final class CalendarEngine {
             // month band) so holding ↑/↓ scrolls at a CONSTANT speed instead of a fixed duration crawling
             // over a growing gap. ease OUT (not in-out) so each auto-repeat re-press kicks forward at full
             // speed rather than restarting in the slow ease-IN ramp. `scrollY` is already the live value.
-            let dur = max(0.12, 0.3 * Double(abs(s - scrollY) / Layout.monthH))
+            let dur = max(Motion.keyScrollMin, Motion.keyScrollPace * Double(abs(s - scrollY) / Layout.monthH))
             anim.scrollTween = Tween(from: scrollY, to: s, start: Date(), duration: dur, ease: easeOut)
         } else {
             anim.scrollTween = nil; scrollY = s; onSetYearScroll?(scrollY)
@@ -2314,7 +2293,7 @@ public final class CalendarEngine {
         // Timeline scale-bar proximity reveal: the bar fades in only when the cursor approaches
         // the timeline's left border (week/day views). Observable + wake, so the overlay reacts
         // even when the render loop is idle.
-        let near = level(z) >= 2 && abs(p.x - Layout.labelW) < Self.tlEdgeRevealDist
+        let near = level(z) >= 2 && abs(p.x - Layout.labelW) < ViewConst.tlEdgeRevealDist
         if near != nearTlEdge { nearTlEdge = near; wake() }
         let g = snapshot()
         let prevHover = hover, prevHovered = hoveredEventId   // wake the render only if the visual actually changes
@@ -2352,7 +2331,7 @@ public final class CalendarEngine {
             hv.overTimed = true   // keep hoveredEventId — a timed event
         } else if let b = bandAt(p, g) { hoveredEventId = b.id }
         else if z >= 1.5, let e = eventAt(p, g) { hoveredEventId = e.id; hv.overTimed = true }
-        else if z >= DETAIL_Z, let d = deadlineAt(p, g) { hoveredEventId = d; hv.overDeadline = true }
+        else if z >= ViewConst.detailZ, let d = deadlineAt(p, g) { hoveredEventId = d; hv.overDeadline = true }
         else { hoveredEventId = nil }
         hover = hv
         // Wake on any change, plus every move while near a day's left edge so the deadline "+" glow
@@ -2407,7 +2386,7 @@ public final class CalendarEngine {
             default: return (hit.id == selectedId && hit.overTitle) ? .text : .grab
             }
         }
-        if z >= DETAIL_Z, deadlineAt(p, g) != nil { return .grab }
+        if z >= ViewConst.detailZ, deadlineAt(p, g) != nil { return .grab }
         return .normal   // empty calendar → plain arrow (no create "+" cursor)
     }
 

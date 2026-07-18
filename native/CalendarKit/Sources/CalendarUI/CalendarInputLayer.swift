@@ -565,6 +565,13 @@ final class CatcherView: NSView, NSMenuItemValidation {
                !e.modifierFlags.contains(.option), !e.modifierFlags.contains(.control) {
                 return e
             }
+            // ⌘C / ⌘X / ⌘V are owned by the Edit menu's Copy/Cut/Paste items, which target this view's
+            // copy(_:)/cut(_:)/paste(_:). Like ⌘Z, pass them through so the menu key equivalents fire
+            // (the catch-all `return nil` below would otherwise swallow them before the menu sees them).
+            if e.modifierFlags.contains(.command), !e.modifierFlags.contains(.option), !e.modifierFlags.contains(.control),
+               let ch = e.charactersIgnoringModifiers?.lowercased(), ch == "c" || ch == "x" || ch == "v" {
+                return e
+            }
             engine?.wake()                          // calendar-owned key → drive a render (keyboard cursor/nav)
             if let token = Self.token(for: e) {
                 // ⌘T → "go to today" from ANY navigation state (not just ones whose bindings include it).
@@ -714,11 +721,78 @@ final class CatcherView: NSView, NSMenuItemValidation {
     // text undo instead, so ⌘Z layers correctly (text edits vs calendar edits).
     @objc func undo(_ sender: Any?) { engine?.undo() }
     @objc func redo(_ sender: Any?) { engine?.redo() }
+
+    // ── Clipboard: Copy / Cut / Paste / Delete (Edit menu + ⌘C/⌘X/⌘V, targeting the first responder) ──
+    private static let clipType = NSPasteboard.PasteboardType("com.libirabu.calendarkit.clip")
+
+    @objc func copy(_ sender: Any?) {
+        guard let engine, let id = engine.selectedId, let clip = engine.clipPayload(of: id, full: false) else { NSSound.beep(); return }
+        writeClip(clip)
+    }
+    @objc func cut(_ sender: Any?) {
+        guard let engine, let id = engine.selectedId, engine.cutEligible(id),
+              let clip = engine.clipPayload(of: id, full: true) else { NSSound.beep(); return }   // read-only / ghost / promoted → no cut
+        writeClip(clip)
+        engine.remove(id)   // undoable (beginTxn/commitTxn)
+    }
+    @objc func paste(_ sender: Any?) {
+        guard let engine else { return }
+        if importICSFromPasteboard(engine) { return }        // a system .ics file / VCALENDAR text → import
+        guard let clip = readClip() else { NSSound.beep(); return }
+        if engine.paste(clip) == nil { NSSound.beep() }      // no valid drop target for this kind/view
+    }
+    @objc func delete(_ sender: Any?) {
+        guard engine?.selectedId != nil else { NSSound.beep(); return }
+        onRequestDelete?()   // raise the confirm dialog (imported → "make invisible", recurring → scope)
+    }
+
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
-        case #selector(undo(_:)): return engine?.canUndo ?? false
-        case #selector(redo(_:)): return engine?.canRedo ?? false
+        case #selector(undo(_:)):  return engine?.canUndo ?? false
+        case #selector(redo(_:)):  return engine?.canRedo ?? false
+        case #selector(copy(_:)):  return engine?.selectedId != nil
+        case #selector(delete(_:)):return engine?.selectedId != nil
+        case #selector(cut(_:)):   if let e = engine, let id = e.selectedId { return e.cutEligible(id) }; return false
+        case #selector(paste(_:)): return pasteboardHasPasteable()
         default: return true
         }
+    }
+
+    // ── NSPasteboard plumbing ─────────────────────────────────────────────────────
+    private func writeClip(_ clip: CalendarEngine.ClipPayload) {
+        guard let data = try? JSONEncoder().encode(clip) else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setData(data, forType: Self.clipType)
+        pb.setString(clip.title, forType: .string)   // a plain-text flavor so the title can paste elsewhere
+    }
+    private func readClip() -> CalendarEngine.ClipPayload? {
+        NSPasteboard.general.data(forType: Self.clipType).flatMap { try? JSONDecoder().decode(CalendarEngine.ClipPayload.self, from: $0) }
+    }
+    /// If the system clipboard holds a `.ics` file (Finder copy) or raw VCALENDAR text, import it and
+    /// return true (⌘V then acts as Import). Otherwise false → fall through to the in-app clipboard.
+    private func importICSFromPasteboard(_ engine: CalendarEngine) -> Bool {
+        let pb = NSPasteboard.general
+        if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
+            let ics = urls.filter { $0.pathExtension.lowercased() == "ics" }
+            if !ics.isEmpty {
+                let n = ics.reduce(0) { $0 + ((try? engine.importICS(from: $1)) ?? 0) }
+                if n == 0 { NSSound.beep() }
+                return true
+            }
+        }
+        if let s = pb.string(forType: .string), s.contains("BEGIN:VCALENDAR") {
+            if ((try? engine.importICS(text: s, provenance: "Clipboard")) ?? 0) == 0 { NSSound.beep() }
+            return true
+        }
+        return false
+    }
+    private func pasteboardHasPasteable() -> Bool {
+        let pb = NSPasteboard.general
+        if pb.data(forType: Self.clipType) != nil { return true }
+        if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL],
+           urls.contains(where: { $0.pathExtension.lowercased() == "ics" }) { return true }
+        if let s = pb.string(forType: .string), s.contains("BEGIN:VCALENDAR") { return true }
+        return false
     }
 }

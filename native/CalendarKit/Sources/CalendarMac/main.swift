@@ -203,13 +203,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // repaint. The @AppStorage in CalendarView also observes this key, but the notification is the reliable
     // cross-actor trigger from this AppKit menu.
     @objc func toggleShowHiddenImported(_ sender: NSMenuItem) {
-        let key = CalendarEngine.showHiddenImportedKey
+        let key = PrefKeys.showHiddenImported
         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
         NotificationCenter.default.post(name: .calendarViewPrefsChanged, object: nil)
     }
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(toggleShowHiddenImported(_:)) {
-            item.state = UserDefaults.standard.bool(forKey: CalendarEngine.showHiddenImportedKey) ? .on : .off
+            item.state = UserDefaults.standard.bool(forKey: PrefKeys.showHiddenImported) ? .on : .off
         }
         return true
     }

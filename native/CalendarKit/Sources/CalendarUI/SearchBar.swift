@@ -82,29 +82,28 @@ struct SearchBar: View {
             // Reveal the field/close only after the bar has mostly opened, so the placeholder never
             // renders (and overshoots the capsule clip) while the width is still animating.
             withAnimation(.easeOut(duration: 0.16).delay(0.18)) { contentIn = true }
-            engine.primeSearch()   // warm the corpus now so the first keystroke is already fast
-            recompute()
+            engine.primeSearch()   // warm the corpus in the background so the first keystroke is fast
         }
         .onChange(of: search.expanded) { _, exp in
             if !exp { withAnimation(.easeOut(duration: 0.1)) { contentIn = false } }   // collapsing → hide content first
         }
-        // Debounce: coalesce fast typing so we recompute at most ~once per 80 ms burst.
-        .onChange(of: search.query) { _, _ in
+        // Debounce fast typing, then run the MATCH off the main thread (engine.search is async) so the field
+        // never stutters. A newer keystroke cancels this task; a stale result (query moved on) is dropped.
+        .onChange(of: search.query) { _, q in
             debounce?.cancel()
-            let task = Task { @MainActor in
+            let query = q
+            debounce = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(80))
-                if !Task.isCancelled { recompute() }
+                guard !Task.isCancelled else { return }
+                if query.isEmpty { search.results = []; search.total = 0; search.sel = 0; return }
+                let r = await engine.search(query)
+                guard !Task.isCancelled, query == search.query else { return }   // drop stale results
+                search.results = r.hits
+                search.total = r.total
+                search.sel = 0
             }
-            debounce = task
         }
         .onDisappear { debounce?.cancel() }
-    }
-
-    private func recompute() {
-        let r = engine.searchEvents(search.query)
-        search.results = r.hits
-        search.total = r.total
-        search.sel = 0
     }
     private func move(_ d: Int) {
         guard !search.results.isEmpty else { return }

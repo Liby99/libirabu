@@ -358,7 +358,7 @@ extension CalendarEngine {
     // cached otherwise (NOT per frame / not on scroll). The overlay + hit-test use this as each
     // label's base side; the runtime hover-flip can still override one on top.
     public func deadlineSides() -> [String: Bool] {
-        let detail = z >= DETAIL_Z
+        let detail = z >= ViewConst.detailZ
         // Day view forces every label to the left (one wide column); week/month minimises overlap. Both
         // have detail==true, so the day-view state must be its own cache key or the week assignment
         // would stay cached into day view (labels stuck on the right).

@@ -97,7 +97,7 @@ private struct AccountTab: View {
 // The Settings window is isolated from the running engine, so this talks to EventKit directly and
 // shares state with the engine through UserDefaults + a `.appleCalendarSettingsChanged` notification.
 private struct AppleCalendarRows: View {
-    @AppStorage(CalendarEngine.appleEnabledKey) private var enabled = false
+    @AppStorage(PrefKeys.appleEnabled) private var enabled = false
     @Environment(\.openURL) private var openURL
     @State private var access = CalendarEngine.appleAccess
     @State private var calendars: [AppleCalendarInfo] = []
@@ -114,7 +114,7 @@ private struct AppleCalendarRows: View {
         }
         .padding(.vertical, 2)
         .onAppear {
-            selected = Set(UserDefaults.standard.stringArray(forKey: CalendarEngine.appleCalendarsKey) ?? [])
+            selected = Set(UserDefaults.standard.stringArray(forKey: PrefKeys.appleCalendars) ?? [])
             access = CalendarEngine.appleAccess
             if access == .authorized { calendars = importer.calendars() }
         }
@@ -187,7 +187,7 @@ private struct AppleCalendarRows: View {
                 set: { on in if on { selected.insert(id) } else { selected.remove(id) }; save() })
     }
     private func save() {
-        UserDefaults.standard.set(Array(selected), forKey: CalendarEngine.appleCalendarsKey)
+        UserDefaults.standard.set(Array(selected), forKey: PrefKeys.appleCalendars)
         notifyEngine()
     }
     private func notifyEngine() { NotificationCenter.default.post(name: .appleCalendarSettingsChanged, object: nil) }

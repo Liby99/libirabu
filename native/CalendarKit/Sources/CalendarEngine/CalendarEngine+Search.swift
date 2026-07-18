@@ -24,8 +24,8 @@ extension CalendarEngine {
     }
 
     /// A pre-folded search-index entry — one per display item across all years. Built once per data change
-    /// (see `ensureSearchCorpus`), so a keystroke only scans this array with cheap string ops.
-    struct SearchDoc {
+    /// (see `searchCorpus`); `Sendable` so the match can run OFF the main actor over it.
+    struct SearchDoc: Sendable {
         let id, title, color: String
         let year, month, day: Int        // month 0-based
         let hour: CGFloat?
@@ -40,20 +40,33 @@ extension CalendarEngine {
         let signedDist: Int              // days from today at build time (− = past)
     }
 
-    /// Build the search corpus if stale, else reuse it. Iterating every year here IS the expensive part
-    /// (recurrence expansion + import merge + folding) — but it runs once per edit, not once per keystroke.
-    func ensureSearchCorpus() -> [SearchDoc] {
+    /// Build the search corpus if stale, else reuse it — YIELDING between years so a big rebuild never hogs
+    /// one frame. The expensive part (recurrence expansion + import merge + folding) still runs on the main
+    /// actor, but is spread across the run loop so typing stays smooth. Runs once per data change.
+    func searchCorpus() async -> [SearchDoc] {
         if let c = caches.search, c.gen == caches.editGen { return c.docs }
+        let gen = caches.editGen
+        var docs: [SearchDoc] = []
+        for y in yearOptions {
+            appendSearchDocs(&docs, year: y)
+            await Task.yield()   // let the UI (typing, rendering) breathe between years
+        }
+        if caches.editGen == gen { caches.search = (gen, docs) }   // don't clobber a newer generation
+        return docs
+    }
+
+    /// Fold + index one year's items into the corpus.
+    private func appendSearchDocs(_ docs: inout [SearchDoc], year y: Int) {
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
-        func meta(_ y: Int, _ m: Int, _ d: Int) -> (wd: Int?, dist: Int) {
+        func meta(_ m: Int, _ d: Int) -> (wd: Int?, dist: Int) {
             guard let date = cal.date(from: DateComponents(year: y, month: m + 1, day: d)) else { return (nil, .max) }
             return (cal.component(.weekday, from: date),
                     cal.dateComponents([.day], from: today, to: cal.startOfDay(for: date)).day ?? .max)
         }
-        func doc(_ id: String, _ title: String, _ color: String, _ y: Int, _ m: Int, _ d: Int, _ hour: CGFloat?, _ kind: SearchHit.Kind) -> SearchDoc {
+        func doc(_ id: String, _ title: String, _ color: String, _ m: Int, _ d: Int, _ hour: CGFloat?, _ kind: SearchHit.Kind) -> SearchDoc {
             let tags = richTags(id), note = notes(id)
-            let (wd, dist) = meta(y, m, d)
+            let (wd, dist) = meta(m, d)
             return SearchDoc(id: id, title: title, color: color, year: y, month: m, day: d, hour: hour, kind: kind,
                              base: sourceId(of: id),
                              foldedTitle: Self.searchFold(title),
@@ -61,41 +74,42 @@ extension CalendarEngine {
                              origNotes: note, foldedNotes: Self.searchFold(note),
                              weekday: wd, signedDist: dist)
         }
-        var docs: [SearchDoc] = []
-        for y in yearOptions {
-            for e in displayEvents(for: y)    { docs.append(doc(e.id, e.title, e.color, y, e.month, e.day, e.startHour, .timed)) }
-            for b in displayBands(for: y)     { docs.append(doc(b.id, b.title, b.color, y, b.month, b.startDay, nil, .band)) }
-            for d in displayDeadlines(for: y) { docs.append(doc(d.id, d.title, d.color, y, d.month, d.day, d.hour, .deadline)) }
-        }
-        caches.search = (caches.editGen, docs)
-        return docs
+        for e in displayEvents(for: y)    { docs.append(doc(e.id, e.title, e.color, e.month, e.day, e.startHour, .timed)) }
+        for b in displayBands(for: y)     { docs.append(doc(b.id, b.title, b.color, b.month, b.startDay, nil, .band)) }
+        for d in displayDeadlines(for: y) { docs.append(doc(d.id, d.title, d.color, d.month, d.day, d.hour, .deadline)) }
     }
 
-    /// Warm the corpus — call when the search bar opens (⌘F), so the first keystroke is already fast.
-    public func primeSearch() { _ = ensureSearchCorpus() }
+    /// Warm the corpus — call when the search bar opens (⌘F), so it's ready before the first keystroke.
+    public func primeSearch() { Task { @MainActor [weak self] in _ = await self?.searchCorpus() } }
 
-    /// Word-anchored, multi-field, date-aware search over the cached corpus. Space-separated TERMS all must
-    /// match (AND); a term matches by DATE reading (`2026-09-01`, `8/1`, `jul`, `wed`, a 4-digit year) OR a
-    /// TEXT match — title & tags require a whole-word / word-prefix hit (NOT a fuzzy subsequence: "aaai" won't
-    /// match "amazon ai"); notes allow a contiguous substring. Recurrences collapse to one row; ranked by text
-    /// relevance blended with nearness to today. Returns the top `limit` rows plus the TOTAL match count.
-    public func searchEvents(_ query: String, limit: Int = 30) -> (hits: [SearchHit], total: Int) {
-        let terms = query.split(whereSeparator: { $0.isWhitespace }).map { Self.searchFold(String($0)) }.filter { !$0.isEmpty }
+    /// Async search: grab the (cached) corpus on the main actor, then run the MATCH off the main thread so
+    /// typing never blocks — results arrive when the background match finishes. The caller should ignore a
+    /// result whose query no longer matches the live field (stale). Returns the top `limit` rows + TOTAL count.
+    public func search(_ query: String, limit: Int = 30) async -> (hits: [SearchHit], total: Int) {
+        let corpus = await searchCorpus()
+        return await Task.detached(priority: .userInitiated) { Self.runMatch(query, corpus: corpus, limit: limit) }.value
+    }
+
+    /// The pure matcher — word-anchored (title & tags: whole-word / word-prefix, NOT a fuzzy subsequence, so
+    /// "aaai" won't match "amazon ai"; notes: contiguous substring), date-aware, ranked by relevance × nearness
+    /// to today. Every term must match (AND). `nonisolated` so it runs OFF the main actor over the corpus.
+    nonisolated static func runMatch(_ query: String, corpus: [SearchDoc], limit: Int) -> (hits: [SearchHit], total: Int) {
+        let terms = query.split(whereSeparator: { $0.isWhitespace }).map { searchFold(String($0)) }.filter { !$0.isEmpty }
         guard !terms.isEmpty else { return ([], 0) }
 
         struct Cand { let doc: SearchDoc; let rank: Double; let dist: Int; let tag: String?; let noteTerm: String? }
         var byBase: [String: Cand] = [:]   // sourceId → best occurrence
 
-        for doc in ensureSearchCorpus() {
+        for doc in corpus {
             var total = 0.0
             var tagHit: String?, noteTerm: String?
             var matched = true
             for term in terms {
-                let dateS = Self.dateMatchScore(term, year: doc.year, month0: doc.month, day: doc.day, weekday: doc.weekday)
-                let titleS = Self.wordScore(term, doc.foldedTitle)
+                let dateS = dateMatchScore(term, year: doc.year, month0: doc.month, day: doc.day, weekday: doc.weekday)
+                let titleS = wordScore(term, doc.foldedTitle)
                 var tagS = 0.0, thisTag: String?
                 for (i, ft) in doc.foldedTags.enumerated() {
-                    let s = Self.wordScore(term, ft)
+                    let s = wordScore(term, ft)
                     if s > tagS { tagS = s; thisTag = doc.origTags[i] }
                 }
                 let noteHit = !doc.foldedNotes.isEmpty && doc.foldedNotes.contains(term)   // fast folded substring
@@ -106,7 +120,7 @@ extension CalendarEngine {
                 if noteHit, noteTerm == nil { noteTerm = term }
             }
             guard matched else { continue }
-            let rank = 0.7 * (total / Double(terms.count)) + 0.3 * Self.recencyScore(doc.signedDist)
+            let rank = 0.7 * (total / Double(terms.count)) + 0.3 * recencyScore(doc.signedDist)
             let dist = abs(doc.signedDist)
             if let ex = byBase[doc.base] {
                 if rank > ex.rank || (rank == ex.rank && dist < ex.dist) {
@@ -120,7 +134,7 @@ extension CalendarEngine {
         let ranked = byBase.values.sorted { $0.rank > $1.rank || ($0.rank == $1.rank && $0.dist < $1.dist) }
         // Context ("why it matched") — computed only for the SHOWN rows: a notes snippet, else a #tag.
         let hits = ranked.prefix(limit).map { c -> SearchHit in
-            let snippet = c.noteTerm.map { Self.searchSnippet(c.doc.origNotes, $0) } ?? ""
+            let snippet = c.noteTerm.map { searchSnippet(c.doc.origNotes, $0) } ?? ""
             let context = !snippet.isEmpty ? snippet : (c.tag.map { "#" + $0 } ?? "")
             return SearchHit(id: c.doc.id, title: c.doc.title, color: c.doc.color, year: c.doc.year,
                              month: c.doc.month, day: c.doc.day, hour: c.doc.hour, kind: c.doc.kind, context: context)
@@ -130,7 +144,7 @@ extension CalendarEngine {
 
     // ── Search helpers ────────────────────────────────────────────────────────────
     /// Case- and diacritic-insensitive normalization for all matching.
-    private static func searchFold(_ s: String) -> String {
+    nonisolated private static func searchFold(_ s: String) -> String {
         s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
 
@@ -138,7 +152,7 @@ extension CalendarEngine {
     /// folded). Deliberately NOT a fuzzy subsequence — so "aaai" does NOT match "amazon ai", and "az" does
     /// NOT match "amazon". A whole-word hit scores highest, then a word-prefix; 0 if `term` never starts a
     /// word. (Mid-word substrings don't count — a searched word matches words.)
-    static func wordScore(_ term: String, _ target: String) -> Double {
+    nonisolated static func wordScore(_ term: String, _ target: String) -> Double {
         if term.isEmpty || target.isEmpty || term.count > target.count { return 0 }
         let s = Array(target), t = Array(term)
         var best = 0.0
@@ -152,13 +166,13 @@ extension CalendarEngine {
         }
         return best
     }
-    private static func isWordBoundary(_ c: Character) -> Bool {
+    nonisolated private static func isWordBoundary(_ c: Character) -> Bool {
         " -_/,.:\n#".contains(c)
     }
 
     /// A term's DATE reading scored against an event's date (`month0` 0-based). 0 if the term isn't a date
     /// concept, or is one that doesn't match this date.
-    static func dateMatchScore(_ term: String, year y: Int, month0 m: Int, day d: Int, weekday wd: Int?) -> Double {
+    nonisolated static func dateMatchScore(_ term: String, year y: Int, month0 m: Int, day d: Int, weekday wd: Int?) -> Double {
         let mm = m + 1
         // ISO yyyy-mm-dd
         let iso = term.split(separator: "-", omittingEmptySubsequences: false)
@@ -181,13 +195,13 @@ extension CalendarEngine {
         if let w = weekdayIndex(term), let wd { return w == wd ? 0.8 : 0 }
         return 0
     }
-    private static func monthIndex(_ term: String) -> Int? {   // 1…12
+    nonisolated private static func monthIndex(_ term: String) -> Int? {   // 1…12
         guard term.count >= 3 else { return nil }
         let months = ["january","february","march","april","may","june","july","august","september","october","november","december"]
         for (i, name) in months.enumerated() where name.hasPrefix(term) { return i + 1 }
         return nil
     }
-    private static func weekdayIndex(_ term: String) -> Int? {  // Calendar weekday: 1=Sun … 7=Sat
+    nonisolated private static func weekdayIndex(_ term: String) -> Int? {  // Calendar weekday: 1=Sun … 7=Sat
         if let w = ["tues": 3, "thur": 5, "thurs": 5, "weds": 4][term] { return w }   // non-prefix abbrevs
         guard term.count >= 3 else { return nil }
         let days = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"]
@@ -196,13 +210,13 @@ extension CalendarEngine {
     }
     /// Today-relevance in (0,1]: 1 at today, decaying with distance; past dates are mildly penalized so
     /// upcoming/recent events float up and years-old ones sink.
-    private static func recencyScore(_ signedDays: Int) -> Double {
+    nonisolated private static func recencyScore(_ signedDays: Int) -> Double {
         if signedDays == .max { return 0 }
         let r = 1.0 / (1.0 + Double(abs(signedDays)) / 45.0)
         return signedDays < 0 ? r * 0.7 : r
     }
     /// A short one-line snippet of `notes` around the first occurrence of `term`, with ellipses.
-    private static func searchSnippet(_ notes: String, _ term: String) -> String {
+    nonisolated private static func searchSnippet(_ notes: String, _ term: String) -> String {
         guard let r = notes.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) else { return "" }
         let pad = 24
         let start = notes.index(r.lowerBound, offsetBy: -pad, limitedBy: notes.startIndex) ?? notes.startIndex

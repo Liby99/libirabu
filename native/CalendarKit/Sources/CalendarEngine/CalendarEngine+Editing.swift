@@ -419,4 +419,156 @@ extension CalendarEngine {
         if abs(s - tlScroll) < 0.5 { return }
         anim.tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: 0.25, ease: easeInOut)
     }
+
+    // ── Clipboard: copy / cut / paste ──────────────────────────────────────────────
+    /// A copied/cut event. `move` is present only for CUT — a full-fidelity move that carries recurrence,
+    /// promotion, and per-occurrence notes so paste reproduces the whole thing. A plain copy has move==nil
+    /// and pastes as a single isolated event (repeat/promotion dropped).
+    public struct ClipPayload: Codable, Sendable {
+        public var kind: String            // ItemKind rawValue: "timed" | "band" | "deadline"
+        public var title: String
+        public var color: String
+        public var notes: String
+        public var tags: [String]
+        public var durationHours: CGFloat  // timed span
+        public var spanDays: Int           // band length (endDay - startDay)
+        public var move: MovePayload?
+    }
+    public struct MovePayload: Codable, Sendable {
+        public var repeatJSON: String?
+        public var promoteTrack: Int?
+        public var occurrenceNotes: [String: String]?
+        public var baseYear: Int, baseMonth: Int, baseDay: Int   // the source's date → the move's offset origin
+    }
+
+    /// True when a box may be CUT: only a base/source box (no occurrence `@`, promoted `~p`, or segment
+    /// `#seg` marker) that isn't imported (read-only). Cutting the SOURCE of a recurring series moves the
+    /// whole series in one step; a ghost occurrence / promoted mirror / imported event is not cuttable.
+    public func cutEligible(_ boxId: String) -> Bool {
+        sourceId(of: boxId) == boxId && !isImported(boxId)
+    }
+
+    /// Build a clipboard payload from a selected box. `full` (cut) captures recurrence + promotion + per-
+    /// occurrence notes so paste reproduces the whole thing; a copy captures only title/color/notes/tags.
+    /// Resolves through `sourceId`, so copying a ghost/promoted box copies its SOURCE's data.
+    public func clipPayload(of boxId: String, full: Bool) -> ClipPayload? {
+        let sid = sourceId(of: boxId)
+        let kind: String, title: String, color: String
+        var dur: CGFloat = 1, span = 0, by = year, bm = focus, bd = 1
+        if let e = event(sid) { kind = "timed"; title = e.title; color = colorOverride(sid) ?? e.color; dur = max(0.25, e.endHour - e.startHour); by = e.year; bm = e.month; bd = e.day }
+        else if let b = band(sid) { kind = "band"; title = b.title; color = colorOverride(sid) ?? b.color; span = max(0, b.endDay - b.startDay); by = b.year; bm = b.month; bd = b.startDay }
+        else if let d = deadline(sid) { kind = "deadline"; title = d.title; color = colorOverride(sid) ?? d.color; by = d.year; bm = d.month; bd = d.day }
+        else { return nil }
+        var move: MovePayload? = nil
+        if full {
+            let rf = items.richById[sid]
+            move = MovePayload(repeatJSON: rf?.repeatJSON, promoteTrack: rf?.promoteTrack,
+                               occurrenceNotes: rf?.occurrenceNotes, baseYear: by, baseMonth: bm, baseDay: bd)
+        }
+        return ClipPayload(kind: kind, title: title, color: color, notes: notes(sid), tags: richTags(sid),
+                           durationHours: dur, spanDays: span, move: move)
+    }
+
+    /// Paste the clipboard at the active cursor (keyboard block/band cursor, else the mouse pointer),
+    /// kind-gated: timed/deadline drop onto the week/day hourly timeline, bands onto the month band lanes.
+    /// Returns the new id, or nil when there's no valid target for that kind. One undo step; selects it.
+    @discardableResult
+    public func paste(_ clip: ClipPayload) -> String? {
+        switch clip.kind {
+        case "timed", "deadline":
+            guard let t = timelinePasteTarget() else { return nil }
+            let delta = clip.move.map { dayDiff($0.baseYear, $0.baseMonth, $0.baseDay, t.year, t.month, t.day) } ?? 0
+            beginTxn()
+            let id = "new-\(UUID().uuidString)"
+            if clip.kind == "timed" {
+                let d = max(0.25, clip.durationHours)
+                let start = max(0, min(24 - d, snap(t.hour, 30)))
+                items.events.append(TimedEvent(id: id, year: t.year, month: t.month, day: t.day, startHour: start, endHour: start + d, title: clip.title, color: clip.color, anchorTz: anchorNow))
+            } else {
+                let hour = max(0, min(23.75, snap(t.hour, 30)))
+                items.deadlines.append(Deadline(id: id, year: t.year, month: t.month, day: t.day, hour: hour, title: clip.title, color: clip.color, anchorTz: anchorNow))
+            }
+            items.richById[id] = pasteRich(clip, newId: id, delta: delta)
+            selectedId = id; commitTxn()
+            return id
+        case "band":
+            guard let t = bandPasteTarget() else { return nil }
+            let end = min(daysInMonth(t.year, t.month), t.startDay + max(0, clip.spanDays))
+            let delta = clip.move.map { dayDiff($0.baseYear, $0.baseMonth, $0.baseDay, t.year, t.month, t.startDay) } ?? 0
+            beginTxn()
+            let id = "new-\(UUID().uuidString)"
+            items.bands.append(BandEvent(id: id, year: t.year, month: t.month, track: t.track, startDay: t.startDay, endDay: end, title: clip.title, color: clip.color))
+            items.richById[id] = pasteRich(clip, newId: id, delta: delta)
+            selectedId = id; commitTxn()
+            return id
+        default: return nil
+        }
+    }
+
+    private func pasteRich(_ clip: ClipPayload, newId: String, delta: Int) -> RichFields {
+        // A copy carries no `move` → notes+tags only; a cut carries recurrence/promotion/occ-notes, with
+        // the recurrence dates and occurrence-note keys shifted by the move's day offset ("preserving offset").
+        RichFields(notes: clip.notes.isEmpty ? nil : clip.notes,
+                   tags: clip.tags,
+                   repeatJSON: clip.move.flatMap { shiftedRepeat($0.repeatJSON, byDays: delta) },
+                   promoteTrack: clip.move?.promoteTrack,
+                   source: "manual",
+                   occurrenceNotes: clip.move.flatMap { shiftedOccNotes($0.occurrenceNotes, newId: newId, byDays: delta) })
+    }
+
+    /// Timeline (week/day) paste target — the keyboard block cursor if it's active, else the mouse pointer.
+    /// nil unless we're on an hourly timeline (week/day view / a pointer over the timeline).
+    private func timelinePasteTarget() -> (year: Int, month: Int, day: Int, hour: CGFloat)? {
+        if cursor.keyboardActive {
+            guard level(z) >= 2 else { return nil }
+            let day = level(z) == 2 ? cursor.blockDay : daily.dom
+            return (year, focus, day, cursor.blockHour)
+        }
+        guard let p = pointerPos, let s = createSpot(at: p, snapshot()) else { return nil }
+        return (s.year, s.month, s.day, s.anchor)
+    }
+    /// Band paste target — the keyboard band cursor if active, else the mouse pointer over a band lane.
+    private func bandPasteTarget() -> (year: Int, month: Int, track: Int, startDay: Int)? {
+        if cursor.keyboardActive {
+            guard cursor.bandCursorActive else { return nil }
+            let m = level(z) == 0 ? cursor.blockMonth : focus
+            return (year, m, cursor.bandCurTrack, min(daysInMonth(year, m), max(1, cursor.blockDay)))
+        }
+        guard let p = pointerPos else { return nil }
+        let g = snapshot()
+        for m in candidateBandMonths(p, g) {
+            let f = frameFor(m, g)
+            guard f.trackH > 0, f.dayW > 0, p.y >= f.bandY, p.y < f.bandY + 4 * f.trackH else { continue }
+            let track = max(0, min(3, Int((p.y - f.bandY) / f.trackH)))
+            let day = max(1, min(daysInMonth(year, m), Int((p.x - f.x0) / f.dayW) + 1))
+            return (year, m, track, day)
+        }
+        return nil
+    }
+
+    private func shiftedRepeat(_ json: String?, byDays delta: Int) -> String? {
+        guard var r = Repeat.parse(json) else { return nil }
+        if delta != 0 {
+            r.until = r.until.map { shiftDateString($0, delta) }
+            r.exdates = r.exdates?.map { shiftDateString($0, delta) }
+        }
+        return (try? JSONEncoder().encode(r)).flatMap { String(data: $0, encoding: .utf8) }
+    }
+    private func shiftDateString(_ s: String, _ delta: Int) -> String {   // "YYYY-MM-DD" (1-based month)
+        let p = s.split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3 else { return s }
+        let nd = addDays(p[0], p[1] - 1, p[2], delta)
+        return String(format: "%04d-%02d-%02d", nd.0, nd.1 + 1, nd.2)
+    }
+    private func shiftedOccNotes(_ notes: [String: String]?, newId: String, byDays delta: Int) -> [String: String]? {
+        guard let notes, !notes.isEmpty else { return nil }
+        var out: [String: String] = [:]
+        for (key, val) in notes {   // key = "sourceId@Y-M-D" (occKey month is 0-based); sourceId has no '@' (non-imported base)
+            let comps = key.components(separatedBy: "@")
+            guard comps.count == 2, let d = Optional(comps[1].split(separator: "-").compactMap { Int($0) }), d.count == 3 else { out[key] = val; continue }
+            let nd = addDays(d[0], d[1], d[2], delta)
+            out["\(newId)@\(nd.0)-\(nd.1)-\(nd.2)"] = val
+        }
+        return out
+    }
 }
