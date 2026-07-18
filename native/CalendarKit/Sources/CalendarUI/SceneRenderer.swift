@@ -50,8 +50,8 @@ enum SceneRenderer {
     }
 
     /// Above the events, below the chrome: deadlines (self-clip to the content area).
-    static func drawMid(input: SceneInput, deadlines: [Deadline], selected: String?, drawerOpen: Bool = false, hovered: String? = nil, in ctx: inout GraphicsContext, theme: Theme) {
-        drawDeadlines(input, deadlines, selected, drawerOpen, hovered, &ctx, theme)
+    static func drawMid(input: SceneInput, deadlines: [Deadline], selected: String?, drawerOpen: Bool = false, hovered: String? = nil, only: String? = nil, hide: String? = nil, in ctx: inout GraphicsContext, theme: Theme) {
+        drawDeadlines(input, deadlines, selected, drawerOpen, hovered, only, hide, &ctx, theme)
     }
 
     /// Chrome, each clipped to its own region so it can't collide with content:
@@ -200,21 +200,21 @@ enum SceneRenderer {
 
     // Deadlines: a colored horizontal rule across the day column at the deadline's
     // hour, with end dots + a title/time pill. Clipped to the visible day area.
-    private static func drawDeadlines(_ input: SceneInput, _ deadlines: [Deadline], _ selected: String?, _ drawerOpen: Bool, _ hovered: String?, _ ctx: inout GraphicsContext, _ theme: Theme) {
+    private static func drawDeadlines(_ input: SceneInput, _ deadlines: [Deadline], _ selected: String?, _ drawerOpen: Bool, _ hovered: String?, _ only: String?, _ hide: String?, _ ctx: inout GraphicsContext, _ theme: Theme) {
         let anim = input.monthAnim
         // Outgoing (current) month — slides + fades out during a page-turn (anim==nil → resting).
         let outMul = anim.map { outgoingDetailReveal($0.p) } ?? 1
-        drawDeadlineLayer(input, deadlines, selected, drawerOpen, hovered, &ctx, theme, focus: input.focus, anim: anim, fadeMul: outMul)
+        drawDeadlineLayer(input, deadlines, selected, drawerOpen, hovered, only, hide, &ctx, theme, focus: input.focus, anim: anim, fadeMul: outMul)
         // Incoming month during a page-turn: its deadlines slide in + fade in with its timeline.
         if let anim {
             let to = input.focus + anim.dir
             if to >= 0, to <= 11 {
-                drawDeadlineLayer(input, deadlines, selected, drawerOpen, hovered, &ctx, theme, focus: to, anim: anim, fadeMul: incomingDetailReveal(anim.p))
+                drawDeadlineLayer(input, deadlines, selected, drawerOpen, hovered, only, hide, &ctx, theme, focus: to, anim: anim, fadeMul: incomingDetailReveal(anim.p))
             }
         }
     }
 
-    private static func drawDeadlineLayer(_ input: SceneInput, _ deadlinesIn: [Deadline], _ selected: String?, _ drawerOpen: Bool, _ hovered: String?, _ ctx: inout GraphicsContext, _ theme: Theme, focus: Int, anim: PageAnim?, fadeMul: CGFloat) {
+    private static func drawDeadlineLayer(_ input: SceneInput, _ deadlinesIn: [Deadline], _ selected: String?, _ drawerOpen: Bool, _ hovered: String?, _ only: String?, _ hide: String?, _ ctx: inout GraphicsContext, _ theme: Theme, focus: Int, anim: PageAnim?, fadeMul: CGFloat) {
         let tl = timelineInfo(input, focus: focus, anim: anim)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return }
         // Draw the hovered / selected deadline LAST so its moment line + dots sit on top of neighbors.
@@ -232,6 +232,8 @@ enum SceneRenderer {
         clip.clip(to: Path(CGRect(x: Layout.labelW - dotR, y: tl.tlTop, width: max(0, clipRight - Layout.labelW + 2 * dotR), height: tl.tlBottom - tl.tlTop)))
         var gf = input; gf.focus = focus
         for d in deadlines {
+            if let only, d.id != only { continue }   // lifted copy → draw ONLY this deadline
+            if let hide, d.id == hide { continue }    // blurred main scene → SKIP it (drawn sharp in the lift)
             guard let pos = deadlinePos(d, input, focus: focus, anim: anim) else { continue }
             let rd = relDomOf(input.year, focus, d.year, d.month, d.day) ?? -999
             let spill = (input.z >= 1.5) ? spillFactor(d.month, gf) : 1   // dim spillover-day deadlines; cross-fade on flip

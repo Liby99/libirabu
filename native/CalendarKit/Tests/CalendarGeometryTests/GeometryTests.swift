@@ -10,11 +10,12 @@ final class GeometryTests: XCTestCase {
     }
 
     func testYearFrameLayout() {
-        // Jan sits at the top of Q1: bandY = topPad + qHeaderH.
+        // Jan sits at the top of Q1. The YEAR view uses its own small top inset (Layout.yearTop —
+        // no date row up there); topPad is the MONTH-level inset the zoom-in accordion lands on.
         let f = frameFor(0, input(z: 0))
         XCTAssertEqual(f.x0, Layout.labelW, accuracy: 0.001)
         XCTAssertEqual(f.dayW, (vp.w - Layout.labelW) / 31, accuracy: 0.001)
-        XCTAssertEqual(f.bandY, Layout.topPad + Layout.qHeaderH, accuracy: 0.001)
+        XCTAssertEqual(f.bandY, Layout.yearTop + Layout.qHeaderH, accuracy: 0.001)
     }
 
     func testWeekFrameWidensDays() {

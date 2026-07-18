@@ -94,7 +94,11 @@ enum LLMClient {
         let key = (Keychain.get(account: keychainAccount) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw LLMError.missingKey }
 
-        var request = URLRequest(url: URL(string: baseURL + "/compat/chat/completions")!)
+        // The base URL is user-overridable (UserDefaults) — never force-unwrap it.
+        guard let endpoint = URL(string: baseURL + "/compat/chat/completions") else {
+            throw LLMError.http(status: 0, body: "invalid assistant base URL: \(baseURL)")
+        }
+        var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")

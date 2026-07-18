@@ -23,6 +23,13 @@ public let TRACKS: [Track] = [
     Track(id: 3, name: "Travel", color: "green"),
 ]
 
+/// A Date's local wall-clock day as "yyyy-MM-dd" — the app's canonical day-key format
+/// (daily notes, backup filenames, prompt dates). One formatter, not ad-hoc copies.
+public func isoDayString(_ date: Date = Date()) -> String {
+    let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
+    return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 1, c.day ?? 1)
+}
+
 private let DIM = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 public func isLeapYear(_ y: Int) -> Bool { (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 }
 public func daysInMonth(_ year: Int, _ month: Int) -> Int {

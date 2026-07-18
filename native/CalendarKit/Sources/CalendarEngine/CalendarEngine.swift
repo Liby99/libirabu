@@ -73,10 +73,23 @@ public final class CalendarEngine {
     public private(set) var daily: DailyState
     public private(set) var monthAnim: PageAnim?   // vertical month↕month page-turn (nil = settled)
     public private(set) var hover: Hover = .none
+    public private(set) var pointerPos: CGPoint?   // last hover point (calendar space) → is the cursor on the deadline "+"?
     public private(set) var year: Int
     public let systemYear: Int          // the real "today" year at launch — anchors the picker range
     public var mainTz: String = "auto"  // deadline main timezone (for origin-tz labels); "auto" = device zone
+    public var altTz: String = "none"   // View ▸ Alternative Timezone → the second hour column; "none" = off
     public private(set) var now: Date = Date()
+
+    /// Fractional-hour shift for the alt-tz hour column (nil = off). DST-aware at `now`.
+    private var altDeltaHours: CGFloat? {
+        guard altTz != "none", !altTz.isEmpty, altTz != mainTz else { return nil }
+        return CGFloat(DeadlineTZ.hourShift(from: mainTz, to: altTz, at: now))
+    }
+    /// Header abbreviation for the alt-tz column (e.g. "JST"), nil when off.
+    private var altColumnLabel: String? {
+        guard altTz != "none", !altTz.isEmpty, altTz != mainTz else { return nil }
+        return DeadlineTZ.shortLabel(altTz, at: now)
+    }
     public var weekHourH: CGFloat = 60
     public private(set) var viewport: Viewport = Viewport(w: 1, h: 1)
     public private(set) var seedEvents: [TimedEvent] = []
@@ -159,6 +172,9 @@ public final class CalendarEngine {
     public var bandEditing = false        // an inline band-title field is open (freezes scroll)
     public var onEditTimed: ((_ id: String, _ rect: CGRect) -> Void)?  // open inline timed-title editor
     public var timedEditing = false       // an inline timed-event-title field is open (freezes scroll)
+    /// Open the detail drawer for a just-created item (deadline "+"); `selectTitle` → focus + select-all
+    /// the default title so typing replaces it. Wired to the UI (ui.openEventId + ui.selectTitleOnOpen).
+    public var onRequestOpenDrawer: ((_ id: String, _ selectTitle: Bool) -> Void)?
     public var drawerOpen = false         // the detail drawer is open → suppress calendar hover
     // Fired after an EXTERNAL data change (Apple re-import / iCloud remote apply) that may have removed the
     // item a drawer/dialog is showing. The UI re-validates and closes anything pointing at a vanished item.
@@ -293,6 +309,78 @@ public final class CalendarEngine {
     /// CloudKit types stay contained in CloudSync; this just re-exports the module enum.
     public static func iCloudStatus() async -> ICloudStatus { await CloudSync.iCloudStatus() }
 
+    // ── Demo / GIF-recording mode ──────────────────────────────────────────────────────────────
+    /// True when launched for automated tutorial-GIF recording (env CC_DEMO=<scene>). In this mode the
+    /// store is redirected to a throwaway dir (see ItemStore) and Apple Calendar import is skipped, so a
+    /// recording never touches personal data. The DemoController scripts the on-screen scene.
+    public static var isDemoMode: Bool { !(ProcessInfo.processInfo.environment["CC_DEMO"] ?? "").isEmpty }
+    public static var demoScene: String { ProcessInfo.processInfo.environment["CC_DEMO"] ?? "" }
+    /// Wipe the calendar to an empty state (recording scenes build their own deterministic content).
+    public func demoClearEvents() {
+        seedEvents = []; seedBands = []; seedDeadlines = []; richById = [:]
+        selectedId = nil; editGen &+= 1; deadlineGen &+= 1; wake()
+    }
+    /// Insert one ambient timed event (recording scenes; not on the undo stack, not selected).
+    @discardableResult
+    public func demoAddTimed(month: Int, day: Int, startHour: CGFloat, endHour: CGFloat, title: String, color: String) -> String {
+        let id = "demo-\(seedEvents.count)"
+        seedEvents.append(TimedEvent(id: id, year: year, month: month, day: day, startHour: startHour, endHour: endHour, title: title, color: color))
+        editGen &+= 1; deadlineGen &+= 1; wake()
+        return id
+    }
+    /// Insert one ambient all-day band (recording scenes; not selected).
+    @discardableResult
+    public func demoAddBand(month: Int, track: Int, startDay: Int, endDay: Int, title: String, color: String) -> String {
+        let id = "demob-\(seedBands.count)"
+        seedBands.append(BandEvent(id: id, year: year, month: month, track: track, startDay: startDay, endDay: endDay, title: title, color: color))
+        editGen &+= 1; deadlineGen &+= 1; wake()
+        return id
+    }
+    // Drive the REAL pointer/create path from VIEW-local points (GeometryReader space, 0,0 = top-left), so a
+    // scripted drag creates an event exactly under the synthetic cursor — with the live create-preview. This
+    // mirrors CatcherView.point(): geometry space = view − padLeft (+ the live drawer shift).
+    private func demoViewToGeometry(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x - Layout.padLeft + drawerShift, y: p.y) }
+    public func demoPointerDown(atView p: CGPoint) { onPointerDown(at: demoViewToGeometry(p)) }
+    public func demoPointerDrag(atView p: CGPoint) { onPointerDrag(at: demoViewToGeometry(p)) }
+    public func demoPointerUp(atView p: CGPoint)   { onPointerUp(at: demoViewToGeometry(p)) }
+    /// Rename the currently-selected event (recording scenes give a freshly drag-created event a real title).
+    public func demoRenameSelected(_ title: String) {
+        guard let id = selectedId, let i = seedEvents.firstIndex(where: { $0.id == id }) else { return }
+        seedEvents[i].title = title; editGen &+= 1; wake()
+    }
+    /// Rename the currently-selected BAND (band scenes name their freshly drag-created band).
+    public func demoRenameSelectedBand(_ title: String) {
+        guard let id = selectedId, let i = seedBands.firstIndex(where: { $0.id == id }) else { return }
+        seedBands[i].title = title; editGen &+= 1; wake()
+    }
+    /// Snap the view to year level, scrolled so `centerMonth` is visible (deterministic scene setup).
+    public func demoGoToYear(centerMonth: Int) {
+        cancelTween()
+        z = 0; focus = centerMonth
+        ensureMonthVisible(centerMonth, animated: false)
+        editGen &+= 1; deadlineGen &+= 1; wake()
+    }
+    /// Drive the REAL pinch path (`onMagnify`) from a view point, so the month/week/day under `v` is exactly
+    /// what fills the screen (`captureFocus` anchors on the pinch point — unlike the keyboard/block zoom,
+    /// which snaps to the block cursor / today). The recording's pinch visual is drawn at this same point, so
+    /// the gesture and the zoom target always line up. `delta` is trackpad-style magnification (PINCH_SENS
+    /// scales it into z); a full single-level pinch accumulates ≈0.7 (see DemoController.pinch).
+    public func demoMagnify(delta: CGFloat, atView v: CGPoint, began: Bool, ended: Bool) {
+        onMagnify(delta: delta, at: demoViewToGeometry(v), began: began, ended: ended)
+    }
+    /// Double-click an item at a view point: select it (so it highlights) and open its drawer — the same
+    /// outcome as a real double-click. Returns the item id, or nil if nothing was under the point.
+    @discardableResult
+    public func demoDoubleClick(atView v: CGPoint) -> String? {
+        guard let id = itemId(at: demoViewToGeometry(v)) else { return nil }
+        selectedId = id
+        onRequestOpenDrawer?(id, false)
+        editGen &+= 1; wake()
+        return id
+    }
+    /// Select an item by id (highlight it), e.g. a just-created event in the AI scene.
+    public func demoSelect(_ id: String?) { selectedId = id; editGen &+= 1; wake() }
+
     // ── Apple Calendar import (EventKit) ──────────────────────────────────────────────
     // Enabled-state + selected calendars live in UserDefaults so the (separate) Settings window and the
     // running engine share them without a direct reference; Settings posts `.appleCalendarSettingsChanged`
@@ -319,6 +407,7 @@ public final class CalendarEngine {
     /// events (full-window re-fetch; Apple has no incremental cursor). Disabled/unauthorized → clears
     /// any previously-imported set. Cheap to call on launch, foreground, and settings change.
     public func importAppleCalendar() {
+        if Self.isDemoMode { return }   // recording session → never touch the user's Apple Calendar
         // Proceed unless disabled or access is explicitly DENIED. We don't require `.authorized` here:
         // the status lags for a beat after a fresh grant, but `fetch()` asks the store directly and
         // returns real events during that window (empty if truly no access), so the first import right
@@ -410,7 +499,7 @@ public final class CalendarEngine {
                                                     location: e.location, organizer: e.organizer,
                                                     attendees: e.attendees.map { ($0.name, $0.status) }, description: e.notes)
             }
-            events.append(TimedEvent(id: id, year: y, month: m, day: d, startHour: sh, endHour: max(sh + 0.25, eh), title: e.title, color: Self.nearestEventColor(e.colorHex)))
+            events.append(TimedEvent(id: id, year: y, month: m, day: d, startHour: sh, endHour: max(sh + 0.25, eh), title: e.title, color: Self.nearestEventColor(e.colorHex), anchorTz: DeadlineTZ.concrete("auto")))
         }
         // Refresh each series' managed note at its series key, preserving the user's postfix; a series with
         // no visible occurrence drops the managed block (keeps any user text). Only series that already have
@@ -457,7 +546,8 @@ public final class CalendarEngine {
         beginTxn()
         let newId = "new-\(UUID().uuidString)"
         seedEvents.append(TimedEvent(id: newId, year: e.year, month: e.month, day: e.day,
-                                     startHour: e.startHour, endHour: e.endHour, title: e.title, color: importedDisplayColor(e)))
+                                     startHour: e.startHour, endHour: e.endHour, title: e.title, color: importedDisplayColor(e),
+                                     anchorTz: DeadlineTZ.concrete("auto")))   // imported events are device-local wall-clock
         // Carry the user overlays — notes (managed block + any typed text), tags, promote lane — into a
         // fresh, manual rich-fields entry. They live at the imported SERIES key; the copy is a normal local
         // event from here on (source defaults to "manual"; the vendor color is baked into the event above).
@@ -524,9 +614,9 @@ public final class CalendarEngine {
         focus = (c.month ?? 1) - 1
         blockMonth = focus; blockDay = c.day ?? 1
         daily = DailyState(dom: c.day ?? 1, frac: 0.45)
-        seedEvents = Self.makeSeeds(year: year, month: focus, day: c.day ?? 15)
-        seedBands = Self.makeSeedBands(year: year, month: focus)
-        seedDeadlines = Self.makeSeedDeadlines(year: year, month: focus, day: c.day ?? 15)
+        // No placeholder seed events (regular OR recording mode) — a fresh install starts with an empty
+        // calendar; the recording scenes seed their own ambient data. Existing users load from the store below.
+        seedEvents = []; seedBands = []; seedDeadlines = []
         // self is now fully initialized — restore persisted edits over the seeds.
         if let s = store.load() {
             seedEvents = s.events; seedBands = s.bands; seedDeadlines = s.deadlines
@@ -542,6 +632,8 @@ public final class CalendarEngine {
             persistNow()   // seed the store on first launch
         }
         mainTz = UserDefaults.standard.string(forKey: Self.mainTzKey) ?? "auto"   // View ▸ Current Timezone
+        altTz = UserDefaults.standard.string(forKey: Self.altTzKey) ?? "none"     // View ▸ Alternative Timezone
+        migrateAnchors()   // stamp anchorTz on legacy items (needs mainTz resolved above)
         // Resume the create-counter past any persisted new-/newb- ids so fresh items don't
         // collide with reloaded ones (which produced duplicate SwiftUI ForEach ids).
         for id in seedEvents.map(\.id) + seedBands.map(\.id) {
@@ -563,6 +655,39 @@ public final class CalendarEngine {
         pushChrome()
         enableCloudSyncIfEntitled()
         armSleep()   // an untouched app settles to a paused (idle) render after the initial frame
+    }
+
+    /// A fixed anchor for a freshly created item: the current view (main) zone, resolved to a concrete
+    /// id so it never drifts with the device (a stored anchor must not be "auto").
+    private var anchorNow: String { DeadlineTZ.concrete(mainTz) }
+
+    /// One-time backfill so every timed event and deadline carries an explicit `anchorTz` — the display
+    /// pipeline needs it to convert into the current view zone. Legacy items stored their wall-clock in
+    /// the main tz, so the anchor IS the (resolved) main tz and the stored hours stay valid untouched.
+    /// A deadline that carried a legacy `originTz` is RE-ANCHORED to that origin (its `hour` was the
+    /// main-tz equivalent, so we re-express it as the origin wall-clock), preserving both the instant and
+    /// the "(AOE 23:59)" label. Idempotent — items that already have an anchor are skipped.
+    private func migrateAnchors() {
+        let main = DeadlineTZ.concrete(mainTz)
+        var changed = false
+        for i in seedEvents.indices where seedEvents[i].anchorTz == nil {
+            seedEvents[i].anchorTz = main; changed = true
+        }
+        for i in seedDeadlines.indices where seedDeadlines[i].anchorTz == nil {
+            let d = seedDeadlines[i]
+            if let origin = d.originTz,
+               !DeadlineTZ.sameOffset(origin, mainTz, at: DeadlineTZ.instant(d.year, d.month, d.day, d.hour)) {
+                let w = DeadlineTZ.convertWall(d.year, d.month, d.day, d.hour, from: mainTz, to: origin)
+                seedDeadlines[i].year = w.year; seedDeadlines[i].month = w.month
+                seedDeadlines[i].day = w.day; seedDeadlines[i].hour = w.hour
+                seedDeadlines[i].anchorTz = DeadlineTZ.concrete(origin)
+            } else {
+                seedDeadlines[i].anchorTz = main
+            }
+            seedDeadlines[i].originTz = nil   // folded into anchorTz; the legacy field is retired
+            changed = true
+        }
+        if changed { persistNow() }
     }
 
     // ── Persistence ─────────────────────────────────────────────────────────────
@@ -768,7 +893,8 @@ public final class CalendarEngine {
     private func snapshot() -> SceneInput {
         SceneInput(z: z, focus: focus, week: week, vp: viewport, scrollY: scrollY, tlScroll: tlScroll,
                    now: now, year: year, hover: blockHoverOverride() ?? hover, weekHourH: weekHourH, daily: daily,
-                   monthAnim: monthAnim, yearPull: yearPull, flipFade: flipFade,
+                   monthAnim: monthAnim, altDeltaHours: altDeltaHours, altLabel: altColumnLabel,
+                   yearPull: yearPull, flipFade: flipFade,
                    animating: tween != nil || scrollTween != nil || tlScrollTween != nil || weekTween != nil || dayTween != nil || flipAnim != nil || monthAnim != nil || weekFlip != nil || dayFlip != nil,
                    monthPull: monthPull, monthFlipShift: monthFlipShift, weekPull: weekPull,
                    weekFlipDir: weekFlip?.dir ?? 0, weekFlipFade: weekFlipFade, dayPull: dayPull, mainTz: mainTz)
@@ -1630,7 +1756,11 @@ public final class CalendarEngine {
 
     /// Current wall-clock time as a fractional hour (0–24), for anchoring the timeline scroll.
     private func nowFrac() -> CGFloat {
-        let c = Calendar.current.dateComponents([.hour, .minute], from: now)
+        // The now-line sits at the current instant expressed in the VIEW (main) timezone, so it lines up
+        // with events once they're converted into that zone (not the device zone, which may differ).
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: DeadlineTZ.iana(mainTz)) ?? .current
+        let c = cal.dateComponents([.hour, .minute], from: now)
         return CGFloat(c.hour ?? 0) + CGFloat(c.minute ?? 0) / 60
     }
 
@@ -1691,6 +1821,16 @@ public final class CalendarEngine {
         if z >= DETAIL_Z, let id = deadlineAt(p, g) {
             selectedId = id
             drag = Drag(kind: .ddlMove, startPoint: p, eventId: id, origDdl: seedDeadlines.first { $0.id == id })
+            return
+        }
+        // 3b. deadline quick-add "+" (near a day's left edge, on an hour line) → create a deadline and
+        //     open the drawer with its default title selected. Checked before the empty-timeline drag so
+        //     a click on the "+" creates a deadline rather than starting a timed-event drag.
+        if z >= 1.5, let spot = deadlineAddSpot(g), hypot(p.x - spot.x, p.y - spot.y) < 12 {
+            let id = createDeadline(year: spot.year, month: spot.month, day: spot.day,
+                                    hour: CGFloat(spot.hour), title: "New Deadline", color: "default")
+            onRequestOpenDrawer?(id, true)
+            drag = nil
             return
         }
         // 4. empty timeline → a DRAG creates; a plain click deselects (if something was
@@ -1846,20 +1986,18 @@ public final class CalendarEngine {
     }
 
     private func drawerShiftTarget(id: String, drawerWidth D: CGFloat) -> CGFloat {
-        guard z < 2.5 else { print("[shift] z=\(z) ≥ 2.5 (daily) → 0"); return 0 }   // daily: dashboard owns the right
+        guard z < 2.5 else { return 0 }   // daily: dashboard owns the right
         // Center on the specific focused OCCURRENCE, not the series base. `selectedId` holds the
         // clicked box id (a recurrence occurrence carries a synthetic occKey), while `id` here is the
         // drawer's collapsed source id. Prefer the selected box when it belongs to this same series.
         let boxId = (selectedId.flatMap { sourceId(of: $0) == id ? $0 : nil }) ?? id
         // If we can't locate the box, DON'T shift — a bogus center (e.g. viewport middle) would
         // over-shift a left-edge item off-screen. With a real center the clamp keeps it on-screen.
-        guard let X = itemCenterViewportX(boxId) else { print("[shift] no center: id=\(id) box=\(boxId) sel=\(selectedId ?? "nil") z=\(z) → 0"); return 0 }
+        guard let X = itemCenterViewportX(boxId) else { return 0 }
         let W = viewport.w + Layout.padLeft + Layout.padRight        // window width
         // Place the event at the centre of the free area left of the drawer, (W − D)/2: shift left by
         // X − (W − D)/2; never shift right (≥ 0); never more than a drawer width (≤ D).
-        let s = min(max(0, X - (W - D) / 2), D)
-        print("[shift] box=\(boxId) X=\(Int(X)) W=\(Int(W)) D=\(Int(D)) → \(Int(s))")
-        return s
+        return min(max(0, X - (W - D) / 2), D)
     }
 
     /// The item's horizontal center in window coordinates (geometry x + padLeft), or nil if it
@@ -2667,36 +2805,95 @@ public final class CalendarEngine {
         return withPreview(items, { $0.id }, { $0.color = $1 })
     }
 
+    /// Re-express a stored (anchor-tz) timed event as a DISPLAY copy in the current main tz: the start
+    /// date/time is converted (normalized across midnight, so year/month/day may change), and the end
+    /// preserves the original duration — so `endHour` may exceed 24 for a span that now crosses midnight
+    /// (the renderer splits it; see cross-midnight handling). A nil anchor (demo/sample data) is treated
+    /// as already-in-main-tz → identity. The id and anchorTz are preserved (hit-testing + secondary label).
+    func displayEvent(_ e: TimedEvent) -> TimedEvent {
+        guard let anchor = e.anchorTz,
+              !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(e.year, e.month, e.day, e.startHour))
+        else { return e }
+        let dur = max(0, e.endHour - e.startHour)
+        let w = DeadlineTZ.convertWall(e.year, e.month, e.day, e.startHour, from: anchor, to: mainTz)
+        var out = e
+        out.year = w.year; out.month = w.month; out.day = w.day
+        out.startHour = w.hour; out.endHour = w.hour + dur
+        return out
+    }
+    /// The deadline analog: convert the single moment into the main tz (day/month/year normalized).
+    func displayDeadline(_ d: Deadline) -> Deadline {
+        guard let anchor = d.anchorTz,
+              !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(d.year, d.month, d.day, d.hour))
+        else { return d }
+        let w = DeadlineTZ.convertWall(d.year, d.month, d.day, d.hour, from: anchor, to: mainTz)
+        var out = d
+        out.year = w.year; out.month = w.month; out.day = w.day; out.hour = w.hour
+        return out
+    }
+    /// Inverse of `displayEvent`: fold a DISPLAY (main-tz) event back into its stored anchor zone. Mouse
+    /// drags work in the on-screen (main-tz) grid, so a moved/resized event is converted back here before
+    /// it's written to `seedEvents`. Preserves the anchorTz and the (tz-invariant) duration.
+    private func anchorEvent(_ e: TimedEvent) -> TimedEvent {
+        guard let anchor = e.anchorTz,
+              !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(e.year, e.month, e.day, e.startHour))
+        else { return e }
+        let dur = max(0, e.endHour - e.startHour)
+        let w = DeadlineTZ.convertWall(e.year, e.month, e.day, e.startHour, from: mainTz, to: anchor)
+        var out = e
+        out.year = w.year; out.month = w.month; out.day = w.day
+        out.startHour = w.hour; out.endHour = w.hour + dur
+        return out
+    }
+    private func anchorDeadline(_ d: Deadline) -> Deadline {
+        guard let anchor = d.anchorTz,
+              !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(d.year, d.month, d.day, d.hour))
+        else { return d }
+        let w = DeadlineTZ.convertWall(d.year, d.month, d.day, d.hour, from: mainTz, to: anchor)
+        var out = d
+        out.year = w.year; out.month = w.month; out.day = w.day; out.hour = w.hour
+        return out
+    }
+
     private func ensureEventCache(_ year: Int) -> (events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]]) {
         if let c = eventCache, c.year == year, c.gen == editGen { return (c.events, c.badges, c.byDay) }
         func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
         var out: [TimedEvent] = []
         var badgeMap: [String: EventBadges] = [:]
-        for e in seedEvents where e.year == year {
+        // Anchor→main conversion can push an event across the year boundary (±1 day), so we consider
+        // seeds anchored in the neighbor years too and keep those whose DISPLAY date lands in `year`.
+        // When an anchor equals the main tz (the common case) conversion is the identity, so a neighbor
+        // event just converts back to its own year and is dropped here — same result as the old filter.
+        func take(_ e: TimedEvent, _ badge: EventBadges) {
+            let d = displayEvent(e)
+            guard d.year == year else { return }
+            out.append(d); badgeMap[d.id] = badge
+        }
+        for e in seedEvents where abs(e.year - year) <= 1 {
             if baseHidden(occDate(YMD(e.year, e.month, e.day)), repeatOf(e.id)) { continue }
-            out.append(e)
-            badgeMap[e.id] = itemBadges(e.id, recurrent: repeatOf(e.id) != nil, promoted: false)
+            take(e, itemBadges(e.id, recurrent: repeatOf(e.id) != nil, promoted: false))
         }
         for e in seedEvents {
             guard let r = repeatOf(e.id) else { continue }
-            for o in occurrenceDates(YMD(e.year, e.month, e.day), r, year) {
-                let key = occKey(e.id, o)
-                out.append(TimedEvent(id: key, year: year, month: o.month, day: o.day,
-                                      startHour: e.startHour, endHour: e.endHour, title: e.title, color: e.color))
-                badgeMap[key] = itemBadges(e.id, recurrent: true, promoted: false)
+            for yy in (year - 1)...(year + 1) {
+                for o in occurrenceDates(YMD(e.year, e.month, e.day), r, yy) {
+                    take(TimedEvent(id: occKey(e.id, o), year: yy, month: o.month, day: o.day,
+                                    startHour: e.startHour, endHour: e.endHour, title: e.title,
+                                    color: e.color, anchorTz: e.anchorTz),
+                         itemBadges(e.id, recurrent: true, promoted: false))
+                }
             }
         }
         let revealHidden = showHiddenImported
-        for e in importedEvents where e.year == year {   // Apple Calendar (read-only, already expanded)
+        for e in importedEvents where abs(e.year - year) <= 1 {   // Apple Calendar (read-only, already expanded)
             if richById[e.id]?.hidden == true { continue }   // deduped shadow of the user's own event → not drawn
             let userHidden = richById[Self.appleSeriesKey(e.id)]?.userHidden == true
             if userHidden && !revealHidden { continue }   // user hid this series → hidden unless "Show Hidden" is on
             var ev = e
             ev.color = importedDisplayColor(e)   // apply the user's color override, if any
-            out.append(ev)
             var b = itemBadges(e.id, recurrent: false, promoted: false)
             if userHidden { b.insert(.hidden) }   // revealed hidden event → dotted accent bar
-            badgeMap[e.id] = b
+            take(ev, b)
         }
         var byDay: [Int: [TimedEvent]] = [:]
         for e in out { byDay[e.month * 100 + e.day, default: []].append(e) }
@@ -2713,15 +2910,23 @@ public final class CalendarEngine {
         if let c = ddlCache, c.year == year, c.gen == editGen { return withPreview(c.deadlines, { $0.id }, { $0.color = $1 }) }
         func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
         var out: [Deadline] = []
-        for d in seedDeadlines where d.year == year {
+        // Same neighbor-year scan + convert-then-filter as ensureEventCache: a moment near midnight can
+        // land in an adjacent display year when the anchor differs from the main tz. Identity otherwise.
+        func take(_ d: Deadline) {
+            let dd = displayDeadline(d)
+            if dd.year == year { out.append(dd) }
+        }
+        for d in seedDeadlines where abs(d.year - year) <= 1 {
             if baseHidden(occDate(YMD(d.year, d.month, d.day)), repeatOf(d.id)) { continue }
-            out.append(d)
+            take(d)
         }
         for d in seedDeadlines {
             guard let r = repeatOf(d.id) else { continue }
-            for o in occurrenceDates(YMD(d.year, d.month, d.day), r, year) {
-                out.append(Deadline(id: occKey(d.id, o), year: year, month: o.month, day: o.day,
-                                    hour: d.hour, title: d.title, color: d.color, originTz: d.originTz))
+            for yy in (year - 1)...(year + 1) {
+                for o in occurrenceDates(YMD(d.year, d.month, d.day), r, yy) {
+                    take(Deadline(id: occKey(d.id, o), year: yy, month: o.month, day: o.day,
+                                  hour: d.hour, title: d.title, color: d.color, anchorTz: d.anchorTz))
+                }
             }
         }
         ddlCache = (year, editGen, out)
@@ -3057,6 +3262,8 @@ public final class CalendarEngine {
     nonisolated public static let showHiddenImportedKey = "cc.view.showHiddenImported"
     /// View ▸ Current Timezone — the main tz for deadline origin-time labels. "auto" = device zone.
     nonisolated public static let mainTzKey = "cc.view.mainTz"
+    /// View ▸ Alternative Timezone — the second hour column on the timeline. "none" = off.
+    nonisolated public static let altTzKey = "cc.view.altTz"
     /// The "View ▸ Show Hidden Imported Events" toggle (UserDefaults-backed so the menu's checkmark and
     /// the renderer share one source of truth). When on, user-hidden imported events draw with a dotted bar.
     public var showHiddenImported: Bool { UserDefaults.standard.bool(forKey: Self.showHiddenImportedKey) }
@@ -3064,6 +3271,7 @@ public final class CalendarEngine {
     /// cache and repaint. The pref value itself lives in UserDefaults; this just re-derives the scene.
     public func viewPrefsChanged() {
         mainTz = UserDefaults.standard.string(forKey: Self.mainTzKey) ?? "auto"   // View ▸ Current Timezone
+        altTz = UserDefaults.standard.string(forKey: Self.altTzKey) ?? "none"     // View ▸ Alternative Timezone
         editGen &+= 1; deadlineGen &+= 1; wake()
     }
 
@@ -3101,7 +3309,8 @@ public final class CalendarEngine {
         beginTxn()
         let id = "new-\(UUID().uuidString)"
         seedEvents.append(TimedEvent(id: id, year: year, month: month, day: day,
-                                     startHour: startHour, endHour: endHour, title: title, color: color))
+                                     startHour: startHour, endHour: endHour, title: title, color: color,
+                                     anchorTz: anchorNow))
         setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
         selectedId = id
         commitTxn()
@@ -3130,47 +3339,68 @@ public final class CalendarEngine {
                                byAI: Bool = false) -> String {
         beginTxn()
         let id = "new-\(UUID().uuidString)"
-        seedDeadlines.append(Deadline(id: id, year: year, month: month, day: day, hour: hour,
-                                      title: title, color: color, originTz: originTz))
-        var rf = richById[id] ?? RichFields()
-        rf.originTz = originTz                      // keep the rich copy in sync (persistence path)
-        richById[id] = rf
+        // If a distinct origin zone is given, the deadline is anchored THERE: the caller passes coords in
+        // the main tz, so re-express them as the origin wall-clock and anchor to it. Otherwise anchor to
+        // the current view zone. (Replaces the legacy originTz label — anchorTz now drives positioning.)
+        var (dy, dm, dd, dh) = (year, month, day, hour)
+        let anchor: String
+        if let otz = originTz,
+           !DeadlineTZ.sameOffset(otz, mainTz, at: DeadlineTZ.instant(year, month, day, hour)) {
+            let w = DeadlineTZ.convertWall(year, month, day, hour, from: mainTz, to: otz)
+            (dy, dm, dd, dh) = (w.year, w.month, w.day, w.hour); anchor = DeadlineTZ.concrete(otz)
+        } else {
+            anchor = anchorNow
+        }
+        seedDeadlines.append(Deadline(id: id, year: dy, month: dm, day: dd, hour: dh,
+                                      title: title, color: color, anchorTz: anchor))
         setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
         selectedId = id
         commitTxn()
         return id
     }
 
-    /// Create an all-day band that may span multiple months. Bands are stored per-month (a single
-    /// BandEvent lives in one month), so a cross-month range is split into one segment per month —
-    /// each clamped to that month's day range, all sharing the title/color/lane. Returns the segment
-    /// ids in chronological order. A single-month range yields one id (same as `createBand`).
-    @discardableResult
-    public func createBandSpan(startYear: Int, startMonth: Int, startDay: Int,
-                               endYear: Int, endMonth: Int, endDay: Int, track: Int,
-                               title: String, color: String, notes: String? = nil,
-                               tags: [String] = [], byAI: Bool = false) -> [String] {
+    /// The one cross-month band segmentation walk (bands are stored per-month, so a range is split
+    /// into one BandEvent per month, clamped to each month's days). Shared by createBandSpan and
+    /// reshapeBand — must run inside an open txn. `seed` stamps per-segment extras (rich fields).
+    private func appendBandSegments(from start: (Int, Int, Int), to end: (Int, Int, Int),
+                                    track: Int, title: String, color: String,
+                                    seed: (String) -> Void) -> [String] {
         // Order the endpoints so start ≤ end regardless of how they were passed.
-        var (sy, sm, sd) = (startYear, startMonth, startDay)
-        var (ey, em, ed) = (endYear, endMonth, endDay)
+        var (sy, sm, sd) = start
+        var (ey, em, ed) = end
         if (ey, em, ed) < (sy, sm, sd) { swap(&sy, &ey); swap(&sm, &em); swap(&sd, &ed) }
 
-        let lane = max(0, min(3, track))
-        beginTxn()
         var ids: [String] = []
         var (y, m) = (sy, sm)
         while (y, m) <= (ey, em) {
             let segStart = (y == sy && m == sm) ? max(1, sd) : 1
             let segEnd = (y == ey && m == em) ? min(daysInMonth(y, m), ed) : daysInMonth(y, m)
             let id = "new-\(UUID().uuidString)"
-            seedBands.append(BandEvent(id: id, year: y, month: m, track: lane,
+            seedBands.append(BandEvent(id: id, year: y, month: m, track: max(0, min(3, track)),
                                        startDay: segStart, endDay: max(segStart, segEnd),
                                        title: title, color: color))
-            setRich(id, notes: notes, tags: tags, byAI: byAI)
+            seed(id)
             ids.append(id)
             m += 1; if m > 11 { m = 0; y += 1 }
         }
         if let last = ids.last { selectedId = last }
+        return ids
+    }
+
+    /// Create an all-day band that may span multiple months (one segment per month, shared
+    /// title/color/lane). Returns the segment ids in chronological order; a single-month range
+    /// yields one id (same as `createBand`).
+    @discardableResult
+    public func createBandSpan(startYear: Int, startMonth: Int, startDay: Int,
+                               endYear: Int, endMonth: Int, endDay: Int, track: Int,
+                               title: String, color: String, notes: String? = nil,
+                               tags: [String] = [], byAI: Bool = false) -> [String] {
+        beginTxn()
+        let ids = appendBandSegments(from: (startYear, startMonth, startDay),
+                                     to: (endYear, endMonth, endDay),
+                                     track: track, title: title, color: color) { id in
+            setRich(id, notes: notes, tags: tags, byAI: byAI)
+        }
         commitTxn()
         return ids
     }
@@ -3183,28 +3413,15 @@ public final class CalendarEngine {
                             endYear: Int, endMonth: Int, endDay: Int) -> [String] {
         guard let b = seedBands.first(where: { $0.id == id }) else { return [] }
         let rich = richById[id]
-        var (sy, sm, sd) = (startYear, startMonth, startDay)
-        var (ey, em, ed) = (endYear, endMonth, endDay)
-        if (ey, em, ed) < (sy, sm, sd) { swap(&sy, &ey); swap(&sm, &em); swap(&sd, &ed) }
-
         beginTxn()
         seedBands.removeAll { $0.id == id }
         richById[id] = nil
         if selectedId == id { selectedId = nil }
-        var ids: [String] = []
-        var (y, m) = (sy, sm)
-        while (y, m) <= (ey, em) {
-            let segStart = (y == sy && m == sm) ? max(1, sd) : 1
-            let segEnd = (y == ey && m == em) ? min(daysInMonth(y, m), ed) : daysInMonth(y, m)
-            let nid = "new-\(UUID().uuidString)"
-            seedBands.append(BandEvent(id: nid, year: y, month: m, track: b.track,
-                                       startDay: segStart, endDay: max(segStart, segEnd),
-                                       title: b.title, color: b.color))
+        let ids = appendBandSegments(from: (startYear, startMonth, startDay),
+                                     to: (endYear, endMonth, endDay),
+                                     track: b.track, title: b.title, color: b.color) { nid in
             if let rich { richById[nid] = rich }
-            ids.append(nid)
-            m += 1; if m > 11 { m = 0; y += 1 }
         }
-        if let last = ids.last { selectedId = last }
         commitTxn()
         return ids
     }
@@ -3354,25 +3571,47 @@ public final class CalendarEngine {
         return (r.year, r.month, r.day, snap(hf, 30))
     }
 
+    /// The quick-add "+" affordance for a deadline: when the cursor hovers near a day column's LEFT edge
+    /// (hover.nearLeft, within ADD_EDGE_THRESHOLD) in week/day view, offer to create a deadline snapped to
+    /// the nearest hour line. Returns its screen point + the target date/hour, or nil when it shouldn't
+    /// show (not near-left, off the timeline, or an existing deadline already sits on that day+hour).
+    public func deadlineAddSpot(_ g: SceneInput) -> DeadlineAddSpot? {
+        guard g.z >= 1.5, hover.nearLeft == true, let dom = hover.dom, let hf = hover.hourFrac else { return nil }
+        let hour = min(23, max(0, Int(hf.rounded())))              // snap to the nearest hour line
+        guard let r = resolveDate(year, focus, dom) else { return nil }
+        if displayDeadlines(for: r.year).contains(where: { $0.month == r.month && $0.day == r.day && abs($0.hour - CGFloat(hour)) < 1e-6 }) {
+            return nil   // already a deadline there — don't offer to add
+        }
+        let tl = timelineInfo(g)
+        guard tl.hourH > 0 else { return nil }
+        let x = tl.x0 + CGFloat(dom - 1) * tl.colW                 // day column's left edge
+        let y = tl.tlTop + CGFloat(hour) * tl.hourH - tl.scroll    // the hour line
+        guard y >= tl.tlTop, y <= tl.tlBottom, x >= Layout.labelW - 1, x <= g.vp.w else { return nil }
+        let hovering = pointerPos.map { hypot($0.x - x, $0.y - y) <= 10 } ?? false   // cursor over the 15px "+"
+        return DeadlineAddSpot(x: x, y: y, year: r.year, month: r.month, day: r.day, hour: hour, hovering: hovering)
+    }
+
     private func applyMove(_ d: Drag, _ p: CGPoint, _ tl: TimelineInfo) {
         guard let orig = d.orig, let idx = seedEvents.firstIndex(where: { $0.id == d.eventId }) else { return }
         beginTxn()
-        let dur = orig.endHour - orig.startHour
-        let ns = max(0, min(24 - dur, snap(orig.startHour + (p.y - d.startPoint.y) / tl.hourH, 15)))
-        var ev = seedEvents[idx]
+        // The grid is in the main (view) timezone, so compute the move in DISPLAY space against the
+        // display-converted original, then fold the result back into the event's anchor zone to store.
+        var ev = displayEvent(orig)
+        let dur = ev.endHour - ev.startHour
+        let ns = max(0, min(24 - dur, snap(ev.startHour + (p.y - d.startPoint.y) / tl.hourH, 15)))
         ev.startHour = ns; ev.endHour = ns + dur
         if let dom = pointToSlot(p.x, p.y, tl).dom, let r = resolveDate(year, focus, dom) { ev.year = r.year; ev.month = r.month; ev.day = r.day }
-        seedEvents[idx] = ev
+        seedEvents[idx] = anchorEvent(ev)
     }
 
     private func applyResize(_ d: Drag, _ p: CGPoint, _ tl: TimelineInfo, top: Bool) {
         guard let idx = seedEvents.firstIndex(where: { $0.id == d.eventId }) else { return }
         beginTxn()
-        let hf = pointToSlot(p.x, p.y, tl).hourFrac
-        var ev = seedEvents[idx]
+        let hf = pointToSlot(p.x, p.y, tl).hourFrac   // display-space hour under the cursor
+        var ev = displayEvent(seedEvents[idx])
         if top { ev.startHour = min(ev.endHour - 0.25, snap(hf, 15)) }
         else { ev.endHour = max(ev.startHour + 0.25, snap(hf, 15)) }
-        seedEvents[idx] = ev
+        seedEvents[idx] = anchorEvent(ev)
     }
 
     private func applyCreate(_ p: CGPoint, _ tl: TimelineInfo) {
@@ -3383,7 +3622,7 @@ public final class CalendarEngine {
             // UUID (not the counter) so ids are globally unique — two devices creating
             // offline must never mint the same recordName. Prefix kept for readability.
             let id = "new-\(UUID().uuidString)"
-            seedEvents.append(TimedEvent(id: id, year: d.createYear ?? year, month: mo, day: dy, startHour: a, endHour: min(24, a + 0.25), title: "New event", color: "blue"))
+            seedEvents.append(TimedEvent(id: id, year: d.createYear ?? year, month: mo, day: dy, startHour: a, endHour: min(24, a + 0.25), title: "New event", color: "blue", anchorTz: anchorNow))
             d.eventId = id; drag = d; selectedId = id
         }
         guard let id = d.eventId, let idx = seedEvents.firstIndex(where: { $0.id == id }), let a = d.anchorHour else { return }
@@ -3507,18 +3746,17 @@ public final class CalendarEngine {
         guard let orig = d.origDdl, let idx = seedDeadlines.firstIndex(where: { $0.id == d.eventId }) else { return }
         beginTxn()
         let tl = timelineInfo(g)
-        // Delta-based: move relative to where the deadline was at mouse-down, by the mouse delta —
-        // never jump to the absolute pointer (important when dragging the side label, not the line).
-        var dd = seedDeadlines[idx]
-        dd.hour = max(0, min(24, snap(orig.hour + (p.y - d.startPoint.y) / tl.hourH, 15)))
+        // Delta-based, in DISPLAY (main-tz) space: move relative to where the deadline was shown at
+        // mouse-down, by the mouse delta — never jump to the absolute pointer (important when dragging the
+        // side label, not the line). The result is folded back into the deadline's anchor zone to store.
+        var dd = displayDeadline(orig)
+        dd.hour = max(0, min(24, snap(dd.hour + (p.y - d.startPoint.y) / tl.hourH, 15)))
         let dayDelta = tl.colW > 0 ? Int(((p.x - d.startPoint.x) / tl.colW).rounded()) : 0
-        if dayDelta != 0, let origRd = relDomOf(year, focus, orig.year, orig.month, orig.day),
+        if dayDelta != 0, let origRd = relDomOf(year, focus, dd.year, dd.month, dd.day),
            let r = resolveDate(year, focus, origRd + dayDelta) {
             dd.year = r.year; dd.month = r.month; dd.day = r.day
-        } else {
-            dd.year = orig.year; dd.month = orig.month; dd.day = orig.day
         }
-        seedDeadlines[idx] = dd
+        seedDeadlines[idx] = anchorDeadline(dd)
     }
 
     public func onEscape() {
@@ -3673,7 +3911,8 @@ public final class CalendarEngine {
         beginTxn()
         let id = "new-\(UUID().uuidString)"
         seedEvents.append(TimedEvent(id: id, year: year, month: focus, day: d,
-                                     startHour: h, endHour: min(24, h + 1), title: "New event", color: "blue"))
+                                     startHour: h, endHour: min(24, h + 1), title: "New event", color: "blue",
+                                     anchorTz: anchorNow))
         selectedId = id
         commitTxn()
         editTimed(id)   // open the inline title editor so the name is focused right away
@@ -3706,7 +3945,7 @@ public final class CalendarEngine {
 
     /// The band cursor's cell rect (geometry space): one day column × one lane.
     public func bandCursorRect() -> CGRect? {
-        guard keyboardActive, bandCursorActive, selectedId == nil, !drawerOpen else { return nil }
+        guard keyboardActive, !Self.isDemoMode, bandCursorActive, selectedId == nil, !drawerOpen else { return nil }
         let g = snapshot()
         let m = level(z) == 0 ? blockMonth : focus
         let f = frameFor(m, g)
@@ -3733,7 +3972,7 @@ public final class CalendarEngine {
     // ── Track-name cursor (month view's extra Tab stops) ───────────────────────────
     /// The focused track-name gutter cell (geometry space), or nil when not on a track name.
     public func trackNameCursorRect() -> CGRect? {
-        guard keyboardActive, let t = trackNameCursor, selectedId == nil, !drawerOpen, level(z) == 1 else { return nil }
+        guard keyboardActive, !Self.isDemoMode, let t = trackNameCursor, selectedId == nil, !drawerOpen, level(z) == 1 else { return nil }
         let g = snapshot()
         let f = frameFor(focus, g)
         let y = f.bandY + CGFloat(t) * f.trackH
@@ -3817,7 +4056,7 @@ public final class CalendarEngine {
     /// The block cursor's cell rect in geometry space (pre-padLeft), or nil when it shouldn't show
     /// (mouse mode, an event/drawer is active, or a view without a cursor yet).
     public func blockCursorRect() -> CGRect? {
-        guard keyboardActive, !bandCursorActive, trackNameCursor == nil, selectedId == nil, dashStop == nil, !drawerOpen else { return nil }
+        guard keyboardActive, !Self.isDemoMode, !bandCursorActive, trackNameCursor == nil, selectedId == nil, dashStop == nil, !drawerOpen else { return nil }
         let g = snapshot()
         switch level(z) {
         case 0:
@@ -3896,6 +4135,7 @@ public final class CalendarEngine {
 
     public func onHover(at p: CGPoint) {
         if drawerOpen { onHoverExit(); return }   // drawer open → no calendar hover highlights
+        pointerPos = p                            // for the deadline "+" hover glow (pixel-precise)
         let g = snapshot()
         let prevHover = hover, prevHovered = hoveredEventId   // wake the render only if the visual actually changes
         var hv = Hover()
@@ -3935,7 +4175,9 @@ public final class CalendarEngine {
         else if z >= DETAIL_Z, let d = deadlineAt(p, g) { hoveredEventId = d; hv.overDeadline = true }
         else { hoveredEventId = nil }
         hover = hv
-        if hv != prevHover || hoveredEventId != prevHovered { wake() }
+        // Wake on any change, plus every move while near a day's left edge so the deadline "+" glow
+        // tracks the cursor pixel-precisely (the cell-based `hv` alone wouldn't change within a cell).
+        if hv != prevHover || hoveredEventId != prevHovered || hv.nearLeft == true { wake() }
     }
 
     private func bandContains(_ id: String, _ p: CGPoint, _ g: SceneInput) -> Bool {
@@ -3952,7 +4194,7 @@ public final class CalendarEngine {
         return CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height).contains(p)
     }
 
-    public func onHoverExit() { if hover != .none || hoveredEventId != nil { wake() }; hover = .none; hoveredEventId = nil }
+    public func onHoverExit() { if hover != .none || hoveredEventId != nil { wake() }; hover = .none; hoveredEventId = nil; pointerPos = nil }
 
     /// Clear the current event selection — the same effect as a plain click on empty calendar space.
     /// Used by the daily-dashboard WebView so clicking its empty content deselects too.

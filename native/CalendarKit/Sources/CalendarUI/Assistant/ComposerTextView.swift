@@ -20,7 +20,10 @@ struct ComposerTextView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()   // a correctly-configured editable stack
-        let tv = scroll.documentView as! NSTextView
+        guard let tv = scroll.documentView as? NSTextView else {
+            assertionFailure("scrollableTextView() did not vend an NSTextView document view")
+            return scroll   // degraded (no editor) instead of crashing on an AppKit change
+        }
         context.coordinator.textView = tv
 
         tv.delegate = context.coordinator

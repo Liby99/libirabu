@@ -85,16 +85,20 @@ public struct Deadline: Sendable, Identifiable, Equatable, Codable {
     public var year: Int
     public var month: Int
     public var day: Int
-    public var hour: CGFloat    // 0–24 fractional — the deadline's moment in the MAIN timezone
+    public var hour: CGFloat    // 0–24 fractional — the deadline's wall-clock in `anchorTz`
     public var title: String
     public var color: String
-    // The timezone the deadline was originally given in (IANA id, or "AOE"); nil = the main tz
-    // is canonical. `hour` is always the main-tz time; the origin-tz time is derived for display
-    // (see deadlineOriginLabel). Optional so older stores/records decode unchanged.
+    // LEGACY: the timezone a deadline was originally *given* in, back when `hour` was stored in the
+    // main tz and this was a display-only label. Superseded by `anchorTz` (which drives positioning).
+    // Kept so old stores/records decode; the load migration folds it into `anchorTz` and clears it.
     public var originTz: String?
-    public init(id: String, year: Int, month: Int, day: Int, hour: CGFloat, title: String, color: String, originTz: String? = nil) {
+    // The timezone this deadline is anchored to (a concrete IANA id, or "AOE"); nil = the main tz is
+    // canonical. `hour` (+ year/month/day) is the wall-clock IN this zone; the absolute instant is
+    // derived and the timeline converts anchorTz→mainTz for display. Never stored as "auto".
+    public var anchorTz: String?
+    public init(id: String, year: Int, month: Int, day: Int, hour: CGFloat, title: String, color: String, originTz: String? = nil, anchorTz: String? = nil) {
         self.id = id; self.year = year; self.month = month; self.day = day
-        self.hour = hour; self.title = title; self.color = color; self.originTz = originTz
+        self.hour = hour; self.title = title; self.color = color; self.originTz = originTz; self.anchorTz = anchorTz
     }
 }
 

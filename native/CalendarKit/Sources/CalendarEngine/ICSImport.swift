@@ -54,7 +54,7 @@ public enum ICSImport {
                 let id = "ics-\(UUID().uuidString)"
                 events.append(TimedEvent(id: id, year: s.year, month: s.month, day: s.day,
                                          startHour: hourOf(s), endHour: max(hourOf(s), hourOf(e)),
-                                         title: title, color: color))
+                                         title: title, color: color, anchorTz: DeadlineTZ.concrete("auto")))   // parsed into device-local wall-clock
                 rich[id] = importedRich(notes)
             }
         }

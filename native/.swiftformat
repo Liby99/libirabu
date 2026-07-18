@@ -1,0 +1,40 @@
+# SwiftFormat config for the native Madocal codebase (CalendarKit + CalendarApp).
+#
+# Run from native/:   swiftformat .        (brew install swiftformat)
+# Check only:         swiftformat --lint .
+#
+# IMPORTANT: the first full run touches nearly every file — do it as a single dedicated
+# commit on a quiet tree (no in-flight feature branches), never mixed with logic changes.
+
+--swiftversion 5.10
+
+# ── Layout ─────────────────────────────────────────────────────────────────────
+--maxwidth 110
+--indent 4
+--tabwidth 4
+--trimwhitespace always
+--stripunusedargs closure-only
+
+# ── Keep the codebase's established idioms ─────────────────────────────────────
+# Heavily-commented single-line members and `// ──` section banners are load-bearing here;
+# disable rules that would churn them or fight the existing style.
+--disable blankLinesAtStartOfScope    # some types intentionally open with a comment block
+--disable wrapMultilineStatementBraces
+--disable andOperator                 # `&&` vs `,` in guards left to the author
+--disable organizeDeclarations        # member order is meaningful (documented sections)
+--disable extensionAccessControl
+--disable redundantSelf               # explicit self is used deliberately around closures
+--disable opaqueGenericParameters
+
+# ── Enabled niceties ───────────────────────────────────────────────────────────
+--enable isEmpty                      # .count == 0 → .isEmpty
+--enable sortImports
+--enable duplicateImports
+--enable redundantParens
+--enable trailingCommas
+
+# ── Exclusions ─────────────────────────────────────────────────────────────────
+--exclude CalendarKit/.build
+--exclude CalendarApp/build
+--exclude CalendarKit/Sources/CalendarUI/Resources   # bundled JS/CSS, not Swift
+--exclude CalendarApp/CalendarApp.xcodeproj

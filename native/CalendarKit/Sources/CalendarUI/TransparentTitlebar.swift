@@ -50,17 +50,25 @@ struct TransparentTitlebar: NSViewRepresentable {
                 NSWindow.didExitFullScreenNotification,
             ]
             observers = names.map { name in
-                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { _ in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated {
+                        guard let self else { return }
                         self.apply()
                         // Full-screen toolbar chrome is (re)built lazily — sweep again after the
                         // transition settles, and once more for the slide-in overlay variant.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.apply() }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { self.apply() }
+                        for delay in Self.resweepDelays {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                                self?.apply()
+                            }
+                        }
                     }
                 }
             }
         }
+
+        /// The fullscreen transition has no "chrome finished building" callback, so we re-apply on
+        /// a settle-time guess (once after the animation, once after the lazy overlay appears).
+        private static let resweepDelays: [TimeInterval] = [0.4, 1.2]
 
         private func apply() {
             guard let window else { return }
@@ -117,8 +125,9 @@ struct TransparentTitlebar: NSViewRepresentable {
         }
 
         /// One-shot console dump of the chrome hierarchy, so a resistant machine can report what
-        /// classes actually make up its full-screen toolbar. Harmless in release.
+        /// classes actually make up its full-screen toolbar. DEBUG builds only.
         private func dumpOnce(_ view: NSView, label: String) {
+            #if DEBUG
             guard !dumped else { return }
             dumped = true
             func walk(_ v: NSView, _ depth: Int) {
@@ -127,6 +136,7 @@ struct TransparentTitlebar: NSViewRepresentable {
             }
             print("[TransparentTitlebar] —— \(label) hierarchy ——")
             walk(view, 0)
+            #endif
         }
     }
 }

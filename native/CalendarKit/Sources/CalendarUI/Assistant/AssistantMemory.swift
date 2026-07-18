@@ -29,9 +29,13 @@ enum AssistantMemory {
     }
 
     static func remember(_ key: String, _ value: JSONValue) {
-        guard let data = try? JSONEncoder().encode(value) else { return }
-        kv.set(data, forKey: prefix + key)
-        kv.synchronize()          // flush now so it starts syncing out promptly
+        do {
+            let data = try JSONEncoder().encode(value)
+            kv.set(data, forKey: prefix + key)
+            kv.synchronize()      // flush now so it starts syncing out promptly
+        } catch {
+            assertionFailure("unencodable memory value for '\(key)': \(error)")   // JSONValue should always encode
+        }
     }
 
     static func forget(_ key: String) {

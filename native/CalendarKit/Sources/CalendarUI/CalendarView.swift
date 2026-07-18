@@ -17,6 +17,7 @@ public struct CalendarView: View {
     @State private var gestureForwarder = GestureForwarder()   // dashboard → catcher (horiz scroll + pinch)
     @State private var dashFrac: CGFloat = 0.45   // mirrors engine.daily.frac; updated live on resize
     @State private var dashTab: DashTab = .todo   // dashboard TODO/NOTE tab
+    @State private var demo = DemoController()    // scripted GIF-recording cursor + scenes (CC_DEMO mode)
     @State private var noteMode: NotesMode = .edit // daily-note edit/preview (native toggle mirrors JS)
     @State private var search = SearchState()      // toolbar event search (⌘F / magnifyingglass)
     @State private var searchAnchor: CGPoint = .zero   // content stack's window-space origin (for dropdown alignment)
@@ -28,6 +29,7 @@ public struct CalendarView: View {
     // the onChange below repaints the calendar when it flips (from either app target's menu).
     @AppStorage(CalendarEngine.showHiddenImportedKey) private var showHiddenImported = false
     @AppStorage(CalendarEngine.mainTzKey) private var mainTzPref = "auto"   // View ▸ Current Timezone
+    @AppStorage(CalendarEngine.altTzKey) private var altTzPref = "none"     // View ▸ Alternative Timezone
     @AppStorage("cc.tutorial.seen") private var tutorialSeen = false   // auto-show the onboarding carousel once
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openWindow) private var openWindow    // opens the standalone Calendar AI window
@@ -88,12 +90,14 @@ public struct CalendarView: View {
     /// modifier chain stays within the Swift type-checker's budget.
     private func setupOnAppear(size: CGSize) {
         WindowBeepSilencer.installOnce()   // stop the window beeping on keys the calendar leaves unhandled
-        if !tutorialSeen { tutorialSeen = true; ui.tutorialIndex = 0; ui.showTutorial = true }   // first launch
+        if CalendarEngine.isDemoMode { demo.startIfDemo(engine: engine, size: size) }   // GIF recording session
+        else if !tutorialSeen { tutorialSeen = true; ui.tutorialIndex = 0; ui.showTutorial = true }   // first launch
         engine.setViewport(size)
         dashFrac = engine.daily.frac
         engine.onEditBand = { id, rect in engine.bandEditing = true; ui.editingBand = BandEdit(id: id, rect: rect) }
         engine.onEditTimed = { id, rect in engine.timedEditing = true; ui.editingTimed = TimedEdit(id: id, rect: rect) }
         engine.onEditTrackName = { m, t, rect in engine.trackEditing = true; ui.editingTrack = TrackEdit(month: m, track: t, rect: rect) }
+        engine.onRequestOpenDrawer = { id, selectTitle in ui.openEventId = id; ui.selectTitleOnOpen = selectTitle }
         // An external data change removed the item a drawer / delete-dialog / inline editor was showing
         // (e.g. deleted in Apple Calendar, then re-imported on foreground) → dismiss it.
         engine.onExternalDataChange = { [engine] in
@@ -181,17 +185,19 @@ public struct CalendarView: View {
                           hideBox: ui.openEventId != nil ? engine.selectedId : nil,  // lifted sharp above
                           theme: theme)
                 .offset(x: Layout.padLeft)
-            // 3. deadlines: the moment line + dots are drawn in the Canvas…
+            // 3. deadlines: the moment line + dots are drawn in the Canvas… When the drawer is open the
+            // SELECTED deadline is HIDDEN here (drawn sharp in the lift below, like band/timed events).
+            let liftDdl = ui.openEventId != nil ? engine.selectedId : nil
             Canvas { ctx, size in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
-                SceneRenderer.drawMid(input: input, deadlines: engine.viewDeadlines(), selected: engine.selectedId, drawerOpen: ui.openEventId != nil, hovered: engine.hoveredEventId, in: &c, theme: theme)
+                SceneRenderer.drawMid(input: input, deadlines: engine.viewDeadlines(), selected: engine.selectedId, drawerOpen: ui.openEventId != nil, hovered: engine.hoveredEventId, hide: liftDdl, in: &c, theme: theme)
             }
             // …and the labels are SwiftUI glass pills (activation styling), above the line.
             DeadlinesOverlay(input: input, deadlines: engine.viewDeadlines(),
                              sides: engine.deadlineSides(),
                              selected: engine.selectedId, hovered: engine.hoveredEventId,
-                             drawerOpen: ui.openEventId != nil, theme: theme)
+                             drawerOpen: ui.openEventId != nil, hide: liftDdl, theme: theme)
                 .offset(x: Layout.padLeft)
             // 4. chrome on top of the glass: gutter labels/borders, track names, now-line/cursor, dashboard title
             Canvas { ctx, size in
@@ -216,6 +222,14 @@ public struct CalendarView: View {
             CursorRing(rect: engine.selectionRingRect().map { $0.insetBy(dx: -2, dy: -2) },
                        theme: theme, cornerRadius: 8, geometryAnimating: engine.isAnimating)
                 .offset(x: Layout.padLeft)
+            // Deadline quick-add "+" — a small circle on the hovered day column's left edge at the nearest
+            // hour line (week/day view). Visual only (the whole scene is non-hit-testing); the click is
+            // caught by the InputCatcher → onPointerDown → deadlineAddSpot. Hidden while the drawer is open.
+            if ui.openEventId == nil, let spot = engine.deadlineAddSpot(input) {
+                DeadlineAddButton(theme: theme, hovering: spot.hovering)
+                    .position(x: spot.x, y: spot.y)
+                    .offset(x: Layout.padLeft)
+            }
             // Per-frame day-carousel driver for the dashboard WebView (invisible). Carries {from,to,dir,p}
             // for day paging and `reveal` for the panel's slide-in-from-right + fade. Week level up.
             if input.z > 1.5 {
@@ -242,6 +256,24 @@ public struct CalendarView: View {
                       selected: sel, hovered: nil, drawerOpen: true, editingId: nil,
                       draggingId: nil, perfMode: perfMode, onlyBox: sel, theme: theme)
             .offset(x: Layout.padLeft - engine.drawerShift)
+    }
+
+    /// The clicked DEADLINE lifted sharp above the drawer scrim — its moment line + end dots (Canvas)
+    /// and its label pill (SwiftUI), only that one deadline. Same idea as `liftedBox` for band/timed.
+    @ViewBuilder
+    private func liftedDeadline(sel: String, theme: Theme) -> some View {
+        let input = engine.snapshotInput()
+        ZStack(alignment: .topLeading) {
+            Canvas { ctx, size in
+                var c = ctx
+                c.translateBy(x: Layout.padLeft - engine.drawerShift, y: 0)
+                SceneRenderer.drawMid(input: input, deadlines: engine.viewDeadlines(), selected: sel,
+                                      drawerOpen: true, hovered: nil, only: sel, in: &c, theme: theme)
+            }
+            DeadlinesOverlay(input: input, deadlines: engine.viewDeadlines(), sides: engine.deadlineSides(),
+                             selected: sel, hovered: nil, drawerOpen: true, only: sel, theme: theme)
+                .offset(x: Layout.padLeft - engine.drawerShift)
+        }
     }
 
     /// One stable `TimelineView`: `paused` just toggles whether it ticks per-frame. The view TYPE is the
@@ -293,7 +325,7 @@ public struct CalendarView: View {
                                   onDeleteDialogKey: { handleDeleteDialogKey($0) },
                                   onRequestDelete: {
                                       if let t = engine.deleteTargetForSelection() {
-                                          ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring, imported: t.imported, alreadyHidden: t.alreadyHidden)
+                                          ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring, imported: t.imported, alreadyHidden: t.alreadyHidden, kind: engine.kind(of: t.id) ?? .timed)
                                       }
                                   },
                                   isTutorialUp: { ui.showTutorial },
@@ -389,10 +421,19 @@ public struct CalendarView: View {
                         .transition(.opacity)
                 }
             }
+            // 4a″. …and the lifted DEADLINE (moment line + dots + tag), sharp above the scrim too.
+            .overlay {
+                if ui.openEventId != nil, let sel = engine.selectedId {
+                    TimelineView(.animation(paused: !awake)) { _ in liftedDeadline(sel: sel, theme: theme) }
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
             // 4b. the drawer panel — slides in from the trailing edge
             .overlay(alignment: .trailing) {
                 if let id = ui.openEventId {
-                    EventDrawer(engine: engine, id: id, width: $drawerWidth, containerWidth: geo.size.width, theme: theme, onClose: { ui.openEventId = nil }, ui: ui, refocus: { refocusCatcher() })
+                    EventDrawer(engine: engine, id: id, width: $drawerWidth, containerWidth: geo.size.width, theme: theme, onClose: { ui.openEventId = nil }, ui: ui, refocus: { refocusCatcher() },
+                                demoNoteFeed: demo.noteFeed, demoNotePreview: demo.notePreview)
                         .transition(.move(edge: .trailing))
                 }
             }
@@ -417,6 +458,21 @@ public struct CalendarView: View {
             // Blocking-modal overlays (delete-confirm dialog + onboarding tutorial) bundled into one
             // modifier so the body's modifier chain stays within the type-checker's budget.
             .modifier(ModalOverlays(ui: ui, engine: engine, theme: theme, onDelete: { performDelete($0) }))
+            // ai-assistant recording scene: a staged, offline chat panel in the main window (the real
+            // assistant is a separate window the recorder can't frame). No-op outside that scene.
+            .overlay(alignment: .topTrailing) {
+                if demo.showAssistantPanel, let a = demo.assistant {
+                    AssistantCalloutView(state: a, onOpenWindow: {})
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white.opacity(0.12)))
+                        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+                        .padding(.top, 48).padding(.trailing, 14)   // clear the toolbar (full-size content window)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay { DemoCursorOverlay(demo: demo) }   // synthetic pointer during a GIF recording (no-op otherwise)
             .onAppear { setupOnAppear(size: geo.size) }
             .onChange(of: geo.size) { _, s in engine.setViewport(s) }
             .onChange(of: ui.openEventId) { _, v in
@@ -458,6 +514,7 @@ public struct CalendarView: View {
             // write; the notification catches the AppKit (dev-build) menu's direct UserDefaults write.
             .onChange(of: showHiddenImported) { _, _ in engine.viewPrefsChanged() }
             .onChange(of: mainTzPref) { _, _ in engine.viewPrefsChanged() }   // Current Timezone picker → repaint
+            .onChange(of: altTzPref) { _, _ in engine.viewPrefsChanged() }    // Alternative Timezone picker → repaint
             .onReceive(NotificationCenter.default.publisher(for: .calendarViewPrefsChanged)) { _ in engine.viewPrefsChanged() }
         }
         .ignoresSafeArea()
@@ -521,7 +578,7 @@ public struct CalendarView: View {
                 if assistant != nil { showAssistantCallout.toggle() }
                 else { openWindow(id: "assistant") }
             } label: { Image(systemName: "sparkles") }
-                .buttonStyle(.glass).buttonBorderShape(.circle).help("Calendar AI (⌘I)")
+                .buttonStyle(.glass).buttonBorderShape(.circle).help("Madocal AI (⌘I)")
                 .popover(isPresented: $showAssistantCallout, arrowEdge: .bottom) {
                     if let assistant {
                         AssistantCalloutView(state: assistant) {
@@ -551,6 +608,26 @@ public struct CalendarView: View {
 /// split (`daily.frac`). Positioned from `engine.daily.frac` each render — during a drag its own
 /// `dragFrac` state drives both the position and the engine update, so the handle tracks the cursor
 /// even though the engine isn't `@Observable`.
+/// The deadline quick-add "+" affordance: a small circle with a plus, matching the calendar's cursor
+/// accent. Purely visual (positioned by CalendarView); the click is handled by the InputCatcher.
+private struct DeadlineAddButton: View {
+    let theme: Theme
+    var hovering: Bool = false
+    var body: some View {
+        // Neutral cursor-colored ring at rest; on hover the edge + glyph brighten to full label color,
+        // with a faint fill and glow (mirrors the web's .cc-ddl-add:hover feedback).
+        Image(systemName: "plus")
+            .font(.system(size: 8, weight: hovering ? .heavy : .bold))
+            .foregroundStyle(hovering ? theme.text : theme.text.opacity(0.75))
+            .frame(width: 15, height: 15)
+            .background(Circle().fill(hovering ? theme.text.opacity(0.14) : theme.bg))
+            .overlay(Circle().strokeBorder(hovering ? theme.text : theme.cursor, lineWidth: hovering ? 2 : 1.5))
+            .shadow(color: theme.text.opacity(hovering ? 0.35 : 0), radius: hovering ? 4 : 0)
+            .shadow(color: .black.opacity(0.3), radius: 2.5)
+            .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}
+
 private struct DashboardSplitHandle: View {
     let engine: CalendarEngine
     let vp: Viewport

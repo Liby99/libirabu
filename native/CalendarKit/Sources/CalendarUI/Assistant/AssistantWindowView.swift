@@ -18,7 +18,7 @@ public struct AssistantWindowView: View {
     @State private var cursor: Int?
     @FocusState private var sidebarFocused: Bool
 
-    private let accent = Color(hex: 0xff3b6b)
+    private let accent = Theme.accent
 
     /// Margin from the sidebar's left/right edges to the conversation row pill (the accent
     /// highlight of the open conversation). Tune this to taste.
@@ -36,7 +36,7 @@ public struct AssistantWindowView: View {
                 .navigationSplitViewColumnWidth(240)   // fixed width → no size interpolation on toggle
         } detail: {
             ConversationView(state: state, theme: theme)
-                .navigationTitle("Calendar AI")
+                .navigationTitle("Madocal AI")
                 .toolbar { toolbar }
         }
         .frame(minWidth: 360, minHeight: 480)

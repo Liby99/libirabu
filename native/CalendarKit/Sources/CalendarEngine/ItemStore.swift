@@ -4,6 +4,7 @@
 
 import Foundation
 import CalendarGeometry
+import os
 
 public struct PersistedState: Codable, Sendable {
     public var events: [TimedEvent]
@@ -78,9 +79,17 @@ struct ItemStore {
     private let syncStateURL: URL
 
     init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let dir = base.appendingPathComponent("CalendarKit", isDirectory: true)
+        // Demo/recording mode (see DemoController): redirect the whole store to a throwaway directory so a
+        // recording session NEVER reads or writes the user's real calendar. The script points this at a
+        // fresh temp dir per run, so each session starts from an empty, personal-data-free calendar.
+        let dir: URL
+        if let demo = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !demo.isEmpty {
+            dir = URL(fileURLWithPath: demo, isDirectory: true)
+        } else {
+            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: NSTemporaryDirectory())
+            dir = base.appendingPathComponent("CalendarKit", isDirectory: true)
+        }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appendingPathComponent("data.json")
         syncStateURL = dir.appendingPathComponent("syncState.bin")
@@ -92,8 +101,14 @@ struct ItemStore {
     }
 
     func save(_ state: PersistedState) {
-        guard let data = try? JSONEncoder().encode(state) else { return }
-        try? data.write(to: url, options: .atomic)
+        // This is the user's PRIMARY calendar data — a failed write (disk full, permissions)
+        // must never be swallowed silently.
+        do {
+            let data = try JSONEncoder().encode(state)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            storeLog.error("calendar store write FAILED (\(self.url.lastPathComponent, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // ── CKSyncEngine state serialization ──────────────────────────────────────────
@@ -101,7 +116,16 @@ struct ItemStore {
     // to persist across launches. Kept beside the item cache; nil means "never synced".
     func loadSyncState() -> Data? { try? Data(contentsOf: syncStateURL) }
     func saveSyncState(_ data: Data?) {
-        if let data { try? data.write(to: syncStateURL, options: .atomic) }
-        else { try? FileManager.default.removeItem(at: syncStateURL) }
+        do {
+            if let data { try data.write(to: syncStateURL, options: .atomic) }
+            else if FileManager.default.fileExists(atPath: syncStateURL.path) {
+                try FileManager.default.removeItem(at: syncStateURL)
+            }
+        } catch {
+            storeLog.error("sync-state write FAILED: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
+
+/// Persistence failures are logged (visible in Console.app), never silently dropped.
+let storeLog = Logger(subsystem: "dev.libirabu.calendar", category: "store")

@@ -13,7 +13,7 @@
 import SwiftUI
 import CalendarEngine
 
-private let accent = Color(hex: 0xff3b6b)
+private let accent = Theme.accent
 
 public struct SettingsView: View {
     public init() {}

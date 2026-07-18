@@ -436,6 +436,8 @@ struct DeadlinesOverlay: View {
     let selected: String?
     let hovered: String?
     let drawerOpen: Bool
+    var only: String? = nil   // lifted copy → render ONLY this deadline's tag (sharp, above the scrim)
+    var hide: String? = nil   // blurred main scene → SKIP this tag (it's drawn sharp in the lift)
     let theme: Theme
 
     private func activation(_ id: String) -> EventActivation {
@@ -457,6 +459,8 @@ struct DeadlinesOverlay: View {
         var gf = input; gf.focus = focus
         var out: [Spec] = []
         for d in deadlines {
+            if let only, d.id != only { continue }
+            if let hide, d.id == hide { continue }
             guard let pos = deadlinePos(d, input, focus: focus, anim: anim) else { continue }
             let rd = relDomOf(input.year, focus, d.year, d.month, d.day) ?? -999
             let spill = (input.z >= 1.5) ? spillFactor(d.month, gf, dim: EventsOverlay.spilloverDim) : 1

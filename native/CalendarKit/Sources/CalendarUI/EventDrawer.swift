@@ -4,6 +4,7 @@
 // controls / pickers. The markdown notes editor and imported/detach actions are deferred.
 
 import SwiftUI
+import AppKit
 import CalendarGeometry
 import CalendarEngine
 
@@ -19,6 +20,7 @@ public final class CalendarUIState {
     public var tutorialIndex: Int = 0     // current carousel slide
     public var drawerFocus: DrawerField?  // which drawer control the keyboard has focused (nil = drawer body)
     public var drawerTitleEditing: Bool = false   // the title field is in text-editing mode (vs. ring focus)
+    public var selectTitleOnOpen: Bool = false    // a freshly-created item (e.g. deadline "+") → focus + select-all the title
     // True while a native inline editor (the date/time NSDatePicker) is active. The key monitor treats
     // this like text-input focus: it passes ALL keys — including Tab — to the native field so it cycles
     // its own components, and the drawer-level Tab cycle does NOT advance until Enter/Esc commits.
@@ -39,9 +41,10 @@ public final class CalendarUIState {
 
     /// Raise the delete-confirm dialog for an event. No button is focused yet (no ring shows until the
     /// user arrows); Enter before that confirms the primary choice.
-    public func requestDelete(id: String, occKey: String, recurring: Bool, imported: Bool, alreadyHidden: Bool = false) {
+    public func requestDelete(id: String, occKey: String, recurring: Bool, imported: Bool,
+                              alreadyHidden: Bool = false, kind: CalendarEngine.ItemKind = .timed) {
         pendingDelete = PendingDelete(id: id, occKey: occKey, recurring: recurring, imported: imported,
-                                      alreadyHidden: alreadyHidden, focus: nil)
+                                      alreadyHidden: alreadyHidden, kind: kind, focus: nil)
     }
     /// Move the focus ring. The first arrow reveals it by stepping off the (implicit) primary choice.
     public func moveDeleteFocus(_ d: Int) {
@@ -91,7 +94,9 @@ public struct PendingDelete: Equatable {
     public let recurring: Bool
     public let imported: Bool    // an imported (read-only) event → Hide instead of Delete
     public let alreadyHidden: Bool   // imported + already hidden (revealed via View menu) → info-only, Cancel
+    public var kind: CalendarEngine.ItemKind = .timed   // drives the noun in the confirm text (deadline vs event)
     public var focus: Int?       // nil = not navigating yet (no ring)
+    private var noun: String { kind == .deadline ? "deadline" : "event" }
     public var choices: [DeleteChoice] {
         if alreadyHidden { return [.cancel] }        // nothing to do — Cancel only (no confirm button)
         if imported { return [.cancel, .hide] }
@@ -101,18 +106,18 @@ public struct PendingDelete: Equatable {
     /// here before any arrow. Clamped so an info-only dialog (Cancel alone) doesn't index past its end.
     public var primaryIndex: Int { min(1, choices.count - 1) }
     public var title: String {
-        if alreadyHidden { return "This imported event is already hidden" }
-        if imported { return "This is an imported event; Hide the event?" }
-        return recurring ? "Delete recurring event?" : "Delete this event?"
+        if alreadyHidden { return "This imported \(noun) is already hidden" }
+        if imported { return "This is an imported \(noun); Hide the \(noun)?" }
+        return recurring ? "Delete recurring \(noun)?" : "Delete this \(noun)?"
     }
     /// A secondary note under the title. Already-hidden imported → why + how to re-hide; imported recurring →
     /// steer to a local copy for a single-occurrence delete.
     public var note: String? {
         if alreadyHidden {
-            return "You can't delete an imported event. To hide the revealed hidden events again, turn off Menu Bar ▸ View ▸ Show Hidden Imported Events."
+            return "You can't delete an imported \(noun). To hide the revealed hidden events again, turn off Menu Bar ▸ View ▸ Show Hidden Imported Events."
         }
         return (imported && recurring)
-            ? "If you want to delete this individual occurrence, try making a local copy of the imported event first."
+            ? "If you want to delete this individual occurrence, try making a local copy of the imported \(noun) first."
             : nil
     }
 }
@@ -233,6 +238,10 @@ struct EventDrawer: View {
     let onClose: () -> Void
     var ui: CalendarUIState                 // keyboard focus target (ui.drawerFocus) — kept in 2-way sync
     var refocus: () -> Void = {}            // return first-responder to the calendar canvas on field blur
+    // GIF-recording only: the DemoController streams note text here (typed live into the editor) and drives
+    // the edit/preview toggle, so the markdown-notes scene shows real typing + render. No-op otherwise.
+    var demoNoteFeed: String = ""
+    var demoNotePreview: Bool = false
 
     @FocusState private var fieldFocus: DrawerField?   // the keyboard-focused drawer control (mirrors ui.drawerFocus)
     @State private var kind: ItemKind2 = .timed
@@ -291,7 +300,7 @@ struct EventDrawer: View {
     /// series has >1 occurrence. An already-hidden imported event gets the info-only "can't delete" dialog.
     private func requestDeleteFromDrawer() {
         let rec = imported ? engine.isImportedSeries(id) : recurring
-        ui.requestDelete(id: id, occKey: occKey, recurring: rec, imported: imported, alreadyHidden: isRevealedHidden)
+        ui.requestDelete(id: id, occKey: occKey, recurring: rec, imported: imported, alreadyHidden: isRevealedHidden, kind: engine.kind(of: id) ?? .timed)
     }
     /// Activating the footer BUTTON (click, or Enter on its focus ring): a revealed hidden event un-hides
     /// directly; otherwise it's the delete/hide dialog. (Distinct from the raw Delete key, which always
@@ -325,7 +334,7 @@ struct EventDrawer: View {
             .padding(.bottom, margin)
             // Red accent scoped to the drawer's native controls (pickers, date fields, disclosure,
             // toggles) — kept off the toolbar so its glass buttons stay neutral.
-            .tint(Color(hex: 0xff3b6b))
+            .tint(Theme.accent)
             .onAppear {
                 load()
                 // Native controls (pickers, the notes WebView) can't ride the slide transition, so
@@ -338,6 +347,9 @@ struct EventDrawer: View {
             .onChange(of: id) { _, _ in load() }          // re-pointed (e.g. "make local copy") → reload fields
 
             .onChange(of: notes) { _, v in engine.setNotes(id, v) }
+            // GIF-recording demo: stream typed note text into the editor + flip edit/preview on cue.
+            .onChange(of: demoNoteFeed) { _, v in notes = v; notesMode = .edit }
+            .onChange(of: demoNotePreview) { _, p in notesMode = p ? .preview : .edit }
             .onChange(of: occNote) { _, v in engine.setOccNote(id, occKey, v) }
             .onChange(of: noteScope) { _, s in   // open each note in the sensible view
                 let c = s == .occurrence ? occNote : notes
@@ -375,6 +387,18 @@ struct EventDrawer: View {
                 }
             }
             .onDisappear { ui.drawerFocus = nil; ui.drawerTitleEditing = false; ui.drawerFieldEditing = false }
+            .onAppear {
+                // A freshly-created item (e.g. the deadline "+") opens with its default title focused and
+                // fully selected, so the first keystroke replaces "New Deadline".
+                guard ui.selectTitleOnOpen else { return }
+                ui.selectTitleOnOpen = false
+                ui.drawerTitleEditing = true   // focus the title field (drives fieldFocus = .title)
+                // The field editor becomes first responder a beat after @FocusState flips + the drawer
+                // finishes sliding in; select-all once it's up.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    (NSApp.keyWindow?.firstResponder as? NSText)?.selectAll(nil)
+                }
+            }
             .id(id)
     }
 

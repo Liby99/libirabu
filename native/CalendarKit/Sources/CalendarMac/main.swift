@@ -21,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         PrefsSync.shared.start()
         applyPersistedAppearance()
 
+        // The default 1440×840 (also used for GIF recording — a wider grid reads less cluttered; the recorded
+        // crop rect is read back from the actual window, so any fixed size stays deterministic).
+        let demo = !(ProcessInfo.processInfo.environment["CC_DEMO"] ?? "").isEmpty
         let size = NSSize(width: 1440, height: 840)
         window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
@@ -40,6 +43,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        if demo { exportContentRect() }
+    }
+
+    /// Write the window's CONTENT area as a top-left-origin screen rect (points) so the recording script can
+    /// `screencapture -R` exactly the calendar (no title bar). Written to $CC_DEMO_DATADIR/rect.txt.
+    private func exportContentRect() {
+        guard let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty,
+              let screen = window.screen ?? NSScreen.main else { return }
+        let c = window.contentRect(forFrameRect: window.frame)          // bottom-left origin, points
+        let topLeftY = screen.frame.height - c.maxY                      // flip to top-left origin
+        let line = "\(Int(c.origin.x.rounded())) \(Int(topLeftY.rounded())) \(Int(c.width.rounded())) \(Int(c.height.rounded()))\n"
+        try? line.write(toFile: (dir as NSString).appendingPathComponent("rect.txt"), atomically: true, encoding: .utf8)
     }
 
     // Cmd-W closes the window but leaves the app running (Cmd-Q quits).
@@ -96,14 +111,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Standard undo:/redo: selectors → the responder chain routes them to whoever's focused: a
         // focused text field / editor does its own text undo; the focused calendar canvas (CatcherView
         // implements undo:/redo:) does the calendar undo. So ⌘Z works in every focus state.
-        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Undo", action: NSSelectorFromString("undo:"), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "Redo", action: NSSelectorFromString("redo:"), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "Cut", action: Selector(("cut:")), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Copy", action: Selector(("copy:")), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: Selector(("paste:")), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Select All", action: Selector(("selectAll:")), keyEquivalent: "a")
+        editMenu.addItem(withTitle: "Cut", action: NSSelectorFromString("cut:"), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: NSSelectorFromString("copy:"), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: NSSelectorFromString("paste:"), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: NSSelectorFromString("selectAll:"), keyEquivalent: "a")
 
         let viewItem = NSMenuItem()
         main.addItem(viewItem)

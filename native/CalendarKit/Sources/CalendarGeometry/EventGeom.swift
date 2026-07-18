@@ -93,9 +93,14 @@ public struct TimedEvent: Sendable, Identifiable, Equatable, Codable {
     public var endHour: CGFloat
     public var title: String
     public var color: String
-    public init(id: String, year: Int, month: Int, day: Int, startHour: CGFloat, endHour: CGFloat, title: String, color: String) {
+    // The timezone this event is anchored to (a concrete IANA id, or "AOE"); nil = the main tz is
+    // canonical. year/month/day/startHour/endHour are the wall-clock IN this zone; the absolute instant
+    // is derived, and the timeline converts anchorTz→mainTz for display. Never stored as "auto" (a fixed
+    // anchor must not drift with the device). Optional so older stores/records decode unchanged.
+    public var anchorTz: String?
+    public init(id: String, year: Int, month: Int, day: Int, startHour: CGFloat, endHour: CGFloat, title: String, color: String, anchorTz: String? = nil) {
         self.id = id; self.year = year; self.month = month; self.day = day; self.startHour = startHour
-        self.endHour = endHour; self.title = title; self.color = color
+        self.endHour = endHour; self.title = title; self.color = color; self.anchorTz = anchorTz
     }
 }
 

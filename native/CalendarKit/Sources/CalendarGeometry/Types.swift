@@ -24,6 +24,20 @@ public struct Frame: Sendable, Equatable {
 }
 
 /// Cursor-driven hover targets, resolved per zoom bucket.
+/// The quick-add "+" affordance for a deadline: its on-screen point + the target date/hour it creates.
+public struct DeadlineAddSpot: Sendable, Equatable {
+    public let x: CGFloat
+    public let y: CGFloat
+    public let year: Int
+    public let month: Int
+    public let day: Int
+    public let hour: Int
+    public let hovering: Bool   // the cursor is directly over the "+" → brighten it
+    public init(x: CGFloat, y: CGFloat, year: Int, month: Int, day: Int, hour: Int, hovering: Bool = false) {
+        self.x = x; self.y = y; self.year = year; self.month = month; self.day = day; self.hour = hour; self.hovering = hovering
+    }
+}
+
 public struct Hover: Sendable, Equatable {
     public var month: Int?
     public var dom: Int?

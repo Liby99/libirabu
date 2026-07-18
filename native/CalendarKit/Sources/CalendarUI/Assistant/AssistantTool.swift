@@ -43,9 +43,11 @@ enum ActionKind: String {
 }
 
 /// Ambient context handed to every tool. Grows over stages (memory store, web keys, user id).
+/// `weak`, not `unowned` — an engine outlived by a running tool call must degrade to
+/// "calendar unavailable", never dangle (same reasoning as CloudSync's weak engine).
 @MainActor
 struct ToolContext {
-    unowned let engine: CalendarEngine?
+    weak var engine: CalendarEngine?
 }
 
 /// One assistant tool: an OpenAI function def + a handler. Mirrors `AssistantTool` in types.ts.
@@ -90,15 +92,6 @@ extension JSONValue {
     /// Compact JSON string (tool output → `role:"tool"` message content).
     var jsonString: String {
         guard let data = try? JSONEncoder().encode(self),
-              let s = String(data: data, encoding: .utf8) else { return "null" }
-        return s
-    }
-
-    /// Pretty-printed JSON (the expandable action-detail card).
-    var prettyJsonString: String {
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? enc.encode(self),
               let s = String(data: data, encoding: .utf8) else { return "null" }
         return s
     }

@@ -52,6 +52,9 @@ struct CalendarApp: App {
                     // tabbing removes the View/Window menu's "Show Tab Bar / Show All Tabs / Move Tab…"
                     // items. Idempotent; safe to set on every appearance.
                     NSWindow.allowsAutomaticWindowTabbing = false
+                    // Drop the default File ▸ Close (⌘W): the menu-bar item keeps the app alive, so a
+                    // single persistent window has no meaningful "Close" — it just hides the calendar.
+                    removeFileCloseItem()
                 }
         }
         .defaultSize(width: 1440, height: 840)
@@ -76,9 +79,9 @@ struct CalendarApp: App {
             // otherwise call the engine DIRECTLY — not via the responder chain — so undo works even when the
             // canvas isn't first responder (e.g. right after an inline title rename hands focus back).
             CommandGroup(replacing: .undoRedo) {
-                Button("Undo") { routeUndoRedo(redo: false, engine: engine) }
+                Button { routeUndoRedo(redo: false, engine: engine) } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .keyboardShortcut("z", modifiers: .command)
-                Button("Redo") { routeUndoRedo(redo: true, engine: engine) }
+                Button { routeUndoRedo(redo: true, engine: engine) } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
             }
             // Display preferences (stored in UserDefaults, shared with the renderer), placed INTO the
@@ -100,12 +103,8 @@ struct CalendarApp: App {
             }
             // Standard macOS Help menu (kept at the end): the onboarding tutorial + the ⌘K shortcut guide.
             CommandGroup(replacing: .help) {
-                Button("Tutorial") {
-                    NotificationCenter.default.post(name: .showTutorial, object: nil)
-                }
-                Button("Keyboard Shortcuts") {
-                    NotificationCenter.default.post(name: .showKeyboardShortcuts, object: nil)
-                }
+                Button { NotificationCenter.default.post(name: .showTutorial, object: nil) } label: { Label("Tutorial", systemImage: "graduationcap") }
+                Button { NotificationCenter.default.post(name: .showKeyboardShortcuts, object: nil) } label: { Label("Keyboard Shortcuts", systemImage: "keyboard") }
             }
         }
 
@@ -116,7 +115,7 @@ struct CalendarApp: App {
 
         // The standalone "Calendar AI" chat window — a separate, draggable window opened from the
         // toolbar sparkles button or the menu-bar item. Independent of the calendar window.
-        Window("Calendar AI", id: "assistant") {
+        Window("Madocal AI", id: "assistant") {
             AssistantWindowView(state: assistant, callout: quickAssistant)
                 .onAppear {
                     applyPersistedAppearance()
@@ -129,8 +128,21 @@ struct CalendarApp: App {
 
         // Menu-bar item (top-right) → a small dropdown. Its presence keeps the app alive when all
         // windows are closed, so the chat can be opened without (or outliving) the calendar window.
-        MenuBarExtra("Calendar AI", systemImage: "sparkles") {
+        MenuBarExtra("Madocal AI", systemImage: "sparkles") {
             MenuBarContent(assistant: assistant)
+        }
+    }
+}
+
+/// Remove the default File ▸ Close (⌘W) item SwiftUI adds for the window. Deferred to the next runloop
+/// so it runs after the main menu is built. Matches by the `performClose:` action (locale-independent).
+@MainActor private func removeFileCloseItem() {
+    DispatchQueue.main.async {
+        for top in NSApp.mainMenu?.items ?? [] {
+            guard let sub = top.submenu else { continue }
+            for item in sub.items where item.action == #selector(NSWindow.performClose(_:)) {
+                sub.removeItem(item)
+            }
         }
     }
 }
@@ -142,7 +154,7 @@ struct CalendarApp: App {
 @MainActor private func routeUndoRedo(redo: Bool, engine: CalendarEngine) {
     if engine.inputModalUp { return }   // a blocking modal (delete confirm) is up → ignore undo/redo
     if firstResponderIsTextInput() {
-        NSApp.sendAction(Selector((redo ? "redo:" : "undo:")), to: nil, from: nil)
+        NSApp.sendAction(NSSelectorFromString(redo ? "redo:" : "undo:"), to: nil, from: nil)
     } else {
         redo ? engine.redo() : engine.undo()
     }
@@ -162,13 +174,23 @@ struct CalendarApp: App {
 private struct ViewMenu: View {
     @AppStorage(CalendarEngine.showHiddenImportedKey) private var showHidden = false
     @AppStorage(CalendarEngine.mainTzKey) private var mainTz = CalendarTimezones.autoId
+    @AppStorage(CalendarEngine.altTzKey) private var altTz = "none"
     var body: some View {
-        Toggle("Show Hidden Imported Events", isOn: $showHidden)
+        Toggle(isOn: $showHidden) { Label("Show Hidden Imported Events", systemImage: "eye.slash") }
         Divider()
-        // Renders as a "Current Timezone ▸" submenu (checkmark on the active zone). Drives deadline
-        // origin-time labels; the renderer re-reads it via engine.viewPrefsChanged().
-        Picker("Current Timezone", selection: $mainTz) {
+        // "Current Timezone ▸" — drives deadline origin-time labels.
+        Picker(selection: $mainTz) {
             ForEach(CalendarTimezones.all) { Text($0.label).tag($0.id) }
+        } label: {
+            Label("Current Timezone", systemImage: "clock")
+        }
+        // "Alternative Timezone ▸" — a second dimmed hour column on the week/day/month timeline. "None"
+        // hides it; a concrete zone shows it (Automatic/device isn't offered — that would equal Current).
+        Picker(selection: $altTz) {
+            Text("None").tag("none")
+            ForEach(CalendarTimezones.all.filter { $0.id != CalendarTimezones.autoId }) { Text($0.label).tag($0.id) }
+        } label: {
+            Label("Alternative Timezone", systemImage: "globe")
         }
     }
 }
@@ -179,8 +201,10 @@ private struct ConnectivityMenu: View {
     let engine: CalendarEngine
     var body: some View {
         Text(lastSyncedLabel)   // plain Text → a disabled info row in the menu
-        Button(engine.syncMonitor.isSyncing ? "Syncing…" : "Sync Now") { engine.refreshConnectivity() }
-            .disabled(engine.syncMonitor.isSyncing)
+        Button { engine.refreshConnectivity() } label: {
+            Label(engine.syncMonitor.isSyncing ? "Syncing…" : "Sync Now", systemImage: "arrow.triangle.2.circlepath")
+        }
+        .disabled(engine.syncMonitor.isSyncing)
     }
     private var lastSyncedLabel: String {
         _ = engine.syncMonitor.minuteTick   // depend on the tick so a Today→Yesterday rollover refreshes
@@ -207,10 +231,12 @@ private struct OpenAssistantCommand: View {
     @FocusedBinding(\.assistantCallout) private var callout: Bool?
 
     var body: some View {
-        Button("Calendar AI") {
+        Button {
             guard !engine.inputModalUp else { return }   // blocked while a modal is up
             if callout != nil { callout = !(callout ?? false) }
             else { openWindow(id: "assistant") }
+        } label: {
+            Label("Madocal AI", systemImage: "sparkles")
         }
         .keyboardShortcut("i", modifiers: .command)
     }
@@ -223,12 +249,12 @@ private struct MenuBarContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Open Calendar AI") { openWindow(id: "assistant") }
-        Button("New Chat") { assistant.newChat(); openWindow(id: "assistant") }
+        Button { openWindow(id: "assistant") } label: { Label("Open Madocal AI", systemImage: "sparkles") }
+        Button { assistant.newChat(); openWindow(id: "assistant") } label: { Label("New Chat", systemImage: "square.and.pencil") }
         Divider()
-        Button("Show Calendar") { openWindow(id: "calendar") }
-        SettingsLink { Text("Settings…") }
+        Button { openWindow(id: "calendar") } label: { Label("Show Madocal", systemImage: "calendar") }
+        SettingsLink { Label("Settings…", systemImage: "gearshape") }
         Divider()
-        Button("Quit Calendar") { NSApplication.shared.terminate(nil) }
+        Button { NSApplication.shared.terminate(nil) } label: { Label("Quit Madocal", systemImage: "power") }
     }
 }

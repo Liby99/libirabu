@@ -714,10 +714,9 @@ struct SetTrackNameTool: AssistantTool {
 }
 
 // ── Shared formatting helpers ─────────────────────────────────────────────────────────
-private let monthAbbr = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+// Month/weekday names come from CalendarGeometry's canonical MONTH_NAMES / WD3.
 
-private func monthName(_ m: Int) -> String { monthAbbr.indices.contains(m) ? monthAbbr[m] : "?" }
+private func monthName(_ m: Int) -> String { MONTH_NAMES.indices.contains(m) ? MONTH_NAMES[m] : "?" }
 
 @MainActor private func zoomName(_ e: CalendarEngine) -> String {
     e.isDayLevel ? "day" : e.isWeekLevel ? "week" : e.isMonthLevel ? "month" : "year"
@@ -773,10 +772,9 @@ private func convertFromOrigin(_ y: Int, _ m: Int, _ d: Int, _ hour: CGFloat,
     return (ly, lm - 1, ld, CGFloat(lh) + CGFloat(lmin) / 60)
 }
 
-private let weekdayFmt: [String] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 private func weekday(_ y: Int, _ m: Int, _ d: Int) -> String {
     var c = DateComponents(); c.year = y; c.month = m + 1; c.day = d
     guard let date = Calendar(identifier: .gregorian).date(from: c) else { return "" }
     let wd = Calendar(identifier: .gregorian).component(.weekday, from: date)  // 1 = Sun
-    return weekdayFmt.indices.contains(wd - 1) ? weekdayFmt[wd - 1] : ""
+    return WD3.indices.contains(wd - 1) ? WD3[wd - 1] : ""
 }

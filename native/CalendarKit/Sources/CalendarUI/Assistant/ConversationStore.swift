@@ -4,6 +4,7 @@
 
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable
@@ -55,7 +56,13 @@ public final class ConversationStore {
     }
 
     private func save() {
-        guard let data = try? JSONEncoder().encode(conversations) else { return }
-        try? data.write(to: url, options: .atomic)
+        // Conversation history is user data too — write failures are logged, never swallowed.
+        do {
+            let data = try JSONEncoder().encode(conversations)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            Logger(subsystem: "dev.libirabu.calendar", category: "chat")
+                .error("conversation store write FAILED: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

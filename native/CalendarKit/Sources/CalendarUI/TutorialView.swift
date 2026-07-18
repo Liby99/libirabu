@@ -18,8 +18,9 @@ struct TutorialView: View {
     var onClose: () -> Void
 
     static let slides: [TutorialSlide] = [
-        .init(gif: "drag-create",    caption: "Drag on the calendar to create events."),
         .init(gif: "pinch-zoom",     caption: "Pinch to zoom into monthly, weekly, or daily view."),
+        .init(gif: "band-year",      caption: "Drag across days in the year view to create multi-day events."),
+        .init(gif: "timed-week",     caption: "Drag on the timeline to create timed events."),
         .init(gif: "ai-assistant",   caption: "Click the AI button to let AI help you manage your calendar."),
         .init(gif: "markdown-notes", caption: "Edit markdown notes in events or the daily notepad to add TODO items."),
     ]

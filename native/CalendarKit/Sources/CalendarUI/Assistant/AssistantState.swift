@@ -1,7 +1,7 @@
-// The assistant conversation: transcript + send/stop/newChat, the system prompt, and the
-// read-only calendar-context block built from the engine's public read APIs. v1 has no tool
-// loop — the calendar snapshot is injected into the system context so the model can *discuss*
-// the calendar; mutations + a real tool loop are Phase 2.
+// One assistant SESSION: the live transcript, the ReAct tool-calling loop (runAgent →
+// executeBatch, auditor-gated mutations, confirm-gated deletes, blocked/resume cards), the
+// system prompt, and mirroring into the shared ConversationStore. The standalone window and
+// the quick-ask callout each own one of these over the same store.
 
 import Foundation
 import Observation
@@ -21,9 +21,10 @@ public final class AssistantState {
     var conversations: [StoredConversation] { store.conversations }
     private(set) var currentId: UUID?
 
-    /// Shared calendar engine for read-only context. Assigned by the App so the standalone chat
-    /// window reads the same live calendar state as the calendar window. `nil` → context unavailable.
-    public unowned var engine: CalendarEngine?
+    /// Shared calendar engine for tool context. Assigned by the App so both surfaces read the
+    /// same live calendar state; `nil` → tools degrade to "calendar unavailable". `weak`, not
+    /// `unowned`: a deallocated engine must nil out, never dangle (matches CloudSync's choice).
+    public weak var engine: CalendarEngine?
 
     public init(store: ConversationStore) { self.store = store }
 
@@ -393,10 +394,10 @@ public final class AssistantState {
     /// per-occurrence delete are supported natively too, matching the web text.
     private func systemPrompt() -> String {
         let now = Date()
-        let today = Self.isoFmt.string(from: now)
+        let today = isoDayString(now)
         let weekday = Self.weekdayFmt.string(from: now)
         var lines: [String] = [
-            "You are the assistant inside libirabu, a research calendar app. You help the user understand and plan their calendar.",
+            "You are the assistant inside Madocal, a research calendar app. You help the user understand and plan their calendar.",
             "Today is \(weekday), \(today).",
             viewContextLine(),
         ]
@@ -448,9 +449,6 @@ public final class AssistantState {
         return "The user's current view: year \(engine.year), zoom \"\(zoom)\", focused month \(engine.focus) (0=Jan)."
     }
 
-    private static let isoFmt: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f
-    }()
     private static let weekdayFmt: DateFormatter = {
         let f = DateFormatter(); f.locale = Locale(identifier: "en_US"); f.dateFormat = "EEEE"; return f
     }()

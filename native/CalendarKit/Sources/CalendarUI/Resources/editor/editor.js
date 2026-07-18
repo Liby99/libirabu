@@ -55270,7 +55270,7 @@
   // noteEditor.ts
   var MONO = "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)";
   var cmTheme = EditorView.theme({
-    "&": { backgroundColor: "transparent", color: "var(--accent-dark)", height: "100%", fontSize: "12px" },
+    "&": { backgroundColor: "transparent", color: "var(--accent-dark)", height: "100%", fontSize: "13px" },
     "&.cm-focused": { outline: "none" },
     ".cm-scroller": { fontFamily: MONO, lineHeight: "1.55" },
     ".cm-content": { padding: "1px 0 12px", caretColor: "var(--accent-dark)" },

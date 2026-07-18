@@ -9,6 +9,10 @@ import AppKit
 import CalendarGeometry
 
 struct Theme {
+    /// The app-wide red accent (now-line, selection pills, send button, …).
+    /// SINGLE source of truth — never hardcode 0xff3b6b elsewhere.
+    static let accent = Color(hex: 0xff3b6b)
+
     let dark: Bool   // only affects the event palette; structural colors are system-native
 
     // Structural colors — resolved ONCE per render from the macOS system palette
@@ -65,8 +69,8 @@ struct Theme {
         weekendWash = label.opacity(CalendarGeometry.Layout.weekendWashOpacity)
         highlight = label                      // hover wash (item opacity is tiny)
         cursor = label.opacity(0.6)
-        nowLine = Color(hex: 0xff3b6b)          // red accent (kept)
-        todayTint = Color(hex: 0xff3b6b, opacity: 0.07)
+        nowLine = Self.accent                   // red accent (kept)
+        todayTint = Self.accent.opacity(0.07)
         todayMonthWash = Color(hex: 0xc77e8b, opacity: 0.05)  // current-month wash: faint red-pink gray
     }
 

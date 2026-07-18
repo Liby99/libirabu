@@ -74,6 +74,15 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     }
     // Pinch is always the calendar's (zoom), never the web view's page magnification.
     override func magnify(with e: NSEvent) { (forwarder?.catcher ?? superview)?.magnify(with: e) }
+
+    // The web view's frame spans the full window (its content slides in via CSS), so its cursor tracking
+    // fires even where the CALENDAR shows through on the left — fighting the calendar's grab/i-beam cursor
+    // (e.g. over a deadline tag in week view → flicker). Only drive the cursor when we're the active day
+    // view; otherwise yield so the calendar's cursor (set by the input catcher) stands.
+    var cursorActive = false
+    override func cursorUpdate(with event: NSEvent) {
+        if cursorActive { super.cursorUpdate(with: event) }
+    }
 }
 
 /// Shared conduit: the web view registers itself here; the per-frame driver pushes carousel ticks.
@@ -157,6 +166,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
     var tab: DashTab                        // TODO/NOTE (Swift is the source of truth)
     var noteMode: NotesMode                 // note edit/preview (the native toggle mirrors the WebView)
     var inactive: Bool                      // drawer open → in-page scrim blurs + blocks the dashboard
+    var interactive: Bool                   // the active day view → the web view may drive the cursor
     var theme: Theme
     var onToggle: (_ eventId: String, _ occKey: String?, _ value: String) -> Void
     var onOpen: (_ eventId: String) -> Void
@@ -197,6 +207,9 @@ struct DailyDashboardWebView: NSViewRepresentable {
         c.onTab = onTab; c.onNoteMode = onNoteMode; c.onNoteChange = onNoteChange; c.onOpenLink = onOpenLink
         c.onJumpDay = onJumpDay; c.onCloseDrawer = onCloseDrawer; c.onNoteExit = onNoteExit; c.onNavTab = onNavTab
         c.apply(data: data, tab: tab, noteMode: noteMode, inactive: inactive, theme: themeVars())
+        // Only own the cursor as the active day view; at week level (slid out) yield so the calendar's
+        // grab/i-beam cursor over the timeline doesn't flicker against the web view's arrow.
+        (web as? PassThroughWebView)?.cursorActive = interactive && !inactive
         // Drawer open → the dashboard is blocked; make sure it isn't holding keyboard focus so Tab
         // navigation in the drawer can't cycle into its list items.
         if inactive { (web as? PassThroughWebView)?.regateFocus() }
@@ -380,7 +393,9 @@ struct DailyDashboardOverlay: View {
 
         DailyDashboardWebView(
             carousel: carousel, forwarder: forwarder, data: engine.dashboardDataJSON(),
-            tab: tab, noteMode: noteMode, inactive: inactive, theme: theme,
+            tab: tab, noteMode: noteMode, inactive: inactive,
+            interactive: engine.chrome.level == 3,   // day view → own the cursor; week (slid out) → yield
+            theme: theme,
             onToggle: { id, occKey, value in engine.applyTodoNote(eventId: id, occKey: occKey, value: value) },
             onOpen: onOpen, onDeselect: { engine.deselect() },
             onTab: { tab = $0 }, onNoteMode: { noteMode = $0 },
@@ -453,7 +468,7 @@ struct NoteModeToggleOverlay: View {
                 Image(systemName: "eye").tag(NotesMode.preview)
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
-            .tint(Color(hex: 0xff3b6b))
+            .tint(Theme.accent)
             .opacity(anim.reveal > 0.5 && anim.p < 0.01 ? 1 : 0)   // hide during swipe / while zooming
             .position(x: right - 46, y: bottom - 2)
             .animation(.easeOut(duration: 0.12), value: anim.p < 0.01)

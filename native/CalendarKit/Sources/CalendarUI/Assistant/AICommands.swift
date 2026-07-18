@@ -13,14 +13,16 @@ public struct AICommands: View {
     public init(assistant: AssistantState) { self.assistant = assistant }
 
     public var body: some View {
-        Button("New Conversation") { assistant.newChat(); openWindow(id: "assistant") }
-        Button("Current Conversation") { openWindow(id: "assistant") }
+        Button { assistant.newChat(); openWindow(id: "assistant") } label: { Label("New Conversation", systemImage: "square.and.pencil") }
+        Button { openWindow(id: "assistant") } label: { Label("Current Conversation", systemImage: "bubble.left") }
         Divider()
         // Renders as a "Model ▸" submenu with a checkmark on the active model.
-        Picker("Model", selection: $model) {
+        Picker(selection: $model) {
             ForEach(AssistantModels.all) { m in Text(m.label).tag(m.id) }
+        } label: {
+            Label("Model", systemImage: "cpu")
         }
         Divider()
-        SettingsLink { Text("Configure API Keys…") }
+        SettingsLink { Label("Configure API Keys…", systemImage: "key") }
     }
 }

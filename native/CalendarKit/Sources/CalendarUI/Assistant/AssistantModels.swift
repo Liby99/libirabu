@@ -82,8 +82,9 @@ struct ConfirmRequest: Equatable, Codable {
     var status: Status = .pending
 }
 
-// ── Minimal JSON value (for Phase-2 tool JSON Schemas) ──────────────────────────────
-// Codable arbitrary JSON so ToolDef.parameters can carry a schema. Unused in v1.
+// ── Minimal JSON value ──────────────────────────────────────────────────────────────
+// Codable arbitrary JSON — carries tool JSON Schemas (ToolDef.parameters), tool arguments and
+// results throughout the agent loop, and the assistant memory values.
 
 indirect enum JSONValue: Codable {
     case string(String), number(Double), bool(Bool), object([String: JSONValue]), array([JSONValue]), null

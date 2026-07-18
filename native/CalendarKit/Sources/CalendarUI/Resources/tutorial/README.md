@@ -3,12 +3,19 @@
 Drop animated GIFs here with these exact names (see `TutorialView.swift` → `TutorialView.slides`).
 Each slide falls back to a placeholder if its GIF is missing, so the carousel works without them.
 
-| filename            | caption |
-|---------------------|---------|
-| `drag-create.gif`   | Drag on the calendar to create events. |
-| `pinch-zoom.gif`    | Pinch to zoom into monthly, weekly, or daily view. |
-| `ai-assistant.gif`  | Click the AI button to let AI help you manage your calendar. |
-| `markdown-notes.gif`| Edit markdown notes in events or the daily notepad to add TODO items. |
+The carousel order (TutorialView.slides) is: pinch-zoom, band-year, timed-week, ai-assistant, markdown-notes.
 
-Recommended: 16:9, ~1200×675, optimized (a few MB max). They're copied into the app bundle at build time
-and loaded via `Bundle.module.url(forResource:withExtension:"gif", subdirectory:"tutorial")`.
+| filename            | scene (record-tutorial.sh) | caption |
+|---------------------|----------------------------|---------|
+| `pinch-zoom.gif`    | `pinch-zoom`  | Pinch to zoom into monthly, weekly, or daily view. |
+| `band-year.gif`     | `band-year`   | Drag across days in the year view to create multi-day events. |
+| `timed-week.gif`    | `timed-week`  | Drag on the timeline to create timed events. |
+| `ai-assistant.gif`  | `ai-assistant`   | Click the AI button to let AI help you manage your calendar. |
+| `markdown-notes.gif`| `markdown-notes` | Edit markdown notes in events or the daily notepad to add TODO items. |
+
+Full-window scenes (pinch-zoom, ai-assistant) are recorded with `FPS=12 SCALE=900 COLORS=128 DITHER=none` to
+keep the file small; the cropped scenes use the script defaults. All get a `gifsicle --lossy` pass.
+
+These are produced automatically by `scripts/record-tutorial.sh <scene>` (see DemoController.swift). They're
+copied into the app bundle at build time and loaded via `Bundle.module.url(...subdirectory:"tutorial")`. A
+slide falls back to a placeholder if its GIF is missing.

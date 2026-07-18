@@ -25,6 +25,46 @@ public enum DeadlineTZ {
         (TimeZone(identifier: iana(tz)) ?? .gmt).secondsFromGMT(for: date)
     }
 
+    /// Resolve "auto" to the concrete device zone id; pass everything else through (incl. "AOE").
+    /// Used to stamp a FIXED anchor at create/migration time — a stored anchor must never be "auto"
+    /// (that would drift as the device zone changes).
+    public static func concrete(_ tz: String) -> String {
+        tz == "auto" ? TimeZone.current.identifier : tz
+    }
+
+    /// True when two zone ids denote the same UTC offset at `date` — so no display shift or secondary
+    /// label is needed. Resolves "auto"/"AOE" first, so e.g. "auto"==device and equal-offset zones match.
+    public static func sameOffset(_ a: String, _ b: String, at date: Date) -> Bool {
+        offset(a, at: date) == offset(b, at: date)
+    }
+
+    /// A floating wall-clock (y, 0-based month, d, fractional hour) as its UTC-encoded instant. Public
+    /// so callers can pick the DST-correct moment; `hour` may exceed 24 (a cross-midnight event's end).
+    public static func instant(_ y: Int, _ m0: Int, _ d: Int, _ hour: CGFloat) -> Date {
+        utcInstant(y, m0, d, hour)
+    }
+
+    /// Re-express a wall-clock from zone `from` into zone `to`, DST-aware, normalizing across midnight so
+    /// the returned year/month/day are correct (e.g. 01:00 ET → 22:00 the PREVIOUS day PT). Identity when
+    /// the two zones share an offset. This is the single converter used by both display (anchor→main) and
+    /// write-back (main→anchor).
+    public static func convertWall(_ y: Int, _ m0: Int, _ d: Int, _ hour: CGFloat,
+                                   from: String, to: String) -> (year: Int, month: Int, day: Int, hour: CGFloat) {
+        let base = utcInstant(y, m0, d, hour)                       // the wall-clock as a UTC-encoded instant
+        let delta = Double(offset(to, at: base) - offset(from, at: base))
+        let shifted = base.addingTimeInterval(delta)               // same instant, expressed in `to`
+        let c = utcCal.dateComponents([.year, .month, .day, .hour, .minute], from: shifted)
+        let hr = CGFloat(c.hour ?? 0) + CGFloat(c.minute ?? 0) / 60
+        return (c.year ?? y, (c.month ?? 1) - 1, c.day ?? d, hr)
+    }
+
+    /// Fractional-hour shift to add to a `mainTz` wall-clock hour to get the same instant's `altTz`
+    /// wall-clock hour (e.g. ET→Tokyo ≈ +13/+14, ET→India = +9.5/+10.5). DST-aware at `date`. Used to
+    /// label the alternative-timezone hour column on the timeline.
+    public static func hourShift(from mainTz: String, to altTz: String, at date: Date) -> Double {
+        Double(offset(altTz, at: date) - offset(mainTz, at: date)) / 3600
+    }
+
     private static let utcCal: Calendar = {
         var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c
     }()

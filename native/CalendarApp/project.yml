@@ -29,18 +29,18 @@ targets:
         product: CalendarEngine
     settings:
       base:
-        PRODUCT_NAME: Calendar
+        PRODUCT_NAME: Madocal
         PRODUCT_BUNDLE_IDENTIFIER: dev.libirabu.calendar
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Calendar
+        INFOPLIST_KEY_CFBundleDisplayName: Madocal
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         # EventKit (Apple Calendar import): TCC requires a usage string to prompt. The app is NOT
         # sandboxed (no com.apple.security.app-sandbox entitlement), so this string alone suffices —
         # a sandboxed build would ALSO need the com.apple.security.personal-information.calendars entitlement.
-        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: Calendar reads your Apple Calendar events so it can show them alongside your libirabu calendar.
-        INFOPLIST_KEY_NSCalendarsUsageDescription: Calendar reads your Apple Calendar events so it can show them alongside your libirabu calendar.
+        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: Madocal reads your Apple Calendar events so it can show them alongside your Madocal calendar.
+        INFOPLIST_KEY_NSCalendarsUsageDescription: Madocal reads your Apple Calendar events so it can show them alongside your Madocal calendar.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.0"
         MACOSX_DEPLOYMENT_TARGET: "26.0"
@@ -62,7 +62,7 @@ targets:
     info:
       path: iOS/Info.plist
       properties:
-        CFBundleDisplayName: Calendar
+        CFBundleDisplayName: Madocal
         UILaunchScreen: {}
         UIBackgroundModes: [remote-notification]   # CKSyncEngine push delivery
     dependencies:
@@ -70,7 +70,7 @@ targets:
         product: CalendarEngine
     settings:
       base:
-        PRODUCT_NAME: Calendar
+        PRODUCT_NAME: Madocal
         PRODUCT_BUNDLE_IDENTIFIER: dev.libirabu.calendar
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"

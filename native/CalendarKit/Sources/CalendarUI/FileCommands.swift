@@ -6,16 +6,17 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import CalendarEngine
+import CalendarGeometry   // isoDayString
 
 public struct FileCommands: View {
     let engine: CalendarEngine
     public init(engine: CalendarEngine) { self.engine = engine }
 
     public var body: some View {
-        Button("Import .ics…") { importICS() }
+        Button { importICS() } label: { Label("Import .ics…", systemImage: "calendar.badge.plus") }
         Divider()
-        Button("Import Backup (.mdc)…") { importMDC() }
-        Button("Export Backup (.mdc)…") { exportMDC() }
+        Button { importMDC() } label: { Label("Import Backup (.mdc)…", systemImage: "square.and.arrow.down") }
+        Button { exportMDC() } label: { Label("Export Backup (.mdc)…", systemImage: "square.and.arrow.up") }
     }
 
     // ── .ics: additive import ──────────────────────────────────────────────────────────
@@ -45,7 +46,7 @@ public struct FileCommands: View {
     private func exportMDC() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "mdc") ?? .data]
-        panel.nameFieldStringValue = "MadoCal-\(stamp()).mdc"
+        panel.nameFieldStringValue = "MadoCal-\(isoDayString()).mdc"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do { try engine.exportMDC(to: url) }
@@ -67,8 +68,5 @@ public struct FileCommands: View {
         let a = NSAlert(); a.messageText = text
         a.informativeText = error.localizedDescription
         a.alertStyle = .warning; a.addButton(withTitle: "OK"); a.runModal()
-    }
-    private func stamp() -> String {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: Date())
     }
 }

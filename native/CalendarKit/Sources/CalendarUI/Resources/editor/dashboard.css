@@ -47,7 +47,7 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
    Top-aligned; bottom padding clears the native edit/preview toggle at the bottom-right. */
 .cc-dd-note-md { height: auto; overflow: visible; padding: 0 0 24px; }
 /* Empty day → the editor placeholder (matches CodeMirror's placeholder: mono, faint). */
-.cc-dd-note-empty { color: var(--accent-grey); font-family: var(--font-mono); font-size: 12px; }
+.cc-dd-note-empty { color: var(--accent-grey); font-family: var(--font-mono); font-size: 13px; }
 /* Transform layer: carries the per-frame carousel slide + fade. It must NOT be the scroller — a
    transformed/composited scroller loses WebKit's native rubber-band. */
 .cc-dd-panel {
