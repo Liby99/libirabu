@@ -74,10 +74,11 @@ extension CalendarEngine {
     /// Warm the corpus — call when the search bar opens (⌘F), so the first keystroke is already fast.
     public func primeSearch() { _ = ensureSearchCorpus() }
 
-    /// Fuzzy, multi-field, date-aware search over the cached corpus. Space-separated TERMS all must match
-    /// (AND); a term matches by DATE reading (`2026-09-01`, `8/1`, `jul`, `wed`, a 4-digit year) OR a fuzzy
-    /// TEXT match (title & tags: subsequence; notes: substring). Recurrences collapse to one row; ranked by
-    /// text relevance blended with nearness to today. Returns the top `limit` rows plus the TOTAL match count.
+    /// Word-anchored, multi-field, date-aware search over the cached corpus. Space-separated TERMS all must
+    /// match (AND); a term matches by DATE reading (`2026-09-01`, `8/1`, `jul`, `wed`, a 4-digit year) OR a
+    /// TEXT match — title & tags require a whole-word / word-prefix hit (NOT a fuzzy subsequence: "aaai" won't
+    /// match "amazon ai"); notes allow a contiguous substring. Recurrences collapse to one row; ranked by text
+    /// relevance blended with nearness to today. Returns the top `limit` rows plus the TOTAL match count.
     public func searchEvents(_ query: String, limit: Int = 30) -> (hits: [SearchHit], total: Int) {
         let terms = query.split(whereSeparator: { $0.isWhitespace }).map { Self.searchFold(String($0)) }.filter { !$0.isEmpty }
         guard !terms.isEmpty else { return ([], 0) }
@@ -91,10 +92,10 @@ extension CalendarEngine {
             var matched = true
             for term in terms {
                 let dateS = Self.dateMatchScore(term, year: doc.year, month0: doc.month, day: doc.day, weekday: doc.weekday)
-                let titleS = Self.fuzzyScore(term, doc.foldedTitle)
+                let titleS = Self.wordScore(term, doc.foldedTitle)
                 var tagS = 0.0, thisTag: String?
                 for (i, ft) in doc.foldedTags.enumerated() {
-                    let s = Self.fuzzyScore(term, ft)
+                    let s = Self.wordScore(term, ft)
                     if s > tagS { tagS = s; thisTag = doc.origTags[i] }
                 }
                 let noteHit = !doc.foldedNotes.isEmpty && doc.foldedNotes.contains(term)   // fast folded substring
@@ -133,27 +134,23 @@ extension CalendarEngine {
         s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
 
-    /// fzf-lite subsequence score in (0,1]; 0 unless `term` is a subsequence of `target`. Consecutive
-    /// matches and word-boundary starts score higher, so a contiguous substring beats a scattered match and
-    /// a prefix beats a mid-word hit. Inputs must already be folded.
-    static func fuzzyScore(_ term: String, _ target: String) -> Double {
-        if term.isEmpty || target.isEmpty { return 0 }
-        let t = Array(term), s = Array(target)
-        if t.count > s.count { return 0 }
-        var ti = 0, prev = -2, first = -1, raw = 0.0
-        for si in 0..<s.count {
-            guard ti < t.count, s[si] == t[ti] else { continue }
-            if first < 0 { first = si }
-            var pt = 1.0
-            if si == prev + 1 { pt += 1.2 }                                // consecutive run
-            if si == 0 || Self.isWordBoundary(s[si - 1]) { pt += 1.5 }     // start of a word
-            raw += pt
-            prev = si; ti += 1
+    /// Word-anchored match in (0,1]: `term` must be a WHOLE WORD or the PREFIX of a word in `target` (both
+    /// folded). Deliberately NOT a fuzzy subsequence — so "aaai" does NOT match "amazon ai", and "az" does
+    /// NOT match "amazon". A whole-word hit scores highest, then a word-prefix; 0 if `term` never starts a
+    /// word. (Mid-word substrings don't count — a searched word matches words.)
+    static func wordScore(_ term: String, _ target: String) -> Double {
+        if term.isEmpty || target.isEmpty || term.count > target.count { return 0 }
+        let s = Array(target), t = Array(term)
+        var best = 0.0
+        for i in 0...(s.count - t.count) where i == 0 || Self.isWordBoundary(s[i - 1]) {   // only at word starts
+            var k = 0
+            while k < t.count && s[i + k] == t[k] { k += 1 }
+            guard k == t.count else { continue }
+            let end = i + t.count
+            if end == s.count || Self.isWordBoundary(s[end]) { return 1.0 }   // exact word — can't do better
+            best = 0.85                                                       // word prefix
         }
-        guard ti == t.count else { return 0 }                             // all term chars consumed?
-        var score = raw / (Double(t.count) * 3.7)                         // 3.7 ≈ max per-char credit
-        if first == 0 { score += 0.12 }                                   // whole-string prefix nudge
-        return min(1.0, score)
+        return best
     }
     private static func isWordBoundary(_ c: Character) -> Bool {
         " -_/,.:\n#".contains(c)
@@ -233,7 +230,7 @@ extension CalendarEngine {
         guard let loc = searchLocate(id) else { return }
         wake(); enterKeyboardMode()
         selectedId = id
-        bandCursorActive = false
+        cursor.bandCursorActive = false
         jumpToDay(loc.year, loc.month, loc.day) { [weak self] in self?.scrollToSelected() }
     }
 

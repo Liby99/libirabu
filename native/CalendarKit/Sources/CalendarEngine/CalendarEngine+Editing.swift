@@ -313,7 +313,7 @@ extension CalendarEngine {
 
     public func onEscape() {
         cancelTween()
-        trackNameCursor = nil   // leaving month view drops the track-name stops
+        cursor.trackNameCursor = nil   // leaving month view drops the track-name stops
         clearDashStop()         // leaving day view drops the dashboard stops
         let dest = max(0, level(z) - 1)
         tweenZ(to: CGFloat(dest))
@@ -324,17 +324,17 @@ extension CalendarEngine {
     /// hand-off): year → the focused month; month → the focused day.
     func syncBlockToView(_ lvl: Int) {
         switch lvl {
-        case 0: blockMonth = focus
-        case 1: blockMonth = focus; blockDay = min(daysInMonth(year, focus), max(1, daily.dom))
-        case 2: blockDay = min(daysInMonth(year, focus), max(1, daily.dom))   // week: keep the day + hour
+        case 0: cursor.blockMonth = focus
+        case 1: cursor.blockMonth = focus; cursor.blockDay = min(daysInMonth(year, focus), max(1, daily.dom))
+        case 2: cursor.blockDay = min(daysInMonth(year, focus), max(1, daily.dom))   // week: keep the day + hour
         default: break
         }
     }
 
     /// Step the block cursor's hour (week/day), clamped to the 0…23 grid, gliding the timeline to follow.
     func stepHour(_ dy: Int) {
-        let h = max(0, min(23, Int(blockHour.rounded()) + dy))
-        if CGFloat(h) != blockHour { blockHour = CGFloat(h); ensureHourVisible() }
+        let h = max(0, min(23, Int(cursor.blockHour.rounded()) + dy))
+        if CGFloat(h) != cursor.blockHour { cursor.blockHour = CGFloat(h); ensureHourVisible() }
     }
 
     /// Week view: glide the 7-day focus window (`week`) so day `d` stays visible (shifts a day at the edge).
@@ -360,7 +360,7 @@ extension CalendarEngine {
         let base = dayTween.map { Int($0.to.rounded()) } ?? daily.dom   // chain rapid presses off the target
         let nd = base + dx
         guard nd >= 1, nd <= dim else { return }
-        blockDay = nd
+        cursor.blockDay = nd
         // Retarget from the LIVE fractional position mid-glide, NOT the last committed integer day: a
         // rapid second press otherwise snaps the viewport back to `daily.dom` before gliding on (a visible
         // jump). One animator continuously chases whatever target the latest press set.
@@ -410,7 +410,7 @@ extension CalendarEngine {
         let g = snapshot()
         let tl = timelineInfo(g)
         guard tl.hourH > 0 else { return }
-        let cellTop = blockHour * tl.hourH, cellBot = cellTop + tl.hourH   // content-space (pre-scroll)
+        let cellTop = cursor.blockHour * tl.hourH, cellBot = cellTop + tl.hourH   // content-space (pre-scroll)
         let viewH = tl.tlBottom - tl.tlTop
         var s = tlScrollTween?.to ?? tlScroll                  // head toward the in-flight target if any
         if s > cellTop { s = cellTop }                         // cell would clip above → bring to top

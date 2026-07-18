@@ -166,10 +166,10 @@ extension CalendarEngine {
         for d in items.deadlines { promote(d.id, d.year, d.month, d.day, d.title, d.color) }
         // Imported events the user promoted (rich.promoteTrack on the series key) → one ghost band per
         // visible occurrence, in its overridden color. Skip hidden (deduped-shadow) occurrences.
-        for e in importedEvents where e.year == year && richById[e.id]?.hidden != true {
+        for e in imported.events where e.year == year && richById[e.id]?.hidden != true {
             promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e))
         }
-        for b in importedBands where b.year == year {   // Apple Calendar all-day events (read-only)
+        for b in imported.bands where b.year == year {   // Apple Calendar all-day events (read-only)
             out.append(b)
             badgeMap[b.id] = badges(b.id, recurrent: false, promoted: false)
         }
@@ -280,7 +280,7 @@ extension CalendarEngine {
             }
         }
         let revealHidden = showHiddenImported
-        for e in importedEvents where abs(e.year - year) <= 1 {   // Apple Calendar (read-only, already expanded)
+        for e in imported.events where abs(e.year - year) <= 1 {   // Apple Calendar (read-only, already expanded)
             if richById[e.id]?.hidden == true { continue }   // deduped shadow of the user's own event → not drawn
             let userHidden = richById[Self.appleSeriesKey(e.id)]?.userHidden == true
             if userHidden && !revealHidden { continue }   // user hid this series → hidden unless "Show Hidden" is on

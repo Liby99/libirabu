@@ -214,7 +214,7 @@ extension CalendarEngine {
     /// series key (EventKit pre-expands recurrences into separate boxes with the same underlying uid).
     public func isImportedSeries(_ id: String) -> Bool {
         let key = Self.appleSeriesKey(sourceId(of: id))
-        return importedEvents.filter { Self.appleSeriesKey($0.id) == key }.count > 1
+        return imported.events.filter { Self.appleSeriesKey($0.id) == key }.count > 1
     }
     /// "Hide" an imported event (or series): a persistent user overlay on the series key that keeps every
     /// occurrence out of the view, surviving re-imports (unlike the dedup `hidden`). Undoable + synced.

@@ -2,6 +2,7 @@
 // undo snapshots, and the sync layer persists. First step of the engine's field-composition
 // hierarchy (items / caches / cursor / … instead of one flat sea of properties).
 
+import CoreGraphics
 import CalendarGeometry
 
 public struct CalendarItems: Sendable {
@@ -24,4 +25,34 @@ struct DisplayCaches {
     var ddlSides: [String: Bool] = [:]
     var ddlSidesKey: (focus: Int, incoming: Int, year: Int, gen: Int, detail: Bool, dayView: Bool)?
     var search: (gen: Int, docs: [CalendarEngine.SearchDoc])?
+}
+
+/// Read-only items imported from Apple Calendar (EventKit). Kept SEPARATE from `items` so they
+/// never persist to disk / push to iCloud (they're re-fetched) and can't be edited.
+public struct ImportedItems: Sendable {
+    public internal(set) var events: [TimedEvent] = []
+    public internal(set) var bands: [BandEvent] = []
+    /// EventKit identifier → our item id, for opening the original in Calendar.app.
+    var appleEventIds: [String: String] = [:]
+    public init() {}
+}
+
+/// The keyboard-navigation cursor family: the block cursor (month/day/hour), the band-lane and
+/// track-name cursors, and the day-view dashboard stops. One unit of "where keyboard focus is".
+public struct CursorState {
+    /// Keyboard mode is ON (arrow keys drive a cursor; mouse motion turns it off).
+    public internal(set) var keyboardActive = false
+    public internal(set) var blockMonth = 0
+    public internal(set) var blockDay = 1
+    public internal(set) var blockHour: CGFloat = 12
+    public internal(set) var bandCursorActive = false
+    public internal(set) var bandCurTrack = 0
+    public internal(set) var trackNameCursor: Int?
+    public internal(set) var dashStop: CalendarEngine.DashStop?
+    public internal(set) var dashNoteEditing = false
+    /// The event to re-select when ⇧Tab leaves the TODO stop.
+    var dashReturnEvent: String?
+    /// One-step directional memory: the last event move, so the exact reverse arrow returns.
+    var lastEventMove: (from: String, dx: Int, dy: Int, to: String)?
+    public init() {}
 }

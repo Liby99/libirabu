@@ -116,7 +116,7 @@ public struct CalendarView: View {
                 carousel.navFocus(stop)
             case .move(let d): carousel.navMove(d)
             case .activate:   // Space/Enter: note → focus the editor; todo → toggle the row
-                if engine.dashStop == .note { carousel.focusNoteEditor() } else { carousel.navActivate() }
+                if engine.cursor.dashStop == .note { carousel.focusNoteEditor() } else { carousel.navActivate() }
             case .open: carousel.navOpen()
             }
             engine.wake()

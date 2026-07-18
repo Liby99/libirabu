@@ -145,13 +145,13 @@ enum AppKeyState: Equatable {
         if engine.selectedIsTimed { return .timedSelected }
         if engine.selectedIsBand { return .bandSelected }
         if engine.selectedIsDeadline { return .deadlineSelected }
-        switch engine.dashStop {   // day-view dashboard Tab stops (checked before the plain cursors)
+        switch engine.cursor.dashStop {   // day-view dashboard Tab stops (checked before the plain cursors)
         case .todo: return .dashTodo
-        case .note: return engine.dashNoteEditing ? .dashNoteEditing : .dashNote
+        case .note: return engine.cursor.dashNoteEditing ? .dashNoteEditing : .dashNote
         case .none: break
         }
-        if engine.trackNameCursor != nil { return .trackName }
-        if engine.bandCursorActive { return .bandCursor }
+        if engine.cursor.trackNameCursor != nil { return .trackName }
+        if engine.cursor.bandCursorActive { return .bandCursor }
         return .block   // nothing selected → the block cursor is home
     }
 

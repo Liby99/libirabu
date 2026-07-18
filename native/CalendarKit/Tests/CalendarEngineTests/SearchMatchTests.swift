@@ -6,30 +6,29 @@ import XCTest
 @MainActor
 final class SearchMatchTests: XCTestCase {
 
-    // ── Fuzzy text ──────────────────────────────────────────────────────────────
-    func testExactSubstringBeatsScatteredSubsequence() {
-        let exact = CalendarEngine.fuzzyScore("plan", "sprint planning")   // contiguous
-        let scattered = CalendarEngine.fuzzyScore("pig", "sprint planning")// p…i…g subsequence
-        XCTAssertGreaterThan(exact, 0)
-        XCTAssertGreaterThan(scattered, 0)
-        XCTAssertGreaterThan(exact, scattered)
+    // ── Word-anchored text ────────────────────────────────────────────────────────
+    func testWholeWordBeatsPrefix() {
+        let whole = CalendarEngine.wordScore("planning", "sprint planning")   // whole word
+        let prefix = CalendarEngine.wordScore("plan", "sprint planning")      // word prefix
+        XCTAssertEqual(whole, 1.0)
+        XCTAssertEqual(prefix, 0.85)
+        XCTAssertGreaterThan(whole, prefix)
     }
 
-    func testPrefixBeatsMidWord() {
-        let prefix = CalendarEngine.fuzzyScore("cof", "coffee chat")
-        let mid = CalendarEngine.fuzzyScore("hat", "coffee chat")
-        XCTAssertGreaterThan(prefix, mid)
+    func testWordPrefixMatches() {
+        XCTAssertEqual(CalendarEngine.wordScore("cof", "coffee chat"), 0.85)  // prefix of "coffee"
+        XCTAssertEqual(CalendarEngine.wordScore("ai", "amazon ai"), 1.0)      // whole word "ai"
+        XCTAssertEqual(CalendarEngine.wordScore("sprint", "sprint planning"), 1.0)
     }
 
-    func testOmissionTypoStillMatches() {
-        // "wednesdy" is a subsequence of "wednesday" (missing the 'a').
-        XCTAssertGreaterThan(CalendarEngine.fuzzyScore("wednesdy", "wednesday"), 0)
-    }
-
-    func testNonSubsequenceDoesNotMatch() {
-        XCTAssertEqual(CalendarEngine.fuzzyScore("zzz", "coffee chat"), 0)
-        // Transposition is NOT a subsequence (we deliberately don't do edit-distance).
-        XCTAssertEqual(CalendarEngine.fuzzyScore("wendesday", "wednesday"), 0)
+    func testNotSubsequenceNorMidWord() {
+        // The reported case: "aaai" must NOT match "amazon ai".
+        XCTAssertEqual(CalendarEngine.wordScore("aaai", "amazon ai"), 0)
+        XCTAssertEqual(CalendarEngine.wordScore("pig", "sprint planning"), 0)   // scattered subsequence
+        XCTAssertEqual(CalendarEngine.wordScore("hat", "coffee chat"), 0)       // mid-word (c·hat)
+        XCTAssertEqual(CalendarEngine.wordScore("az", "amazon"), 0)             // not a word prefix
+        XCTAssertEqual(CalendarEngine.wordScore("wednesdy", "wednesday"), 0)    // omission typo — no longer fuzzy
+        XCTAssertEqual(CalendarEngine.wordScore("zzz", "coffee chat"), 0)
     }
 
     // ── Date concepts ─────────────────────────────────────────────────────────────

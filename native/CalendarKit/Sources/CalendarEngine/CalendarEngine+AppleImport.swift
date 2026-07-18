@@ -39,8 +39,8 @@ extension CalendarEngine {
         // returns real events during that window (empty if truly no access), so the first import right
         // after connecting isn't lost.
         guard appleSyncEnabled, AppleCalendarImporter.access != .denied else {
-            if !importedEvents.isEmpty || !importedBands.isEmpty {
-                importedEvents = []; importedBands = []; caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
+            if !imported.events.isEmpty || !imported.bands.isEmpty {
+                imported.events = []; imported.bands = []; caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
             }
             return
         }
@@ -97,7 +97,7 @@ extension CalendarEngine {
         var richChanged = false
         var seriesNote: [String: String] = [:]   // series key → freshly-rendered managed block (computed once)
         var seriesVisible = Set<String>()         // series keys with ≥1 non-hidden occurrence this import
-        appleEventIds.removeAll(keepingCapacity: true)
+        imported.appleEventIds.removeAll(keepingCapacity: true)
         for e in fetched.sorted(by: { $0.start < $1.start }) {
             if e.allDay { continue }   // never import all-day events (product decision)
             let sc = cal.dateComponents([.year, .month, .day, .hour, .minute], from: e.start)
@@ -109,7 +109,7 @@ extension CalendarEngine {
             if ec.year != y || ec.month != mo1 || ec.day != d || eh <= sh { eh = 24 }   // multi-day / past midnight → clamp to day end
             let id = "apple-\(e.uid)-\(String(format: "%04d%02d%02d-%02d%02d", y, mo1, d, sc.hour ?? 0, sc.minute ?? 0))"
             guard seen.insert(id).inserted else { continue }
-            if let eid = e.eventId { appleEventIds[id] = eid }
+            if let eid = e.eventId { imported.appleEventIds[id] = eid }
             // Exact-match dedup: an imported event that shadows one of the user's OWN events (same title +
             // same day + same start) is still imported, but flagged HIDDEN on its entry — we prefer the
             // editable event and don't draw the shadow. The flag is stored/persisted, so re-imports keep it.
@@ -145,8 +145,8 @@ extension CalendarEngine {
                 richById[id] = nil; richChanged = true
             }
         }
-        importedEvents = events
-        importedBands = []
+        imported.events = events
+        imported.bands = []
         if richChanged { schedulePersist() }   // the hidden flags are stored state (see setImportedHidden)
         caches.editGen &+= 1; caches.deadlineGen &+= 1
         if let s = selectedId, !itemExists(sourceId(of: s)) { selectedId = nil }   // selection's event gone
@@ -158,7 +158,7 @@ extension CalendarEngine {
     /// scheme opens Calendar.app and selects the event by its EKEvent identifier. Nil if we don't hold the
     /// identifier (older import) — the UI hides the button then. The UI layer opens it (this module has no AppKit).
     public func appleOriginalURL(_ id: String) -> URL? {
-        guard let eid = appleEventIds[sourceId(of: id)] else { return nil }
+        guard let eid = imported.appleEventIds[sourceId(of: id)] else { return nil }
         return URL(string: "ical://ekevent/\(eid)?method=show&options=more")
     }
 
@@ -168,7 +168,7 @@ extension CalendarEngine {
     /// just do it immediately. Returns the new editable event's id so the drawer can re-point at it.
     @discardableResult
     public func makeLocalCopy(_ id: String) -> String? {
-        guard isImported(id), let e = importedEvents.first(where: { $0.id == id }) else { return nil }
+        guard isImported(id), let e = imported.events.first(where: { $0.id == id }) else { return nil }
         beginTxn()
         let newId = "new-\(UUID().uuidString)"
         items.events.append(TimedEvent(id: newId, year: e.year, month: e.month, day: e.day,

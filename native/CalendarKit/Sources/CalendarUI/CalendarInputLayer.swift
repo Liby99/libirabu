@@ -622,7 +622,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         if isTextInputFocused() { return }
         engine?.wake()
         let isArrow = token == .up || token == .down || token == .left || token == .right
-        if isArrow, engine?.keyboardActive == false { engine?.enterKeyboardMode(); return }
+        if isArrow, engine?.cursor.keyboardActive == false { engine?.enterKeyboardMode(); return }
         if onKey?(token) == true { engine?.enterKeyboardMode() }
     }
     private func trackHeld(_ kc: UInt16, _ token: KeyToken) {
