@@ -1,0 +1,433 @@
+// Display derivation: what the renderer actually draws, expanded from the lean seed data +
+// rich fields — recurrence-expanded bands/timed events/deadlines with badges (cached per
+// (year, editGen)), Apple-import overlay keying, live color preview, cross-year spillover
+// sets, and the offline deadline-label side assignment. Split from CalendarEngine.swift.
+
+import Foundation
+import CoreGraphics
+import CalendarGeometry
+
+extension CalendarEngine {
+    // ── Derived bands for the year / band view ──────────────────────────────────────────
+    // What the band lane actually draws, expanded from the lean data + rich fields:
+    //   • base bands (a base individually deleted via exdate / past `until` is dropped)
+    //   • recurring band ghosts — the same span shifted to each occurrence date (holes = exdates)
+    //   • timed/deadline events promoted (rich.promoteTrack) to 1-day ghost bands on their lane,
+    //     on the base day AND every recurrence occurrence
+    // Read-only copies get a synthetic occKey id; the base band / promoted base keep their real id
+    // (so a click still resolves to the source item). Cached per (year, editGen) — recurrence is
+    // only re-expanded when the data changes, not on navigation frames.
+    // ── Color preview (hovering a drawer swatch previews the color live on the item) ───────────
+    public func setColorPreview(_ id: String, _ color: String) { wake(); colorPreview = (id, color) }
+    /// Clear the preview. If `color` is given, only clears when it's still the active preview — so a
+    /// swatch's mouse-leave doesn't wipe a preview a newer swatch just set.
+    public func clearColorPreview(_ color: String? = nil) {
+        if let color, colorPreview?.color != color { return }
+        wake()
+        colorPreview = nil
+    }
+    /// Overlay the preview color on any box of the previewed series (applied after the cache, so it
+    /// never persists or invalidates recurrence expansion).
+    private func withPreview<T>(_ items: [T], _ id: (T) -> String, _ setColor: (inout T, String) -> Void) -> [T] {
+        guard let pv = colorPreview else { return items }
+        return items.map { var x = $0; if sourceId(of: id(x)) == pv.id { setColor(&x, pv.color) }; return x }
+    }
+
+    public func displayBands(for year: Int) -> [BandEvent] {
+        withPreview(ensureBandCache(year).bands, { $0.id }, { $0.color = $1 })
+    }
+    /// Provenance/kind markers per band box id (recurrent / promoted / ai / imported), for the badge
+    /// glyphs the overlay draws. Same cache as displayBands.
+    public func bandBadges(for year: Int) -> [String: EventBadges] { ensureBandCache(year).badges }
+
+    /// Bands (base + recurrence/promoted ghosts) in a specific month — O(1) index lookup, with the live
+    /// color preview applied like `displayBands`. Used by the band hit-test to skip other months.
+    public func bandsInMonth(_ year: Int, _ month: Int) -> [BandEvent] {
+        let items = ensureBandCache(year).byMonth[month] ?? []
+        return withPreview(items, { $0.id }, { $0.color = $1 })
+    }
+
+    /// Provenance/kind markers for a box, from its SOURCE item's rich fields + the box's nature.
+    /// Shared by the band and timed-event caches so both show the same glyphs.
+    private func itemBadges(_ src: String, recurrent: Bool, promoted: Bool) -> EventBadges {
+        var b: EventBadges = []
+        if recurrent { b.insert(.recurrent) }
+        if promoted { b.insert(.promoted) }
+        if isImported(src) { b.insert(.imported) }
+        if let rf = richById[src] {
+            if rf.createdByAI { b.insert(.ai) }
+            if rf.source != "manual" { b.insert(.imported) }
+        }
+        return b
+    }
+    /// True for a box that came from an external calendar (Apple, …). Imported ids are minted with an
+    /// `apple-` prefix; `sourceId` strips occurrence/promoted suffixes so promoted imported bars match too.
+    public func isImported(_ id: String) -> Bool { sourceId(of: id).hasPrefix("apple-") }
+
+    // ── Overlay keying for imported events ─────────────────────────────────────────────────────
+    // An imported event's own id is per-occurrence + time-derived: `apple-<uid>-<YYYYMMDD-HHMM>`. The
+    // `hidden` dedup flag keys on that full id (it shadows one specific occurrence). But USER-authored
+    // overlays — a chosen color, promote-to-band, extra notes/tags — key on the SERIES (`apple-<uid>`,
+    // datestamp stripped) so they survive the event being rescheduled in Apple Calendar and apply to the
+    // whole series. `sourceId` first, so a promoted/occurrence box resolves back to its imported id.
+    static func applePerOccurrenceSuffix(_ id: String) -> Range<String.Index>? {
+        id.range(of: "-[0-9]{8}-[0-9]{4}$", options: .regularExpression)
+    }
+    /// A full per-occurrence imported id → its series key; any other id unchanged.
+    static func appleSeriesKey(_ id: String) -> String {
+        guard id.hasPrefix("apple-"), let r = applePerOccurrenceSuffix(id) else { return id }
+        return String(id[..<r.lowerBound])
+    }
+    /// True for an imported SERIES key (`apple-<uid>`, no datestamp) — the id user overlays sync under.
+    static func isAppleSeriesKey(_ id: String) -> Bool { id.hasPrefix("apple-") && applePerOccurrenceSuffix(id) == nil }
+    /// True for an imported PER-OCCURRENCE key (`apple-<uid>-<datestamp>`) — the local-only `hidden` flag.
+    static func isApplePerOccurrenceKey(_ id: String) -> Bool { id.hasPrefix("apple-") && applePerOccurrenceSuffix(id) != nil }
+    /// The rich-fields storage key for an item's user overlays: an imported box → its series key; else itself.
+    func overlayKey(_ id: String) -> String { Self.appleSeriesKey(sourceId(of: id)) }   // internal: +AppleImport
+    /// True if a rich entry carries USER-authored overlay data (color / promote / tags / a note the user
+    /// typed) — as opposed to only an auto-derived managed block. Gates whether a series overlay is kept
+    /// after its event disappears upstream, and whether it's worth syncing to iCloud.
+    static func hasUserOverlay(_ rf: RichFields) -> Bool {
+        rf.colorOverride != nil || rf.promoteTrack != nil || !rf.tags.isEmpty || rf.userHidden
+            || !ManagedNote.splitNote(rf.notes).user.isEmpty
+    }
+    func hasUserOverlay(_ rf: RichFields) -> Bool { Self.hasUserOverlay(rf) }   // internal: +AppleImport
+    /// An imported event's effective color: the user's series-level override, else the vendor calendar's.
+    func importedDisplayColor(_ e: TimedEvent) -> String {   // internal: +AppleImport
+        richById[Self.appleSeriesKey(e.id)]?.colorOverride ?? e.color
+    }
+
+    private func ensureBandCache(_ year: Int) -> (bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]]) {
+        if let c = bandCache, c.year == year, c.gen == editGen { return (c.bands, c.badges, c.byMonth) }
+        func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
+        // Markers for a box, from its SOURCE item's rich fields + the box's nature.
+        func badges(_ src: String, recurrent: Bool, promoted: Bool) -> EventBadges {
+            var b: EventBadges = []
+            if recurrent { b.insert(.recurrent) }
+            if promoted { b.insert(.promoted) }
+            if isImported(src) { b.insert(.imported) }
+            if let rf = richById[src] {
+                if rf.createdByAI { b.insert(.ai) }
+                if rf.source != "manual" { b.insert(.imported) }
+            }
+            return b
+        }
+        var out: [BandEvent] = []
+        var badgeMap: [String: EventBadges] = [:]
+
+        for b in seedBands where b.year == year {
+            if baseHidden(occDate(YMD(b.year, b.month, b.startDay)), repeatOf(b.id)) { continue }
+            out.append(b)
+            badgeMap[b.id] = badges(b.id, recurrent: repeatOf(b.id) != nil, promoted: false)
+        }
+        for b in seedBands {
+            guard let r = repeatOf(b.id) else { continue }
+            let total = b.endDay - b.startDay + 1   // inclusive number of days the band covers
+            for o in occurrenceDates(YMD(b.year, b.month, b.startDay), r, year) {
+                // A shifted occurrence can run past the end of its start month — render one bar PER month
+                // it spans (Jan 30–Feb 2 → a Jan 30–31 bar AND a Feb 1–2 bar) instead of clamping it flat
+                // at the boundary. All segments share the occurrence's start-date key; tail segments get a
+                // distinct box id via SEGMENT_MARKER (ignored by sourceId, stripped by occurrenceKey).
+                let key = occKey(b.id, o)
+                var y = year, m = o.month, d = o.day, left = total, seg = 0
+                while left > 0, y == year {                 // stop at the year edge (this cache is year-scoped)
+                    let dim = daysInMonth(y, m)
+                    let daysHere = min(left, dim - d + 1)
+                    let segId = seg == 0 ? key : "\(key)\(SEGMENT_MARKER)\(seg)"
+                    out.append(BandEvent(id: segId, year: year, month: m, track: b.track,
+                                         startDay: d, endDay: d + daysHere - 1, title: b.title, color: b.color))
+                    badgeMap[segId] = badges(b.id, recurrent: true, promoted: false)
+                    left -= daysHere
+                    if m == 11 { m = 0; y += 1 } else { m += 1 }
+                    d = 1; seg += 1
+                }
+            }
+        }
+        func promote(_ id: String, _ y: Int, _ m: Int, _ day: Int, _ title: String, _ color: String) {
+            guard let track = richById[overlayKey(id)]?.promoteTrack else { return }
+            let r = repeatOf(id)
+            if y == year && !baseHidden(occDate(YMD(y, m, day)), r) {
+                // A distinct occurrence-key id (not the raw source id) so the promoted bar is its own
+                // box: selecting the original timeline event highlights it (same source) without also
+                // making it the focused box, and vice-versa. sourceId() maps both back to `id`.
+                // `~p` so this promoted bar is a DISTINCT box from the timeline occurrence `id@Y-M-D`.
+                let key = occKey(id, YMD(y, m, day)) + PROMOTED_SUFFIX
+                out.append(BandEvent(id: key, year: year, month: m, track: track, startDay: day, endDay: day, title: title, color: color))
+                badgeMap[key] = badges(id, recurrent: r != nil, promoted: true)
+            }
+            for o in occurrenceDates(YMD(y, m, day), r, year) {
+                let key = occKey(id, o) + PROMOTED_SUFFIX
+                out.append(BandEvent(id: key, year: year, month: o.month, track: track,
+                                     startDay: o.day, endDay: o.day, title: title, color: color))
+                badgeMap[key] = badges(id, recurrent: true, promoted: true)
+            }
+        }
+        for e in seedEvents { promote(e.id, e.year, e.month, e.day, e.title, e.color) }
+        for d in seedDeadlines { promote(d.id, d.year, d.month, d.day, d.title, d.color) }
+        // Imported events the user promoted (rich.promoteTrack on the series key) → one ghost band per
+        // visible occurrence, in its overridden color. Skip hidden (deduped-shadow) occurrences.
+        for e in importedEvents where e.year == year && richById[e.id]?.hidden != true {
+            promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e))
+        }
+        for b in importedBands where b.year == year {   // Apple Calendar all-day events (read-only)
+            out.append(b)
+            badgeMap[b.id] = badges(b.id, recurrent: false, promoted: false)
+        }
+
+        var byMonth: [Int: [BandEvent]] = [:]
+        for b in out { byMonth[b.month, default: []].append(b) }
+        bandCache = (year, editGen, out, badgeMap, byMonth)
+        return (out, badgeMap, byMonth)
+    }
+
+    // ── Derived timed events for the day / detail timeline ──────────────────────────────
+    // Base timed events (a base deleted via exdate / past `until` is dropped) + recurring "ghost"
+    // occurrences on their occurrence days (holes = exdates), each a copy with the same hours and a
+    // synthetic occKey id. The timeline only draws the focused day's items, so off-day occurrences
+    // are culled downstream; the ghosts just make a recurring event appear on every occurrence day.
+    // Cached per (year, editGen) — like displayBands.
+    // `byDay` indexes the expanded events (base + ghosts) by `month*100+day` so hit-testing and per-day
+    // layout packing are O(1) lookups instead of a full-array filter on every hover / rect solve.
+    public func displayEvents(for year: Int) -> [TimedEvent] {
+        withPreview(ensureEventCache(year).events, { $0.id }, { $0.color = $1 })
+    }
+    public func eventBadges(for year: Int) -> [String: EventBadges] { ensureEventCache(year).badges }
+
+    /// Timed events (base + recurrence ghosts) on a specific calendar day — O(1) index lookup, with the
+    /// live color preview applied like `displayEvents`. Used by hit-testing + per-day layout packing.
+    public func eventsOn(_ year: Int, _ month: Int, _ day: Int) -> [TimedEvent] {
+        let items = ensureEventCache(year).byDay[month * 100 + day] ?? []
+        return withPreview(items, { $0.id }, { $0.color = $1 })
+    }
+
+    /// Re-express a stored (anchor-tz) timed event as a DISPLAY copy in the current main tz: the start
+    /// date/time is converted (normalized across midnight, so year/month/day may change), and the end
+    /// preserves the original duration — so `endHour` may exceed 24 for a span that now crosses midnight
+    /// (the renderer splits it; see cross-midnight handling). A nil anchor (demo/sample data) is treated
+    /// as already-in-main-tz → identity. The id and anchorTz are preserved (hit-testing + secondary label).
+    public func displayEvent(_ e: TimedEvent) -> TimedEvent {
+        guard let anchor = e.anchorTz,
+              !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(e.year, e.month, e.day, e.startHour))
+        else { return e }
+        let dur = max(0, e.endHour - e.startHour)
+        let w = DeadlineTZ.convertWall(e.year, e.month, e.day, e.startHour, from: anchor, to: mainTz)
+        var out = e
+        out.year = w.year; out.month = w.month; out.day = w.day
+        out.startHour = w.hour; out.endHour = w.hour + dur
+        return out
+    }
+    /// The deadline analog: convert the single moment into the main tz (day/month/year normalized).
+    public func displayDeadline(_ d: Deadline) -> Deadline {
+        guard let anchor = d.anchorTz,
+              !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(d.year, d.month, d.day, d.hour))
+        else { return d }
+        let w = DeadlineTZ.convertWall(d.year, d.month, d.day, d.hour, from: anchor, to: mainTz)
+        var out = d
+        out.year = w.year; out.month = w.month; out.day = w.day; out.hour = w.hour
+        return out
+    }
+    /// Inverse of `displayEvent`: fold a DISPLAY (main-tz) event back into its stored anchor zone. Mouse
+    /// drags work in the on-screen (main-tz) grid, so a moved/resized event is converted back here before
+    /// it's written to `seedEvents`. Preserves the anchorTz and the (tz-invariant) duration.
+    func anchorEvent(_ e: TimedEvent) -> TimedEvent {
+        guard let anchor = e.anchorTz,
+              !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(e.year, e.month, e.day, e.startHour))
+        else { return e }
+        let dur = max(0, e.endHour - e.startHour)
+        let w = DeadlineTZ.convertWall(e.year, e.month, e.day, e.startHour, from: mainTz, to: anchor)
+        var out = e
+        out.year = w.year; out.month = w.month; out.day = w.day
+        out.startHour = w.hour; out.endHour = w.hour + dur
+        return out
+    }
+    func anchorDeadline(_ d: Deadline) -> Deadline {
+        guard let anchor = d.anchorTz,
+              !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(d.year, d.month, d.day, d.hour))
+        else { return d }
+        let w = DeadlineTZ.convertWall(d.year, d.month, d.day, d.hour, from: mainTz, to: anchor)
+        var out = d
+        out.year = w.year; out.month = w.month; out.day = w.day; out.hour = w.hour
+        return out
+    }
+
+    private func ensureEventCache(_ year: Int) -> (events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]]) {
+        if let c = eventCache, c.year == year, c.gen == editGen { return (c.events, c.badges, c.byDay) }
+        func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
+        var out: [TimedEvent] = []
+        var badgeMap: [String: EventBadges] = [:]
+        // Anchor→main conversion can push an event across the year boundary (±1 day), so we consider
+        // seeds anchored in the neighbor years too and keep those whose DISPLAY date lands in `year`.
+        // When an anchor equals the main tz (the common case) conversion is the identity, so a neighbor
+        // event just converts back to its own year and is dropped here — same result as the old filter.
+        func take(_ e: TimedEvent, _ badge: EventBadges) {
+            let d = displayEvent(e)
+            guard d.year == year else { return }
+            out.append(d); badgeMap[d.id] = badge
+        }
+        for e in seedEvents where abs(e.year - year) <= 1 {
+            if baseHidden(occDate(YMD(e.year, e.month, e.day)), repeatOf(e.id)) { continue }
+            take(e, itemBadges(e.id, recurrent: repeatOf(e.id) != nil, promoted: false))
+        }
+        for e in seedEvents {
+            guard let r = repeatOf(e.id) else { continue }
+            for yy in (year - 1)...(year + 1) {
+                for o in occurrenceDates(YMD(e.year, e.month, e.day), r, yy) {
+                    take(TimedEvent(id: occKey(e.id, o), year: yy, month: o.month, day: o.day,
+                                    startHour: e.startHour, endHour: e.endHour, title: e.title,
+                                    color: e.color, anchorTz: e.anchorTz),
+                         itemBadges(e.id, recurrent: true, promoted: false))
+                }
+            }
+        }
+        let revealHidden = showHiddenImported
+        for e in importedEvents where abs(e.year - year) <= 1 {   // Apple Calendar (read-only, already expanded)
+            if richById[e.id]?.hidden == true { continue }   // deduped shadow of the user's own event → not drawn
+            let userHidden = richById[Self.appleSeriesKey(e.id)]?.userHidden == true
+            if userHidden && !revealHidden { continue }   // user hid this series → hidden unless "Show Hidden" is on
+            var ev = e
+            ev.color = importedDisplayColor(e)   // apply the user's color override, if any
+            var b = itemBadges(e.id, recurrent: false, promoted: false)
+            if userHidden { b.insert(.hidden) }   // revealed hidden event → dotted accent bar
+            take(ev, b)
+        }
+        // Bucket by day for O(1) hit-testing + per-day layout packing. A cross-midnight span (endHour > 24)
+        // is split into per-day CLAMPED segment copies so its tail is hit-testable + packs on the next day,
+        // matching how the overlay renders it. `out` itself stays whole (search / scroll want the full span).
+        var byDay: [Int: [TimedEvent]] = [:]
+        for e in out { for s in timedSegments(e) { byDay[s.event.month * 100 + s.event.day, default: []].append(s.event) } }
+        eventCache = (year, editGen, out, badgeMap, byDay)
+        return (out, badgeMap, byDay)
+    }
+
+    // ── Derived deadlines for the deadline layer ────────────────────────────────────────
+    // Base deadlines (a base deleted via exdate / past `until` is dropped) + recurring ghost
+    // occurrences on their occurrence days (holes = exdates), each a copy at the same hour with a
+    // synthetic occKey id. Cached per (year, editGen) — like displayEvents / displayBands.
+    public func displayDeadlines(for year: Int) -> [Deadline] {
+        if let c = ddlCache, c.year == year, c.gen == editGen { return withPreview(c.deadlines, { $0.id }, { $0.color = $1 }) }
+        func repeatOf(_ id: String) -> Repeat? { Repeat.parse(richById[id]?.repeatJSON) }
+        var out: [Deadline] = []
+        // Same neighbor-year scan + convert-then-filter as ensureEventCache: a moment near midnight can
+        // land in an adjacent display year when the anchor differs from the main tz. Identity otherwise.
+        func take(_ d: Deadline) {
+            let dd = displayDeadline(d)
+            if dd.year == year { out.append(dd) }
+        }
+        for d in seedDeadlines where abs(d.year - year) <= 1 {
+            if baseHidden(occDate(YMD(d.year, d.month, d.day)), repeatOf(d.id)) { continue }
+            take(d)
+        }
+        for d in seedDeadlines {
+            guard let r = repeatOf(d.id) else { continue }
+            for yy in (year - 1)...(year + 1) {
+                for o in occurrenceDates(YMD(d.year, d.month, d.day), r, yy) {
+                    take(Deadline(id: occKey(d.id, o), year: yy, month: o.month, day: o.day,
+                                  hour: d.hour, title: d.title, color: d.color, anchorTz: d.anchorTz))
+                }
+            }
+        }
+        ddlCache = (year, editGen, out)
+        return withPreview(out, { $0.id }, { $0.color = $1 })
+    }
+
+    // ── View-scoped item sets (include cross-year-boundary spillover) ────────────────────
+    // The scene is year-scoped, but a week/day-view window at a month edge can show a neighbor month
+    // that lives in the ADJACENT year (Dec↔Jan). Merge those neighbor-year items ONLY in week/day
+    // view — in year/month view a neighbor-year event would wrongly render in the current year's band
+    // (the non-weekish path positions by month alone). Other focuses' neighbors are the same year.
+    private var boundaryYears: [Int] {
+        guard z > 1 else { return [] }   // spillover columns only appear past pure month level
+        if focus == 0 { return [year - 1] }
+        if focus == 11 { return [year + 1] }
+        return []
+    }
+    // The common case (mid-year focus) has no boundary years, so hand back the cached array directly —
+    // `cached + []` would copy it every frame. Only concatenate when a Jan/Dec spillover column exists.
+    public func viewEvents() -> [TimedEvent] { let b = boundaryYears; return b.isEmpty ? displayEvents(for: year) : displayEvents(for: year) + b.flatMap { displayEvents(for: $0) } }
+    public func viewBands() -> [BandEvent] { let b = boundaryYears; return b.isEmpty ? displayBands(for: year) : displayBands(for: year) + b.flatMap { displayBands(for: $0) } }
+    public func viewDeadlines() -> [Deadline] { let b = boundaryYears; return b.isEmpty ? displayDeadlines(for: year) : displayDeadlines(for: year) + b.flatMap { displayDeadlines(for: $0) } }
+    public func viewBandBadges() -> [String: EventBadges] {
+        var m = bandBadges(for: year); for y in boundaryYears { m.merge(bandBadges(for: y)) { a, _ in a } }; return m
+    }
+    public func viewEventBadges() -> [String: EventBadges] {
+        var m = eventBadges(for: year); for y in boundaryYears { m.merge(eventBadges(for: y)) { a, _ in a } }; return m
+    }
+
+    // ── Offline deadline-label side assignment (left/right, overlap-minimising) ──────────
+    // Recomputed only when the month (focus/year), detail-visibility, or the deadline set changes;
+    // cached otherwise (NOT per frame / not on scroll). The overlay + hit-test use this as each
+    // label's base side; the runtime hover-flip can still override one on top.
+    public func deadlineSides() -> [String: Bool] {
+        let detail = z >= DETAIL_Z
+        // Day view forces every label to the left (one wide column); week/month minimises overlap. Both
+        // have detail==true, so the day-view state must be its own cache key or the week assignment
+        // would stay cached into day view (labels stuck on the right).
+        let dayView = z > 2
+        // During a month page-turn, `focus` is the anchor and `focus+dir` is the incoming month —
+        // known the moment scrolling starts. Solve for BOTH so the incoming labels are already
+        // assigned when the turn settles (no post-scroll flip). incoming = -1 when not turning.
+        let incoming = monthAnim.flatMap { a -> Int? in let m = focus + a.dir; return (0...11).contains(m) ? m : nil } ?? -1
+        if let k = ddlSidesKey, k.focus == focus, k.incoming == incoming, k.year == year, k.gen == deadlineGen, k.detail == detail, k.dayView == dayView {
+            return ddlSides
+        }
+        if detail {
+            var s = deadlineSidesForMonth(focus)
+            if incoming >= 0 { for (id, v) in deadlineSidesForMonth(incoming) where s[id] == nil { s[id] = v } }
+            ddlSides = s
+        } else {
+            ddlSides = [:]
+        }
+        ddlSidesKey = (focus, incoming, year, deadlineGen, detail, dayView)
+        return ddlSides
+    }
+    /// Overlap-minimising side assignment for ONE month's deadlines, at that month's resting layout.
+    private func deadlineSidesForMonth(_ month: Int) -> [String: Bool] {
+        var g = snapshot(); g.focus = month; g.monthAnim = nil
+        return deadlineSideAssignment(displayDeadlines(for: year), g)
+    }
+
+    public func update(_ id: String, _ mutate: (inout TimedEvent) -> Void) {
+        guard let i = seedEvents.firstIndex(where: { $0.id == id }) else { return }
+        beginTxn(); mutate(&seedEvents[i]); scheduleCommit()
+    }
+    public func updateBand(_ id: String, _ mutate: (inout BandEvent) -> Void) {
+        guard let i = seedBands.firstIndex(where: { $0.id == id }) else { return }
+        beginTxn(); mutate(&seedBands[i]); scheduleCommit()
+    }
+    public func updateDeadline(_ id: String, _ mutate: (inout Deadline) -> Void) {
+        guard let i = seedDeadlines.firstIndex(where: { $0.id == id }) else { return }
+        beginTxn(); mutate(&seedDeadlines[i]); scheduleCommit()
+    }
+
+    // ── Rich fields (tags / repeat / promote / color), keyed by the item's OVERLAY id ──────────
+    // The drawer opens with the source (base) id, so these read/write the same key. For imported events
+    // the overlay id is the series key (see `overlayKey`), so a color/promote/note applies series-wide
+    // and survives rescheduling. Not on the undo stack yet (EditState only snapshots the lean arrays);
+    // they persist + invalidate the display cache.
+    public func richTags(_ id: String) -> [String] { richById[overlayKey(id)]?.tags ?? [] }
+    public func notes(_ id: String) -> String { richById[overlayKey(id)]?.notes ?? "" }
+    public func setNotes(_ id: String, _ v: String) {
+        let key = overlayKey(id)
+        var rf = richById[key] ?? RichFields()
+        guard rf.notes != v else { return }
+        rf.notes = v; richById[key] = rf
+        // NOT in the calendar undo stack: notes are edited in the drawer's CodeMirror, which owns its
+        // own undo (Cmd+Z while it's focused). Recording here would let its internal undo re-post the
+        // note and pollute the calendar stack. Matches the web (notes are a separate lower layer).
+        schedulePersist()
+    }
+    /// The user's chosen color for an imported event (nil = use the vendor calendar's color).
+    public func colorOverride(_ id: String) -> String? { richById[overlayKey(id)]?.colorOverride }
+    public func setColorOverride(_ id: String, _ color: String?) { mutateRich(overlayKey(id)) { $0.colorOverride = color } }
+    /// Per-occurrence note (recurring events), keyed by the focused box id.
+    public func occNote(_ id: String, _ key: String) -> String { richById[id]?.occurrenceNotes?[key] ?? "" }
+    public func setOccNote(_ id: String, _ key: String, _ v: String) {
+        var rf = richById[id] ?? RichFields()
+        var occ = rf.occurrenceNotes ?? [:]
+        guard occ[key] != v else { return }
+        occ[key] = v.isEmpty ? nil : v
+        rf.occurrenceNotes = occ.isEmpty ? nil : occ
+        richById[id] = rf
+        schedulePersist()   // per-occurrence note: CodeMirror-owned undo, not the calendar stack (see setNotes)
+    }
+}
