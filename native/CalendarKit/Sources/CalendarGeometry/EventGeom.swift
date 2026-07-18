@@ -212,13 +212,17 @@ public func timedSegments(_ e: TimedEvent) -> [TimedSegment] {
 }
 
 /// Height-driven text scheme for an hourly event block (ported from eventTextLayout).
-public struct EventText: Sendable { public var tiny: Bool; public var short: Bool; public var titleLines: Int }
-public func eventTextLayout(_ h: CGFloat) -> EventText {
+public struct EventText: Sendable { public var tiny: Bool; public var short: Bool; public var subLine: Bool; public var titleLines: Int }
+/// `hasSubline` = a secondary detail line (the anchor-tz time) wants to show. Because the timeline zooms,
+/// block height is dynamic — the secondary line only appears on a tall-enough block, and when it does its
+/// ~11pt is reserved so the title lines don't overlap it.
+public func eventTextLayout(_ h: CGFloat, hasSubline: Bool = false) -> EventText {
     let tiny = h < 26            // ~15 min
     let short = h < 40           // ~≤30 min: hide the time
+    let subLine = hasSubline && !short && !tiny && h >= 52   // room for title + time + a second line
     let lineH: CGFloat = tiny ? 11 : 14
-    let avail = h - (tiny ? 2 : 10) - (short ? 0 : 13)
-    return EventText(tiny: tiny, short: short, titleLines: max(1, Int(avail / lineH)))
+    let avail = h - (tiny ? 2 : 10) - (short ? 0 : 13) - (subLine ? 11 : 0)
+    return EventText(tiny: tiny, short: short, subLine: subLine, titleLines: max(1, Int(avail / lineH)))
 }
 
 /// "HH:MM – HH:MM" for an event's decimal-hour range (ported from fmtRange).

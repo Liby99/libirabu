@@ -1,6 +1,6 @@
 # Help GIFs — inventory & suggestions
 
-The in-app Help browser (`Help ▸ Madocal Help`, `Sources/CalendarUI/Help/`) can show a short GIF at the top
+The in-app Help browser (`Help ▸ MagiCal Help`, `Sources/CalendarUI/Help/`) can show a short GIF at the top
 of a topic. A topic opts in by setting `HelpTopic.gif` to an asset name; the GIF is loaded from
 `Sources/CalendarUI/Resources/tutorial/<name>.gif` (same folder the onboarding carousel uses). A missing
 GIF is simply not shown, so topics stay usable before the asset exists.
@@ -17,7 +17,7 @@ These exist today and are wired into the matching Help topics:
 | `pinch-zoom.gif` | Getting Around ▸ *Zoom between year, month, week, and day*; Getting Started ▸ *The four zoom levels* | `pinch-zoom` |
 | `band-year.gif` | Events ▸ *Create a multi-day event (band)* | `band-year` |
 | `timed-week.gif` | Events ▸ *Create a timed event*; Getting Started ▸ *Create your first event* | `timed-week` |
-| `ai-assistant.gif` | The AI Assistant ▸ *Meet Madocal AI* | `ai-assistant` |
+| `ai-assistant.gif` | The AI Assistant ▸ *Meet MagiCal AI* | `ai-assistant` |
 | `markdown-notes.gif` | Organizing ▸ *Notes & to-do lists* | `markdown-notes` |
 
 ## Suggested NEW GIFs (not yet recorded — let's discuss before building)

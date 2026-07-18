@@ -46,7 +46,7 @@ public struct FileCommands: View {
     private func exportMDC() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "mdc") ?? .data]
-        panel.nameFieldStringValue = "MadoCal-\(isoDayString()).mdc"
+        panel.nameFieldStringValue = "MagiCal-\(isoDayString()).mdc"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do { try engine.exportMDC(to: url) }

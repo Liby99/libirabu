@@ -115,7 +115,7 @@ struct CalendarApp: App {
 
         // The standalone "Calendar AI" chat window — a separate, draggable window opened from the
         // toolbar sparkles button or the menu-bar item. Independent of the calendar window.
-        Window("Madocal AI", id: "assistant") {
+        Window("MagiCal AI", id: "assistant") {
             AssistantWindowView(state: assistant, callout: quickAssistant)
                 .onAppear {
                     applyPersistedAppearance()
@@ -128,7 +128,7 @@ struct CalendarApp: App {
 
         // Menu-bar item (top-right) → a small dropdown. Its presence keeps the app alive when all
         // windows are closed, so the chat can be opened without (or outliving) the calendar window.
-        MenuBarExtra("Madocal AI", systemImage: "sparkles") {
+        MenuBarExtra("MagiCal AI", systemImage: "sparkles") {
             MenuBarContent(assistant: assistant)
         }
     }
@@ -236,7 +236,7 @@ private struct OpenAssistantCommand: View {
             if callout != nil { callout = !(callout ?? false) }
             else { openWindow(id: "assistant") }
         } label: {
-            Label("Madocal AI", systemImage: "sparkles")
+            Label("MagiCal AI", systemImage: "sparkles")
         }
         .keyboardShortcut("i", modifiers: .command)
     }
@@ -249,12 +249,12 @@ private struct MenuBarContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button { openWindow(id: "assistant") } label: { Label("Open Madocal AI", systemImage: "sparkles") }
+        Button { openWindow(id: "assistant") } label: { Label("Open MagiCal AI", systemImage: "sparkles") }
         Button { assistant.newChat(); openWindow(id: "assistant") } label: { Label("New Chat", systemImage: "square.and.pencil") }
         Divider()
-        Button { openWindow(id: "calendar") } label: { Label("Show Madocal", systemImage: "calendar") }
+        Button { openWindow(id: "calendar") } label: { Label("Show MagiCal", systemImage: "calendar") }
         SettingsLink { Label("Settings…", systemImage: "gearshape") }
         Divider()
-        Button { NSApplication.shared.terminate(nil) } label: { Label("Quit Madocal", systemImage: "power") }
+        Button { NSApplication.shared.terminate(nil) } label: { Label("Quit MagiCal", systemImage: "power") }
     }
 }

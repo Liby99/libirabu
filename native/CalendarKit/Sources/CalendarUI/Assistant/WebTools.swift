@@ -93,7 +93,7 @@ struct WebOpenTool: AssistantTool {
             return .obj(["error": .str("missing or invalid 'url'")])
         }
         var request = URLRequest(url: url)
-        request.setValue("Mozilla/5.0 (compatible; madocal-assistant/1.0)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Mozilla/5.0 (compatible; magical-assistant/1.0)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 20
 
         let (data, response) = try await URLSession.shared.data(for: request)

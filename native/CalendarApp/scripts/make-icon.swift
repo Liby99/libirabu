@@ -1,8 +1,9 @@
-// Renders a minimalist macOS app icon (1024×1024 master PNG) using CoreGraphics.
-// Design: a "calendar page" — rounded card with a subtle gradient, an accent header
-// band with two binding tabs, and a clean grid of day cells with one accent "today".
-// Big Sur icon-grid proportions: 824×824 content centered in a 1024 canvas (100px
-// margins), corner radius ≈ 0.225 · side, with a soft drop shadow.
+// Renders the MagiCal macOS app icon (1024×1024 master PNG) using CoreGraphics.
+// Design: minimalistic + monotone. A flat white "calendar page" card with the brand-red
+// header band on top, and below it a hairline day/lane grid carrying three light red/pink
+// HORIZONTAL band-event pills — the app's signature year-view band lanes.
+// Big Sur icon-grid proportions: 824×824 content centered in a 1024 canvas (100px margins),
+// corner radius ≈ 0.225 · side, with a soft drop shadow. One hue (#FF3B6B) + neutrals.
 
 import AppKit
 
@@ -16,7 +17,9 @@ func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor 
     CGColor(colorSpace: cs, components: [r/255, g/255, b/255, a])!
 }
 
-// Squircle path (continuous rounded rect) via NSBezierPath for a nicer corner curve.
+/// The brand accent (#FF3B6B) at a given opacity — the pinks are just the accent, lightened.
+func accent(_ a: CGFloat = 1) -> CGColor { rgb(255, 59, 107, a) }
+
 func squircle(_ rect: CGRect, radius: CGFloat) -> CGPath {
     NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).cgPath
 }
@@ -28,69 +31,66 @@ let cardPath = squircle(card, radius: radius)
 
 // ---- soft drop shadow under the card ----
 ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: 0, height: -18), blur: 44,
-              color: rgb(0, 0, 0, 0.28))
+ctx.setShadow(offset: CGSize(width: 0, height: -16), blur: 40, color: rgb(0, 0, 0, 0.22))
 ctx.addPath(cardPath); ctx.setFillColor(rgb(255, 255, 255)); ctx.fillPath()
 ctx.restoreGState()
 
-// ---- card background: subtle vertical gradient (near-white paper) ----
+// Everything else clips to the card.
 ctx.saveGState()
 ctx.addPath(cardPath); ctx.clip()
-let bg = CGGradient(colorsSpace: cs, colors: [rgb(255, 255, 255), rgb(240, 241, 244)] as CFArray,
-                    locations: [0, 1])!
-ctx.drawLinearGradient(bg, start: CGPoint(x: 0, y: card.maxY),
-                       end: CGPoint(x: 0, y: card.minY), options: [])
 
-// ---- accent header band (top ~27% of the card) ----
-let accentTop = rgb(255, 92, 74)     // warm coral
-let accentBot = rgb(240, 62, 74)     // deeper red
-let bandH = card.height * 0.27
-let bandRect = CGRect(x: card.minX, y: card.maxY - bandH, width: card.width, height: bandH)
-ctx.saveGState()
-ctx.addRect(bandRect); ctx.clip()   // clip band to card (already clipped) + its own rect
-let bandGrad = CGGradient(colorsSpace: cs, colors: [accentTop, accentBot] as CFArray, locations: [0, 1])!
-ctx.drawLinearGradient(bandGrad, start: CGPoint(x: 0, y: bandRect.maxY),
-                       end: CGPoint(x: 0, y: bandRect.minY), options: [])
-ctx.restoreGState()
+// ---- flat white page ----
+ctx.setFillColor(rgb(255, 255, 255))
+ctx.fill(card)
 
-// ---- two binding tabs straddling the band's bottom edge ----
-let tabW = card.width * 0.055
-let tabH = card.height * 0.11
-let tabY = bandRect.minY - tabH * 0.42
-let graphite = rgb(58, 60, 66)
-for frac in [0.34, 0.66] as [CGFloat] {
-    let x = card.minX + card.width * frac - tabW/2
-    let r = CGRect(x: x, y: tabY, width: tabW, height: tabH)
-    ctx.addPath(squircle(r, radius: tabW/2)); ctx.setFillColor(graphite); ctx.fillPath()
+// ---- flat accent header band (top ~26% of the card) ----
+let bandH = card.height * 0.26
+let headerRect = CGRect(x: card.minX, y: card.maxY - bandH, width: card.width, height: bandH)
+ctx.setFillColor(accent())
+ctx.fill(headerRect)
+
+// ---- body: hairline day/lane grid (SQUARE cells, filling most of the body) ----
+let body = CGRect(x: card.minX, y: card.minY, width: card.width, height: headerRect.minY - card.minY)
+let cols = 4, lanes = 3
+let cellS = min(body.width * 0.84 / CGFloat(cols),    // ~8% side margins
+                body.height * 0.82 / CGFloat(lanes))  // ~9% top/bottom gaps
+let grid = CGRect(x: body.midX - cellS * CGFloat(cols) / 2,
+                  y: body.minY + (body.height - cellS * CGFloat(lanes)) / 2,
+                  width: cellS * CGFloat(cols), height: cellS * CGFloat(lanes))
+let colW = cellS
+let laneH = cellS
+let hairline: CGFloat = 7
+ctx.setFillColor(rgb(233, 227, 230))   // warm light gray — quiet next to the pinks
+for c in 1..<cols {                    // inner vertical day lines
+    let x = grid.minX + CGFloat(c) * colW
+    ctx.fill(CGRect(x: x - hairline/2, y: grid.minY, width: hairline, height: grid.height))
+}
+for l in 1..<lanes {                   // inner horizontal lane lines
+    let y = grid.minY + CGFloat(l) * laneH
+    ctx.fill(CGRect(x: grid.minX, y: y - hairline/2, width: grid.width, height: hairline))
 }
 
-// ---- day grid in the body: 4 cols × 3 rows of rounded cells; one accent "today" ----
-let body = CGRect(x: card.minX, y: card.minY, width: card.width, height: bandRect.minY - card.minY)
-let cols = 4, rows = 3
-let padX = body.width * 0.14
-let padTop = body.height * 0.20
-let padBot = body.height * 0.18
-let gridW = body.width - 2*padX
-let gridH = body.height - padTop - padBot
-let gap = gridW * 0.055
-let cell = min((gridW - CGFloat(cols-1)*gap) / CGFloat(cols),
-               (gridH - CGFloat(rows-1)*gap) / CGFloat(rows))
-let usedW = CGFloat(cols)*cell + CGFloat(cols-1)*gap
-let usedH = CGFloat(rows)*cell + CGFloat(rows-1)*gap
-let ox = body.minX + (body.width - usedW)/2
-let oyTop = body.maxY - padTop        // grid grows downward from here
-let dim = rgb(214, 216, 222)
-let todayCol = 1, todayRow = 1        // 0-indexed (col from left, row from top)
-for row in 0..<rows {
-    for col in 0..<cols {
-        let x = ox + CGFloat(col)*(cell+gap)
-        let y = oyTop - CGFloat(row+1)*cell - CGFloat(row)*gap
-        let r = CGRect(x: x, y: y, width: cell, height: cell)
-        let isToday = (col == todayCol && row == todayRow)
-        ctx.addPath(squircle(r, radius: cell*0.28))
-        ctx.setFillColor(isToday ? accentBot : dim)
-        ctx.fillPath()
-    }
+// ---- light red/pink horizontal band events, one per lane ----
+// (startCol, endCol exclusive, lane from top, opacity) — a clean diagonal cascade: equal
+// 3-day bands stepping one column per lane, fading as they descend.
+// Together the four bars sketch a λ — the cascade is the right-leaning stroke, the
+// bottom-left bar its leg. (A calendar that likes programming languages.)
+let pills: [(Int, Int, Int, CGFloat)] = [
+    (0, 2, 0, 0.55),
+    (1, 3, 1, 0.35),
+    (2, 4, 2, 0.20),
+    (0, 2, 2, 0.45),
+]
+let pillH = laneH * 0.58
+let inset = colW * 0.13
+for (c0, c1, lane, alpha) in pills {
+    let y = grid.maxY - CGFloat(lane) * laneH - laneH/2 - pillH/2
+    let x0 = grid.minX + CGFloat(c0) * colW + inset
+    let x1 = grid.minX + CGFloat(c1) * colW - inset
+    let r = CGRect(x: x0, y: y, width: x1 - x0, height: pillH)
+    ctx.addPath(squircle(r, radius: pillH/2))
+    ctx.setFillColor(accent(alpha))
+    ctx.fillPath()
 }
 ctx.restoreGState()
 

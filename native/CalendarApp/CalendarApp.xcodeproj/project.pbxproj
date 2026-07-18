@@ -348,7 +348,7 @@
 				);
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.libirabu.calendar;
-				PRODUCT_NAME = Madocal;
+				PRODUCT_NAME = MagiCal;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -366,10 +366,10 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Madocal;
+				INFOPLIST_KEY_CFBundleDisplayName = MagiCal;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Madocal reads your Apple Calendar events so it can show them alongside your Madocal calendar.";
-				INFOPLIST_KEY_NSCalendarsUsageDescription = "Madocal reads your Apple Calendar events so it can show them alongside your Madocal calendar.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MagiCal reads your Apple Calendar events so it can show them alongside your MagiCal calendar.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "MagiCal reads your Apple Calendar events so it can show them alongside your MagiCal calendar.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -377,7 +377,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.libirabu.calendar;
-				PRODUCT_NAME = Madocal;
+				PRODUCT_NAME = MagiCal;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.0;
 			};
@@ -395,10 +395,10 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Madocal;
+				INFOPLIST_KEY_CFBundleDisplayName = MagiCal;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Madocal reads your Apple Calendar events so it can show them alongside your Madocal calendar.";
-				INFOPLIST_KEY_NSCalendarsUsageDescription = "Madocal reads your Apple Calendar events so it can show them alongside your Madocal calendar.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MagiCal reads your Apple Calendar events so it can show them alongside your MagiCal calendar.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "MagiCal reads your Apple Calendar events so it can show them alongside your MagiCal calendar.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -406,7 +406,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.libirabu.calendar;
-				PRODUCT_NAME = Madocal;
+				PRODUCT_NAME = MagiCal;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.0;
 			};
@@ -430,7 +430,7 @@
 				);
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.libirabu.calendar;
-				PRODUCT_NAME = Madocal;
+				PRODUCT_NAME = MagiCal;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

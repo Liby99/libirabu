@@ -23,7 +23,7 @@ PROJ_DIR="$(cd "$HERE/.." && pwd)"
 cd "$PROJ_DIR"
 
 SCHEME="CalendarApp"
-APP_NAME="${APP_NAME:-Madocal}"   # must match PRODUCT_NAME in project.yml
+APP_NAME="${APP_NAME:-MagiCal}"   # must match PRODUCT_NAME in project.yml
 TEAM_ID="${TEAM_ID:-X84ZG75WAM}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-libirabu-notary}"
 NOTARIZE="${NOTARIZE:-1}"

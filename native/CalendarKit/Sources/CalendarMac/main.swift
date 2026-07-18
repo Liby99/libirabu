@@ -32,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             backing: .buffered,
             defer: false
         )
-        window.title = "Madocal"
+        window.title = "MagiCal"
         // Keep the window alive after Cmd-W so it can be reopened (see reopen handler).
         window.isReleasedWhenClosed = false
         // contentView (not contentViewController): a GeometryReader-based SwiftUI view
@@ -48,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Dev/screenshot affordance: open the Help window on launch (used to capture Help GIFs/screens).
         if ProcessInfo.processInfo.environment["CC_OPEN_HELP"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.showHelp(nil) }
+        }
+        if ProcessInfo.processInfo.environment["CC_OPEN_TUTORIAL"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { NotificationCenter.default.post(name: .showTutorial, object: nil) }
         }
     }
 
@@ -93,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // Standard menu bar so Cmd-Q / Cmd-W / Cmd-M work.
     private func buildMenu() {
-        let name = "Madocal"
+        let name = "MagiCal"
         let main = NSMenu()
 
         let appItem = NSMenuItem()
@@ -160,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.mainMenu = main
     }
 
-    /// Help ▸ Madocal Help — open (or focus) the in-app Help browser window.
+    /// Help ▸ MagiCal Help — open (or focus) the in-app Help browser window.
     @objc func showHelp(_ sender: Any?) {
         if helpWindow == nil {
             let w = NSWindow(
@@ -169,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 backing: .buffered,
                 defer: false
             )
-            w.title = "Madocal Help"
+            w.title = "MagiCal Help"
             w.isReleasedWhenClosed = false
             w.contentView = NSHostingView(rootView: HelpView())
             w.center()
@@ -186,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             string: "A zoomable calendar that keeps your schedule, notes, and to-dos together — with a built-in AI assistant.",
             attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "Madocal",
+            .applicationName: "MagiCal",
             .applicationVersion: version,
             .credits: credits,
         ])

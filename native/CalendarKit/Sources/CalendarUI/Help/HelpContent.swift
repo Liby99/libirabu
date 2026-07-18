@@ -1,4 +1,4 @@
-// The Help book's content — a task-based, searchable set of topics shown by HelpView (Help ▸ Madocal Help).
+// The Help book's content — a task-based, searchable set of topics shown by HelpView (Help ▸ MagiCal Help).
 //
 // Apple's guidance (Human Interface Guidelines ▸ Offering help / Menus): help should be task-focused,
 // brief, conversational, and searchable, with the Help menu as the rightmost menu. We don't register a
@@ -67,7 +67,7 @@ public struct HelpCategory: Identifiable, Equatable, Sendable {
 }
 
 public enum HelpContent {
-    public static let appName = "Madocal"
+    public static let appName = "MagiCal"
 
     public static let categories: [HelpCategory] = [
         gettingStarted, gettingAround, events, deadlines, organizing, assistant, syncImport, keyboardTips,
@@ -106,13 +106,13 @@ public enum HelpContent {
     // ─────────────────────────────────────────────────────────────────────────────────
     static let gettingStarted = HelpCategory(id: "start", title: "Getting Started", symbol: "sparkles", topics: [
         HelpTopic(
-            id: "welcome", title: "What is Madocal?",
+            id: "welcome", title: "What is MagiCal?",
             summary: "A zoomable calendar that keeps your schedule, notes, and to-dos together.",
             keywords: ["overview", "intro", "introduction", "about", "semantic zoom"],
             blocks: [
-                .paragraph("Madocal is a calendar you move through by zooming. One continuous canvas holds a whole year, and you zoom in to a month, a week, or a single day — the layout re-forms at each level instead of switching to a different screen."),
+                .paragraph("MagiCal is a calendar you move through by zooming. One continuous canvas holds a whole year, and you zoom in to a month, a week, or a single day — the layout re-forms at each level instead of switching to a different screen."),
                 .paragraph("Alongside the schedule, every event and every day can hold Markdown notes and to-do items, and a built-in AI assistant can read and change your calendar for you."),
-                .tip("New here? Open Help ▸ Welcome to Madocal for a quick visual tour of the main gestures."),
+                .tip("New here? Open Help ▸ Welcome to MagiCal for a quick visual tour of the main gestures."),
             ]),
         HelpTopic(
             id: "zoom-levels", title: "The four zoom levels",
@@ -246,7 +246,7 @@ public enum HelpContent {
             summary: "Select it and press Delete; confirm when asked.",
             keywords: ["delete", "remove", "trash"],
             blocks: [
-                .paragraph("Select an event and press Delete, or use the trash button in its drawer. Madocal asks you to confirm before removing it."),
+                .paragraph("Select an event and press Delete, or use the trash button in its drawer. MagiCal asks you to confirm before removing it."),
                 .paragraph("For a repeating event, you can delete just one occurrence (a single skip) or the whole series — choose when prompted."),
             ],
             shortcuts: [.init("⌫", "Delete the selected event")]),
@@ -337,11 +337,11 @@ public enum HelpContent {
     // ─────────────────────────────────────────────────────────────────────────────────
     static let assistant = HelpCategory(id: "ai", title: "The AI Assistant", symbol: "wand.and.stars", topics: [
         HelpTopic(
-            id: "assistant-intro", title: "Meet Madocal AI",
+            id: "assistant-intro", title: "Meet MagiCal AI",
             summary: "A chat assistant that can read and change your calendar.",
-            keywords: ["ai", "assistant", "chat", "madocal ai", "sparkles"],
+            keywords: ["ai", "assistant", "chat", "magical ai", "sparkles"],
             blocks: [
-                .paragraph("Madocal AI is a chat panel that understands your calendar. Ask it questions in plain language and it can answer, or make the change for you."),
+                .paragraph("MagiCal AI is a chat panel that understands your calendar. Ask it questions in plain language and it can answer, or make the change for you."),
                 .paragraph("Open it from the sparkles button in the toolbar, or press ⌘I. Type a request and press Return."),
             ],
             shortcuts: [.init("⌘I", "Open the assistant")], gif: "ai-assistant"),
@@ -396,7 +396,7 @@ public enum HelpContent {
             summary: "Your calendar syncs across your Macs through iCloud.",
             keywords: ["icloud", "sync", "cloudkit", "backup", "devices"],
             blocks: [
-                .paragraph("When you're signed in to iCloud, Madocal keeps your events, deadlines, notes, and track names in sync across your Macs automatically. You can see the current status in Settings ▸ Account."),
+                .paragraph("When you're signed in to iCloud, MagiCal keeps your events, deadlines, notes, and track names in sync across your Macs automatically. You can see the current status in Settings ▸ Account."),
                 .tip("Sync status and the time of the last sync also appear in the toolbar's status menu."),
             ]),
         HelpTopic(
@@ -404,7 +404,7 @@ public enum HelpContent {
             summary: "Bring in events from macOS Calendar, read-only.",
             keywords: ["apple calendar", "eventkit", "macos calendar", "import", "subscribe"],
             blocks: [
-                .paragraph("Madocal can display events from the macOS Calendar app so everything sits in one place. Turn it on and pick which calendars to include in Settings ▸ Account."),
+                .paragraph("MagiCal can display events from the macOS Calendar app so everything sits in one place. Turn it on and pick which calendars to include in Settings ▸ Account."),
                 .paragraph("Imported events are read-only — edit them in Calendar.app — but you can still add your own notes, tags, and track placement to them here."),
             ]),
         HelpTopic(
@@ -419,7 +419,7 @@ public enum HelpContent {
             summary: "Add events from a standard calendar file.",
             keywords: ["ics", "icalendar", "file", "import", "invite"],
             blocks: [
-                .paragraph("Madocal can import a standard .ics calendar file, adding its events to yours. This is additive — it brings the new events in without touching what you already have."),
+                .paragraph("MagiCal can import a standard .ics calendar file, adding its events to yours. This is additive — it brings the new events in without touching what you already have."),
                 .tip("This is available from the File menu once it's enabled — see the note in Backing up & restoring."),
             ]),
         HelpTopic(
@@ -428,7 +428,7 @@ public enum HelpContent {
             keywords: ["backup", "restore", "export", "mdc", "archive", "save"],
             blocks: [
                 .paragraph("Export a complete backup of your calendar — events, deadlines, notes, and track names — to a single .mdc file, and restore from it later or on another Mac."),
-                .paragraph("Restoring replaces your current data with the backup's contents; Madocal warns you first, and ⌘Z can undo it."),
+                .paragraph("Restoring replaces your current data with the backup's contents; MagiCal warns you first, and ⌘Z can undo it."),
                 .tip("Import and export live in the File menu. Note: in the current build the File menu isn't installed yet — this is a known gap we're wiring up."),
             ]),
     ])
@@ -442,7 +442,7 @@ public enum HelpContent {
             summary: "Hold ⌘K to see the shortcuts for whatever you're doing.",
             keywords: ["keyboard", "shortcuts", "keys", "guide", "cmd k", "hotkeys"],
             blocks: [
-                .paragraph("Madocal is fully keyboard-drivable. Because the useful keys change with what's selected, hold ⌘K to pop up a live guide of exactly the shortcuts available right now."),
+                .paragraph("MagiCal is fully keyboard-drivable. Because the useful keys change with what's selected, hold ⌘K to pop up a live guide of exactly the shortcuts available right now."),
                 .paragraph("Some shortcuts that work almost everywhere:"),
                 .bullets([
                     "⌘= / ⌘−  — zoom in / out",
@@ -482,7 +482,7 @@ public enum HelpContent {
             summary: "Choose Light, Dark, or Automatic in Settings.",
             keywords: ["appearance", "theme", "dark mode", "light mode", "automatic"],
             blocks: [
-                .paragraph("Set how Madocal looks in Settings ▸ Appearance (⌘,): Light, Dark, or Automatic to follow the system."),
+                .paragraph("Set how MagiCal looks in Settings ▸ Appearance (⌘,): Light, Dark, or Automatic to follow the system."),
             ],
             shortcuts: [.init("⌘,", "Open Settings")]),
         HelpTopic(
@@ -490,7 +490,7 @@ public enum HelpContent {
             summary: "Display an alternate time zone alongside your own.",
             keywords: ["timezone", "time zone", "second", "alternate", "travel", "utc"],
             blocks: [
-                .paragraph("If you work across time zones, Madocal can show an alternate time zone next to your local one on the timeline, so you can read both at once."),
+                .paragraph("If you work across time zones, MagiCal can show an alternate time zone next to your local one on the timeline, so you can read both at once."),
             ]),
     ])
 }

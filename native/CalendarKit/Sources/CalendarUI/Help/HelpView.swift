@@ -1,4 +1,4 @@
-// The in-app Help browser (Help ▸ Madocal Help), hosted in its own window by the AppKit shell. A searchable
+// The in-app Help browser (Help ▸ MagiCal Help), hosted in its own window by the AppKit shell. A searchable
 // category sidebar on the left, a task topic on the right — the modern stand-in for a registered Help book.
 // Content is data (HelpContent); this file is just presentation.
 

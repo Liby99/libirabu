@@ -17,6 +17,7 @@ struct EventsOverlay: View {
     let hovered: String?         // the hovered BOX id (exact box gets hover feedback)
     let drawerOpen: Bool         // the detail drawer is open → the focused box gets the thick border
     let editingId: String?
+    var editingRect: CGRect? = nil   // the inline title editor's rect → hide the title on THAT segment only
     var draggingId: String? = nil   // event being moved/resized → floats full-width above the day,
                                     // and is excluded from the others' overlap packing (no reflow)
     var perfMode: Bool = false   // flat tinted fills instead of Liquid Glass (global toggle)
@@ -37,6 +38,13 @@ struct EventsOverlay: View {
         if id == selected { return drawerOpen ? .selected : .focusMain }
         if id == hovered { return .hover }
         return .plain
+    }
+
+    /// True when this box is the one the inline title editor sits over. `editingRect` is a specific
+    /// segment's rect (same coord space as the box rects); nil means match by id alone (e.g. a band).
+    private static func editingThisBox(_ boxRect: CGRect, _ editingRect: CGRect?) -> Bool {
+        guard let e = editingRect else { return true }
+        return abs(boxRect.minX - e.minX) < 2 && abs(boxRect.minY - e.minY) < 2
     }
 
     var body: some View {
@@ -343,7 +351,11 @@ struct EventsOverlay: View {
                              timeText: fmtHourRange(p.seg.fullStart, p.seg.fullEnd),
                              subTimeText: subLabels[id],
                              plain: perfMode, activation: a, badges: eventBadges[id] ?? [],
-                             editing: editingId != nil && sourceId(of: id) == editingId, theme: theme)))
+                             // Hide the title ONLY on the segment the editor is over (rect match) — the other
+                             // segments of a cross-midnight event keep showing the title (which updates live as
+                             // you type), instead of going blank.
+                             editing: editingId != nil && sourceId(of: id) == editingId && Self.editingThisBox(p.rect, editingRect),
+                             theme: theme)))
         }
     }
 
@@ -389,7 +401,7 @@ private struct EventSticker: View {
     let theme: Theme
 
     var body: some View {
-        let lay = eventTextLayout(height)
+        let lay = eventTextLayout(height, hasSubline: subTimeText != nil)
         // A revealed hidden imported event reads as "off": a neutral gray fill + gray border/badges, with
         // ONLY the left (dotted) bar keeping the event's color as its identity.
         let hidden = badges.contains(.hidden)
@@ -432,7 +444,7 @@ private struct EventSticker: View {
                         .font(.system(size: 8.5))
                         .foregroundStyle(theme.text.opacity(0.72))
                         .padding(.top, 2)   // a touch more breathing room below the title
-                    if let subTimeText {   // anchor-zone time, shown when the event isn't in the view zone
+                    if let subTimeText, lay.subLine {   // anchor-zone time — only when the block is tall enough
                         Text(subTimeText)
                             .font(.system(size: 8))
                             .foregroundStyle(theme.text.opacity(0.5))
@@ -454,15 +466,84 @@ private struct EventSticker: View {
         }
         .overlay(alignment: .leading) {   // left accent bar — DOTTED + the ONLY colorful part when hidden
             Group {
-                // A clipped end runs the bar flush to the border (square), so it reads as continuing over.
+                // The bar's caps are rounded on the event's REAL ends but flat (square) where it continues
+                // over a midnight boundary (clipTop/clipBottom) — matching the box corners. A normal event
+                // rounds both ends (equivalent to a capsule for a bar this thin).
                 if hidden { DottedBar(width: barWidth, color: barColor) }
-                else if clipTop || clipBottom { Rectangle().fill(barColor).frame(width: barWidth) }
-                else { Capsule().fill(barColor).frame(width: barWidth) }
+                else {
+                    let cap = barWidth / 2
+                    UnevenRoundedRectangle(topLeadingRadius: clipTop ? 0 : cap, bottomLeadingRadius: clipBottom ? 0 : cap,
+                                           bottomTrailingRadius: clipBottom ? 0 : cap, topTrailingRadius: clipTop ? 0 : cap)
+                        .fill(barColor).frame(width: barWidth)
+                }
             }
             .padding(.top, barTopInset).padding(.bottom, barBotInset).padding(.leading, BandStyle.accentInset)
         }
-        .overlay { activationBorder(activation, color: border, in: boxShape) }
+        .overlay {
+            if clipTop || clipBottom {
+                // A cross-midnight segment: draw the selection/focus border on every side EXCEPT the
+                // midnight continuation edge(s), so the internal boundary between two segments of one
+                // event stays borderless (only the real outer sides get the thick border).
+                segmentBorder(activation, color: border, radius: r, clipTop: clipTop, clipBottom: clipBottom)
+            } else {
+                activationBorder(activation, color: border, in: boxShape)
+            }
+        }
         .animation(.easeInOut(duration: BandStyle.animation), value: activation)
+    }
+}
+
+/// Selection/focus border for a cross-midnight segment: same widths/dash as `activationBorder`, but on an
+/// OPEN path that omits the midnight continuation edge(s).
+@ViewBuilder
+private func segmentBorder(_ activation: EventActivation, color: Color, radius: CGFloat, clipTop: Bool, clipBottom: Bool) -> some View {
+    let stroke: (w: CGFloat, dash: [CGFloat])? = {
+        switch activation {
+        case .selected:      return (BandStyle.selectedBorderWidth, [])
+        case .focusMain:     return (BandStyle.focusBorderWidth, [])
+        case .accompanied:   return (BandStyle.accompaniedBorderWidth, BandStyle.accompaniedDash)
+        case .hover, .plain: return nil
+        }
+    }()
+    if let s = stroke {
+        OpenBorderShape(radius: radius, clipTop: clipTop, clipBottom: clipBottom, inset: s.w / 2)
+            .stroke(color, style: StrokeStyle(lineWidth: s.w, lineCap: .butt, lineJoin: .round, dash: s.dash))
+    }
+}
+
+/// The outline of a rounded rect with the clipped (continuation) edge(s) removed — an OPEN path tracing
+/// only the sides that aren't a midnight boundary. Closed sides are inset by half the stroke so the stroke
+/// sits inside the box (like strokeBorder); the vertical sides run to the full open edge.
+private struct OpenBorderShape: Shape {
+    var radius: CGFloat
+    var clipTop: Bool
+    var clipBottom: Bool
+    var inset: CGFloat = 0
+    func path(in rect: CGRect) -> Path {
+        let x0 = rect.minX + inset, x1 = rect.maxX - inset
+        let rad = max(0, min(radius, min(rect.width, rect.height) / 2 - inset))
+        var p = Path()
+        if clipTop && clipBottom {                         // middle day of a 3+ day span → the two sides only
+            p.move(to: CGPoint(x: x0, y: rect.minY)); p.addLine(to: CGPoint(x: x0, y: rect.maxY))
+            p.move(to: CGPoint(x: x1, y: rect.minY)); p.addLine(to: CGPoint(x: x1, y: rect.maxY))
+        } else if clipBottom {                             // open bottom → up the left, rounded top, down the right
+            let yTop = rect.minY + inset
+            p.move(to: CGPoint(x: x0, y: rect.maxY))
+            p.addLine(to: CGPoint(x: x0, y: yTop + rad))
+            p.addQuadCurve(to: CGPoint(x: x0 + rad, y: yTop), control: CGPoint(x: x0, y: yTop))
+            p.addLine(to: CGPoint(x: x1 - rad, y: yTop))
+            p.addQuadCurve(to: CGPoint(x: x1, y: yTop + rad), control: CGPoint(x: x1, y: yTop))
+            p.addLine(to: CGPoint(x: x1, y: rect.maxY))
+        } else {                                           // clipTop → open top: down the left, rounded bottom, up the right
+            let yBot = rect.maxY - inset
+            p.move(to: CGPoint(x: x0, y: rect.minY))
+            p.addLine(to: CGPoint(x: x0, y: yBot - rad))
+            p.addQuadCurve(to: CGPoint(x: x0 + rad, y: yBot), control: CGPoint(x: x0, y: yBot))
+            p.addLine(to: CGPoint(x: x1 - rad, y: yBot))
+            p.addQuadCurve(to: CGPoint(x: x1, y: yBot - rad), control: CGPoint(x: x1, y: yBot))
+            p.addLine(to: CGPoint(x: x1, y: rect.minY))
+        }
+        return p
     }
 }
 

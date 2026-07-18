@@ -5,11 +5,13 @@
 import SwiftUI
 import AppKit
 
-/// One carousel slide: a GIF (loaded by name from the bundle's `tutorial/` folder) + a caption.
+/// One carousel slide: a GIF (loaded by name from the bundle's `tutorial/` folder) + a caption. The final
+/// slide is a `welcome` card (app icon + a friendly sign-off) instead of a demo GIF.
 struct TutorialSlide: Identifiable {
     let id = UUID()
-    let gif: String        // resource name without extension (see Resources/tutorial/README.md)
+    let gif: String        // resource name without extension (see Resources/tutorial/README.md); "" for welcome
     let caption: String
+    var welcome: Bool = false
 }
 
 struct TutorialView: View {
@@ -23,7 +25,14 @@ struct TutorialView: View {
         .init(gif: "timed-week",     caption: "Drag on the timeline to create timed events."),
         .init(gif: "ai-assistant",   caption: "Click the AI button to let AI help you manage your calendar."),
         .init(gif: "markdown-notes", caption: "Edit markdown notes in events or the daily notepad to add TODO items."),
+        .init(gif: "", caption: "That's the tour — your calendar is ready. Enjoy planning your time with MagiCal!", welcome: true),
     ]
+
+    // The demo GIFs span aspect ratios from ~4.3:1 (year band) to ~0.85:1 (AI panel). A landscape stage
+    // (wider than tall) lets the very-wide clips stay legible while still fitting the tall ones; each GIF is
+    // contained within it. (A square stage would shrink the wide clips to a sliver.)
+    static let stageW: CGFloat = 620
+    static let stageH: CGFloat = 440
 
     private var idx: Int { min(max(0, ui.tutorialIndex), Self.slides.count - 1) }
     private var isLast: Bool { idx == Self.slides.count - 1 }
@@ -44,18 +53,23 @@ struct TutorialView: View {
                         .help("Close")
                 }
 
-                // The GIF stage — fixed 16:9 so slides don't jump as sizes vary.
-                GIFStage(name: Self.slides[idx].caption.isEmpty ? "" : Self.slides[idx].gif, theme: theme)
-                    .frame(width: 560, height: 315)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.sep.opacity(0.4), lineWidth: 1))
-                    .id(idx)   // swap the NSImageView when the slide changes
-                    .transition(.opacity)
+                // The stage — a fixed-size area. Demo slides CONTAIN a GIF (fit to its own aspect ratio,
+                // never cropped, border hugging the image); the final slide is the welcome card.
+                Group {
+                    if Self.slides[idx].welcome {
+                        WelcomeStage(theme: theme)
+                    } else {
+                        GIFStage(name: Self.slides[idx].gif, theme: theme)
+                    }
+                }
+                .frame(width: Self.stageW, height: Self.stageH)
+                .id(idx)   // swap the NSImageView when the slide changes
+                .transition(.opacity)
 
                 Text(Self.slides[idx].caption)
                     .font(.system(size: 14, weight: .medium)).foregroundStyle(theme.text)
                     .multilineTextAlignment(.center)
-                    .frame(width: 480)
+                    .frame(width: Self.stageW - 40)
                     .fixedSize(horizontal: false, vertical: true)
 
                 // Page dots
@@ -74,7 +88,7 @@ struct TutorialView: View {
                     Button(isLast ? "Done" : "Next") { if isLast { onClose() } else { go(to: idx + 1) } }
                 }
                 .buttonStyle(.bordered)
-                .frame(width: 560)
+                .frame(width: Self.stageW)
             }
             .padding(28)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18))
@@ -88,6 +102,42 @@ struct TutorialView: View {
     private func go(to i: Int) { ui.tutorialIndex = min(max(0, i), Self.slides.count - 1) }
 }
 
+/// The final slide: the MagiCal app icon + a welcome heading, centered (the friendly sign-off is the
+/// caption rendered below the stage). Plain SwiftUI, so it centers cleanly in the fixed stage.
+private struct WelcomeStage: View {
+    let theme: Theme
+    var body: some View {
+        VStack(spacing: 22) {
+            if let img = Self.appIcon() {
+                Image(nsImage: img)
+                    .resizable().interpolation(.high)
+                    .frame(width: 150, height: 150)   // the icon already has rounded corners + margins
+                    .shadow(color: .black.opacity(0.22), radius: 16, y: 8)
+            } else {
+                Image(systemName: "calendar")
+                    .font(.system(size: 96)).foregroundStyle(Theme.accent)
+            }
+            Text("Welcome to MagiCal")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(theme.text)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// ALWAYS the latest icon: the running app's real icon when it has an asset-catalog one (kept
+    /// current by every rebuild), else the bundled snapshot — the unsigned dev shell has no asset
+    /// catalog, and its snapshot is refreshed by scripts/gen-icons.sh alongside the iconset.
+    private static func appIcon() -> NSImage? {
+        if Bundle.main.object(forInfoDictionaryKey: "CFBundleIconName") != nil {
+            return NSApp.applicationIconImage
+        }
+        if let url = Bundle.module.url(forResource: "app-icon", withExtension: "png", subdirectory: "tutorial") {
+            return NSImage(contentsOf: url)
+        }
+        return nil
+    }
+}
+
 /// The GIF display area: an animating NSImageView loaded from the bundle, or a placeholder when the GIF
 /// isn't present yet (so the carousel is fully usable before the assets are added).
 private struct GIFStage: View {
@@ -95,16 +145,22 @@ private struct GIFStage: View {
     let theme: Theme
     var body: some View {
         if let url = Bundle.module.url(forResource: name, withExtension: "gif", subdirectory: "tutorial"),
-           let img = NSImage(contentsOf: url) {
+           let img = NSImage(contentsOf: url), img.size.width > 0, img.size.height > 0 {
+            // Fit to the GIF's OWN aspect ratio within the stage, centered — the rounded border wraps the
+            // image itself (no letterbox bars), so nothing is cropped whatever the clip's dimensions are.
+            // No frame here: the parent's fixed .frame(stageW, stageH) centers this aspect-fit view.
             AnimatedGIFView(image: img)
+                .aspectRatio(img.size.width / img.size.height, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(theme.sep.opacity(0.4), lineWidth: 1))
+                .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
         } else {
-            ZStack {
-                Rectangle().fill(theme.text.opacity(0.06))
-                VStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.text.opacity(0.06))
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .overlay(VStack(spacing: 10) {
                     Image(systemName: "play.rectangle.on.rectangle").font(.system(size: 30)).foregroundStyle(theme.textMuted)
                     Text("Demo GIF").font(.system(size: 12)).foregroundStyle(theme.textMuted)
-                }
-            }
+                })
         }
     }
 }
@@ -118,6 +174,12 @@ private struct AnimatedGIFView: NSViewRepresentable {
         v.animates = true
         v.imageScaling = .scaleProportionallyUpOrDown
         v.canDrawSubviewsIntoLayer = true
+        // Don't let the view's native pixel size (e.g. 840px) drive SwiftUI layout — the SwiftUI
+        // aspectRatio + parent frame decide the size; the image just fills whatever it's given.
+        v.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        v.setContentHuggingPriority(.defaultLow, for: .vertical)
+        v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        v.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return v
     }
     func updateNSView(_ v: NSImageView, context: Context) {

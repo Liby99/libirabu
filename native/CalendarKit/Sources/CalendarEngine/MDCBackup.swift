@@ -1,4 +1,4 @@
-// The `.mdc` backup codec (MadoCal Calendar). A `.mdc` file is a DEFLATE zip whose layout mirrors the
+// The `.mdc` backup codec (MagiCal Calendar). A `.mdc` file is a DEFLATE zip whose layout mirrors the
 // web app's data export (src/lib/backup.ts): a `manifest.json` + a `database.json` whose value is an
 // object keyed by table name, each an array of rows, with `Date` columns tagged `{"__bk":"date","v":ISO}`.
 // The web dumps all 32 Prisma tables; the native app owns only three — `calendarItem` (events/bands/
@@ -27,7 +27,7 @@ public enum MDCBackup {
         case notABackup, badJSON
         public var errorDescription: String? {
             switch self {
-            case .notABackup: return "That file isn't a MadoCal/libirabu backup (missing manifest or database)."
+            case .notABackup: return "That file isn't a MagiCal/libirabu backup (missing manifest or database)."
             case .badJSON:    return "The backup's data could not be read."
             }
         }
@@ -35,7 +35,7 @@ public enum MDCBackup {
 
     // ── ENCODE ──────────────────────────────────────────────────────────────────────
     /// Build the two JSON entries of a `.mdc` zip from the engine's state.
-    public static func encode(_ s: PersistedState, exportedAt: Date, username: String = "madocal")
+    public static func encode(_ s: PersistedState, exportedAt: Date, username: String = "magical")
         throws -> [String: Data] {
         var items: [[String: Any]] = []
         for e in s.events { items.append(itemRow(timed: e, rich: s.rich?[e.id], at: exportedAt)) }

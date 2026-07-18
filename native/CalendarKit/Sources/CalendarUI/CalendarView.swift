@@ -180,6 +180,7 @@ public struct CalendarView: View {
                           bandBadges: engine.viewBandBadges(), eventBadges: engine.viewEventBadges(),
                           selected: engine.selectedId, hovered: engine.hoveredEventId,
                           drawerOpen: ui.openEventId != nil, editingId: ui.editingBand?.id ?? ui.editingTimed?.id,
+                          editingRect: ui.editingTimed?.rect,   // hide the title only on the segment being edited
                           draggingId: engine.activeTimedDragId,
                           perfMode: perfMode,
                           hideBox: ui.openEventId != nil ? engine.selectedId : nil,  // lifted sharp above
@@ -592,7 +593,7 @@ public struct CalendarView: View {
                 if assistant != nil { showAssistantCallout.toggle() }
                 else { openWindow(id: "assistant") }
             } label: { Image(systemName: "sparkles") }
-                .buttonStyle(.glass).buttonBorderShape(.circle).help("Madocal AI (⌘I)")
+                .buttonStyle(.glass).buttonBorderShape(.circle).help("MagiCal AI (⌘I)")
                 .popover(isPresented: $showAssistantCallout, arrowEdge: .bottom) {
                     if let assistant {
                         AssistantCalloutView(state: assistant) {
