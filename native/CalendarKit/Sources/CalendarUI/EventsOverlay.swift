@@ -283,16 +283,20 @@ struct EventsOverlay: View {
     /// the whole layer (a page-turn fades the outgoing set out / incoming set in); `keyTag` keeps
     /// the incoming set's ForEach ids distinct from the outgoing set's during the cross-fade.
     private func timedItems(_ tl: TimelineInfo, focus: Int, fadeMul: CGFloat = 1, keyTag: String = "") -> [Item2] {
-        var byDay: [Int: [TimedEvent]] = [:]
+        var byDay: [Int: [TimedSegment]] = [:]
         // `relDomOf` gates adjacency (returns nil for non-neighbor months), so iterating all years lets
         // Dec↔Jan spillover events cross the year boundary while far-off months are still excluded.
+        // A cross-midnight event splits into per-day segments; each segment lands in its own day column
+        // (clipped on the border it continues over). A same-day event yields exactly one segment.
         for e in events {
-            if let rd = relDomOf(input.year, focus, e.year, e.month, e.day) { byDay[rd, default: []].append(e) }
+            for s in timedSegments(e) {
+                if let rd = relDomOf(input.year, focus, s.event.year, s.event.month, s.event.day) { byDay[rd, default: []].append(s) }
+            }
         }
         var gf = input; gf.focus = focus
         let dim = daysInMonth(input.year, focus)
-        var placed: [(ev: TimedEvent, rect: CGRect, fade: Double)] = []
-        for (rd, evs) in byDay {
+        var placed: [(seg: TimedSegment, rect: CGRect, fade: Double)] = []
+        for (rd, segs) in byDay {
             // Spillover day (belongs to the previous/next month) → drawn dimmed but fully interactive;
             // a month-edge flip cross-fades the dim/bright swap. (rd<1 → prev month, rd>dim → next.)
             let evMonth = rd < 1 ? focus - 1 : (rd > dim ? focus + 1 : focus)
@@ -302,33 +306,39 @@ struct EventsOverlay: View {
             // Pack the OTHER events as if the dragged one weren't in this day, so they don't shrink/
             // reflow mid-edit; the dragged event then gets no layout slot → eventRect renders it
             // full-width, and it draws on top (selected → frontmost z). Committed on drop.
+            let evs = segs.map(\.event)
             let layout = layoutDay(draggingId != nil ? evs.filter { $0.id != draggingId } : evs)
-            for e in evs {
-                guard let r = eventRect(e, input.year, focus, tl, input.vp, layout[e.id]) else { continue }
+            for s in segs {
+                guard let r = eventRect(s.event, input.year, focus, tl, input.vp, layout[s.event.id]) else { continue }
                 let rect = CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
                 if rect.maxY < tl.tlTop || rect.minY > tl.tlBottom { continue }   // outside the timeline band
                 if rect.maxX < -40 || rect.minX > input.vp.w + 40 { continue }    // scrolled off horizontally (week/day)
-                placed.append((e, rect, Double(fade)))
+                placed.append((s, rect, Double(fade)))
             }
         }
         placed.sort(by: orderTimed)
         return placed.enumerated().map { i, p in
-            let id = p.ev.id
+            let id = p.seg.event.id
             let a = activation(id)
             let z: Double = a.isActive ? a.z : Double(i)
-            return Item2(id: id + keyTag, rect: p.rect, fade: p.fade, z: z, view: AnyView(
-                EventSticker(ev: p.ev, height: p.rect.height, showText: input.z >= 1.5,
+            // The Item2 id must be unique per SEGMENT (a split event draws twice), but activation/badges
+            // stay keyed by the shared event id → selecting highlights every segment at once.
+            let segKey = "\(id)#\(p.seg.event.month * 100 + p.seg.event.day)"
+            return Item2(id: segKey + keyTag, rect: p.rect, fade: p.fade, z: z, view: AnyView(
+                EventSticker(ev: p.seg.event, height: p.rect.height, showText: input.z >= 1.5,
+                             clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
+                             timeText: fmtHourRange(p.seg.fullStart, p.seg.fullEnd),
                              plain: perfMode, activation: a, badges: eventBadges[id] ?? [],
                              editing: editingId != nil && sourceId(of: id) == editingId, theme: theme)))
         }
     }
 
     // Draw order: later-starting events in front; the selected box always frontmost.
-    private func orderTimed(_ a: (ev: TimedEvent, rect: CGRect, fade: Double), _ b: (ev: TimedEvent, rect: CGRect, fade: Double)) -> Bool {
-        let sa = a.ev.id == selected, sb = b.ev.id == selected
+    private func orderTimed(_ a: (seg: TimedSegment, rect: CGRect, fade: Double), _ b: (seg: TimedSegment, rect: CGRect, fade: Double)) -> Bool {
+        let sa = a.seg.event.id == selected, sb = b.seg.event.id == selected
         if sa != sb { return sb }                                  // the selected box sorts last (front)
-        if a.ev.startHour != b.ev.startHour { return a.ev.startHour < b.ev.startHour }
-        return a.ev.endHour > b.ev.endHour
+        if a.seg.event.startHour != b.seg.event.startHour { return a.seg.event.startHour < b.seg.event.startHour }
+        return a.seg.event.endHour > b.seg.event.endHour
     }
 }
 
@@ -354,6 +364,9 @@ private struct EventSticker: View {
     let ev: TimedEvent
     let height: CGFloat
     var showText: Bool = true    // month view hides title/time (tiny slivers) — glass + bar only
+    var clipTop: Bool = false    // cross-midnight: continues from the previous day → square top, bar to top edge
+    var clipBottom: Bool = false // cross-midnight: continues into the next day → square bottom, bar to bottom edge
+    var timeText: String? = nil  // the WHOLE event's range (every segment shows the true span, e.g. "23:00 – 06:00")
     var plain: Bool = false      // skip glass (animating, or tiny month sliver)
     let activation: EventActivation
     var badges: EventBadges = [] // provenance/kind marker glyphs (same as bands)
@@ -378,6 +391,12 @@ private struct EventSticker: View {
         // Normally inset top/bottom (accentInset) like a band; but on a short event the inset would
         // eat the bar, so shrink it toward 0 — a very short event's bar spans the full height.
         let barVInset = min(BandStyle.accentInset, max(0, (height - BandStyle.accentInset * 2) / 2))
+        // Cross-midnight: square the corners on the edge the event continues over, and run the accent bar
+        // flush to that edge (no inset) — the same "…continued" cue a band uses across a month boundary.
+        let boxShape = UnevenRoundedRectangle(topLeadingRadius: clipTop ? 0 : r, bottomLeadingRadius: clipBottom ? 0 : r,
+                                              bottomTrailingRadius: clipBottom ? 0 : r, topTrailingRadius: clipTop ? 0 : r)
+        let barTopInset = clipTop ? 0 : barVInset
+        let barBotInset = clipBottom ? 0 : barVInset
         VStack(alignment: .leading, spacing: showText ? -1 : 0) {
             // Month view (no title): markers sit in-flow at the top, same as bands. Week/day view
             // shows the title starting at the top — its markers are a top-right overlay (below), so
@@ -394,7 +413,7 @@ private struct EventSticker: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .opacity(editing ? 0 : 1)   // hidden while the inline editor is open (keeps layout stable)
                 if !(lay.short || lay.tiny) {
-                    Text(fmtHourRange(ev.startHour, ev.endHour))
+                    Text(timeText ?? fmtHourRange(ev.startHour, ev.endHour))
                         .font(.system(size: 8.5))
                         .foregroundStyle(theme.text.opacity(0.72))
                         .padding(.top, 2)   // a touch more breathing room below the title
@@ -406,7 +425,7 @@ private struct EventSticker: View {
         .padding(.trailing, BandStyle.titleTrailing)
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .eventSurface(glass, plainFill: color.opacity(tint), in: RoundedRectangle(cornerRadius: r), flat: plain && !active, keepFillBase: plain)
+        .eventSurface(glass, plainFill: color.opacity(tint), in: boxShape, flat: plain && !active, keepFillBase: plain)
         .overlay(alignment: .topTrailing) {   // week/day view: markers pinned to the top-right corner
             if showText, !badges.isEmpty {
                 badgeRow(badges, border).padding(.top, 3).padding(.trailing, 4)
@@ -414,12 +433,14 @@ private struct EventSticker: View {
         }
         .overlay(alignment: .leading) {   // left accent bar — DOTTED + the ONLY colorful part when hidden
             Group {
+                // A clipped end runs the bar flush to the border (square), so it reads as continuing over.
                 if hidden { DottedBar(width: barWidth, color: barColor) }
+                else if clipTop || clipBottom { Rectangle().fill(barColor).frame(width: barWidth) }
                 else { Capsule().fill(barColor).frame(width: barWidth) }
             }
-            .padding(.vertical, barVInset).padding(.leading, BandStyle.accentInset)
+            .padding(.top, barTopInset).padding(.bottom, barBotInset).padding(.leading, BandStyle.accentInset)
         }
-        .overlay { activationBorder(activation, color: border, in: RoundedRectangle(cornerRadius: r)) }
+        .overlay { activationBorder(activation, color: border, in: boxShape) }
         .animation(.easeInOut(duration: BandStyle.animation), value: activation)
     }
 }

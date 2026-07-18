@@ -5,8 +5,8 @@
 //                 macOS Apple Calendar connection (EventKit) with a per-calendar checklist; and a
 //                 Google Calendar row that's a visual mockup for now.
 //  • Appearance — Light / Dark / Automatic, applied live and persisted (see AppSettings.swift).
-//  • API Keys   — a visual mockup of the web app's five LLM services. Nothing entered here is
-//                 persisted; the native app has no assistant wired up yet.
+//  • API Keys   — the assistant's credentials (JHU Gateway for chat, Tavily for web search),
+//                 stored in the macOS Keychain (see Keychain.swift); local to this device.
 //
 // Native controls throughout, tinted with the app's red accent (0xff3b6b, as in EventDrawer).
 

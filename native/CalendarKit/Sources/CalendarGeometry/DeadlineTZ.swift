@@ -65,9 +65,7 @@ public enum DeadlineTZ {
         Double(offset(altTz, at: date) - offset(mainTz, at: date)) / 3600
     }
 
-    private static let utcCal: Calendar = {
-        var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c
-    }()
+    private static let utcCal = utcCalendar   // canonical UTC calendar (Dates.swift)
     /// The floating wall-clock (y, m0, d, fractional hour) as a UTC-encoded instant — matching the
     /// web's parseWallClock: the string is treated as if it were UTC so only y/m/d/h/m are meaningful.
     private static func utcInstant(_ y: Int, _ m0: Int, _ d: Int, _ hour: CGFloat) -> Date {

@@ -23,6 +23,17 @@ public let TRACKS: [Track] = [
     Track(id: 3, name: "Travel", color: "green"),
 ]
 
+/// The one UTC gregorian calendar — DST-free day math everywhere (recurrence expansion, imports,
+/// tool date arithmetic). Immutable and Sendable; replaces scattered `TimeZone("UTC")!` builds.
+public let utcCalendar: Calendar = {
+    var c = Calendar(identifier: .gregorian)
+    c.timeZone = utcTimeZone
+    return c
+}()
+
+/// UTC — the identifier is guaranteed, so this is the single allowed force-unwrap for it.
+public let utcTimeZone = TimeZone(identifier: "UTC")!
+
 /// A Date's local wall-clock day as "yyyy-MM-dd" — the app's canonical day-key format
 /// (daily notes, backup filenames, prompt dates). One formatter, not ad-hoc copies.
 public func isoDayString(_ date: Date = Date()) -> String {

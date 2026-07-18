@@ -149,6 +149,14 @@ struct SearchDropdown: View {
                     .font(.system(size: 11))
                     .foregroundStyle(theme.textMuted)
                     .lineLimit(1)
+                // Why it matched, when it's a tag or a hit inside the notes (title/date hits are self-evident).
+                if !hit.context.isEmpty {
+                    Text(hit.context)
+                        .font(.system(size: 11))
+                        .italic()
+                        .foregroundStyle(theme.textMuted.opacity(0.85))
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
         }

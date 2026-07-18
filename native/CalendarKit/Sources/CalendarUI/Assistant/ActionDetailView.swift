@@ -6,9 +6,6 @@
 import SwiftUI
 import CalendarGeometry   // MONTH_NAMES
 
-/// The expanded action card's body: the tool's request/result rendered as REAL elements —
-/// label/value rows, color swatches, tag pills, result links — dispatched on the payload's shape.
-/// Ported from the web app's ActionDetail (AssistantPanel.tsx); raw JSON only as a last resort.
 struct ActionDetailView: View {
     let paramsJSON: String
     let resultJSON: String

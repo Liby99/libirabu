@@ -151,7 +151,12 @@ enum SceneRenderer {
     }
 
     // DEBUG: visualize the year-scroll boundaries + flip threshold. Toggle with debugScroll.
+    // Compile-time false in release, so the guarded draw path dead-strips entirely.
+    #if DEBUG
     static var debugScroll = false
+    #else
+    static let debugScroll = false
+    #endif
     private static func drawScrollDebug(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         guard debugScroll, input.z < 0.5 else { return }
         let vp = input.vp

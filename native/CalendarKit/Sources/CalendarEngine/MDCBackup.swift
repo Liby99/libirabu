@@ -186,7 +186,7 @@ public enum MDCBackup {
                       x.year ?? y, x.month ?? m0 + 1, x.day ?? d, x.hour ?? 0, x.minute ?? 0, x.second ?? 0)
     }
 
-    private static let utc = TimeZone(identifier: "UTC")!
+    private static let utc = utcTimeZone   // canonical (Dates.swift)
     /// Parse a value that is either a `{"__bk":"date","v":ISO}` dict or a raw ISO string → Date.
     private static func dateFrom(_ v: Any?) -> Date? {
         if let dict = v as? [String: Any], let s = dict["v"] as? String { return parseISO(s) }

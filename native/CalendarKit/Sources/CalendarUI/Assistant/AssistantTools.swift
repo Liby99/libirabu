@@ -741,8 +741,7 @@ private func repeatConfig(from v: JSONValue?) -> Repeat? {
 
 /// (year, month0, day) + n days, in a DST-free UTC calendar.
 private func addDays(_ ymd: (Int, Int, Int), _ n: Int) -> (Int, Int, Int) {
-    var cal = Calendar(identifier: .gregorian)
-    cal.timeZone = TimeZone(identifier: "UTC")!
+    let cal = utcCalendar
     var c = DateComponents(); c.year = ymd.0; c.month = ymd.1 + 1; c.day = ymd.2
     guard let d0 = cal.date(from: c), let d1 = cal.date(byAdding: .day, value: n, to: d0)
     else { return ymd }

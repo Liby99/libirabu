@@ -72,7 +72,7 @@ public enum ICSImport {
     private static func hourOf(_ w: WC) -> CGFloat { CGFloat(w.hour) + CGFloat(w.minute) / 60 }
     private static func addDays(_ w: WC, _ n: Int) -> WC {
         var c = DateComponents(); c.year = w.year; c.month = w.month; c.day = w.day
-        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+        let cal = utcCalendar
         guard let base = cal.date(from: c), let moved = cal.date(byAdding: .day, value: n, to: base) else { return w }
         let d = cal.dateComponents([.year, .month, .day], from: moved)
         return WC(year: d.year ?? w.year, month: d.month ?? w.month, day: d.day ?? w.day, hour: w.hour, minute: w.minute, allDay: w.allDay)
@@ -92,19 +92,19 @@ public enum ICSImport {
             let upper = line.uppercased()
             if upper == "BEGIN:VEVENT" { cur = VEvent(); continue }
             if upper == "END:VEVENT" { if let c = cur { out.append(c) }; cur = nil; continue }
-            guard cur != nil else { continue }
-            guard let (name, params, value) = property(line) else { continue }
+            guard var event = cur, let (name, params, value) = property(line) else { continue }
             switch name {
-            case "SUMMARY":     cur!.summary = unescapeText(value)
-            case "LOCATION":    cur!.location = unescapeText(value).isEmpty ? nil : unescapeText(value)
-            case "DESCRIPTION": cur!.description = unescapeText(value).isEmpty ? nil : unescapeText(value)
-            case "URL":         cur!.url = value.isEmpty ? nil : value
-            case "ORGANIZER":   cur!.organizer = displayName(params: params, value: value)
-            case "ATTENDEE":    if let a = displayName(params: params, value: value) { cur!.attendees.append((a, params["PARTSTAT"])) }
-            case "DTSTART":     cur!.start = parseDT(value: value, params: params)
-            case "DTEND":       cur!.end = parseDT(value: value, params: params)
+            case "SUMMARY":     event.summary = unescapeText(value)
+            case "LOCATION":    event.location = unescapeText(value).isEmpty ? nil : unescapeText(value)
+            case "DESCRIPTION": event.description = unescapeText(value).isEmpty ? nil : unescapeText(value)
+            case "URL":         event.url = value.isEmpty ? nil : value
+            case "ORGANIZER":   event.organizer = displayName(params: params, value: value)
+            case "ATTENDEE":    if let a = displayName(params: params, value: value) { event.attendees.append((a, params["PARTSTAT"])) }
+            case "DTSTART":     event.start = parseDT(value: value, params: params)
+            case "DTEND":       event.end = parseDT(value: value, params: params)
             default: break
             }
+            cur = event
         }
         return out
     }
@@ -169,7 +169,7 @@ public enum ICSImport {
         }
         var src = DateComponents(); src.year = y; src.month = mo; src.day = d; src.hour = h; src.minute = mi
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = isUTC ? TimeZone(identifier: "UTC")! : (tzid.flatMap { TimeZone(identifier: $0) } ?? TimeZone(identifier: "UTC")!)
+        cal.timeZone = isUTC ? utcTimeZone : (tzid.flatMap { TimeZone(identifier: $0) } ?? utcTimeZone)
         guard let instant = cal.date(from: src) else {
             return WC(year: y, month: mo, day: d, hour: h, minute: mi, allDay: false)
         }

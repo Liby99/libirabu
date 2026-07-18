@@ -165,6 +165,52 @@ public func eventRect(_ ev: TimedEvent, _ year: Int, _ focus: Int, _ tl: Timelin
     )
 }
 
+// ── Cross-midnight segmentation ──────────────────────────────────────────────────
+/// One render slice of a timed event within a single day column. A same-day event yields one segment
+/// (both clip flags false). An event whose span crosses midnight — `endHour > 24`, whether a red-eye
+/// authored that way or a tz conversion that straddles the view's midnight — yields one segment per day
+/// it touches, each clipped on the edge where it continues over the daily border (square corner + the
+/// accent bar running to that edge), mirroring how a band reads as "continued" across a month boundary.
+public struct TimedSegment: Sendable, Equatable {
+    public let event: TimedEvent   // a copy clamped to THIS day's [startHour, endHour]; shares the id/title/color
+    public let clipTop: Bool       // continues up from the previous day → square TOP, bar to the top edge
+    public let clipBottom: Bool    // continues down into the next day → square BOTTOM, bar to the bottom edge
+    public let fullStart: CGFloat  // the whole event's start/end (for the time label — every slice shows the
+    public let fullEnd: CGFloat    // real span, e.g. "23:00 – 06:00", not just the clamped slice)
+    public init(event: TimedEvent, clipTop: Bool, clipBottom: Bool, fullStart: CGFloat, fullEnd: CGFloat) {
+        self.event = event; self.clipTop = clipTop; self.clipBottom = clipBottom
+        self.fullStart = fullStart; self.fullEnd = fullEnd
+    }
+}
+
+/// The calendar day after (year, 0-based month, day), rolling month/year.
+public func nextDay(_ y: Int, _ m: Int, _ d: Int) -> (Int, Int, Int) {
+    if d < daysInMonth(y, m) { return (y, m, d + 1) }
+    if m < 11 { return (y, m + 1, 1) }
+    return (y + 1, 0, 1)
+}
+
+/// Split a display-space timed event into per-day segments. `startHour ∈ [0,24)`, `endHour > startHour`
+/// (may exceed 24 for a span crossing one or more midnights). Dates roll over month/year correctly.
+public func timedSegments(_ e: TimedEvent) -> [TimedSegment] {
+    guard e.endHour > 24 else { return [TimedSegment(event: e, clipTop: false, clipBottom: false, fullStart: e.startHour, fullEnd: e.endHour)] }
+    var segs: [TimedSegment] = []
+    var (y, m, d) = (e.year, e.month, e.day)
+    var lo = e.startHour
+    var remainingEnd = e.endHour          // measured from THIS day's midnight; drops by 24 each day
+    var first = true
+    while true {
+        let hi = min(remainingEnd, 24)
+        let continues = remainingEnd > 24
+        var seg = e; seg.year = y; seg.month = m; seg.day = d; seg.startHour = lo; seg.endHour = hi
+        segs.append(TimedSegment(event: seg, clipTop: !first, clipBottom: continues, fullStart: e.startHour, fullEnd: e.endHour))
+        if !continues { break }
+        (y, m, d) = nextDay(y, m, d)
+        lo = 0; remainingEnd -= 24; first = false
+    }
+    return segs
+}
+
 /// Height-driven text scheme for an hourly event block (ported from eventTextLayout).
 public struct EventText: Sendable { public var tiny: Bool; public var short: Bool; public var titleLines: Int }
 public func eventTextLayout(_ h: CGFloat) -> EventText {

@@ -1,0 +1,1 @@
+Coming back to the demo gif for AI Assistant: the recording seems to be preemptively stopped. We should wait until the event is created and that the response from AI assistant is rendered, and last for 0.5 seconds. Right now it ends before the AI assistant responds.

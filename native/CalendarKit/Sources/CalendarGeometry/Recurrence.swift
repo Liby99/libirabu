@@ -81,11 +81,7 @@ public struct EventBadges: OptionSet, Sendable, Equatable {
 }
 
 // ── Date helpers (UTC, calendar-based add so no DST drift) ────────────────────────────
-private let utcCal: Calendar = {
-    var c = Calendar(identifier: .gregorian)
-    c.timeZone = TimeZone(identifier: "UTC")!
-    return c
-}()
+private let utcCal = utcCalendar   // canonical UTC calendar (Dates.swift)
 private func date(_ y: Int, _ m0: Int, _ d: Int) -> Date {
     utcCal.date(from: DateComponents(year: y, month: m0 + 1, day: d)) ?? Date(timeIntervalSince1970: 0)
 }

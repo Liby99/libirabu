@@ -24,6 +24,9 @@ public struct AssistantWindowView: View {
     /// highlight of the open conversation). Tune this to taste.
     private let sidebarRowMargin: CGFloat = -6
 
+    /// ⌘B focus handoff waits for the sidebar reveal animation to start before focusing the list.
+    private static let sidebarFocusDelay: TimeInterval = 0.08
+
     public init(state: AssistantState, callout: AssistantState? = nil) {
         self.state = state
         self.callout = callout
@@ -55,8 +58,9 @@ public struct AssistantWindowView: View {
         if opening {
             cursor = state.conversations.firstIndex { $0.id == state.currentId }
                 ?? (state.conversations.isEmpty ? nil : 0)
-            // Focus once the column has begun revealing (focusing an off-screen list is a no-op).
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { sidebarFocused = true }
+            // Focus once the column has begun revealing (focusing an off-screen list is a no-op;
+            // there is no "column did appear" callback, so this rides the reveal animation's start).
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.sidebarFocusDelay) { sidebarFocused = true }
         } else {
             sidebarFocused = false
             state.requestInputFocus()   // closing hands the keyboard back to the composer

@@ -2895,8 +2895,11 @@ public final class CalendarEngine {
             if userHidden { b.insert(.hidden) }   // revealed hidden event → dotted accent bar
             take(ev, b)
         }
+        // Bucket by day for O(1) hit-testing + per-day layout packing. A cross-midnight span (endHour > 24)
+        // is split into per-day CLAMPED segment copies so its tail is hit-testable + packs on the next day,
+        // matching how the overlay renders it. `out` itself stays whole (search / scroll want the full span).
         var byDay: [Int: [TimedEvent]] = [:]
-        for e in out { byDay[e.month * 100 + e.day, default: []].append(e) }
+        for e in out { for s in timedSegments(e) { byDay[s.event.month * 100 + s.event.day, default: []].append(s.event) } }
         eventCache = (year, editGen, out, badgeMap, byDay)
         return (out, badgeMap, byDay)
     }
@@ -3158,7 +3161,7 @@ public final class CalendarEngine {
         return nil
     }
     private func dayBefore(_ p: YMD) -> YMD {
-        var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!
+        let c = utcCalendar
         let d = c.date(from: DateComponents(year: p.year, month: p.month + 1, day: p.day)) ?? Date()
         let prev = c.date(byAdding: .day, value: -1, to: d) ?? d
         let x = c.dateComponents([.year, .month, .day], from: prev)
@@ -3166,7 +3169,7 @@ public final class CalendarEngine {
     }
     /// `p` shifted by `n` days (0-based month, crossing month/year boundaries). UTC to avoid DST drift.
     static func addDaysYMD(_ p: YMD, _ n: Int) -> YMD {
-        var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!
+        let c = utcCalendar
         let d = c.date(from: DateComponents(year: p.year, month: p.month + 1, day: p.day)) ?? Date()
         let nd = c.date(byAdding: .day, value: n, to: d) ?? d
         let x = c.dateComponents([.year, .month, .day], from: nd)
@@ -4213,34 +4216,66 @@ public final class CalendarEngine {
         public let day: Int
         public let hour: CGFloat?  // start hour for timed/deadline; nil for all-day bands
         public let kind: Kind
+        public let context: String // why it matched, when a tag or notes hit (a "#tag" or notes snippet); "" for title/date
     }
 
-    /// Title-substring search over every selectable year's fully-merged event set (seed + recurrence
-    /// occurrences + Apple imports; hidden imports are already excluded from the display caches). Results
-    /// are de-duplicated to one row per underlying event — the occurrence nearest today — then ranked
-    /// prefix-matches-first, then by nearness to today. Capped at `limit`.
+    /// Fuzzy, multi-field search over every selectable year's merged event set (seed + recurrence
+    /// occurrences + Apple imports; hidden imports already excluded). The query splits into space-separated
+    /// TERMS — every term must match (AND). A term matches an event if EITHER its DATE reading
+    /// (`2026-09-01`, `8/1`, `jul`/`july`, `wed`/`weds`/`wednesday`, a 4-digit year) OR a fuzzy TEXT match
+    /// (title & tags: subsequence; notes: substring) hits — the stronger score wins. Recurrences collapse to
+    /// one row; results rank by text relevance blended with nearness to today (a match years away sinks
+    /// beneath a nearby one). Capped at `limit`.
     public func searchEvents(_ query: String, limit: Int = 8) -> [SearchHit] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return [] }
+        let terms = query.split(whereSeparator: { $0.isWhitespace }).map { Self.searchFold(String($0)) }.filter { !$0.isEmpty }
+        guard !terms.isEmpty else { return [] }
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
-        func dayDist(_ y: Int, _ m: Int, _ d: Int) -> Int {
+        func signedDist(_ y: Int, _ m: Int, _ d: Int) -> Int {
             guard let date = cal.date(from: DateComponents(year: y, month: m + 1, day: d)) else { return .max }
-            return abs(cal.dateComponents([.day], from: today, to: date).day ?? .max)
+            return cal.dateComponents([.day], from: today, to: cal.startOfDay(for: date)).day ?? .max
         }
-        struct Cand { let hit: SearchHit; let prefix: Bool; let dist: Int }
+        struct Cand { let hit: SearchHit; let rank: Double; let dist: Int }
         var byBase: [String: Cand] = [:]   // sourceId → best occurrence (collapses recurrences)
+
         func consider(_ id: String, _ title: String, _ color: String, _ y: Int, _ m: Int, _ d: Int, _ hour: CGFloat?, _ kind: SearchHit.Kind) {
-            let lt = title.lowercased()
-            guard let r = lt.range(of: q) else { return }
-            let isPrefix = r.lowerBound == lt.startIndex
-            let dist = dayDist(y, m, d)
-            let cand = Cand(hit: SearchHit(id: id, title: title, color: color, year: y, month: m, day: d, hour: hour, kind: kind),
-                            prefix: isPrefix, dist: dist)
+            let foldedTitle = Self.searchFold(title)
+            let origTags = richTags(id)
+            let foldedTags = origTags.map { Self.searchFold($0) }
+            let origNotes = notes(id)
+            let wd = cal.date(from: DateComponents(year: y, month: m + 1, day: d)).map { cal.component(.weekday, from: $0) }
+
+            var total = 0.0
+            var ctxNote: String?, ctxTag: String?
+            for term in terms {
+                let dateS = Self.dateMatchScore(term, year: y, month0: m, day: d, weekday: wd)
+                let titleS = Self.fuzzyScore(term, foldedTitle)
+                var tagS = 0.0, tagHit: String?
+                for (i, ft) in foldedTags.enumerated() {
+                    let s = Self.fuzzyScore(term, ft)
+                    if s > tagS { tagS = s; tagHit = origTags[i] }
+                }
+                let noteHit = origNotes.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+                let noteS = noteHit ? 0.55 : 0.0
+
+                let best = max(dateS, max(titleS, max(tagS * 0.9, noteS)))
+                if best <= 0 { return }        // this term matched nothing → event excluded
+                total += best
+                if noteHit, ctxNote == nil { ctxNote = Self.searchSnippet(origNotes, term) }
+                if tagS > 0, ctxTag == nil, let th = tagHit { ctxTag = "#" + th }
+            }
+
+            let signed = signedDist(y, m, d)
+            let dist = abs(signed)
+            let rank = 0.7 * (total / Double(terms.count)) + 0.3 * Self.recencyScore(signed)
+            let hit = SearchHit(id: id, title: title, color: color, year: y, month: m, day: d, hour: hour, kind: kind,
+                                context: ctxNote ?? ctxTag ?? "")
             let base = sourceId(of: id)
             if let ex = byBase[base] {
-                if dist < ex.dist || (dist == ex.dist && isPrefix && !ex.prefix) { byBase[base] = cand }
-            } else { byBase[base] = cand }
+                if rank > ex.rank || (rank == ex.rank && dist < ex.dist) { byBase[base] = Cand(hit: hit, rank: rank, dist: dist) }
+            } else {
+                byBase[base] = Cand(hit: hit, rank: rank, dist: dist)
+            }
         }
         for y in yearOptions {
             for e in displayEvents(for: y)    { consider(e.id, e.title, e.color, y, e.month, e.day, e.startHour, .timed) }
@@ -4248,13 +4283,98 @@ public final class CalendarEngine {
             for d in displayDeadlines(for: y) { consider(d.id, d.title, d.color, y, d.month, d.day, d.hour, .deadline) }
         }
         return byBase.values
-            .sorted { a, b in
-                if a.prefix != b.prefix { return a.prefix }          // prefix matches first
-                if a.dist != b.dist { return a.dist < b.dist }        // then nearest to today
-                return a.hit.title.count < b.hit.title.count          // then the shorter (tighter) title
-            }
+            .sorted { $0.rank > $1.rank || ($0.rank == $1.rank && $0.dist < $1.dist) }
             .prefix(limit)
             .map(\.hit)
+    }
+
+    // ── Search helpers ────────────────────────────────────────────────────────────
+    /// Case- and diacritic-insensitive normalization for all matching.
+    private static func searchFold(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    /// fzf-lite subsequence score in (0,1]; 0 unless `term` is a subsequence of `target`. Consecutive
+    /// matches and word-boundary starts score higher, so a contiguous substring beats a scattered match and
+    /// a prefix beats a mid-word hit. Inputs must already be folded.
+    static func fuzzyScore(_ term: String, _ target: String) -> Double {
+        if term.isEmpty || target.isEmpty { return 0 }
+        let t = Array(term), s = Array(target)
+        if t.count > s.count { return 0 }
+        var ti = 0, prev = -2, first = -1, raw = 0.0
+        for si in 0..<s.count {
+            guard ti < t.count, s[si] == t[ti] else { continue }
+            if first < 0 { first = si }
+            var pt = 1.0
+            if si == prev + 1 { pt += 1.2 }                                // consecutive run
+            if si == 0 || Self.isWordBoundary(s[si - 1]) { pt += 1.5 }     // start of a word
+            raw += pt
+            prev = si; ti += 1
+        }
+        guard ti == t.count else { return 0 }                             // all term chars consumed?
+        var score = raw / (Double(t.count) * 3.7)                         // 3.7 ≈ max per-char credit
+        if first == 0 { score += 0.12 }                                   // whole-string prefix nudge
+        return min(1.0, score)
+    }
+    private static func isWordBoundary(_ c: Character) -> Bool {
+        " -_/,.:\n#".contains(c)
+    }
+
+    /// A term's DATE reading scored against an event's date (`month0` 0-based). 0 if the term isn't a date
+    /// concept, or is one that doesn't match this date.
+    static func dateMatchScore(_ term: String, year y: Int, month0 m: Int, day d: Int, weekday wd: Int?) -> Double {
+        let mm = m + 1
+        // ISO yyyy-mm-dd
+        let iso = term.split(separator: "-", omittingEmptySubsequences: false)
+        if iso.count == 3, iso[0].count == 4, let py = Int(iso[0]), let pm = Int(iso[1]), let pd = Int(iso[2]) {
+            return (py == y && pm == mm && pd == d) ? 0.95 : 0
+        }
+        // m/d or m-d (1–2 digits each)
+        for sep: Character in ["/", "-"] {
+            let p = term.split(separator: sep, omittingEmptySubsequences: false)
+            if p.count == 2, p[0].count <= 2, p[1].count <= 2, let pm = Int(p[0]), let pd = Int(p[1]),
+               (1...12).contains(pm), (1...31).contains(pd) {
+                return (pm == mm && pd == d) ? 0.9 : 0
+            }
+        }
+        // 4-digit year
+        if term.count == 4, let yr = Int(term), (1900...2200).contains(yr) { return yr == y ? 0.7 : 0 }
+        // month name / ≥3-char prefix
+        if let mo = monthIndex(term) { return mo == mm ? 0.8 : 0 }
+        // weekday name / abbreviation
+        if let w = weekdayIndex(term), let wd { return w == wd ? 0.8 : 0 }
+        return 0
+    }
+    private static func monthIndex(_ term: String) -> Int? {   // 1…12
+        guard term.count >= 3 else { return nil }
+        let months = ["january","february","march","april","may","june","july","august","september","october","november","december"]
+        for (i, name) in months.enumerated() where name.hasPrefix(term) { return i + 1 }
+        return nil
+    }
+    private static func weekdayIndex(_ term: String) -> Int? {  // Calendar weekday: 1=Sun … 7=Sat
+        if let w = ["tues": 3, "thur": 5, "thurs": 5, "weds": 4][term] { return w }   // non-prefix abbrevs
+        guard term.count >= 3 else { return nil }
+        let days = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"]
+        for (i, name) in days.enumerated() where name.hasPrefix(term) { return i + 1 }
+        return nil
+    }
+    /// Today-relevance in (0,1]: 1 at today, decaying with distance; past dates are mildly penalized so
+    /// upcoming/recent events float up and years-old ones sink.
+    private static func recencyScore(_ signedDays: Int) -> Double {
+        if signedDays == .max { return 0 }
+        let r = 1.0 / (1.0 + Double(abs(signedDays)) / 45.0)
+        return signedDays < 0 ? r * 0.7 : r
+    }
+    /// A short one-line snippet of `notes` around the first occurrence of `term`, with ellipses.
+    private static func searchSnippet(_ notes: String, _ term: String) -> String {
+        guard let r = notes.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) else { return "" }
+        let pad = 24
+        let start = notes.index(r.lowerBound, offsetBy: -pad, limitedBy: notes.startIndex) ?? notes.startIndex
+        let end = notes.index(r.upperBound, offsetBy: pad, limitedBy: notes.endIndex) ?? notes.endIndex
+        var s = String(notes[start..<end]).replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+        if start != notes.startIndex { s = "…" + s }
+        if end != notes.endIndex { s += "…" }
+        return s
     }
 
     /// Locate a display item by its box id across all years → the concrete date to fly to.
