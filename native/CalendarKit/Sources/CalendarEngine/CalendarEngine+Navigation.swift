@@ -1,0 +1,357 @@
+// CalendarEngine+Navigation — zoom + travel choreography: z tweens, jumpToDay's
+// fly-out/travel/fly-in, setView/selectYear, wheel routing, the year-view scroll mirror,
+// and the year boundary flip.
+
+import Foundation
+import CoreGraphics
+import CalendarGeometry
+
+extension CalendarEngine {
+    /// Scroll offset that vertically centers month `m`'s band; caller clamps to range.
+    func centerScroll(for m: Int) -> CGFloat {
+        yearFrame(m, viewport, 0).bandY + 2 * Layout.trackH - viewport.h / 2
+    }
+
+    // ── Year selection (breadcrumb picker) ────────────────────────────────────────
+    /// Selectable years: 2024 … systemYear+3, matching the web (CalendarCanvas.tsx).
+    public var yearOptions: [Int] { Array(2024...(systemYear + 3)) }
+
+    /// Zoom back out to the yearly view (breadcrumb "Year" crumb from a deeper level).
+    public func zoomToYear() { tweenZ(to: 0) }
+
+    /// Breadcrumb "Month" crumb: jump to the focused month's view. `focus` is already the shown month;
+    /// tweenZ sets chrome.level=1 immediately, so the MonthPager re-syncs its page to `focus`.
+    public func zoomToMonth() {
+        tweenZ(to: 1)
+        chrome.monthResync &+= 1   // ensure the pager lands on `focus` even if the level didn't change
+    }
+
+    /// Breadcrumb "Week" crumb: jump to the focused week's view. Snap the (possibly fractional) window
+    /// to the whole week the crumb names; the WeekPager re-syncs to `week` on the level change.
+    public func zoomToWeek() {
+        week = week.rounded()
+        tweenZ(to: 2)
+        chrome.weekResync &+= 1    // ensure the strip lands on `week` even if the level didn't change
+    }
+
+    /// "Today" button. Picks the lightest path that lands on today's day view, by where we are now:
+    ///   • day view   — same month: scroll the strip to today; else fly out to the year and back in.
+    ///   • week view  — today in the week: zoom straight in; same month: scroll to its week then zoom;
+    ///                  else fly via the year.
+    ///   • month view — today's month: zoom in (week→day); else fly via the year.
+    ///   • year view  — zoom straight in.
+    /// Cross-year always routes through the year with a SINGLE flip to today's year, then zooms in.
+    public func goToToday() {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: now)
+        jumpToDay(c.year ?? year, (c.month ?? 1) - 1, c.day ?? 1)
+    }
+
+    /// The general "fly to a specific day" animation (goToToday is `jumpToDay(today)`). `onLand` fires
+    /// once it finally settles at that day's view — used to open the NOTE tab for a daily-note todo.
+    /// Target month `tm` is 0-based; `td` is 1-based day-of-month.
+    public func jumpToDay(_ ty: Int, _ tm: Int, _ td: Int, onLand: (() -> Void)? = nil) {
+        wake()
+        let tWeek = CGFloat((firstDOW(ty, tm) + td - 1) / 7)
+        cancelTween(); anim.flipAnim = nil
+        anim.zTweenDone = nil; anim.weekTweenDone = nil; anim.flipDone = nil; anim.scrollTweenDone = nil
+        anim.dayLandDone = onLand
+
+        // At the year layout: set focus/week/day, GLIDE the vertical scroll to centre the target month
+        // (avoids the old instant snap), then zoom in. Used by every path that routes through the year.
+        let flyFromYear: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.placeDayAtYear(ty, tm, td, tWeek)
+            let target = clamp(self.centerScroll(for: tm), 0, yearMaxScroll(self.viewport))
+            if abs(target - self.scrollY) < 1 {
+                self.tweenZ(to: 3, dur: Motion.flyInFarDur)                    // already centred → zoom straight in
+            } else {
+                self.anim.scrollTween = Tween(from: self.scrollY, to: target, start: Date(), duration: Motion.yearGlideDur, ease: easeInOut)
+                self.anim.scrollTweenDone = { [weak self] in self?.tweenZ(to: 3, dur: Motion.flyInFarDur) }
+            }
+        }
+        let flyOutThenIn: () -> Void = { [weak self] in   // zoom OUT to the year, then fly in
+            guard let self else { return }
+            if self.level(self.z) == 0 { flyFromYear() }
+            else { self.anim.zTweenDone = flyFromYear; self.tweenZ(to: 0, dur: Motion.flyOutDur) }
+        }
+
+        // ── Cross-year: out to the year, ONE flip to the target year (skips intervening years), then in. ──
+        if ty != year {
+            let dir = ty > year ? 1 : -1
+            let startFlip: () -> Void = { [weak self] in
+                guard let self else { return }
+                self.anim.flipDone = flyFromYear
+                self.anim.flipAnim = FlipAnim(dir: dir, fromYear: self.year, toYear: ty, startScroll: self.scrollY, start: Date())
+            }
+            if level(z) == 0 { startFlip() }
+            else { anim.zTweenDone = startFlip; tweenZ(to: 0, dur: Motion.flyOutDur) }
+            return
+        }
+
+        // ── Same year. ──
+        let sameMonth = focus == tm
+        switch level(z) {
+        case 3:   // day view
+            if sameMonth {                       // glide the day strip to the target (no zoom out)
+                if daily.dom == td { fireDayLand(); break }
+                let dist = abs(td - daily.dom)
+                anim.dayTween = Tween(from: CGFloat(daily.dom), to: CGFloat(td), start: Date(),
+                                 duration: min(Motion.dayGlideMax, Motion.dayGlideBase + Motion.dayGlidePerDay * Double(dist)), ease: easeInOut)
+            } else { flyOutThenIn() }
+        case 2:   // week view
+            if weekContains(tm, td) {            // target is on screen → zoom straight into it
+                daily.dom = td; pushChrome(); chrome.dailyResync &+= 1
+                tweenZ(to: 3, dur: Motion.flyInNearDur)
+            } else if sameMonth {                // scroll to its week, then zoom in
+                daily.dom = td
+                anim.weekTween = Tween(from: week, to: tWeek, start: Date(), duration: Motion.weekGlideDur, ease: easeInOut)
+                anim.weekTweenDone = { [weak self] in self?.tweenZ(to: 3, dur: Motion.flyInNearDur) }
+            } else { flyOutThenIn() }
+        case 1:   // month view
+            if sameMonth {                       // zoom in through the week into the day
+                week = tWeek; daily.dom = td
+                pushChrome(); chrome.weekResync &+= 1; chrome.dailyResync &+= 1
+                tweenZ(to: 3, dur: Motion.flyInMidDur)
+            } else { flyOutThenIn() }
+        default:  // year view → straight in
+            flyFromYear()
+        }
+    }
+
+    /// Set focus/week/day + year to the target at the year layout. The vertical scroll is glided by the
+    /// caller (flyFromYear) rather than snapped, so entering the year view doesn't jump.
+    private func placeDayAtYear(_ ty: Int, _ tm: Int, _ td: Int, _ tWeek: CGFloat) {
+        year = ty; focus = tm; week = tWeek; daily.dom = td
+        daily.anim = nil; anim.monthAnim = nil; anim.weekTween = nil; anim.weekFlip = nil
+        pushChrome()
+        chrome.monthResync &+= 1; chrome.weekResync &+= 1; chrome.dailyResync &+= 1
+    }
+
+    /// Programmatic view navigation for the assistant's `set_view` tool. Mirrors the web set_view:
+    /// optionally switch year, focus a month (0-based), and/or zoom to a named level. Unspecified
+    /// arguments are left unchanged. UI-only — moves the view, never mutates data.
+    public func setView(year targetYear: Int? = nil, zoom: String? = nil, focusedMonth: Int? = nil,
+                        day: Int? = nil) {
+        wake()
+        // A concrete day → fly straight there (jumpToDay handles cross-year travel, focus, and
+        // landing in the day view). The day IS the destination; other args just refine it.
+        if let d = day {
+            let ty = targetYear ?? year
+            let m = max(0, min(11, focusedMonth ?? focus))
+            jumpToDay(ty, m, max(1, min(daysInMonth(ty, m), d)))
+            return
+        }
+        if let ty = targetYear, ty != year { selectYear(ty) }
+        if let m = focusedMonth, (0...11).contains(m) {
+            focus = m
+            chrome.monthResync &+= 1   // land the pager on the newly-focused month
+        }
+        switch zoom?.lowercased() {
+        case "year":  zoomToYear()
+        case "month": zoomToMonth()
+        case "week":  zoomToWeek()
+        case "day":   tweenZ(to: 3)
+        default:      break
+        }
+    }
+
+    /// Jump to another calendar year. Resets vertical scroll to the top, like the web's selectYear.
+    public func selectYear(_ y: Int) {
+        guard y != year, !isFlipping else { return }
+        wake()
+        // Don't swap instantly: fade the whole year out, swap the data at the midpoint, fade
+        // the new year in (a pure cross-fade, no scroll motion — see advanceFlip's fadeOnly path).
+        anim.flipAnim = FlipAnim(dir: 0, fromYear: year, toYear: y, startScroll: scrollY, start: Date(), fadeOnly: true)
+    }
+
+    // ── Levels + anim.tween helpers ────────────────────────────────────────────────────
+    func level(_ z: CGFloat) -> Int { z < 0.5 ? 0 : (z < 1.5 ? 1 : (z < 2.5 ? 2 : 3)) }
+
+    func pushChrome(level lvl: Int? = nil) {
+        // Assign only on change: @Observable fires on every SET (not just changes), so writing the
+        // same value still invalidates readers. During a week scroll `week` changes every frame but
+        // year/focus/level don't — deduping keeps the WeekPager (which reads year/focus) from
+        // re-rendering per frame and re-applying `.scrollPosition`, which would jump the scroll.
+        let newLevel = lvl ?? level(z)
+        if chrome.level != newLevel { chrome.level = newLevel }
+        if chrome.year != year { chrome.year = year }
+        if chrome.focus != focus { chrome.focus = focus }
+        if chrome.week != Double(week) { chrome.week = Double(week) }
+        if chrome.dailyDom != daily.dom { chrome.dailyDom = daily.dom }
+        // Breadcrumb "most visible" month/day: once a month page (or day page) is more than halfway in,
+        // the crumb shows the incoming one — so it updates mid-animation, not on landing. (A year-edge
+        // flip swaps `focus`/`daily.dom` at its own midpoint, so this tracks those too.)
+        let df = anim.monthAnim.map { $0.p >= 0.5 ? min(11, max(0, focus + $0.dir)) : focus } ?? focus
+        if chrome.displayFocus != df { chrome.displayFocus = df }
+        let dd = daily.anim.map { $0.p >= 0.5 ? min(daysInMonth(year, focus), max(1, daily.dom + $0.dir)) : daily.dom } ?? daily.dom
+        if chrome.displayDom != dd { chrome.displayDom = dd }
+    }
+
+    func cancelTween() {
+        if let t = anim.tween { z = t.value(at: Date()); anim.tween = nil }
+        if let st = anim.scrollTween { scrollY = st.value(at: Date()); anim.scrollTween = nil }
+        if let wt = anim.weekTween { week = wt.value(at: Date()); anim.weekTween = nil }
+        if anim.dayTween != nil { anim.dayTween = nil; daily.anim = nil }   // settle a day-glide on its current day
+        anim.zoomAnchorHour = nil; anim.zoomAnchorY = nil   // interrupted zoom → drop the anchor; next zoom recaptures
+        snapWork?.cancel()
+    }
+
+    // (zoom anchor helpers live near sceneInput)
+
+    func scheduleWeekSnap(_ maxWeek: CGFloat) {
+        snapWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let target = clamp((self.week * 7).rounded() / 7, 0, maxWeek)
+            self.anim.weekTween = Tween(from: self.week, to: target, start: Date(), duration: Motion.weekSnapDur, ease: easeInOut)
+        }
+        snapWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: work)
+    }
+
+    public func tweenZ(to target: CGFloat, dur: TimeInterval? = nil) {
+        wake()
+        if anim.zoomAnchorHour == nil { captureZoomAnchor() }   // fresh for a button/click zoom; kept for a pinch settle
+        anim.tween = Tween(from: z, to: clamp(target, 0, 3), start: Date(), duration: dur ?? Motion.zoomDur, ease: easeInOut)
+        pushChrome(level: level(clamp(target, 0, 3)))
+    }
+
+    // ── Gestures ──────────────────────────────────────────────────────────────────
+    public func onWheel(dx: CGFloat, dy: CGFloat) {
+        wake()
+        let b = level(z)
+        if b == 0 {                                // fallback; the NSScrollView normally drives year scroll
+            setYearScroll(clamp(scrollY - dy, 0, yearMaxScroll(viewport)))
+            return
+        }
+        cancelTween()
+        if abs(dy) >= abs(dx) {
+            // Fallback only; the invisible NSScrollView driver normally drives the timeline scroll.
+            tlScroll = min(max(0, tlScroll - dy), timelineInfo(snapshot()).maxScroll)
+        } else if b == 2 {
+            anim.weekTween = nil
+            let maxWeek = CGFloat(max(0, weeksInMonth(year, focus) - 1))
+            week = clamp(week - dx / (viewport.w - Layout.labelW), 0, maxWeek)  // swipe-left → later days
+            scheduleWeekSnap(maxWeek)
+        } else if b == 3 {
+            scroll.wheelAccumX += dx
+            if abs(scroll.wheelAccumX) > 55 {
+                daily.dom = min(daysInMonth(year, focus), max(1, daily.dom + (scroll.wheelAccumX < 0 ? 1 : -1)))  // swipe-left → next day
+                scroll.wheelAccumX = 0
+            }
+        }
+        pushChrome()
+    }
+
+    /// Content-offset x of the week pager that shows fractional week `w` (= `w · 7 · dayW`, and the
+    /// week grid spans `viewport.w − labelW`, so `dayW·7 = viewport.w − labelW`).
+    func weekOffset(_ w: CGFloat) -> CGFloat { w * max(0, viewport.w - Layout.labelW) }
+    public var timelineMaxScroll: CGFloat { timelineInfo(snapshot()).maxScroll }
+
+    /// Mirror the driver's live offset (may be < 0 or > maxScroll during the elastic bounce — that
+    /// overscroll is exactly what we render). Only meaningful in week/day view.
+    public func setTlScroll(_ y: CGFloat) { wake(); tlScroll = y }
+
+    // ── Year-view scroll: mirror of the native NSScrollView driver ───────────────────
+    public var isYearLevel: Bool { level(z) == 0 }
+
+    /// Fingers-down phase begins. Record whether we were already resting at an edge —
+    /// a flip is only allowed for a pull that STARTS from the edge (not a fast scroll
+    /// from the middle that happens to overshoot into it).
+    public func beginYearScrollGesture() {
+        wake()
+        scroll.liveScrolling = true
+        let maxY = yearMaxScroll(viewport)
+        scroll.startedAtTop = scrollY <= 2
+        scroll.startedAtBottom = scrollY >= maxY - 2
+    }
+
+    /// Mirror the scroll view's live offset (may be < 0 or > maxScroll during elastic
+    /// overscroll, which is exactly what gives the native bounce). Computes the pull
+    /// hint only while a finger-driven gesture is live.
+    public func setYearScroll(_ y: CGFloat) {
+        wake()
+        scrollY = y
+        let maxY = yearMaxScroll(viewport)
+        let over: CGFloat = y < 0 ? -y : (y > maxY ? y - maxY : 0)
+        let atTop = y < 0
+        scroll.lastOverscroll = (over, atTop)
+        if scroll.liveScrolling, over > 2 {
+            let eligible = (atTop && scroll.startedAtTop) || (!atTop && scroll.startedAtBottom)
+            let target = atTop ? year - 1 : year + 1
+            scroll.yearPull = eligible
+                ? YearPull(targetYear: target, atTop: atTop, over: over, armed: over >= Layout.yearFlipOver) : nil
+        } else {
+            scroll.yearPull = nil
+        }
+    }
+
+    /// Fingers lifted — if the pull passed the threshold, flip the year (landing on the
+    /// continuous edge: prev→bottom, next→top). Otherwise the scroll view bounces back
+    /// natively and we do nothing.
+    public func endYearScrollGesture() {
+        scroll.liveScrolling = false
+        scroll.yearPull = nil
+        guard yearFlipEnabled, !isFlipping else { return }
+        let (over, atTop) = scroll.lastOverscroll
+        guard over >= Layout.yearFlipOver else { return }
+        guard (atTop && scroll.startedAtTop) || (!atTop && scroll.startedAtBottom) else { return }  // must start from the edge
+        let dir = atTop ? -1 : 1
+        let target = year + dir            // unbounded — flip any number of years
+        anim.flipAnim = FlipAnim(dir: dir, fromYear: year, toYear: target, startScroll: scrollY, start: Date())
+    }
+
+    /// Two-phase year-flip transition, evaluated per frame. Phase 1: the outgoing year
+    /// keeps scrolling in the pull direction (off-screen) and fades out. Phase 2: the
+    /// incoming year slides in from the opposite edge and fades in to its resting edge
+    /// (next → Jan at top; prev → Dec at bottom).
+    func advanceFlip(_ fa: FlipAnim, at date: Date) {
+        // Fade-only (selectYear): cross-fade the whole calendar with no scroll movement —
+        // fade the outgoing year to 0, swap year + reset scroll at the midpoint, fade the
+        // incoming year back to 1.
+        if fa.fadeOnly {
+            let t = clamp(CGFloat(date.timeIntervalSince(fa.start) / Motion.yearFadeSwapDur), 0, 1)
+            if t >= 1 {
+                year = fa.toYear; anim.flipFade = 1; anim.flipAnim = nil
+                pushChrome()
+                if let cb = anim.flipDone { anim.flipDone = nil; cb() }
+                return
+            }
+            if t < 0.5 {                                     // outgoing year fades out
+                let p = t / 0.5
+                if year != fa.fromYear { year = fa.fromYear; pushChrome() }
+                anim.flipFade = 1 - easeInOut(p)
+            } else {                                         // swap data, incoming year fades in
+                let p = (t - 0.5) / 0.5
+                if year != fa.toYear {
+                    year = fa.toYear; scrollY = 0; onSetYearScroll?(0); pushChrome()
+                }
+                anim.flipFade = easeInOut(p)
+            }
+            return
+        }
+        let vpH = viewport.h
+        let maxY = yearMaxScroll(viewport)
+        let dir = CGFloat(fa.dir)
+        let rest: CGFloat = fa.dir > 0 ? 0 : maxY        // where the new year settles
+        let t = clamp(CGFloat(date.timeIntervalSince(fa.start) / Motion.yearFlipDur), 0, 1)
+        if t >= 1 {
+            year = fa.toYear; scrollY = rest; anim.flipFade = 1; anim.flipAnim = nil
+            pushChrome(); onSetYearScroll?(rest)         // resync the scroll-view driver
+            if let cb = anim.flipDone { anim.flipDone = nil; cb() }   // sequenced next phase (go-to-today)
+            return
+        }
+        if t < 0.5 {                                     // outgoing year exits + fades
+            let p = t / 0.5
+            if year != fa.fromYear { year = fa.fromYear; pushChrome() }
+            scrollY = fa.startScroll + dir * easeInOut(p) * vpH
+            anim.flipFade = 1 - p
+        } else {                                         // incoming year enters + fades
+            let p = (t - 0.5) / 0.5
+            if year != fa.toYear { year = fa.toYear; pushChrome() }
+            let enter = rest - dir * vpH                 // from the opposite edge (off-screen)
+            scrollY = enter + (rest - enter) * easeOut(p)
+            anim.flipFade = p
+        }
+    }
+}
