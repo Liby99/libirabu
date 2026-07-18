@@ -127,7 +127,7 @@ public struct PendingDelete: Equatable {
 /// three "when" parts (for bands, start/end are the start/end *day*; deadlines have date + one time).
 public enum DrawerField: Hashable {
     case title, date, start, end, color, config, notes, noteScope, delete
-    case cfgTags, cfgRepeat, cfgPromote   // controls inside Configuration (only in the cycle while it's open)
+    case cfgTags, cfgRepeat, cfgPromote, cfgTimezone   // controls inside Configuration (only in the cycle while it's open)
     case repEvery, repDays, repUntil, repUntilDate   // repeat sub-controls (shown conditionally by kind)
     case promoteLane   // the lane picker that appears when Promote is on (timed / deadline)
 }
@@ -148,6 +148,7 @@ extension DrawerField {
         case .cfgTags:      return "tags"
         case .cfgRepeat:    return "repeat"
         case .cfgPromote:   return "promote / lane"
+        case .cfgTimezone:  return "timezone"
         case .repEvery:     return "every N weeks"
         case .repDays:      return "weekdays"
         case .repUntil:     return "until"
@@ -158,7 +159,7 @@ extension DrawerField {
     /// Is this one of the controls nested inside Configuration? (Escape returns to the config header.)
     var isConfigChild: Bool {
         switch self {
-        case .cfgTags, .cfgRepeat, .cfgPromote, .repEvery, .repDays, .repUntil, .repUntilDate, .promoteLane: return true
+        case .cfgTags, .cfgRepeat, .cfgPromote, .repEvery, .repDays, .repUntil, .repUntilDate, .promoteLane, .cfgTimezone: return true
         default: return false
         }
     }
@@ -500,6 +501,7 @@ struct EventDrawer: View {
         case .repUntilDate:        return RingSpec(inset: all(-3), radius: 7)
         case .cfgPromote:          return RingSpec(inset: all(-3), radius: 7)
         case .promoteLane:         return RingSpec(inset: all(-3), radius: 7)
+        case .cfgTimezone:         return RingSpec(inset: all(-3), radius: 7)
         }
     }
 
@@ -558,6 +560,8 @@ struct EventDrawer: View {
             if action == .activate { untilFocused = true }
         case .cfgPromote:
             if action == .left { stepPromote(-1) } else if action == .right { stepPromote(1) }
+        case .cfgTimezone:
+            if action == .left { stepTimezone(-1) } else if action == .right { stepTimezone(1) }
         case .promoteLane:
             if action == .left { stepPromoteLane(-1) } else if action == .right { stepPromoteLane(1) }
         case .notes:
@@ -620,6 +624,10 @@ struct EventDrawer: View {
                 configItem("Repeat") { repeatControls }   // rings live on each repeat sub-control
                 configDivider
                 configItem(kind == .band ? "Lane" : "Promote") { laneOrPromoteControls }   // rings live on each control
+                if kind != .band {   // bands are all-day → timezone-irrelevant
+                    configDivider
+                    configItem("Timezone") { tzControls.drawerRingAnchor(.cfgTimezone) }
+                }
             }
             .padding(.bottom, 6)
             // Inset the controls a touch so the focus rings' outset (see ringSpec, ~3pt) stays inside
@@ -949,6 +957,64 @@ struct EventDrawer: View {
         }
     }
 
+    // ── Timezone (the event's anchor zone) ───────────────────────────────────────────
+    /// The zone the event's own date/time are expressed in. Changing it REINTERPRETS the shown wall-clock
+    /// in the new zone (keeps the numbers, moves the instant) — "this meeting is at 14:00 London time".
+    /// The calendar grid then re-converts it into the current view zone; the hint shows where it lands.
+    @ViewBuilder private var tzControls: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Picker("", selection: tzBinding) {
+                ForEach(CalendarTimezones.all.filter { $0.id != CalendarTimezones.autoId }) { Text($0.label).tag($0.id) }
+            }
+            .labelsHidden().fixedSize()
+            if let hint = gridTimeHint {
+                Text(hint).font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .disabled(imported)
+    }
+    /// The event's stored anchor zone, read STRAIGHT from the engine — never a mirror @State that could
+    /// drift to (and then be committed as) the current view zone. Falls back to the view zone only for a
+    /// legacy item with no anchor yet.
+    private var eventAnchorTz: String {
+        (engine.event(id)?.anchorTz ?? engine.deadline(id)?.anchorTz) ?? engine.mainTz
+    }
+    private var tzBinding: Binding<String> {
+        Binding(get: { eventAnchorTz }, set: { newTz in
+            let anchor = DeadlineTZ.concrete(newTz)
+            guard anchor != eventAnchorTz else { return }   // ignore SwiftUI echo / no-op writes → never clobber the anchor
+            switch kind {
+            case .timed:    engine.update(id) { $0.anchorTz = anchor }
+            case .deadline: engine.updateDeadline(id) { $0.anchorTz = anchor }
+            case .band:     break
+            }
+            syncFromEngine()
+        })
+    }
+    /// "= HH:MM TZ on your calendar" — the event's time in the current view zone, shown only when the
+    /// event's own zone differs from the view (so it moved on the grid).
+    private var gridTimeHint: String? {
+        func hhmm(_ h: CGFloat) -> String { let t = Int((h * 60).rounded()); return String(format: "%02d:%02d", (t / 60) % 24, t % 60) }
+        let tz = eventAnchorTz
+        let mainTz = engine.mainTz
+        let base = DeadlineTZ.instant(itemYear, month, day, kind == .deadline ? hour : start)
+        guard !DeadlineTZ.sameOffset(tz, mainTz, at: base) else { return nil }
+        let abbr = DeadlineTZ.shortLabel(mainTz, at: base)
+        if kind == .deadline {
+            let w = DeadlineTZ.convertWall(itemYear, month, day, hour, from: tz, to: mainTz)
+            return "= \(hhmm(w.hour)) \(abbr) on your calendar"
+        } else {
+            let w = DeadlineTZ.convertWall(itemYear, month, day, start, from: tz, to: mainTz)
+            return "= \(fmtHourRange(w.hour, w.hour + (end - start))) \(abbr) on your calendar"
+        }
+    }
+    private func stepTimezone(_ delta: Int) {
+        let zones = CalendarTimezones.all.filter { $0.id != CalendarTimezones.autoId }.map(\.id)
+        guard !zones.isEmpty else { return }
+        let cur = zones.firstIndex(of: DeadlineTZ.concrete(eventAnchorTz)) ?? 0
+        tzBinding.wrappedValue = zones[((cur + delta) % zones.count + zones.count) % zones.count]
+    }
+
     // Foot: notes edit/preview toggle, a series/occurrence note toggle (recurring only), then delete.
     private var footRow: some View {
         HStack(spacing: 10) {
@@ -1027,13 +1093,21 @@ struct EventDrawer: View {
     private func timeBinding(_ get: @escaping () -> CGFloat, _ set: @escaping (CGFloat) -> Void) -> Binding<Date> {
         Binding(
             get: {
-                let h = get(); let hh = min(23, Int(h)); let mm = Int((h - floor(h)) * 60)
-                return Calendar.current.date(bySettingHour: hh, minute: mm, second: 0, of: base) ?? base
+                let h = get(); let hh = Int(h) % 24; let mm = Int((h - floor(h)) * 60)   // %24 so a next-day end (h>24) shows its wall time
+                return Calendar.current.date(bySettingHour: max(0, min(23, hh)), minute: mm, second: 0, of: base) ?? base
             },
             set: { d in let c = Calendar.current.dateComponents([.hour, .minute], from: d); set(CGFloat(c.hour ?? 0) + CGFloat(c.minute ?? 0) / 60) })
     }
     private func setStart(_ h: CGFloat) { engine.update(id) { $0.startHour = h; if $0.endHour < h + 0.25 { $0.endHour = min(24, h + 0.5) } }; syncFromEngine() }
-    private func setEnd(_ h: CGFloat) { engine.update(id) { $0.endHour = max(h, $0.startHour + 0.25) }; syncFromEngine() }
+    private func setEnd(_ h: CGFloat) {
+        engine.update(id) {
+            // Picking an end at or before the start means the event runs past midnight (a red-eye): store
+            // the end as start-relative hours > 24 (next day). Minimum 15 min; whole span capped at 24h.
+            let e = h <= $0.startHour ? h + 24 : h
+            $0.endHour = min($0.startHour + 24, max($0.startHour + 0.25, e))
+        }
+        syncFromEngine()
+    }
     private func setDdlHour(_ h: CGFloat) { engine.updateDeadline(id) { $0.hour = h }; syncFromEngine() }
 
     // ── Repeat bindings + logic ───────────────────────────────────────────────────
@@ -1156,6 +1230,7 @@ struct EventDrawer: View {
             }
             order.append(.cfgPromote)
             if kind != .band, promote != nil { order.append(.promoteLane) }   // lane picker appears when promoted
+            if kind != .band { order.append(.cfgTimezone) }   // bands are all-day → no timezone
         }
         order.append(.notes)    // the markdown editor (always present, below Configuration)
         if recurring { order.append(.noteScope) }   // All Events / This Event toggle (recurring only)

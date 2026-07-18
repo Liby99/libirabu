@@ -294,6 +294,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             r["year"] = e.year as NSNumber; r["month"] = e.month as NSNumber; r["day"] = e.day as NSNumber
             r["startHour"] = Double(e.startHour) as NSNumber; r["endHour"] = Double(e.endHour) as NSNumber
             r["title"] = e.title as NSString; r["color"] = e.color as NSString
+            r["anchorTz"] = e.anchorTz as CKRecordValue?   // the event's timezone anchor — must round-trip or it stops converting
             writeRich(r, snap.rich?[name]); return r
         }
         if let b = snap.bands.first(where: { $0.id == name }) {
@@ -308,6 +309,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             r["year"] = d.year as NSNumber; r["month"] = d.month as NSNumber; r["day"] = d.day as NSNumber
             r["hour"] = Double(d.hour) as NSNumber; r["title"] = d.title as NSString; r["color"] = d.color as NSString
             r["originTz"] = d.originTz as CKRecordValue?
+            r["anchorTz"] = d.anchorTz as CKRecordValue?   // timezone anchor — must round-trip or it stops converting
             writeRich(r, snap.rich?[name]); return r
         }
         // No body of ours: a user overlay on an imported event (color / promote / notes / tags), keyed by
@@ -324,7 +326,10 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
               let sh = r["startHour"] as? Double, let eh = r["endHour"] as? Double,
               let title = r["title"] as? String, let color = r["color"] as? String else { return nil }
         return TimedEvent(id: r.recordID.recordName, year: (r["year"] as? Int) ?? 0, month: month, day: day,
-                          startHour: CGFloat(sh), endHour: CGFloat(eh), title: title, color: color)
+                          startHour: CGFloat(sh), endHour: CGFloat(eh), title: title, color: color,
+                          // Legacy records (pre-anchor) carried device-local wall-clock → default to the device zone
+                          // rather than nil, so a fetched item keeps converting without waiting for an app restart.
+                          anchorTz: (r["anchorTz"] as? String) ?? DeadlineTZ.concrete("auto"))
     }
     private func decodeBand(_ r: CKRecord) -> BandEvent? {
         guard let year = r["year"] as? Int, let month = r["month"] as? Int, let track = r["track"] as? Int,
@@ -338,7 +343,8 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
               let hour = r["hour"] as? Double, let title = r["title"] as? String,
               let color = r["color"] as? String else { return nil }
         return Deadline(id: r.recordID.recordName, year: year, month: month, day: day,
-                        hour: CGFloat(hour), title: title, color: color, originTz: r["originTz"] as? String)
+                        hour: CGFloat(hour), title: title, color: color, originTz: r["originTz"] as? String,
+                        anchorTz: (r["anchorTz"] as? String) ?? DeadlineTZ.concrete("auto"))
     }
     private func decodeTrackNames(_ r: CKRecord) -> [[String]]? {
         guard let json = r["json"] as? String, let data = json.data(using: .utf8),

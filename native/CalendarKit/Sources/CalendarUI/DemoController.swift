@@ -31,6 +31,7 @@ public final class DemoController {
 
     private weak var engine: CalendarEngine?
     private var size: CGSize = .zero
+    private var goTime: Date?             // set when recording starts (go.txt) → measures on-camera duration
 
     public init() {}
 
@@ -52,8 +53,9 @@ public final class DemoController {
         case "ai-assistant":   await sceneAIAssistant()
         default:               await sceneTimedWeek()
         }
-        // Don't self-terminate — the app idles on the final frame so a slightly-late recording start (see the
-        // script's `sleep 1`) still catches the whole scene. The record script kills the app when it's done.
+        // Signal the scene's exact end so the recorder can trim the GIF to length (screencapture -V can't be
+        // stopped early, so it over-records and we cut back to here). Then idle on the final frame.
+        signalDone()
     }
 
     // ── Scenes ───────────────────────────────────────────────────────────────────────────────
@@ -301,7 +303,7 @@ public final class DemoController {
         await move(to: composerPt, over: 0.7)
         pressed = true; try? await pause(0.14); pressed = false
         try? await pause(0.3)
-        let prompt = "Schedule a coffee chat with Sam on Wednesday at 3pm"
+        let prompt = "Coffee chat with Sam, Wed at 3pm"   // fits the composer on one line (no clip/wrap)
         await typeDraft(a, prompt)
         try? await pause(0.4)
 
@@ -330,7 +332,7 @@ public final class DemoController {
         a.messages.removeAll { $0.role == .typing }
         a.messages.append(ChatTurn(role: .assistant,
             text: "Done — added **Coffee chat with Sam** on Wednesday, July 15 from 3:00–4:00 PM."))
-        try? await pause(2.6)
+        try? await pause(0.5)   // hold on the rendered reply, then end (recorder trims to here)
     }
 
     /// Reveal `text` in the assistant composer progressively, as if typed (drives state.draft, which the
@@ -404,12 +406,22 @@ public final class DemoController {
     /// Block until the recorder drops a `go.txt` in the data dir (or ~4s elapse as a fallback for a manual
     /// run with no recorder). Lets a scene align its first visible frame with the start of the recording.
     private func waitForGo() async {
+        defer { goTime = Date() }   // recording is now rolling — start the on-camera clock
         guard let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty else { return }
         let flag = (dir as NSString).appendingPathComponent("go.txt")
         for _ in 0..<40 {
             if FileManager.default.fileExists(atPath: flag) { return }
             try? await pause(0.1)
         }
+    }
+
+    /// Write the on-camera duration (seconds since `go`) to `done.txt` so the recorder can trim the
+    /// over-recorded video to the scene's exact end.
+    private func signalDone() {
+        guard let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty, let go = goTime else { return }
+        let elapsed = Date().timeIntervalSince(go)
+        try? String(format: "%.2f\n", elapsed).write(toFile: (dir as NSString).appendingPathComponent("done.txt"),
+                                                      atomically: true, encoding: .utf8)
     }
 
     /// Write the scene's crop region (a fraction of the view) to $CC_DEMO_DATADIR/crop.txt in VIEW-LOCAL

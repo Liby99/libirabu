@@ -378,6 +378,20 @@ public struct CalendarView: View {
                                          onFrac: { dashFrac = $0 })
                 }
             }
+            // Timeline scale bar (week + day views): the video-editor thumb on the leftmost day's
+            // left border — drag the body to scroll, drag an end circle to rescale the hour height.
+            // Wrapped in the per-frame TimelineView (like liftedBox): tlScroll/hourH are hot,
+            // observation-ignored fields, so the thumb must re-read geometry every frame to track
+            // scrolling and its own drags.
+            .overlay {
+                if engine.chrome.level >= 2, ui.openEventId == nil {
+                    TimelineView(.animation(paused: !awake)) { ctx in
+                        // ctx.date passes through as `tick` so the bar's body re-evaluates every
+                        // frame (equal inputs would be diff-skipped, freezing the thumb).
+                        TimelineScaleBar(engine: engine, theme: theme, tick: ctx.date)
+                    }
+                }
+            }
             // inline track-name editor
             .overlay {
                 if let te = ui.editingTrack {
@@ -567,7 +581,7 @@ public struct CalendarView: View {
                           onCommit: { commitSearch() }, onClose: { closeSearch() })
             } else {
                 Button { openSearch() } label: { Image(systemName: "magnifyingglass") }
-                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Search")
+                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Search (⌘F)")
             }
         }
         ToolbarSpacer(.fixed)
@@ -599,6 +613,7 @@ public struct CalendarView: View {
         ToolbarItem(placement: .primaryAction) {
             Button { engine.goToToday() } label: { Text("Today") }
                 .buttonStyle(.glass).buttonBorderShape(.capsule)
+                .help("Go to today (⌘T)")
         }
     }
 }
@@ -780,7 +795,13 @@ private struct TimedTitleEditor: View {
             .padding(.top, 3)   // match EventSticker's .padding(.vertical, 3) so the field sits on the title
             .frame(width: r.width, height: r.height, alignment: .topLeading)
             .position(x: r.midX + Layout.padLeft, y: r.midY)
-            .onAppear { let t = engine.event(target.id)?.title ?? ""; text = t; original = t; focused = true }
+            .onAppear {
+                let t = engine.event(target.id)?.title ?? ""; text = t; original = t; focused = true
+                // Select the whole title so typing replaces it (matches the drawer's rename behavior).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    (NSApp.keyWindow?.firstResponder as? NSText)?.selectAll(nil)
+                }
+            }
             .onChange(of: text) { _, v in engine.update(target.id) { $0.title = v } }   // live (as typed)
             .onChange(of: focused) { _, f in if !f { commit() } }
             .onSubmit { commit() }
@@ -1121,7 +1142,9 @@ final class CatcherView: NSView, NSMenuItemValidation {
     private var scrolling = false
     private var scrollIdle: DispatchWorkItem?
     private func noteScroll() {
-        if !scrolling { scrolling = true; engine?.onHoverExit() }   // clear any stale highlight now
+        // Clear the stale highlight, but NOT the pointer/scale-bar proximity — the cursor hasn't
+        // moved; a full onHoverExit here made the scale bar vanish the moment you scrolled.
+        if !scrolling { scrolling = true; engine?.clearHoverHighlight() }
         scrollIdle?.cancel()
         let w = DispatchWorkItem { [weak self] in self?.scrolling = false }
         scrollIdle = w
@@ -1233,8 +1256,14 @@ final class CatcherView: NSView, NSMenuItemValidation {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let t = trackingAreaRef { removeTrackingArea(t) }
-        let t = NSTrackingArea(rect: bounds, options: [.activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect], owner: self)
+        // Create ONCE. `.inVisibleRect` keeps the area synced to the view automatically, so there's no need to
+        // remove+re-add on every layout pass — doing that during the continuous TimelineView redraw churned
+        // spurious exit/enter events, and mouseExited resets the cursor to the arrow → the hover cursor
+        // flickered (arrow ↔ I-beam) over a selected event. `.cursorUpdate` makes the cursor event-driven.
+        if let t = trackingAreaRef, trackingAreas.contains(t) { return }   // already attached → don't churn it
+        let t = NSTrackingArea(rect: .zero,
+                               options: [.activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .inVisibleRect],
+                               owner: self)
         addTrackingArea(t)
         trackingAreaRef = t
     }
@@ -1444,11 +1473,26 @@ final class CatcherView: NSView, NSMenuItemValidation {
 
         engine?.onHover(at: p)
         toolTip = engine?.bandWarningTooltip(at: p)   // "Fully overlapping events" over the warn sign
-        switch engine?.cursorHint(at: p) {
-        case .grab: NSCursor.openHand.set()
+        applyCursor(engine?.cursorHint(at: p))
+    }
+
+    /// The cursor is set here (called from both mouseMoved and cursorUpdate). cursorUpdate is the AppKit-
+    /// sanctioned, event-driven place for a dynamic cursor, so it wins over any stray reset and doesn't flicker.
+    override func cursorUpdate(with e: NSEvent) {
+        if modalActive || engine?.drawerOpen == true { NSCursor.arrow.set(); return }
+        if overToolbar(e) { NSCursor.arrow.set(); return }
+        let p = point(e)
+        if engine?.inDayDashboard(p) == true { return }   // the dashboard web view owns its own cursor
+        applyCursor(engine?.cursorHint(at: p))
+    }
+
+    private func applyCursor(_ hint: CalendarEngine.CursorHint?) {
+        switch hint {
+        case .grab:     NSCursor.openHand.set()
         case .resizeLR: NSCursor.resizeLeftRight.set()
-        case .text: NSCursor.iBeam.set()
-        default: NSCursor.arrow.set()
+        case .resizeV:  NSCursor.resizeUpDown.set()     // timed-event top/bottom edge
+        case .text:     NSCursor.iBeam.set()
+        default:        NSCursor.arrow.set()
         }
     }
     override func mouseExited(with e: NSEvent) { engine?.onHoverExit(); NSCursor.arrow.set() }

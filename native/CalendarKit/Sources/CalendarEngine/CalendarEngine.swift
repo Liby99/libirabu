@@ -74,6 +74,10 @@ public final class CalendarEngine {
     public private(set) var monthAnim: PageAnim?   // vertical month↕month page-turn (nil = settled)
     public private(set) var hover: Hover = .none
     public private(set) var pointerPos: CGPoint?   // last hover point (calendar space) → is the cursor on the deadline "+"?
+    /// The cursor is near the timeline's left border (week/day) → reveal the scale bar.
+    public private(set) var nearTlEdge = false
+    /// How close (px, either side of the border) the cursor must be to reveal the scale bar.
+    private static let tlEdgeRevealDist: CGFloat = 80
     public private(set) var year: Int
     public let systemYear: Int          // the real "today" year at launch — anchors the picker range
     public var mainTz: String = "auto"  // deadline main timezone (for origin-tz labels); "auto" = device zone
@@ -90,7 +94,7 @@ public final class CalendarEngine {
         guard altTz != "none", !altTz.isEmpty, altTz != mainTz else { return nil }
         return DeadlineTZ.shortLabel(altTz, at: now)
     }
-    public var weekHourH: CGFloat = 60
+    public private(set) var weekHourH: CGFloat = 60   // set via setWeekHourH (clamped + persisted)
     public private(set) var viewport: Viewport = Viewport(w: 1, h: 1)
     public private(set) var seedEvents: [TimedEvent] = []
     public private(set) var seedBands: [BandEvent] = []
@@ -288,7 +292,10 @@ public final class CalendarEngine {
     /// Start CloudKit sync when this build carries the iCloud entitlement (the signed
     /// CalendarApp). The unsigned CalendarMac dev binary isn't entitled → no-op, local-only.
     private func enableCloudSyncIfEntitled() {
-        guard CloudSync.isEntitled else { return }
+        // NEVER sync in a recording/demo session: it would pull the user's real iCloud calendar into the
+        // throwaway store (a privacy leak into GIFs), defeating the isolation. Mirrors importAppleCalendar's
+        // demo guard.
+        guard CloudSync.isEntitled, !Self.isDemoMode else { return }
         let c = CloudSync(engine: self)
         cloud = c
         Task { await c.startIfAccountAvailable() }
@@ -598,6 +605,7 @@ public final class CalendarEngine {
         var bandAnchorDay: Int? = nil
         var origDdl: Deadline? = nil
         var priorSelection: String? = nil   // selection at down → deselect-vs-navigate on a plain click
+        var titleHit = false                 // down landed on the title text → a click there inline-edits it
         var activated = false
     }
 
@@ -634,6 +642,10 @@ public final class CalendarEngine {
         mainTz = UserDefaults.standard.string(forKey: Self.mainTzKey) ?? "auto"   // View ▸ Current Timezone
         altTz = UserDefaults.standard.string(forKey: Self.altTzKey) ?? "none"     // View ▸ Alternative Timezone
         migrateAnchors()   // stamp anchorTz on legacy items (needs mainTz resolved above)
+        // The timeline scale-bar's chosen hour height survives restarts.
+        if UserDefaults.standard.object(forKey: Self.weekHourHKey) != nil {
+            weekHourH = clampHourH(CGFloat(UserDefaults.standard.double(forKey: Self.weekHourHKey)))
+        }
         // Resume the create-counter past any persisted new-/newb- ids so fresh items don't
         // collide with reloaded ones (which produced duplicate SwiftUI ForEach ids).
         for id in seedEvents.map(\.id) + seedBands.map(\.id) {
@@ -1814,7 +1826,8 @@ public final class CalendarEngine {
         // 2. timed events (on the timeline)
         if z >= 1.5, let hit = eventAt(p, g) {
             selectedId = hit.id
-            drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id, orig: seedEvents.first { $0.id == hit.id })
+            drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id, orig: seedEvents.first { $0.id == hit.id },
+                        priorSelection: prior, titleHit: hit.overTitle)
             return
         }
         // 3. deadlines (on the timeline)
@@ -1885,6 +1898,10 @@ public final class CalendarEngine {
             case .bandMove:
                 // click the body of an ALREADY-selected band → edit its title inline
                 if d.priorSelection == d.eventId, let id = d.eventId { editBand(id) }
+            case .move:
+                // click the TITLE of an ALREADY-selected timed event → edit its title inline (the I-beam
+                // affordance). A click elsewhere on the body (grab) leaves it selected without editing.
+                if d.priorSelection == d.eventId, d.titleHit, let id = d.eventId { editTimed(id) }
             default:
                 break
             }
@@ -2576,6 +2593,15 @@ public final class CalendarEngine {
         let x = cal.dateComponents([.year, .month, .day], from: nd)
         return (x.year ?? y, (x.month ?? 1) - 1, x.day ?? d)
     }
+    /// Whole-day difference (b − a) between two calendar dates (0-based months), DST-agnostic. Used to make
+    /// mouse resize/create day-column aware so a drag into an adjacent day spans midnight rather than
+    /// collapsing (the pointer's hour is relative to whichever day column it's over).
+    private func dayDiff(_ ay: Int, _ am: Int, _ ad: Int, _ by: Int, _ bm: Int, _ bd: Int) -> Int {
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+        guard let a = cal.date(from: DateComponents(year: ay, month: am + 1, day: ad)),
+              let b = cal.date(from: DateComponents(year: by, month: bm + 1, day: bd)) else { return 0 }
+        return cal.dateComponents([.day], from: a, to: b).day ?? 0
+    }
 
     /// Open the inline title editor for a band, positioned over its rect (geometry space). The click-a-
     /// selected-band gesture and the keyboard "Enter → edit title" (via `editSelectedBand`) both route here.
@@ -3059,14 +3085,17 @@ public final class CalendarEngine {
                                start: start, end: end, originTz: tz, notes: rf?.notes, occurrenceNotes: rf?.occurrenceNotes)
         }
         var out: [TodoContext] = []
-        for e in seedEvents { out.append(ctx(e.id, "timed", e.title, e.color, wall(year, e.month, e.day, e.startHour), wall(year, e.month, e.day, e.endHour))) }
+        // Timed events + deadlines are converted anchor→view tz (like the timeline) so the dashboard's
+        // schedule matches what's drawn. Bands are all-day → no conversion.
+        for e0 in seedEvents { let e = displayEvent(e0); out.append(ctx(e0.id, "timed", e.title, e.color, wall(e.year, e.month, e.day, e.startHour), wall(e.year, e.month, e.day, min(e.endHour, 24)))) }
         for b in seedBands { out.append(ctx(b.id, "band", b.title, b.color, wall(b.year, b.month, b.startDay), wall(b.year, b.month, b.endDay))) }
-        for d in seedDeadlines { let w = wall(d.year, d.month, d.day, d.hour); out.append(ctx(d.id, "deadline", d.title, d.color, w, w, d.originTz)) }
+        for d0 in seedDeadlines { let d = displayDeadline(d0); let w = wall(d.year, d.month, d.day, d.hour); out.append(ctx(d0.id, "deadline", d.title, d.color, w, w)) }
         return out
     }
     /// The JSON the dashboard WebView consumes: contexts + deadlines + the viewed day + real today.
     public func dashboardDataJSON() -> String {
-        let dls = seedDeadlines.map { DashDeadline(id: $0.id, year: $0.year, month: $0.month, day: $0.day, hour: Double($0.hour), title: $0.title, color: $0.color) }
+        let dls = seedDeadlines.map { d0 -> DashDeadline in let d = displayDeadline(d0)
+            return DashDeadline(id: d0.id, year: d.year, month: d.month, day: d.day, hour: Double(d.hour), title: d.title, color: d.color) }
         let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
         let today = String(format: "%04d-%02d-%02d", c.year ?? year, c.month ?? 1, c.day ?? 1)
         let r = resolveDate(year, focus, daily.dom)
@@ -3265,6 +3294,17 @@ public final class CalendarEngine {
     nonisolated public static let showHiddenImportedKey = "cc.view.showHiddenImported"
     /// View ▸ Current Timezone — the main tz for deadline origin-time labels. "auto" = device zone.
     nonisolated public static let mainTzKey = "cc.view.mainTz"
+    /// The timeline scale-bar's per-hour height (week/day views). Persisted across launches.
+    nonisolated public static let weekHourHKey = "cc.view.weekHourH"
+
+    /// Set the week/day timeline's per-hour height (the scale-bar's zoom). Clamped + persisted.
+    public func setWeekHourH(_ h: CGFloat) {
+        wake()
+        let clamped = clampHourH(h)
+        guard clamped != weekHourH else { return }
+        weekHourH = clamped
+        UserDefaults.standard.set(Double(clamped), forKey: Self.weekHourHKey)
+    }
     /// View ▸ Alternative Timezone — the second hour column on the timeline. "none" = off.
     nonisolated public static let altTzKey = "cc.view.altTz"
     /// The "View ▸ Show Hidden Imported Events" toggle (UserDefaults-backed so the menu's checkmark and
@@ -3530,7 +3570,20 @@ public final class CalendarEngine {
     }
 
     /// Topmost event under the cursor + which zone (body vs top/bottom resize edge).
-    private func eventAt(_ p: CGPoint, _ g: SceneInput) -> (id: String, zone: PointerKind)? {
+    // Timed-event box internal layout — mirrors BandStyle / EventsOverlay.TimedBox (CalendarUI) so the
+    // hit-test can tell the TITLE region (I-beam) from the accent bar / time / body (grab). Keep in sync.
+    private enum EventBox {
+        static let accentInset: CGFloat = 6
+        static let accentWidth: CGFloat = 1
+        static let accentWidthSelected: CGFloat = 3
+        static let barTextGap: CGFloat = 5
+        static let titleTrailing: CGFloat = 6
+        static let vPad: CGFloat = 3
+        static let titleLineH: CGFloat = 17   // ~one line of the 13pt title
+        static let edge: CGFloat = 5          // top/bottom resize hot-zone
+    }
+
+    private func eventAt(_ p: CGPoint, _ g: SceneInput) -> (id: String, zone: PointerKind, overTitle: Bool)? {
         let tl = timelineInfo(g)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return nil }
         // Timed events live ONLY in the hour timeline. A scrolled-up event's rect can extend above the
@@ -3553,13 +3606,31 @@ public final class CalendarEngine {
         let sameDay = eventsOn(rd.year, rd.month, rd.day)
         guard !sameDay.isEmpty else { return nil }
         let layout = layoutDay(sameDay)
-        var found: (String, PointerKind)?
+        var found: (String, PointerKind, Bool)?
         for e in sameDay {
             guard let r = eventRect(e, year, focus, tl, g.vp, layout[e.id]) else { continue }
             let rect = CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
             if rect.contains(p) {
-                let zone: PointerKind = (p.y - rect.minY < 5) ? .resizeTop : (rect.maxY - p.y < 5 ? .resizeBottom : .move)
-                found = (e.id, zone)   // keep last → topmost drawn
+                let nearTop = p.y - rect.minY < EventBox.edge
+                let nearBot = rect.maxY - p.y < EventBox.edge
+                // A multi-day event is drawn as per-day segments; only its REAL first-top and last-bottom
+                // are resize handles — an internal midnight (continuation) edge is not. Detect via the whole
+                // event's span (endHour may exceed 24), computed only when the cursor is actually near an edge.
+                var zone: PointerKind = .move
+                if nearTop || nearBot {
+                    let span = viewEvents().first { $0.id == e.id }
+                    let offset = span.map { dayDiff($0.year, $0.month, $0.day, rd.year, rd.month, rd.day) } ?? 0
+                    let topReal = offset == 0
+                    let botReal = span.map { $0.endHour <= CGFloat(offset + 1) * 24 + 0.001 } ?? true
+                    if nearTop && topReal { zone = .resizeTop }
+                    else if nearBot && botReal { zone = .resizeBottom }
+                }
+                // Title text region: right of the accent bar, the top line — where a second click edits it.
+                let barW = (e.id == selectedId) ? EventBox.accentWidthSelected : EventBox.accentWidth
+                let leftInset = EventBox.accentInset + barW + EventBox.barTextGap
+                let overTitle = p.x >= rect.minX + leftInset && p.x <= rect.maxX - EventBox.titleTrailing
+                    && p.y >= rect.minY + EventBox.vPad && p.y <= rect.minY + EventBox.vPad + EventBox.titleLineH
+                found = (e.id, zone, overTitle)   // keep last → topmost drawn
             }
         }
         return found
@@ -3610,10 +3681,28 @@ public final class CalendarEngine {
     private func applyResize(_ d: Drag, _ p: CGPoint, _ tl: TimelineInfo, top: Bool) {
         guard let idx = seedEvents.firstIndex(where: { $0.id == d.eventId }) else { return }
         beginTxn()
-        let hf = pointToSlot(p.x, p.y, tl).hourFrac   // display-space hour under the cursor
+        let slot = pointToSlot(p.x, p.y, tl)
         var ev = displayEvent(seedEvents[idx])
-        if top { ev.startHour = min(ev.endHour - 0.25, snap(hf, 15)) }
-        else { ev.endHour = max(ev.startHour + 0.25, snap(hf, 15)) }
+        // Day-column aware: the pointer's hour is relative to WHICH day it's over, so `abs` is hours since
+        // the event's start-day midnight — it may be <0 (edge dragged into an earlier day) or >24 (dragged
+        // into a later day), letting a resize span midnight instead of collapsing to the minimum.
+        let ptDayDiff: Int = {
+            guard let dom = slot.dom, let r = resolveDate(year, focus, dom) else { return 0 }
+            return dayDiff(ev.year, ev.month, ev.day, r.year, r.month, r.day)
+        }()
+        let abs = CGFloat(ptDayDiff) * 24 + snap(slot.hourFrac, 15)
+        if top {
+            // Move the START edge, keep the end fixed. Rebase the start day when it crosses midnight(s) so
+            // startHour stays in [0,24) and endHour stays pinned to the same absolute moment.
+            let ns = min(ev.endHour - 0.25, abs)
+            let k = Int(floor(ns / 24))                    // whole-day shift of the start day (≤0 = earlier)
+            let nd = addDays(ev.year, ev.month, ev.day, k)
+            ev.year = nd.0; ev.month = nd.1; ev.day = nd.2
+            ev.startHour = ns - CGFloat(k) * 24
+            ev.endHour -= CGFloat(k) * 24
+        } else {
+            ev.endHour = max(ev.startHour + 0.25, abs)     // may exceed 24 → multi-day span (drawn as segments)
+        }
         seedEvents[idx] = anchorEvent(ev)
     }
 
@@ -3628,11 +3717,26 @@ public final class CalendarEngine {
             seedEvents.append(TimedEvent(id: id, year: d.createYear ?? year, month: mo, day: dy, startHour: a, endHour: min(24, a + 0.25), title: "New event", color: "blue", anchorTz: anchorNow))
             d.eventId = id; drag = d; selectedId = id
         }
-        guard let id = d.eventId, let idx = seedEvents.firstIndex(where: { $0.id == id }), let a = d.anchorHour else { return }
-        let cur = snap(pointToSlot(p.x, p.y, tl).hourFrac, 15)
+        guard let id = d.eventId, let idx = seedEvents.firstIndex(where: { $0.id == id }), let a = d.anchorHour,
+              let cm = d.createMonth, let cd = d.createDay else { return }
+        // Day-column aware create: the drag anchor sits at (createDate, anchorHour); the pointer may now be
+        // over another day. Measure both endpoints as hours since the create-day midnight, so dragging into
+        // the next/previous day makes a multi-day event. Rebase the start day so startHour stays in [0,24).
+        let cy = d.createYear ?? year
+        let slot = pointToSlot(p.x, p.y, tl)
+        let ptDayDiff: Int = {
+            guard let dom = slot.dom, let r = resolveDate(year, focus, dom) else { return 0 }
+            return dayDiff(cy, cm, cd, r.year, r.month, r.day)
+        }()
+        let curAbs = CGFloat(ptDayDiff) * 24 + snap(slot.hourFrac, 15)
+        var lo = min(a, curAbs), hi = max(a, curAbs)
+        if hi - lo < 0.25 { hi = lo + 0.25 }
+        let k = Int(floor(lo / 24))
+        let nd = addDays(cy, cm, cd, k)
         var ev = seedEvents[idx]
-        ev.startHour = min(a, cur); ev.endHour = max(a, cur)
-        if ev.endHour - ev.startHour < 0.25 { ev.endHour = min(24, ev.startHour + 0.25) }
+        ev.year = nd.0; ev.month = nd.1; ev.day = nd.2
+        ev.startHour = lo - CGFloat(k) * 24
+        ev.endHour = hi - CGFloat(k) * 24
         seedEvents[idx] = ev
     }
 
@@ -3829,7 +3933,13 @@ public final class CalendarEngine {
     private func ensureSelectedEventVisible() {
         guard level(z) >= 2, let sel = selectedId else { return }
         let top: CGFloat, bot: CGFloat
-        if let e = displayEvents(for: year).first(where: { $0.id == sel }) { top = e.startHour; bot = e.endHour }
+        if let e = displayEvents(for: year).first(where: { $0.id == sel }) {
+            // A cross-midnight event has a slice on each day; reveal the one on the currently-focused day
+            // (the segment the cursor is on), falling back to the head. A same-day event has one segment.
+            let segs = timedSegments(e)
+            let seg = segs.first { $0.event.month == focus && $0.event.day == daily.dom } ?? segs[0]
+            top = seg.event.startHour; bot = seg.event.endHour
+        }
         else if let d = displayDeadlines(for: year).first(where: { $0.id == sel }) { top = d.hour - 0.25; bot = d.hour + 0.25 }
         else { return }
         scrollTimelineTo(topHour: top, botHour: bot)
@@ -4139,6 +4249,11 @@ public final class CalendarEngine {
     public func onHover(at p: CGPoint) {
         if drawerOpen { onHoverExit(); return }   // drawer open → no calendar hover highlights
         pointerPos = p                            // for the deadline "+" hover glow (pixel-precise)
+        // Timeline scale-bar proximity reveal: the bar fades in only when the cursor approaches
+        // the timeline's left border (week/day views). Observable + wake, so the overlay reacts
+        // even when the render loop is idle.
+        let near = level(z) >= 2 && abs(p.x - Layout.labelW) < Self.tlEdgeRevealDist
+        if near != nearTlEdge { nearTlEdge = near; wake() }
         let g = snapshot()
         let prevHover = hover, prevHovered = hoveredEventId   // wake the render only if the visual actually changes
         var hv = Hover()
@@ -4197,7 +4312,19 @@ public final class CalendarEngine {
         return CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height).contains(p)
     }
 
-    public func onHoverExit() { if hover != .none || hoveredEventId != nil { wake() }; hover = .none; hoveredEventId = nil; pointerPos = nil }
+    public func onHoverExit() {
+        if hover != .none || hoveredEventId != nil { wake() }
+        hover = .none; hoveredEventId = nil; pointerPos = nil
+        if nearTlEdge { nearTlEdge = false; wake() }
+    }
+
+    /// Clear the hover HIGHLIGHT only — used when scrolling starts (the content moves under a
+    /// stationary cursor, so the highlight is stale) — but keep the pointer position and the
+    /// scale-bar proximity (`nearTlEdge`): the mouse hasn't gone anywhere.
+    public func clearHoverHighlight() {
+        if hover != .none || hoveredEventId != nil { wake() }
+        hover = .none; hoveredEventId = nil
+    }
 
     /// Clear the current event selection — the same effect as a plain click on empty calendar space.
     /// Used by the daily-dashboard WebView so clicking its empty content deselects too.
@@ -4398,7 +4525,7 @@ public final class CalendarEngine {
         jumpToDay(loc.year, loc.month, loc.day) { [weak self] in self?.scrollToSelected() }
     }
 
-    public enum CursorHint { case normal, grab, resizeLR, text }
+    public enum CursorHint { case normal, grab, resizeLR, resizeV, text }
     public func cursorHint(at p: CGPoint) -> CursorHint {
         if trackNameHit(at: p) != nil { return .text }   // editable lane label
         let g = snapshot()
@@ -4406,7 +4533,14 @@ public final class CalendarEngine {
             if hit.zone == .bandResizeL || hit.zone == .bandResizeR { return .resizeLR }
             return hit.id == selectedId ? .text : .grab   // a selected band edits its title on click
         }
-        if z >= 1.5, let hit = eventAt(p, g) { return hit.id == selectedId ? .text : .grab }
+        // Timed event: the top/bottom edges resize (↕); the title of a SELECTED event is an I-beam (a second
+        // click inline-edits it); the accent bar, the time text, and the empty body are a grab hand.
+        if z >= 1.5, let hit = eventAt(p, g) {
+            switch hit.zone {
+            case .resizeTop, .resizeBottom: return .resizeV
+            default: return (hit.id == selectedId && hit.overTitle) ? .text : .grab
+            }
+        }
         if z >= DETAIL_Z, deadlineAt(p, g) != nil { return .grab }
         return .normal   // empty calendar → plain arrow (no create "+" cursor)
     }

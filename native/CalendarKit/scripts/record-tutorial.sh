@@ -53,14 +53,25 @@ echo "Recording rect ${W}x${H} at ($X,$Y) for ${DUR}s…"
 # Handshake: tell the (now-ready) scene that recording has begun, so it starts the on-camera action exactly
 # in sync with the first captured frame.
 touch "$TMP/go.txt"
-# screencapture -R captures just that region; -V caps the duration; blocks until done.
+# screencapture -R captures just that region; -V caps the duration; blocks until done. It ignores signals
+# and always records the FULL duration, so we over-record and trim below to the scene's real end.
 /usr/sbin/screencapture -v -R"${X},${Y},${W},${H}" -V"${DUR}" "$TMP/raw.mov"
+
+# The scene wrote its exact on-camera length to done.txt; trim the video to there (+ a hair) so the GIF ends
+# right after the scene's final frame instead of holding whatever slack was left in DUR.
+TRIM=""
+if [ -f "$TMP/done.txt" ]; then
+  read -r ELAPSED < "$TMP/done.txt"
+  END=$(echo "$ELAPSED + 0.3" | bc)
+  TRIM="-t $END"
+  echo "Scene ended at ${ELAPSED}s → trimming GIF to ${END}s"
+fi
 
 echo "Encoding GIF → $OUT"
 # FPS/SCALE/COLORS/DITHER overridable per scene (full-window scenes like pinch-zoom want lower values +
 # fewer colors + no dither to stay small — the dark UI's dotted gridlines otherwise blow up the GIF).
 FPS="${FPS:-15}"; SCALE="${SCALE:-1000}"; COLORS="${COLORS:-256}"; DITHER="${DITHER:-bayer}"
-ffmpeg -y -loglevel error -i "$TMP/raw.mov" \
+ffmpeg -y -loglevel error -i "$TMP/raw.mov" $TRIM \
   -vf "fps=${FPS},scale=${SCALE}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=${COLORS}:stats_mode=diff[p];[s1][p]paletteuse=dither=${DITHER}" \
   "$OUT"
 

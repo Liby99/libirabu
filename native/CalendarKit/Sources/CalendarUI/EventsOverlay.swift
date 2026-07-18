@@ -174,9 +174,18 @@ struct EventsOverlay: View {
 
     private struct Item2: Identifiable { let id: String; let rect: CGRect; let fade: Double; let z: Double; let view: AnyView }
 
+    /// Does an item belong to the selected/hidden event `box`? Bands use the plain event id; a TIMED event
+    /// uses a per-segment key ("id#MMDD", plus a "~in" transition twin), so a plain `== box` misses it —
+    /// which left timed events neither skipped from the blur (`hideBox`) nor drawn in the lifted-above-scrim
+    /// copy (`onlyBox`), so they no longer floated above the drawer scrim. Match the segment prefix too (this
+    /// also lifts BOTH halves of a cross-midnight event, and every segment of a recurring band, together).
+    private func matches(_ itemId: String, _ box: String) -> Bool {
+        itemId == box || itemId == box + "~in" || itemId.hasPrefix(box + "#")
+    }
+
     private func drawn(_ items: [Item2]) -> [Item2] {
-        if let box = onlyBox { return items.filter { $0.id == box || $0.id == box + "~in" } }
-        if let box = hideBox { return items.filter { $0.id != box && $0.id != box + "~in" } }
+        if let box = onlyBox { return items.filter { matches($0.id, box) } }
+        if let box = hideBox { return items.filter { !matches($0.id, box) } }
         return items
     }
 
@@ -288,7 +297,11 @@ struct EventsOverlay: View {
         // Dec↔Jan spillover events cross the year boundary while far-off months are still excluded.
         // A cross-midnight event splits into per-day segments; each segment lands in its own day column
         // (clipped on the border it continues over). A same-day event yields exactly one segment.
+        // `subLabels` carries the anchor-zone time (e.g. "12:00 – 14:00 (PST)") for events whose anchor
+        // differs from the view zone — the same on every segment, so it's computed once per event.
+        var subLabels: [String: String] = [:]
         for e in events {
+            if let lbl = anchorRangeLabel(e, mainTz: input.mainTz) { subLabels[e.id] = lbl }
             for s in timedSegments(e) {
                 if let rd = relDomOf(input.year, focus, s.event.year, s.event.month, s.event.day) { byDay[rd, default: []].append(s) }
             }
@@ -328,6 +341,7 @@ struct EventsOverlay: View {
                 EventSticker(ev: p.seg.event, height: p.rect.height, showText: input.z >= 1.5,
                              clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
                              timeText: fmtHourRange(p.seg.fullStart, p.seg.fullEnd),
+                             subTimeText: subLabels[id],
                              plain: perfMode, activation: a, badges: eventBadges[id] ?? [],
                              editing: editingId != nil && sourceId(of: id) == editingId, theme: theme)))
         }
@@ -367,6 +381,7 @@ private struct EventSticker: View {
     var clipTop: Bool = false    // cross-midnight: continues from the previous day → square top, bar to top edge
     var clipBottom: Bool = false // cross-midnight: continues into the next day → square bottom, bar to bottom edge
     var timeText: String? = nil  // the WHOLE event's range (every segment shows the true span, e.g. "23:00 – 06:00")
+    var subTimeText: String? = nil // anchor-zone time when it differs from the view (e.g. "12:00 – 14:00 (PST)")
     var plain: Bool = false      // skip glass (animating, or tiny month sliver)
     let activation: EventActivation
     var badges: EventBadges = [] // provenance/kind marker glyphs (same as bands)
@@ -417,6 +432,12 @@ private struct EventSticker: View {
                         .font(.system(size: 8.5))
                         .foregroundStyle(theme.text.opacity(0.72))
                         .padding(.top, 2)   // a touch more breathing room below the title
+                    if let subTimeText {   // anchor-zone time, shown when the event isn't in the view zone
+                        Text(subTimeText)
+                            .font(.system(size: 8))
+                            .foregroundStyle(theme.text.opacity(0.5))
+                            .lineLimit(1)
+                    }
                 }
             }
             Spacer(minLength: 0)

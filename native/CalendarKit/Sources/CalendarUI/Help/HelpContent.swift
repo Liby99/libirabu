@@ -1,0 +1,496 @@
+// The Help book's content — a task-based, searchable set of topics shown by HelpView (Help ▸ Madocal Help).
+//
+// Apple's guidance (Human Interface Guidelines ▸ Offering help / Menus): help should be task-focused,
+// brief, conversational, and searchable, with the Help menu as the rightmost menu. We don't register a
+// native `.help` bundle (Help Viewer / HTML) — this in-app browser is the modern equivalent, themed and
+// able to reference the tutorial GIFs.
+//
+// Everything here is plain data; HelpView renders it. Keep topics short and action-oriented. When a topic
+// would benefit from a motion demo, set `gif` to a name documented in docs/help-gif-suggestions.md (a
+// missing GIF simply isn't shown).
+
+import Foundation
+
+/// One renderable chunk of a topic's body.
+public enum HelpBlock: Equatable, Sendable {
+    case paragraph(String)     // a sentence or two of prose
+    case steps([String])       // an ordered how-to list
+    case bullets([String])     // an unordered list
+    case tip(String)           // a highlighted aside
+}
+
+/// A keyboard shortcut worth surfacing alongside a topic (the live, per-context guide is ⌘K).
+public struct HelpShortcut: Equatable, Sendable {
+    public let keys: String    // e.g. "⌘=" or "Space"
+    public let label: String
+    public init(_ keys: String, _ label: String) { self.keys = keys; self.label = label }
+}
+
+/// One help topic — a single task or concept.
+public struct HelpTopic: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let summary: String          // one line, shown in lists and search results
+    public let keywords: [String]       // extra search terms not already in title/summary/body
+    public let blocks: [HelpBlock]
+    public let shortcuts: [HelpShortcut]
+    public let gif: String?             // tutorial-asset name to illustrate the topic, if any
+
+    public init(id: String, title: String, summary: String, keywords: [String] = [],
+                blocks: [HelpBlock], shortcuts: [HelpShortcut] = [], gif: String? = nil) {
+        self.id = id; self.title = title; self.summary = summary; self.keywords = keywords
+        self.blocks = blocks; self.shortcuts = shortcuts; self.gif = gif
+    }
+
+    /// Flattened searchable text (title + summary + keywords + prose in blocks).
+    var searchText: String {
+        var parts = [title, summary] + keywords
+        for b in blocks {
+            switch b {
+            case .paragraph(let s), .tip(let s): parts.append(s)
+            case .steps(let xs), .bullets(let xs): parts.append(contentsOf: xs)
+            }
+        }
+        return parts.joined(separator: " ").lowercased()
+    }
+}
+
+/// A named group of topics, shown as a sidebar section.
+public struct HelpCategory: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let symbol: String           // SF Symbol
+    public let topics: [HelpTopic]
+    public init(id: String, title: String, symbol: String, topics: [HelpTopic]) {
+        self.id = id; self.title = title; self.symbol = symbol; self.topics = topics
+    }
+}
+
+public enum HelpContent {
+    public static let appName = "Madocal"
+
+    public static let categories: [HelpCategory] = [
+        gettingStarted, gettingAround, events, deadlines, organizing, assistant, syncImport, keyboardTips,
+    ]
+
+    public static var allTopics: [HelpTopic] { categories.flatMap(\.topics) }
+
+    /// Category containing a topic id (for breadcrumbs / grouping search results).
+    public static func category(of topicID: String) -> HelpCategory? {
+        categories.first { $0.topics.contains { $0.id == topicID } }
+    }
+
+    /// Simple, forgiving search: every whitespace-separated term must appear somewhere in the topic's text.
+    /// Ranked title-hits first, then summary, then body. Empty query → all topics in book order.
+    public static func search(_ query: String) -> [HelpTopic] {
+        let terms = query.lowercased().split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard !terms.isEmpty else { return allTopics }
+        func rank(_ t: HelpTopic) -> Int? {
+            let title = t.title.lowercased(), summary = t.summary.lowercased(), all = t.searchText
+            var score = 0
+            for term in terms {
+                if title.contains(term) { score += 3 }
+                else if summary.contains(term) { score += 2 }
+                else if all.contains(term) { score += 1 }
+                else { return nil }        // every term must match somewhere
+            }
+            return score
+        }
+        return allTopics.compactMap { t in rank(t).map { (t, $0) } }
+            .sorted { $0.1 > $1.1 }
+            .map(\.0)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────
+    // MARK: Getting started
+    // ─────────────────────────────────────────────────────────────────────────────────
+    static let gettingStarted = HelpCategory(id: "start", title: "Getting Started", symbol: "sparkles", topics: [
+        HelpTopic(
+            id: "welcome", title: "What is Madocal?",
+            summary: "A zoomable calendar that keeps your schedule, notes, and to-dos together.",
+            keywords: ["overview", "intro", "introduction", "about", "semantic zoom"],
+            blocks: [
+                .paragraph("Madocal is a calendar you move through by zooming. One continuous canvas holds a whole year, and you zoom in to a month, a week, or a single day — the layout re-forms at each level instead of switching to a different screen."),
+                .paragraph("Alongside the schedule, every event and every day can hold Markdown notes and to-do items, and a built-in AI assistant can read and change your calendar for you."),
+                .tip("New here? Open Help ▸ Welcome to Madocal for a quick visual tour of the main gestures."),
+            ]),
+        HelpTopic(
+            id: "zoom-levels", title: "The four zoom levels",
+            summary: "Year, Month, Week, and Day — the same calendar at four scales.",
+            keywords: ["year", "month", "week", "day", "levels", "scale"],
+            blocks: [
+                .paragraph("The calendar has four levels of detail:"),
+                .bullets([
+                    "Year — every month as a horizontal track lane; best for multi-day events and the big picture.",
+                    "Month — one month's weeks; a good overview of what's coming.",
+                    "Week — seven day-columns with an hourly timeline for timed events.",
+                    "Day — a single day's timeline plus its dashboard of to-dos and notes.",
+                ]),
+                .paragraph("You can move between levels with a pinch, with ⌘= / ⌘−, or by clicking into a period to drill in."),
+            ],
+            shortcuts: [.init("⌘=", "Zoom in"), .init("⌘−", "Zoom out")], gif: "pinch-zoom"),
+        HelpTopic(
+            id: "first-event", title: "Create your first event",
+            summary: "Drag on the calendar to make an event, then name it.",
+            keywords: ["quick start", "new event", "getting started"],
+            blocks: [
+                .steps([
+                    "Zoom to Week or Day view (pinch out, or press ⌘=).",
+                    "Press and drag down a day's timeline to cover the time you want.",
+                    "Type a title while it's selected, then click away to save.",
+                ]),
+                .tip("Prefer to describe it in words? Open the AI assistant with ⌘I and say “add lunch with Sam tomorrow at noon.”"),
+            ], gif: "timed-week"),
+    ])
+
+    // ─────────────────────────────────────────────────────────────────────────────────
+    // MARK: Getting around
+    // ─────────────────────────────────────────────────────────────────────────────────
+    static let gettingAround = HelpCategory(id: "around", title: "Getting Around", symbol: "arrow.up.left.and.arrow.down.right", topics: [
+        HelpTopic(
+            id: "zooming", title: "Zoom between year, month, week, and day",
+            summary: "Pinch, use ⌘= / ⌘−, or click into a period to change scale.",
+            keywords: ["zoom", "pinch", "scale", "drill in", "navigate"],
+            blocks: [
+                .paragraph("Zooming keeps you oriented — the period you're looking at stays centered as the calendar re-forms around it."),
+                .bullets([
+                    "Pinch on a trackpad to zoom smoothly toward the pointer.",
+                    "Press ⌘= to zoom in one level, ⌘− to zoom out.",
+                    "Click a month, week, or day to drill straight into it.",
+                ]),
+                .tip("Zoom targets whatever is under the pinch (or the selection), so pinch over the week or day you actually want to open."),
+            ],
+            shortcuts: [.init("⌘=", "Zoom in"), .init("⌘−", "Zoom out")], gif: "pinch-zoom"),
+        HelpTopic(
+            id: "navigate-dates", title: "Move through dates",
+            summary: "Scroll or swipe to page through weeks and months.",
+            keywords: ["scroll", "swipe", "next", "previous", "page", "months", "weeks"],
+            blocks: [
+                .paragraph("Scroll (or two-finger swipe) to page through time at the current level: months in Year and Month view, weeks in Week view, days in Day view."),
+                .paragraph("With the keyboard, use ⌘← and ⌘→ to page backward and forward, and ⌘↑ / ⌘↓ to move between rows."),
+            ],
+            shortcuts: [.init("⌘←", "Previous period"), .init("⌘→", "Next period")]),
+        HelpTopic(
+            id: "today", title: "Jump to today",
+            summary: "The Today button (or ⌘T) returns to the current date.",
+            keywords: ["today", "now", "current date", "return"],
+            blocks: [
+                .paragraph("Click Today in the toolbar, or press ⌘T, to bring the current day back into view at whatever level you're on. Today is always marked so you can spot it at a glance."),
+            ],
+            shortcuts: [.init("⌘T", "Go to today")]),
+        HelpTopic(
+            id: "daily-dashboard", title: "The daily dashboard",
+            summary: "Day view pairs the timeline with a to-do and notes panel.",
+            keywords: ["dashboard", "day view", "todo", "notes", "panel", "notepad"],
+            blocks: [
+                .paragraph("In Day view, the panel beside the timeline is the day's dashboard. It has two tabs:"),
+                .bullets([
+                    "To-Do — every checkbox from the day's notes and its events, gathered in one list.",
+                    "Note — a free-form Markdown scratchpad for that day.",
+                ]),
+                .paragraph("Check items off directly in the To-Do tab; they stay in sync with the notes they came from."),
+            ]),
+    ])
+
+    // ─────────────────────────────────────────────────────────────────────────────────
+    // MARK: Events
+    // ─────────────────────────────────────────────────────────────────────────────────
+    static let events = HelpCategory(id: "events", title: "Events", symbol: "calendar", topics: [
+        HelpTopic(
+            id: "create-timed", title: "Create a timed event",
+            summary: "Drag down a day's timeline in Week or Day view.",
+            keywords: ["timed", "meeting", "appointment", "hourly", "create", "new"],
+            blocks: [
+                .steps([
+                    "Zoom to Week or Day view.",
+                    "Press on the start time in a day column and drag down to the end time.",
+                    "Release, type a title, and click away to save.",
+                ]),
+                .tip("Drag the top or bottom edge of an event later to change its start or end time."),
+            ],
+            shortcuts: [.init("⌘N", "New event at the cursor")], gif: "timed-week"),
+        HelpTopic(
+            id: "create-band", title: "Create a multi-day event (band)",
+            summary: "Drag across days in Year or Month view to make a bar.",
+            keywords: ["band", "multi-day", "all day", "range", "trip", "conference", "track", "lane"],
+            blocks: [
+                .paragraph("A band is a bar that spans several days on one of a month's track lanes — useful for trips, conferences, or focus blocks. A band shows where something sits in the month; it doesn't imply the event runs all day."),
+                .steps([
+                    "In Year or Month view, press on the first day of a lane.",
+                    "Drag sideways across the days it should cover.",
+                    "Release and give it a title.",
+                ]),
+            ], gif: "band-year"),
+        HelpTopic(
+            id: "edit-event", title: "Edit an event",
+            summary: "Double-click an event to open its editor drawer.",
+            keywords: ["edit", "drawer", "change", "title", "time", "color", "details"],
+            blocks: [
+                .paragraph("Double-click any event to open its drawer on the right. There you can change the title, date and time, color, tags, repeat rule, and notes. Changes save as you make them."),
+                .tip("A single click selects an event (and lets you type a new title); double-click opens the full drawer."),
+            ]),
+        HelpTopic(
+            id: "move-resize", title: "Move or resize an event",
+            summary: "Drag an event to move it; drag its edge to resize.",
+            keywords: ["move", "drag", "resize", "reschedule", "stretch"],
+            blocks: [
+                .bullets([
+                    "Move — drag the middle of an event to another time or day.",
+                    "Resize a timed event — drag its top or bottom edge.",
+                    "Resize a band — drag its left or right end to change the day range.",
+                ]),
+                .tip("Made a mistake? ⌘Z undoes the last move or resize."),
+            ]),
+        HelpTopic(
+            id: "delete-event", title: "Delete an event",
+            summary: "Select it and press Delete; confirm when asked.",
+            keywords: ["delete", "remove", "trash"],
+            blocks: [
+                .paragraph("Select an event and press Delete, or use the trash button in its drawer. Madocal asks you to confirm before removing it."),
+                .paragraph("For a repeating event, you can delete just one occurrence (a single skip) or the whole series — choose when prompted."),
+            ],
+            shortcuts: [.init("⌫", "Delete the selected event")]),
+        HelpTopic(
+            id: "recurring", title: "Repeat an event",
+            summary: "Set a repeat rule in the drawer — daily, weekly, and more.",
+            keywords: ["recurring", "repeat", "weekly", "daily", "series", "until", "recurrence"],
+            blocks: [
+                .paragraph("Open an event's drawer and set its Repeat rule under Configuration. You can repeat daily, on chosen weekdays, or on other schedules, and set an end date."),
+                .bullets([
+                    "Skip one date — delete that single occurrence; the rest of the series stays.",
+                    "Change the series — edit the event and the change applies to every occurrence.",
+                ]),
+            ]),
+    ])
+
+    // ─────────────────────────────────────────────────────────────────────────────────
+    // MARK: Deadlines
+    // ─────────────────────────────────────────────────────────────────────────────────
+    static let deadlines = HelpCategory(id: "deadlines", title: "Deadlines", symbol: "flag", topics: [
+        HelpTopic(
+            id: "add-deadline", title: "Add a deadline",
+            summary: "A deadline is a single due-moment, not a block of time.",
+            keywords: ["deadline", "due", "cfp", "submission", "moment"],
+            blocks: [
+                .paragraph("A deadline marks one exact moment something is due, rather than an event that occupies a span of time. Deadlines appear as a marked line on the timeline."),
+                .steps([
+                    "Zoom to Week or Day view and hover over a day's timeline.",
+                    "Click the “+” that appears near the day's edge to create a deadline there.",
+                    "Give it a title and set the exact due time in its drawer.",
+                ]),
+            ]),
+        HelpTopic(
+            id: "aoe", title: "Anywhere-on-Earth & time zones",
+            summary: "Give a deadline a time zone — including AOE — so it lands correctly.",
+            keywords: ["aoe", "anywhere on earth", "timezone", "time zone", "utc", "conference"],
+            blocks: [
+                .paragraph("Conference and paper deadlines are often stated as “Anywhere on Earth” (AOE) — 23:59 in the last time zone on Earth. A deadline can carry its own time zone so it shows at the right local moment for you."),
+                .tip("For a CFP that says AOE, set the deadline's time zone to AOE and its time to 23:59 on the due date."),
+            ]),
+    ])
+
+    // ─────────────────────────────────────────────────────────────────────────────────
+    // MARK: Organizing
+    // ─────────────────────────────────────────────────────────────────────────────────
+    static let organizing = HelpCategory(id: "organize", title: "Organizing", symbol: "tag", topics: [
+        HelpTopic(
+            id: "colors", title: "Color-code your events",
+            summary: "Pick a color in the drawer to group events by meaning.",
+            keywords: ["color", "colour", "palette", "category"],
+            blocks: [
+                .paragraph("Every event has a color you set from the swatches at the top of its drawer. Colors are personal — pick a consistent scheme (say, teaching in blue, research in purple) and your week reads at a glance."),
+                .tip("The assistant reuses your existing colors: ask it to add an event “like my other classes” and it matches the color you already use."),
+            ]),
+        HelpTopic(
+            id: "tags", title: "Tag your events",
+            summary: "Add tags in the drawer to label and find events.",
+            keywords: ["tags", "labels", "categorize", "hashtag"],
+            blocks: [
+                .paragraph("Add tags to an event under Configuration in its drawer. Tags are searchable — type a tag in the search bar (⌘F) to pull up everything you've labeled that way."),
+            ]),
+        HelpTopic(
+            id: "notes-todos", title: "Notes & to-do lists",
+            summary: "Every event and day holds Markdown notes with checkboxes.",
+            keywords: ["notes", "markdown", "todo", "to-do", "checkbox", "tasks", "priority", "due"],
+            blocks: [
+                .paragraph("Open an event's drawer (or a day's Note tab) and write in Markdown. A line beginning with a checkbox becomes a to-do that also appears in the day's To-Do list."),
+                .paragraph("To-do lines accept extra tokens after the text:"),
+                .bullets([
+                    "due:2026-07-01 — a due date (also accepts today, tomorrow, 3d, 5pm).",
+                    "p:!!! — a priority (more “!” means higher).",
+                    "#tag and @person — labels and people.",
+                ]),
+                .paragraph("Switch between the raw Markdown and the rendered preview with the pencil / eye buttons at the bottom of the editor."),
+            ], gif: "markdown-notes"),
+        HelpTopic(
+            id: "tracks-promote", title: "Tracks & promoting events",
+            summary: "Name a month's lanes, and mirror a deadline onto one.",
+            keywords: ["track", "lane", "promote", "gutter", "rename", "mirror"],
+            blocks: [
+                .paragraph("In Year and Month view each month has a few horizontal lanes (tracks). Click a lane's name in the left gutter to rename it — for example Teaching, Research, Service, Travel."),
+                .paragraph("A deadline or timed event can be “promoted” to a track so it also shows as a ghost bar on that lane — handy for seeing a submission date in the month overview without duplicating it. Set the promote lane in the event's drawer."),
+            ]),
+    ])
+
+    // ─────────────────────────────────────────────────────────────────────────────────
+    // MARK: The AI assistant
+    // ─────────────────────────────────────────────────────────────────────────────────
+    static let assistant = HelpCategory(id: "ai", title: "The AI Assistant", symbol: "wand.and.stars", topics: [
+        HelpTopic(
+            id: "assistant-intro", title: "Meet Madocal AI",
+            summary: "A chat assistant that can read and change your calendar.",
+            keywords: ["ai", "assistant", "chat", "madocal ai", "sparkles"],
+            blocks: [
+                .paragraph("Madocal AI is a chat panel that understands your calendar. Ask it questions in plain language and it can answer, or make the change for you."),
+                .paragraph("Open it from the sparkles button in the toolbar, or press ⌘I. Type a request and press Return."),
+            ],
+            shortcuts: [.init("⌘I", "Open the assistant")], gif: "ai-assistant"),
+        HelpTopic(
+            id: "assistant-use", title: "Ask the assistant to manage your calendar",
+            summary: "Create, edit, find, and plan — in words.",
+            keywords: ["create", "edit", "find", "schedule", "plan", "web search"],
+            blocks: [
+                .paragraph("Things you can ask:"),
+                .bullets([
+                    "“Add a coffee chat with Sam on Wednesday at 3pm.”",
+                    "“What's on my radar this week?”",
+                    "“Move my 1:1 to Friday morning.”",
+                    "“Add a to-do to submit the abstract, due next Monday.”",
+                    "“When is the NeurIPS deadline?” — it can look things up on the web.",
+                ]),
+                .paragraph("After it makes a change, the calendar jumps to show you the result."),
+            ]),
+        HelpTopic(
+            id: "assistant-safety", title: "How the assistant keeps things safe",
+            summary: "Edits are checked, and deletions always ask first.",
+            keywords: ["safety", "auditor", "confirm", "delete", "blocked", "permission"],
+            blocks: [
+                .paragraph("Every create or edit the assistant proposes is checked by a separate safety review before it's applied. If something is blocked, the assistant tells you why instead of doing it."),
+                .paragraph("Deletions are never automatic — the assistant queues them and you confirm in the chat before anything is removed. And ⌘Z undoes changes the assistant made, just like your own."),
+            ]),
+        HelpTopic(
+            id: "assistant-memory", title: "What the assistant remembers",
+            summary: "It saves durable preferences to reuse next time.",
+            keywords: ["memory", "remember", "preferences", "privacy"],
+            blocks: [
+                .paragraph("When you tell the assistant a lasting preference — a color convention, a default meeting length, a standing constraint — it can remember it so future sessions don't have to re-ask. It doesn't memorize one-off chatter."),
+                .paragraph("If a remembered fact is wrong, just correct the assistant and it updates or drops it."),
+            ]),
+        HelpTopic(
+            id: "assistant-models", title: "Choosing a model & API keys",
+            summary: "Pick the AI model; add keys in Settings ▸ API Keys.",
+            keywords: ["model", "api key", "keys", "gateway", "openai", "anthropic", "settings"],
+            blocks: [
+                .paragraph("Use the model menu at the top of the assistant window to choose which AI model answers you."),
+                .paragraph("The assistant needs an API key for its provider. Add yours in Settings ▸ API Keys (⌘,) — keys are stored securely in your Keychain and never leave your Mac except to call the service you chose."),
+            ],
+            shortcuts: [.init("⌘,", "Open Settings")]),
+    ])
+
+    // ─────────────────────────────────────────────────────────────────────────────────
+    // MARK: Syncing & importing
+    // ─────────────────────────────────────────────────────────────────────────────────
+    static let syncImport = HelpCategory(id: "sync", title: "Syncing & Importing", symbol: "arrow.triangle.2.circlepath", topics: [
+        HelpTopic(
+            id: "icloud", title: "iCloud sync",
+            summary: "Your calendar syncs across your Macs through iCloud.",
+            keywords: ["icloud", "sync", "cloudkit", "backup", "devices"],
+            blocks: [
+                .paragraph("When you're signed in to iCloud, Madocal keeps your events, deadlines, notes, and track names in sync across your Macs automatically. You can see the current status in Settings ▸ Account."),
+                .tip("Sync status and the time of the last sync also appear in the toolbar's status menu."),
+            ]),
+        HelpTopic(
+            id: "apple-calendar", title: "Show your Apple Calendar events",
+            summary: "Bring in events from macOS Calendar, read-only.",
+            keywords: ["apple calendar", "eventkit", "macos calendar", "import", "subscribe"],
+            blocks: [
+                .paragraph("Madocal can display events from the macOS Calendar app so everything sits in one place. Turn it on and pick which calendars to include in Settings ▸ Account."),
+                .paragraph("Imported events are read-only — edit them in Calendar.app — but you can still add your own notes, tags, and track placement to them here."),
+            ]),
+        HelpTopic(
+            id: "hidden-imported", title: "Hide or show imported events",
+            summary: "Declutter by hiding imported events you don't need.",
+            keywords: ["hide", "show", "imported", "hidden", "view menu", "declutter"],
+            blocks: [
+                .paragraph("You can hide individual imported events you don't want cluttering the view. To bring them back, turn on View ▸ Show Hidden Imported Events — hidden events reappear as dotted gray bars you can unhide."),
+            ]),
+        HelpTopic(
+            id: "ics", title: "Import an .ics file",
+            summary: "Add events from a standard calendar file.",
+            keywords: ["ics", "icalendar", "file", "import", "invite"],
+            blocks: [
+                .paragraph("Madocal can import a standard .ics calendar file, adding its events to yours. This is additive — it brings the new events in without touching what you already have."),
+                .tip("This is available from the File menu once it's enabled — see the note in Backing up & restoring."),
+            ]),
+        HelpTopic(
+            id: "backup", title: "Back up & restore",
+            summary: "Save everything to a .mdc file, or restore from one.",
+            keywords: ["backup", "restore", "export", "mdc", "archive", "save"],
+            blocks: [
+                .paragraph("Export a complete backup of your calendar — events, deadlines, notes, and track names — to a single .mdc file, and restore from it later or on another Mac."),
+                .paragraph("Restoring replaces your current data with the backup's contents; Madocal warns you first, and ⌘Z can undo it."),
+                .tip("Import and export live in the File menu. Note: in the current build the File menu isn't installed yet — this is a known gap we're wiring up."),
+            ]),
+    ])
+
+    // ─────────────────────────────────────────────────────────────────────────────────
+    // MARK: Keyboard & tips
+    // ─────────────────────────────────────────────────────────────────────────────────
+    static let keyboardTips = HelpCategory(id: "keys", title: "Keyboard & Tips", symbol: "keyboard", topics: [
+        HelpTopic(
+            id: "shortcuts", title: "Keyboard shortcuts",
+            summary: "Hold ⌘K to see the shortcuts for whatever you're doing.",
+            keywords: ["keyboard", "shortcuts", "keys", "guide", "cmd k", "hotkeys"],
+            blocks: [
+                .paragraph("Madocal is fully keyboard-drivable. Because the useful keys change with what's selected, hold ⌘K to pop up a live guide of exactly the shortcuts available right now."),
+                .paragraph("Some shortcuts that work almost everywhere:"),
+                .bullets([
+                    "⌘= / ⌘−  — zoom in / out",
+                    "⌘T  — go to today",
+                    "⌘F  — search",
+                    "⌘I  — open the assistant",
+                    "⌘Z / ⇧⌘Z  — undo / redo",
+                    "Arrow keys  — move the selection or cursor",
+                ]),
+                .tip("Open Help ▸ Keyboard Shortcuts to pin the guide open without holding ⌘K."),
+            ],
+            shortcuts: [.init("⌘K", "Hold for the live shortcut guide")]),
+        HelpTopic(
+            id: "search", title: "Search your calendar",
+            summary: "Press ⌘F to find events by name, tag, notes, or date.",
+            keywords: ["search", "find", "filter", "fuzzy", "lookup"],
+            blocks: [
+                .paragraph("Press ⌘F (or click the magnifying glass) and start typing. Search is fuzzy and looks across titles, tags, and notes, and it understands dates."),
+                .bullets([
+                    "Type several words to narrow down — each must match, e.g. coffee wed.",
+                    "Search by date concepts: jul, wednesday, 2026-09-01, or 8/1.",
+                    "Results favor what's near today, so an event years ago won't bury a nearby one.",
+                ]),
+                .paragraph("Use ↑ / ↓ to move through results and Return to jump to the selected event."),
+            ],
+            shortcuts: [.init("⌘F", "Search")]),
+        HelpTopic(
+            id: "undo", title: "Undo & redo",
+            summary: "⌘Z and ⇧⌘Z reverse almost anything.",
+            keywords: ["undo", "redo", "mistake", "revert"],
+            blocks: [
+                .paragraph("Nearly every change — creating, moving, resizing, editing, deleting, even an assistant's edit or a backup restore — can be undone with ⌘Z and redone with ⇧⌘Z."),
+            ],
+            shortcuts: [.init("⌘Z", "Undo"), .init("⇧⌘Z", "Redo")]),
+        HelpTopic(
+            id: "appearance", title: "Light, dark & appearance",
+            summary: "Choose Light, Dark, or Automatic in Settings.",
+            keywords: ["appearance", "theme", "dark mode", "light mode", "automatic"],
+            blocks: [
+                .paragraph("Set how Madocal looks in Settings ▸ Appearance (⌘,): Light, Dark, or Automatic to follow the system."),
+            ],
+            shortcuts: [.init("⌘,", "Open Settings")]),
+        HelpTopic(
+            id: "timezones", title: "Show a second time zone",
+            summary: "Display an alternate time zone alongside your own.",
+            keywords: ["timezone", "time zone", "second", "alternate", "travel", "utc"],
+            blocks: [
+                .paragraph("If you work across time zones, Madocal can show an alternate time zone next to your local one on the timeline, so you can read both at once."),
+            ]),
+    ])
+}

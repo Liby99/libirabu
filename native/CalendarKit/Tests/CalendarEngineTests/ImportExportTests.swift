@@ -6,9 +6,9 @@ import CalendarGeometry
 final class ImportExportTests: XCTestCase {
 
     private func sampleState() -> PersistedState {
-        let events = [TimedEvent(id: "t1", year: 2026, month: 6, day: 20, startHour: 9, endHour: 10.5, title: "Standup", color: "blue")]
+        let events = [TimedEvent(id: "t1", year: 2026, month: 6, day: 20, startHour: 9, endHour: 10.5, title: "Standup", color: "blue", anchorTz: "America/New_York")]
         let bands = [BandEvent(id: "b1", year: 2026, month: 6, track: 2, startDay: 20, endDay: 22, title: "Conf", color: "green")]
-        let deadlines = [Deadline(id: "d1", year: 2026, month: 6, day: 25, hour: 17, title: "CFP", color: "red", originTz: "AOE")]
+        let deadlines = [Deadline(id: "d1", year: 2026, month: 6, day: 25, hour: 17, title: "CFP", color: "red", originTz: "AOE", anchorTz: "AOE")]
         let rich: [String: RichFields] = [
             "t1": RichFields(notes: "hello", tags: ["work"], source: "manual"),
             "b1": RichFields(tags: ["imported"], source: "ical", hidden: true),
@@ -26,6 +26,8 @@ final class ImportExportTests: XCTestCase {
         XCTAssertEqual(back.events, s.events)
         XCTAssertEqual(back.bands, s.bands)
         XCTAssertEqual(back.deadlines, s.deadlines)
+        XCTAssertEqual(back.events.first?.anchorTz, "America/New_York")   // timezone anchor survives the .mdc round-trip
+        XCTAssertEqual(back.deadlines.first?.anchorTz, "AOE")
         XCTAssertEqual(back.dailyNotes, s.dailyNotes)
         XCTAssertEqual(back.rich?["t1"]?.notes, "hello")
         XCTAssertEqual(back.rich?["t1"]?.tags, ["work"])

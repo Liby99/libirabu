@@ -298,6 +298,9 @@ enum AppKeyState: Equatable {
             case .promoteLane:
                 b.append(KeyBinding(.left, "Prev lane") { ui.postDrawer(.left) })
                 b.append(KeyBinding(.right, "Next lane") { ui.postDrawer(.right) })
+            case .cfgTimezone:
+                b.append(KeyBinding(.left, "Prev zone") { ui.postDrawer(.left) })
+                b.append(KeyBinding(.right, "Next zone") { ui.postDrawer(.right) })
             case .notes:
                 b.append(KeyBinding(.enter, "Edit notes") { ui.postDrawer(.activate) })
             case .noteScope:

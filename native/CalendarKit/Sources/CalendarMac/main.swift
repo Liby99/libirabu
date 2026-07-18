@@ -13,6 +13,7 @@ import CalendarEngine
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var window: NSWindow!
     var settingsWindow: NSWindow?
+    var helpWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -31,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             backing: .buffered,
             defer: false
         )
-        window.title = "Calendar"
+        window.title = "Madocal"
         // Keep the window alive after Cmd-W so it can be reopened (see reopen handler).
         window.isReleasedWhenClosed = false
         // contentView (not contentViewController): a GeometryReader-based SwiftUI view
@@ -44,6 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         if demo { exportContentRect() }
+        // Dev/screenshot affordance: open the Help window on launch (used to capture Help GIFs/screens).
+        if ProcessInfo.processInfo.environment["CC_OPEN_HELP"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.showHelp(nil) }
+        }
     }
 
     /// Write the window's CONTENT area as a top-left-origin screen rect (points) so the recording script can
@@ -88,14 +93,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // Standard menu bar so Cmd-Q / Cmd-W / Cmd-M work.
     private func buildMenu() {
-        let name = "Calendar"
+        let name = "Madocal"
         let main = NSMenu()
 
         let appItem = NSMenuItem()
         main.addItem(appItem)
         let appMenu = NSMenu()
         appItem.submenu = appMenu
-        appMenu.addItem(withTitle: "About \(name)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let about = appMenu.addItem(withTitle: "About \(name)", action: #selector(showAbout(_:)), keyEquivalent: "")
+        about.target = self
         appMenu.addItem(.separator())
         // ⌘, — target self explicitly: the app delegate isn't in the responder chain by default.
         let settings = appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
@@ -141,12 +147,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         main.addItem(helpItem)
         let helpMenu = NSMenu(title: "Help")
         helpItem.submenu = helpMenu
-        let tut = helpMenu.addItem(withTitle: "Tutorial", action: #selector(showTutorial(_:)), keyEquivalent: "")
+        NSApp.helpMenu = helpMenu   // marks this as THE Help menu (rightmost; system may add its search field)
+        // Apple HIG: "<App> Help" is the first item and opens help to its first page; extras go below it.
+        let help = helpMenu.addItem(withTitle: "\(name) Help", action: #selector(showHelp(_:)), keyEquivalent: "?")
+        help.target = self
+        helpMenu.addItem(.separator())
+        let tut = helpMenu.addItem(withTitle: "Welcome to \(name)", action: #selector(showTutorial(_:)), keyEquivalent: "")
         tut.target = self
         let ks = helpMenu.addItem(withTitle: "Keyboard Shortcuts", action: #selector(showKeyboardShortcuts(_:)), keyEquivalent: "")
         ks.target = self
 
         NSApp.mainMenu = main
+    }
+
+    /// Help ▸ Madocal Help — open (or focus) the in-app Help browser window.
+    @objc func showHelp(_ sender: Any?) {
+        if helpWindow == nil {
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            w.title = "Madocal Help"
+            w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: HelpView())
+            w.center()
+            helpWindow = w
+        }
+        helpWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// A richer standard About panel (the SPM binary has no Info.plist strings to populate it).
+    @objc func showAbout(_ sender: Any?) {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let credits = NSAttributedString(
+            string: "A zoomable calendar that keeps your schedule, notes, and to-dos together — with a built-in AI assistant.",
+            attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "Madocal",
+            .applicationVersion: version,
+            .credits: credits,
+        ])
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc func showTutorial(_ sender: Any?) { NotificationCenter.default.post(name: .showTutorial, object: nil) }

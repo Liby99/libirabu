@@ -73,7 +73,8 @@ public enum MDCBackup {
     private static func itemRow(timed e: TimedEvent, rich: RichFields?, at now: Date) -> [String: Any] {
         base(id: e.id, kind: "timed", title: e.title, color: e.color, rich: rich, at: now)
             .merging(["start": dateVal(isoUTC(e.year, e.month, e.day, Double(e.startHour))),
-                      "end":   dateVal(isoUTC(e.year, e.month, e.day, Double(e.endHour)))]) { a, _ in a }
+                      "end":   dateVal(isoUTC(e.year, e.month, e.day, Double(e.endHour))),
+                      "anchorTz": e.anchorTz as Any? ?? NSNull()]) { a, _ in a }
     }
     private static func itemRow(band b: BandEvent, rich: RichFields?, at now: Date) -> [String: Any] {
         base(id: b.id, kind: "band", title: b.title, color: b.color, rich: rich, at: now)
@@ -85,7 +86,8 @@ public enum MDCBackup {
         base(id: d.id, kind: "deadline", title: d.title, color: d.color, rich: rich, at: now)
             .merging(["start": dateVal(isoUTC(d.year, d.month, d.day, Double(d.hour))),
                       "end":   dateVal(isoUTC(d.year, d.month, d.day, Double(d.hour))),
-                      "originTz": d.originTz ?? (rich?.originTz as Any? ?? NSNull())]) { a, _ in a }
+                      "originTz": d.originTz ?? (rich?.originTz as Any? ?? NSNull()),
+                      "anchorTz": d.anchorTz as Any? ?? NSNull()]) { a, _ in a }
     }
 
     private static func base(id: String, kind: String, title: String, color: String,
@@ -129,12 +131,14 @@ public enum MDCBackup {
                                        startDay: sd, endDay: max(sd, ed), title: title, color: color))
             case "deadline":
                 deadlines.append(Deadline(id: id, year: sy, month: sm, day: sd, hour: hourInto(start, dayOf: start),
-                                          title: title, color: color, originTz: row["originTz"] as? String))
+                                          title: title, color: color, originTz: row["originTz"] as? String,
+                                          anchorTz: (row["anchorTz"] as? String) ?? DeadlineTZ.concrete("auto")))
             default:   // timed
                 let end = dateFrom(row["end"]) ?? start
                 events.append(TimedEvent(id: id, year: sy, month: sm, day: sd,
                                          startHour: hourInto(start, dayOf: start),
-                                         endHour: hourInto(end, dayOf: start), title: title, color: color))
+                                         endHour: hourInto(end, dayOf: start), title: title, color: color,
+                                         anchorTz: (row["anchorTz"] as? String) ?? DeadlineTZ.concrete("auto")))
             }
             rich[id] = richFrom(row)
         }

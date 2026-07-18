@@ -227,6 +227,17 @@ public func fmtHourRange(_ s: CGFloat, _ e: CGFloat) -> String {
     return "\(hhmm(s)) – \(hhmm(e))"
 }
 
+/// The whole event's range re-expressed in its ANCHOR zone, as "HH:MM – HH:MM (ABBR)" — the secondary
+/// line shown on an event whose anchor differs from the current view (main) tz. `e` is a DISPLAY event
+/// (main-tz wall-clock); we convert back to the anchor zone. nil when the anchor matches the view.
+public func anchorRangeLabel(_ e: TimedEvent, mainTz: String) -> String? {
+    guard let anchor = e.anchorTz else { return nil }
+    let base = DeadlineTZ.instant(e.year, e.month, e.day, e.startHour)
+    guard !DeadlineTZ.sameOffset(anchor, mainTz, at: base) else { return nil }
+    let w = DeadlineTZ.convertWall(e.year, e.month, e.day, e.startHour, from: mainTz, to: anchor)
+    return "\(fmtHourRange(w.hour, w.hour + (e.endHour - e.startHour))) (\(DeadlineTZ.shortLabel(anchor, at: base)))"
+}
+
 /// Pointer → focus-relative day column + fractional hour, accounting for scroll.
 public func pointToSlot(_ px: CGFloat, _ py: CGFloat, _ tl: TimelineInfo) -> (dom: Int?, hourFrac: CGFloat) {
     // floor (not Int-truncation, which rounds toward zero) so leading spillover days (negative
