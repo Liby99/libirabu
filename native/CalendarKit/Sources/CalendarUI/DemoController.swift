@@ -71,7 +71,11 @@ public final class DemoController {
         case "promote": await scenePromote()
         case "daily-dashboard": await sceneDailyDashboard()
         case "bench-year-scroll": await sceneBenchYearScroll()
-        default: await sceneTimedWeek()
+        case "bench-year-fling": await sceneBenchYearFling()
+        case "bench-month-swipe": await sceneBenchMonthSwipe()
+        default:
+            NSLog("DemoController: UNKNOWN scene '%@' — falling back to timed-week (check the CC_DEMO value)", scene)
+            await sceneTimedWeek()
         }
         // Signal the scene's exact end so the recorder can trim the GIF to length (screencapture -V can't be
         // stopped early, so it over-records and we cut back to here). Then idle on the final frame.
@@ -414,40 +418,51 @@ public final class DemoController {
 
     // ── Help-GIF scenes (docs/help-gif-suggestions.md) ──────────────────────────────────────────
     /// MOVE then RESIZE a timed event in week view: drag its body to a later slot, then drag its bottom
-    /// edge to lengthen it — both through the real pointer paths, so previews track live.
+    /// edge to lengthen it — both through the real pointer paths, so previews track live. The target is
+    /// aimed by its LIVE on-screen rect (the week's scroll follows the clock, so fixed fractions break).
     private func sceneMoveResize() async {
         guard let engine else { return }
-        writeCrop(x: 0.09, y: 0.24, w: 0.56, h: 0.42)
+        // Full-window recording (no crop).
         engine.demoClearEvents()
         seedWeek()
+        let target = engine.demoAddTimed(month: 6, day: 14, startHour: 10.25, endHour: 11.75,
+                                         title: "Client call", color: "purple")
         engine.jumpToDay(engine.year, 6, 15)
         try? await pause(2.2)
         engine.cmdZoomOut()
         try? await pause(1.6)
+        engine.demoSelect(target)
+        engine.demoRevealSelected()            // scroll the timeline so the target is comfortably visible
+        try? await pause(0.9)
         signalReady()
         await waitForGo()
-        try? await pause(0.4)
+        try? await pause(0.5)
 
-        // MOVE: grab "Design review" (Tue 12:30–14:00) and drag it ~1.5h later.
-        let x = size.width * 0.47                     // Tuesday column
-        let perHour = size.height * 0.0615            // ≈ one hour of timeline in view fractions
-        let grab = CGPoint(x: x, y: size.height * 0.40 + perHour * 1.75)   // mid-event (≈13:15)
-        cursor = CGPoint(x: grab.x - 50, y: grab.y - 40)
+        // MOVE: grab the event's centre and drag it ~2 hours later.
+        guard let r0 = engine.demoEventRectView(target) else { return }
+        let perHour = r0.height / 1.5                       // the event spans 1.5h → px per hour
+        let grab = CGPoint(x: r0.midX, y: r0.midY)
+        cursor = CGPoint(x: grab.x - 60, y: grab.y - 46)
         await move(to: grab, over: 0.7)
         pressed = true
         engine.demoPointerDown(atView: grab)
-        await drag(from: grab, to: CGPoint(x: x, y: grab.y + perHour * 1.5), over: 1.1) { p in engine.demoPointerDrag(atView: p) }
-        engine.demoPointerUp(atView: CGPoint(x: x, y: grab.y + perHour * 1.5))
+        await drag(from: grab, to: CGPoint(x: grab.x, y: grab.y + perHour * 2), over: 1.2) { p in
+            engine.demoPointerDrag(atView: p)
+        }
+        engine.demoPointerUp(atView: CGPoint(x: grab.x, y: grab.y + perHour * 2))
         pressed = false
-        try? await pause(0.9)
+        try? await pause(1.0)
 
-        // RESIZE: grab the moved event's bottom edge (now ≈15:30) and pull it down an hour.
-        let edge = CGPoint(x: x, y: size.height * 0.40 + perHour * 4.0)
+        // RESIZE: re-read the moved event's rect, grab its bottom edge, pull it an hour longer.
+        guard let r1 = engine.demoEventRectView(target) else { return }
+        let edge = CGPoint(x: r1.midX, y: r1.maxY - 2)
         await move(to: edge, over: 0.7)
         pressed = true
         engine.demoPointerDown(atView: edge)
-        await drag(from: edge, to: CGPoint(x: x, y: edge.y + perHour), over: 1.0) { p in engine.demoPointerDrag(atView: p) }
-        engine.demoPointerUp(atView: CGPoint(x: x, y: edge.y + perHour))
+        await drag(from: edge, to: CGPoint(x: edge.x, y: edge.y + perHour), over: 1.0) { p in
+            engine.demoPointerDrag(atView: p)
+        }
+        engine.demoPointerUp(atView: CGPoint(x: edge.x, y: edge.y + perHour))
         pressed = false
         try? await pause(1.4)
     }
@@ -691,6 +706,68 @@ public final class DemoController {
         benchActive = false
         writeBenchResults()
     }
+
+    /// Fling-speed year scroll through the REAL scroll-mirror path (`setYearScroll`, the same
+    /// call the NSScrollView driver makes per event) — much faster than the pace-locked glide:
+    /// the full year sweeps in ~1s each way, with a per-frame hover like a real trackpad.
+    private func sceneBenchYearFling() async {
+        guard let engine else { return }
+        try? await pause(1.2)
+        engine.demoGoToYear(centerMonth: 0)
+        try? await pause(0.8)
+        benchFrames.removeAll()
+        benchActive = true
+        let maxY = yearMaxScroll(engine.viewport)
+        var hoverStep = 0
+        for (from, to) in [(CGFloat(0), maxY), (maxY, CGFloat(0))] { // fast down, fast up
+            engine.beginYearScrollGesture()
+            let steps = 120 // ~1s sweep at 120Hz — a heavy fling's speed
+            for i in 0 ... steps {
+                let t = CGFloat(i) / CGFloat(steps)
+                engine.setYearScroll(from + (to - from) * t)
+                hoverStep += 1
+                let x = size.width * (0.25 + 0.5 * abs(sin(Double(hoverStep) * 0.11)))
+                engine.demoHover(atView: CGPoint(x: x, y: size.height * 0.5))
+                engine.wake()
+                try? await pause(0.008)
+            }
+            engine.endYearScrollGesture()
+            try? await pause(0.25)
+        }
+        benchActive = false
+        writeBenchResults()
+    }
+
+    /// Month-view page turns across the DENSE months (Jun→Sep and back): drives the pager mirror
+    /// (`setMonthProgress`) through full page-turn ramps, so `monthAnim` is live — the path that
+    /// renders BOTH months' grids + event overlays every frame. This is the "swipe between
+    /// monthly views" cost the year-scroll scenes never measure.
+    private func sceneBenchMonthSwipe() async {
+        guard let engine else { return }
+        try? await pause(1.2)
+        engine.setView(zoom: "month", focusedMonth: 5) // June
+        try? await pause(0.8)
+        benchFrames.removeAll()
+        benchActive = true
+        let pageH = size.height
+        for (from, to) in [(5, 6), (6, 7), (7, 8), (8, 7), (7, 6)] {
+            engine.beginMonthGesture()
+            let steps = 40
+            for i in 0 ... steps {
+                let t = easeOutQuad(CGFloat(i) / CGFloat(steps))
+                let y = (CGFloat(from) + (CGFloat(to - from)) * t) * pageH
+                engine.setMonthProgress(y, pageH: pageH)
+                engine.wake()
+                try? await pause(0.008)
+            }
+            engine.endMonthGesture()
+            try? await pause(0.15)
+        }
+        benchActive = false
+        writeBenchResults()
+    }
+
+    private func easeOutQuad(_ t: CGFloat) -> CGFloat { 1 - (1 - t) * (1 - t) }
 
     /// Frame-time stats over the recorded ticks → $CC_DEMO_DATADIR/bench.json.
     private func writeBenchResults() {

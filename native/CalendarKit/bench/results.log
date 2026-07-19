@@ -3,3 +3,11 @@
 2026-07-18 19:19 [release/display/1440x840/hover=0] avg 120.0 fps | p50 8.33 ms | p95 8.33 ms | max 8.3 ms | hitches(>33ms) 0 | 659 frames / 5.48 s
 2026-07-18 19:21 [debug/display/3400x2000/hover=1] avg 117.9 fps | p50 8.33 ms | p95 8.33 ms | max 16.7 ms | hitches(>33ms) 0 | 449 frames / 3.80 s
 2026-07-18 19:21 [release/display/3400x2000/hover=1] avg 119.2 fps | p50 8.33 ms | p95 8.33 ms | max 16.7 ms | hitches(>33ms) 0 | 455 frames / 3.81 s
+2026-07-18 23:46 [release/display/1440x840/hover=0] avg 120.0 fps | p50 8.33 ms | p95 8.33 ms | max 8.3 ms | hitches(>33ms) 0 | 659 frames / 5.48 s
+2026-07-18 23:46 [release/full/1440x840/hover=0] avg 119.6 fps | p50 8.33 ms | p95 8.33 ms | max 16.7 ms | hitches(>33ms) 0 | 656 frames / 5.47 s
+2026-07-18 23:48 [bench-year-fling/release/full/1440x840/hover=0] avg 119.3 fps | p50 8.33 ms | p95 8.33 ms | max 16.7 ms | hitches(>33ms) 0 | 484 frames / 4.05 s
+2026-07-18 23:48 [bench-month-swipe/release/full/1440x840/hover=0] avg 92.5 fps | p50 8.33 ms | p95 16.67 ms | max 50.0 ms | hitches(>33ms) 6 | 464 frames / 5.01 s
+2026-07-18 23:48 [bench-month-swipe/release/full/3400x2000/hover=0] avg 102.2 fps | p50 8.33 ms | p95 16.67 ms | max 50.0 ms | hitches(>33ms) 4 | 482 frames / 4.71 s
+2026-07-18 23:48 [bench-year-fling/release/full/3400x2000/hover=0] avg 114.4 fps | p50 8.33 ms | p95 8.33 ms | max 16.7 ms | hitches(>33ms) 0 | 672 frames / 5.87 s
+2026-07-18 23:49 [bench-month-swipe/debug/full/1440x840/hover=0] avg 95.0 fps | p50 8.33 ms | p95 16.67 ms | max 50.0 ms | hitches(>33ms) 6 | 490 frames / 5.15 s
+2026-07-18 23:49 [bench-year-fling/debug/full/1440x840/hover=0] avg 114.0 fps | p50 8.33 ms | p95 8.33 ms | max 208.3 ms | hitches(>33ms) 1 | 513 frames / 4.49 s

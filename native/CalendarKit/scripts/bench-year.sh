@@ -14,6 +14,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-release}"
+SCENE="${SCENE:-bench-year-scroll}"   # bench-year-scroll | bench-year-fling | bench-month-swipe
 TMP="$(mktemp -d /tmp/cc-bench.XXXXXX)"
 BIN=".build/$CONFIG/CalendarMac"
 
@@ -28,7 +29,7 @@ case "${PAYLOAD:-display}" in
 esac
 echo "Launching bench scene (throwaway store at $TMP; payload=${PAYLOAD:-display} window=${WINDOW:-default} hover=${HOVER:-0})…"
 # `env` so the optional ${…:+VAR=val} expansions are still parsed as environment assignments.
-env CC_DEMO=bench-year-scroll CC_DEMO_DATADIR="$TMP" \
+env CC_DEMO="$SCENE" CC_DEMO_DATADIR="$TMP" \
   ${WINDOW:+CC_WINDOW="$WINDOW"} ${HOVER:+CC_BENCH_HOVER=1} "$BIN" &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
@@ -38,13 +39,13 @@ for _ in $(seq 1 300); do [ -f "$TMP/bench.json" ] && break; sleep 0.2; done
 [ -f "$TMP/bench.json" ] || { echo "bench never produced results"; exit 1; }
 sleep 0.2
 
-python3 - "$TMP/bench.json" "$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}" <<'PY'
+python3 - "$TMP/bench.json" "$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}" <<'PY'
 import json, sys, datetime
 r = json.load(open(sys.argv[1]))
 line = (f"{datetime.datetime.now():%Y-%m-%d %H:%M} [{sys.argv[2]}] "
         f"avg {r['avg_fps']:.1f} fps | p50 {r['frame_ms_p50']:.2f} ms | p95 {r['frame_ms_p95']:.2f} ms | "
         f"max {r['frame_ms_max']:.1f} ms | hitches(>33ms) {r['hitches_over_33ms']} | "
         f"{r['frames']} frames / {r['seconds']:.2f} s")
-print("\n== year-scroll benchmark ==\n" + line)
+print("\n== bench ==\n" + line)
 open("bench/results.log", "a").write(line + "\n")
 PY
