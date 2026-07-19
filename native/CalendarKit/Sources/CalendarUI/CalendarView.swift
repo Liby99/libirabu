@@ -1,9 +1,9 @@
 // The calendar surface: a per-frame Canvas driven by TimelineView(.animation),
 // with an AppKit input bridge overlay for scroll-wheel / pinch / click / hover.
 
-import SwiftUI
-import CalendarGeometry
 import CalendarEngine
+import CalendarGeometry
+import SwiftUI
 
 public struct CalendarView: View {
     @State private var engine = CalendarEngine()
@@ -13,26 +13,26 @@ public struct CalendarView: View {
     @State private var weekBridge = WeekPagerBridge()
     @State private var dayBridge = DayPagerBridge()
     @State private var dashCarousel = DashboardCarousel()
-    @State private var dashAnim = DashCarouselAnim()           // per-frame carousel state for the native tabs
-    @State private var gestureForwarder = GestureForwarder()   // dashboard → catcher (horiz scroll + pinch)
-    @State private var dashFrac: CGFloat = 0.45   // mirrors engine.daily.frac; updated live on resize
-    @State private var dashTab: DashTab = .todo   // dashboard TODO/NOTE tab
-    @State private var demo = DemoController()    // scripted GIF-recording cursor + scenes (CC_DEMO mode)
+    @State private var dashAnim = DashCarouselAnim() // per-frame carousel state for the native tabs
+    @State private var gestureForwarder = GestureForwarder() // dashboard → catcher (horiz scroll + pinch)
+    @State private var dashFrac: CGFloat = 0.45 // mirrors engine.daily.frac; updated live on resize
+    @State private var dashTab: DashTab = .todo // dashboard TODO/NOTE tab
+    @State private var demo = DemoController() // scripted GIF-recording cursor + scenes (CC_DEMO mode)
     @State private var noteMode: NotesMode = .edit // daily-note edit/preview (native toggle mirrors JS)
-    @State private var search = SearchState()      // toolbar event search (⌘F / magnifyingglass)
-    @State private var searchAnchor: CGPoint = .zero   // content stack's window-space origin (for dropdown alignment)
-    @State private var searchCloseWork: DispatchWorkItem?   // pending "unmount the bar after it collapses"
-    // Global Performance Mode: render events as flat tinted fills instead of Liquid Glass
-    // (glass is one GPU pass per sticker). Persisted; defaults on for now.
+    @State private var search = SearchState() // toolbar event search (⌘F / magnifyingglass)
+    @State private var searchAnchor: CGPoint = .zero // content stack's window-space origin (for dropdown alignment)
+    @State private var searchCloseWork: DispatchWorkItem? // pending "unmount the bar after it collapses"
+    /// Global Performance Mode: render events as flat tinted fills instead of Liquid Glass
+    /// (glass is one GPU pass per sticker). Persisted; defaults on for now.
     @AppStorage("cc.performanceMode") private var perfMode = true
     // View ▸ Show Hidden Imported Events. @AppStorage tracks the same UserDefaults key the menu toggles;
     // the onChange below repaints the calendar when it flips (from either app target's menu).
     @AppStorage(PrefKeys.showHiddenImported) private var showHiddenImported = false
-    @AppStorage(PrefKeys.mainTz) private var mainTzPref = "auto"   // View ▸ Current Timezone
-    @AppStorage(PrefKeys.altTz) private var altTzPref = "none"     // View ▸ Alternative Timezone
-    @AppStorage("cc.tutorial.seen") private var tutorialSeen = false   // auto-show the onboarding carousel once
+    @AppStorage(PrefKeys.mainTz) private var mainTzPref = "auto" // View ▸ Current Timezone
+    @AppStorage(PrefKeys.altTz) private var altTzPref = "none" // View ▸ Alternative Timezone
+    @AppStorage("cc.tutorial.seen") private var tutorialSeen = false // auto-show the onboarding carousel once
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.openWindow) private var openWindow    // opens the standalone Calendar AI window
+    @Environment(\.openWindow) private var openWindow // opens the standalone Calendar AI window
     // The quick-ask callout's OWN assistant session (app-level; independent of the standalone
     // window's session, sharing only the conversation store). nil (dev shell) → window only.
     private let assistant: AssistantState?
@@ -55,7 +55,9 @@ public struct CalendarView: View {
     /// torn down. `gestureForwarder.catcher` is the live CatcherView (set by the InputCatcher).
     private func refocusCatcher() {
         DispatchQueue.main.async {
-            if let c = gestureForwarder.catcher { c.window?.makeFirstResponder(c) }
+            if let c = gestureForwarder.catcher {
+                c.window?.makeFirstResponder(c)
+            }
         }
     }
 
@@ -109,7 +111,14 @@ public struct CalendarView: View {
         ic.onDeleteDialogKey = { handleDeleteDialogKey($0) }
         ic.onRequestDelete = {
             if let t = engine.deleteTargetForSelection() {
-                ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring, imported: t.imported, alreadyHidden: t.alreadyHidden, kind: engine.kind(of: t.id) ?? .timed)
+                ui.requestDelete(
+                    id: t.id,
+                    occKey: t.occKey,
+                    recurring: t.recurring,
+                    imported: t.imported,
+                    alreadyHidden: t.alreadyHidden,
+                    kind: engine.kind(of: t.id) ?? .timed
+                )
             }
         }
         ic.isTutorialUp = { ui.showTutorial }
@@ -117,78 +126,110 @@ public struct CalendarView: View {
         return ic
     }
 
-    // ── Delete-confirm dialog ─────────────────────────────────────────────────────
+    /// ── Delete-confirm dialog ─────────────────────────────────────────────────────
     /// Carry out a chosen scope, then dismiss the dialog (and the drawer, on an actual delete).
     private func performDelete(_ choice: DeleteChoice) {
         guard let pd = ui.pendingDelete else { return }
         switch choice {
-        case .cancel:        break
-        case .thisEvent:     engine.deleteOccurrence(pd.id, pd.occKey)
+        case .cancel: break
+        case .thisEvent: engine.deleteOccurrence(pd.id, pd.occKey)
         case .thisAndFuture: engine.deleteFuture(pd.id, pd.occKey)
-        case .deleteAll:     engine.remove(pd.id)
-        case .hide:          engine.hideImportedSeries(pd.id)   // imported → hide (can't truly delete)
+        case .deleteAll: engine.remove(pd.id)
+        case .hide: engine.hideImportedSeries(pd.id) // imported → hide (can't truly delete)
         }
         ui.pendingDelete = nil
-        if !choice.isCancel { ui.openEventId = nil }   // event gone → close its drawer if open
-        refocusCatcher()                               // keys go back to the calendar
+        if !choice.isCancel {
+            ui.openEventId = nil
+        } // event gone → close its drawer if open
+        refocusCatcher() // keys go back to the calendar
         engine.wake()
     }
+
     /// The key monitor's ←/→/Enter/Esc while the dialog is up.
     private func handleDeleteDialogKey(_ key: DeleteDialogKey) {
         // Informational notice: any Enter/Esc dismisses.
         if ui.notice != nil {
-            if key == .confirm || key == .cancel { ui.notice = nil; engine.wake() }
+            if key == .confirm || key == .cancel {
+                ui.notice = nil; engine.wake()
+            }
             return
         }
         // Batch-delete confirm (multi-selection): Enter deletes, Esc cancels.
         if ui.pendingBatchDelete != nil {
             switch key {
             case .confirm: engine.performBatchDelete(); ui.pendingBatchDelete = nil
-            case .cancel:  ui.pendingBatchDelete = nil
+            case .cancel: ui.pendingBatchDelete = nil
             case .left, .right: break
             }
             engine.wake(); return
         }
         guard let pd = ui.pendingDelete else { return }
         switch key {
-        case .left:    ui.moveDeleteFocus(-1)
-        case .right:   ui.moveDeleteFocus(1)
-        case .cancel:  performDelete(.cancel)
+        case .left: ui.moveDeleteFocus(-1)
+        case .right: ui.moveDeleteFocus(1)
+        case .cancel: performDelete(.cancel)
         case .confirm: performDelete(pd.choices[pd.focus ?? pd.primaryIndex])
         }
         engine.wake()
     }
+
     /// One-time wiring on the calendar's first appearance. Extracted from `body` so the view's long
     /// modifier chain stays within the Swift type-checker's budget.
     private func setupOnAppear(size: CGSize) {
-        WindowBeepSilencer.installOnce()   // stop the window beeping on keys the calendar leaves unhandled
-        if CalendarEngine.isDemoMode { demo.startIfDemo(engine: engine, size: size) }   // GIF recording session
-        else if !tutorialSeen { tutorialSeen = true; ui.tutorialIndex = 0; ui.showTutorial = true }   // first launch
+        WindowBeepSilencer.installOnce() // stop the window beeping on keys the calendar leaves unhandled
+        if CalendarEngine.isDemoMode {
+            demo.startIfDemo(engine: engine, size: size)
+        } // GIF recording session
+        else if !tutorialSeen {
+            tutorialSeen = true; ui.tutorialIndex = 0; ui.showTutorial = true
+        } // first launch
         engine.setViewport(size)
         dashFrac = engine.daily.frac
         engine.onEditBand = { id, rect in engine.bandEditing = true; ui.editingBand = BandEdit(id: id, rect: rect) }
         engine.onEditTimed = { id, rect in engine.timedEditing = true; ui.editingTimed = TimedEdit(id: id, rect: rect) }
-        engine.onEditTrackName = { m, t, rect in engine.trackEditing = true; ui.editingTrack = TrackEdit(month: m, track: t, rect: rect) }
+        engine.onEditTrackName = { m, t, rect in engine.trackEditing = true; ui.editingTrack = TrackEdit(
+            month: m,
+            track: t,
+            rect: rect
+        ) }
         engine.onRequestOpenDrawer = { id, selectTitle in ui.openEventId = id; ui.selectTitleOnOpen = selectTitle }
         // An external data change removed the item a drawer / delete-dialog / inline editor was showing
         // (e.g. deleted in Apple Calendar, then re-imported on foreground) → dismiss it.
         engine.onExternalDataChange = { [engine] in
-            if let id = ui.openEventId, !engine.itemExists(id) { ui.openEventId = nil }
-            if let pd = ui.pendingDelete, !engine.itemExists(pd.id) { ui.pendingDelete = nil; engine.inputModalUp = false }
-            if let te = ui.editingTimed, !engine.itemExists(sourceId(of: te.id)) { ui.editingTimed = nil; engine.timedEditing = false }
-            if let be = ui.editingBand, !engine.itemExists(sourceId(of: be.id)) { ui.editingBand = nil; engine.bandEditing = false }
+            if let id = ui.openEventId, !engine.itemExists(id) {
+                ui.openEventId = nil
+            }
+            if let pd = ui.pendingDelete,
+               !engine.itemExists(pd.id) {
+                ui.pendingDelete = nil; engine.inputModalUp = false
+            }
+            if let te = ui.editingTimed,
+               !engine.itemExists(sourceId(of: te.id)) {
+                ui.editingTimed = nil; engine.timedEditing = false
+            }
+            if let be = ui.editingBand,
+               !engine.itemExists(sourceId(of: be.id)) {
+                ui.editingBand = nil; engine.bandEditing = false
+            }
         }
         // Day-view dashboard Tab stops (TODO / NOTE): the engine's keyboard system drives the WebView's row
         // cursor + note-editor focus through this bridge, and switches the native TODO/NOTE tab to match.
         engine.onDashCommand = { [carousel = dashCarousel, tabBinding = $dashTab, engine] cmd in
             switch cmd {
-            case .focus(let stop):
-                if stop == .todo { tabBinding.wrappedValue = .todo }
-                else if stop == .note { tabBinding.wrappedValue = .note }
+            case let .focus(stop):
+                if stop == .todo {
+                    tabBinding.wrappedValue = .todo
+                } else if stop == .note {
+                    tabBinding.wrappedValue = .note
+                }
                 carousel.navFocus(stop)
-            case .move(let d): carousel.navMove(d)
-            case .activate:   // Space/Enter: note → focus the editor; todo → toggle the row
-                if engine.cursor.dashStop == .note { carousel.focusNoteEditor() } else { carousel.navActivate() }
+            case let .move(d): carousel.navMove(d)
+            case .activate: // Space/Enter: note → focus the editor; todo → toggle the row
+                if engine.cursor.dashStop == .note {
+                    carousel.focusNoteEditor()
+                } else {
+                    carousel.navActivate()
+                }
             case .open: carousel.navOpen()
             }
             engine.wake()
@@ -199,24 +240,29 @@ public struct CalendarView: View {
     private func handleTutorialKey(_ key: DeleteDialogKey) {
         let last = TutorialView.slides.count - 1
         switch key {
-        case .left:    ui.tutorialIndex = max(0, ui.tutorialIndex - 1)
-        case .right:   ui.tutorialIndex = min(last, ui.tutorialIndex + 1)
-        case .confirm: if ui.tutorialIndex >= last { ui.showTutorial = false } else { ui.tutorialIndex += 1 }
-        case .cancel:  ui.showTutorial = false
+        case .left: ui.tutorialIndex = max(0, ui.tutorialIndex - 1)
+        case .right: ui.tutorialIndex = min(last, ui.tutorialIndex + 1)
+        case .confirm: if ui.tutorialIndex >= last {
+                ui.showTutorial = false
+            } else {
+                ui.tutorialIndex += 1
+            }
+        case .cancel: ui.showTutorial = false
         }
         engine.wake()
     }
 
-    // ── Toolbar search ───────────────────────────────────────────────────────────────
+    /// ── Toolbar search ───────────────────────────────────────────────────────────────
     private func openSearch() {
         engine.wake()
-        searchCloseWork?.cancel(); searchCloseWork = nil   // cancel a pending collapse (re-open mid-close)
+        searchCloseWork?.cancel(); searchCloseWork = nil // cancel a pending collapse (re-open mid-close)
         if search.open {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { search.expanded = true }   // re-expand
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { search.expanded = true } // re-expand
         } else {
-            search.open = true   // mounts the bar; its onAppear animates the expand from the button
+            search.open = true // mounts the bar; its onAppear animates the expand from the button
         }
     }
+
     /// Animate the bar collapsing back to the button, THEN unmount it (swap in the round button). Clearing
     /// the query first drops the dropdown; the delayed work is cancellable so a quick re-open aborts it.
     private func closeSearch() {
@@ -227,6 +273,7 @@ public struct CalendarView: View {
         searchCloseWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: work)
     }
+
     private func commitSearch() {
         guard search.results.indices.contains(search.sel) else { return }
         engine.revealAndSelect(id: search.results[search.sel].id)
@@ -238,11 +285,10 @@ public struct CalendarView: View {
     /// keeps a display-cycle observer alive that re-lays-out the NSHostingView (and re-runs these Canvas
     /// draws) 60×/sec even when paused. Dropping the TimelineView from the tree entirely is what actually
     /// stops the idle redraw.
-    @ViewBuilder
     private func calendarScene(_ input: SceneInput, vp: Viewport, theme: Theme) -> some View {
         ZStack {
             // 1. scene below events — clipped to the content area
-            Canvas { ctx, size in
+            Canvas { ctx, _ in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
                 SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
@@ -252,28 +298,38 @@ public struct CalendarView: View {
                           bandBadges: engine.viewBandBadges(), eventBadges: engine.viewEventBadges(),
                           selected: engine.selectedId, selectedIds: engine.selectedIds, hovered: engine.hoveredEventId,
                           drawerOpen: ui.openEventId != nil, editingId: ui.editingBand?.id ?? ui.editingTimed?.id,
-                          editingRect: ui.editingTimed?.rect,   // hide the title only on the segment being edited
+                          editingRect: ui.editingTimed?.rect, // hide the title only on the segment being edited
                           draggingId: engine.activeTimedDragId,
                           perfMode: perfMode,
-                          hideBox: ui.openEventId != nil ? engine.selectedId : nil,  // lifted sharp above
+                          hideBox: ui.openEventId != nil ? engine.selectedId : nil, // lifted sharp above
                           theme: theme)
                 .offset(x: Layout.padLeft)
             // 3. deadlines: the moment line + dots are drawn in the Canvas… When the drawer is open the
             // SELECTED deadline is HIDDEN here (drawn sharp in the lift below, like band/timed events).
             let liftDdl = ui.openEventId != nil ? engine.selectedId : nil
-            Canvas { ctx, size in
+            Canvas { ctx, _ in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
-                SceneRenderer.drawMid(input: input, deadlines: engine.viewDeadlines(), selected: engine.selectedId, drawerOpen: ui.openEventId != nil, hovered: engine.hoveredEventId, hide: liftDdl, in: &c, theme: theme)
+                SceneRenderer.drawMid(
+                    input: input,
+                    deadlines: engine.viewDeadlines(),
+                    selected: engine.selectedId,
+                    drawerOpen: ui.openEventId != nil,
+                    hovered: engine.hoveredEventId,
+                    hide: liftDdl,
+                    in: &c,
+                    theme: theme
+                )
             }
             // …and the labels are SwiftUI glass pills (activation styling), above the line.
             DeadlinesOverlay(input: input, deadlines: engine.viewDeadlines(),
                              sides: engine.deadlineSides(),
-                             selected: engine.selectedId, selectedIds: engine.selectedIds, hovered: engine.hoveredEventId,
+                             selected: engine.selectedId, selectedIds: engine.selectedIds,
+                             hovered: engine.hoveredEventId,
                              drawerOpen: ui.openEventId != nil, hide: liftDdl, theme: theme)
                 .offset(x: Layout.padLeft)
             // 4. chrome on top of the glass: gutter labels/borders, track names, now-line/cursor, dashboard title
-            Canvas { ctx, size in
+            Canvas { ctx, _ in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
                 SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames,
@@ -300,7 +356,10 @@ public struct CalendarView: View {
                 let c = engine.marqueeNegative ? Color.secondary : theme.eventBorder("red")
                 RoundedRectangle(cornerRadius: 2)
                     .fill(c.opacity(0.12))
-                    .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(c, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                    .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(
+                        c,
+                        style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                    ))
                     .frame(width: m.width, height: m.height)
                     .position(x: m.midX, y: m.midY)
                     .offset(x: Layout.padLeft)
@@ -326,9 +385,9 @@ public struct CalendarView: View {
                     .frame(width: 0, height: 0)
             }
         }
-        .opacity(input.flipFade)   // whole-calendar fade during a year flip
-        .blur(radius: ui.openEventId != nil ? 5 : 0)   // drawer open → soft-blur behind the scrim
-        .offset(x: -engine.drawerShift)   // slide left so the drawer item is revealed/centered
+        .opacity(input.flipFade) // whole-calendar fade during a year flip
+        .blur(radius: ui.openEventId != nil ? 5 : 0) // drawer open → soft-blur behind the scrim
+        .offset(x: -engine.drawerShift) // slide left so the drawer item is revealed/centered
     }
 
     /// The clicked event lifted sharp above the drawer scrim (a second render of just that box).
@@ -348,7 +407,7 @@ public struct CalendarView: View {
     private func liftedDeadline(sel: String, theme: Theme) -> some View {
         let input = engine.snapshotInput()
         ZStack(alignment: .topLeading) {
-            Canvas { ctx, size in
+            Canvas { ctx, _ in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft - engine.drawerShift, y: 0)
                 SceneRenderer.drawMid(input: input, deadlines: engine.viewDeadlines(), selected: sel,
@@ -364,7 +423,6 @@ public struct CalendarView: View {
     /// same whether awake or idle, so the tree (and the stateful pagers / key monitor hung off it) is
     /// NEVER rebuilt — only the frame schedule stops. Idle-CPU relief comes from breaking the
     /// layout→setViewport→wake feedback loop (see setViewport), not from swapping the view out.
-    @ViewBuilder
     private func calendarSurface(awake: Bool, vp: Viewport, theme: Theme) -> some View {
         TimelineView(.animation(paused: !awake)) { tl in
             // One evaluation = one rendered frame → the benchmark's frame counter (no-op outside CC_DEMO
@@ -377,238 +435,280 @@ public struct CalendarView: View {
     public var body: some View {
         let theme = Theme(dark: scheme == .dark)
         ZStack(alignment: .top) {
-        GeometryReader { geo in
-            let vp = Viewport(w: geo.size.width - Layout.padLeft - Layout.padRight, h: geo.size.height)
-            // Pause the per-frame render loop when idle: reading `awake` (an @Observable bit the engine
-            // wakes on any input/animation/edit) here makes SwiftUI re-evaluate and unpause the instant
-            // activity resumes. When nothing's moving, the whole-scene 60fps redraw simply stops.
-            // Awake → drive the scene per-frame with a TimelineView. Idle → render ONE static frame with
-            // no TimelineView at all (see calendarSurface / calendarScene): that's what stops the
-            // display-cycle redraw and takes idle CPU to ~0.
-            let awake = engine.renderClock.awake
-            calendarSurface(awake: awake, vp: vp, theme: theme)
-            // The visual layers are purely presentational — never let them intercept
-            // mouse events (the Canvas layers are hit-testable and re-render every
-            // frame, which otherwise steals clicks/drags from the input catcher).
-            // No opaque background: the window is translucent (see CalendarApp),
-            // so the desktop tint shows through.
-            .allowsHitTesting(false)
-            // Invisible month-paging driver, behind everything: an NSScrollView-backed SwiftUI
-            // ScrollView doing native .paging; the catcher forwards month-view scroll into it.
-            .background { MonthPager(engine: engine, bridge: monthBridge) }
-            .background { WeekPager(engine: engine, bridge: weekBridge) }
-            .background { DayPager(engine: engine, bridge: dayBridge) }
-            .overlay(inputCatcher())
-            // Day-view daily dashboard: the TODO list + upcoming deadlines, in a transparent
-            // WebView (reuses the web's tokenizer + sectioning). Sits in the dashboard content
-            // region; shown at day level with the drawer closed (it snaps in — WKWebView doesn't
-            // animate with SwiftUI transitions — so it's gated on level like the split handle).
-            // Mounted from week level up (level ≥ 2) so the zoom reveal (slide-in-from-right + fade,
-            // driven per-frame) animates the whole way; at week level it's fully slid out + faded. It
-            // stays mounted while the drawer is open too — instead of popping out, it fades aside in CSS
-            // (the driver keeps ticking `drawer`). Interactive only at day level with the drawer closed.
-            .overlay {
-                if engine.chrome.level >= 2 {
-                    DailyDashboardOverlay(engine: engine, carousel: dashCarousel,
-                                          forwarder: gestureForwarder,
-                                          tab: $dashTab, noteMode: $noteMode,
-                                          inactive: ui.openEventId != nil && engine.chrome.level == 3,
-                                          frac: dashFrac, vp: vp,
-                                          containerWidth: geo.size.width, height: geo.size.height, theme: theme,
-                                          onOpen: { ui.openEventId = sourceId(of: $0) },
-                                          onCloseDrawer: { ui.openEventId = nil },
-                                          onNoteExit: { engine.dashNoteExit() },
-                                          onNavTab: { fwd in engine.tabCursor(fwd) })
-                        // Stay hit-testable while the drawer is open so the in-page scrim can intercept +
-                        // close (the WKWebView layer ignores the SwiftUI scrim/allowsHitTesting anyway).
-                        .allowsHitTesting(engine.chrome.level == 3)
-                }
-            }
-            // TODO/NOTE tabs + note edit/preview toggle — SEPARATE overlays ABOVE the WebView so the
-            // hosted WKWebView NSView can't hit-test over the native controls. Tabs carousel via dashAnim.
-            .overlay {
-                if ui.openEventId == nil {
-                    DashTabsOverlay(engine: engine, anim: dashAnim, tab: $dashTab, frac: dashFrac, vp: vp,
-                                    containerWidth: geo.size.width, theme: theme)
-                }
-            }
-            .overlay {
-                if ui.openEventId == nil {
-                    NoteModeToggleOverlay(engine: engine, anim: dashAnim, tab: dashTab, noteMode: $noteMode,
-                                          containerWidth: geo.size.width, height: geo.size.height, theme: theme)
-                }
-            }
-            // Day-view split handle: drag the timeline↔dashboard boundary to resize. Above the catcher
-            // so it grabs the mouse in its narrow zone (the rest passes through). Shown in day view;
-            // reads chrome.level (@Observable) so it appears/disappears as you zoom.
-            .overlay {
-                if engine.chrome.level == 3, ui.openEventId == nil {
-                    DashboardSplitHandle(engine: engine, vp: vp, height: geo.size.height, theme: theme,
-                                         onFrac: { dashFrac = $0 })
-                }
-            }
-            // Timeline scale bar (week + day views): the video-editor thumb on the leftmost day's
-            // left border — drag the body to scroll, drag an end circle to rescale the hour height.
-            // Wrapped in the per-frame TimelineView (like liftedBox): tlScroll/hourH are hot,
-            // observation-ignored fields, so the thumb must re-read geometry every frame to track
-            // scrolling and its own drags.
-            .overlay {
-                if engine.chrome.level >= 2, ui.openEventId == nil {
-                    TimelineView(.animation(paused: !awake)) { ctx in
-                        // ctx.date passes through as `tick` so the bar's body re-evaluates every
-                        // frame (equal inputs would be diff-skipped, freezing the thumb).
-                        TimelineScaleBar(engine: engine, theme: theme, tick: ctx.date)
+            GeometryReader { geo in
+                let vp = Viewport(w: geo.size.width - Layout.padLeft - Layout.padRight, h: geo.size.height)
+                // Pause the per-frame render loop when idle: reading `awake` (an @Observable bit the engine
+                // wakes on any input/animation/edit) here makes SwiftUI re-evaluate and unpause the instant
+                // activity resumes. When nothing's moving, the whole-scene 60fps redraw simply stops.
+                // Awake → drive the scene per-frame with a TimelineView. Idle → render ONE static frame with
+                // no TimelineView at all (see calendarSurface / calendarScene): that's what stops the
+                // display-cycle redraw and takes idle CPU to ~0.
+                let awake = engine.renderClock.awake
+                calendarSurface(awake: awake, vp: vp, theme: theme)
+                    // The visual layers are purely presentational — never let them intercept
+                    // mouse events (the Canvas layers are hit-testable and re-render every
+                    // frame, which otherwise steals clicks/drags from the input catcher).
+                    // No opaque background: the window is translucent (see CalendarApp),
+                    // so the desktop tint shows through.
+                    .allowsHitTesting(false)
+                    // Invisible month-paging driver, behind everything: an NSScrollView-backed SwiftUI
+                    // ScrollView doing native .paging; the catcher forwards month-view scroll into it.
+                    .background { MonthPager(engine: engine, bridge: monthBridge) }
+                    .background { WeekPager(engine: engine, bridge: weekBridge) }
+                    .background { DayPager(engine: engine, bridge: dayBridge) }
+                    .overlay(inputCatcher())
+                    // Day-view daily dashboard: the TODO list + upcoming deadlines, in a transparent
+                    // WebView (reuses the web's tokenizer + sectioning). Sits in the dashboard content
+                    // region; shown at day level with the drawer closed (it snaps in — WKWebView doesn't
+                    // animate with SwiftUI transitions — so it's gated on level like the split handle).
+                    // Mounted from week level up (level ≥ 2) so the zoom reveal (slide-in-from-right + fade,
+                    // driven per-frame) animates the whole way; at week level it's fully slid out + faded. It
+                    // stays mounted while the drawer is open too — instead of popping out, it fades aside in CSS
+                    // (the driver keeps ticking `drawer`). Interactive only at day level with the drawer closed.
+                    .overlay {
+                        if engine.chrome.level >= 2 {
+                            DailyDashboardOverlay(engine: engine, carousel: dashCarousel,
+                                                  forwarder: gestureForwarder,
+                                                  tab: $dashTab, noteMode: $noteMode,
+                                                  inactive: ui.openEventId != nil && engine.chrome.level == 3,
+                                                  frac: dashFrac, vp: vp,
+                                                  containerWidth: geo.size.width, height: geo.size.height, theme: theme,
+                                                  onOpen: { ui.openEventId = sourceId(of: $0) },
+                                                  onCloseDrawer: { ui.openEventId = nil },
+                                                  onNoteExit: { engine.dashNoteExit() },
+                                                  onNavTab: { fwd in engine.tabCursor(fwd) })
+                                // Stay hit-testable while the drawer is open so the in-page scrim can intercept +
+                                // close (the WKWebView layer ignores the SwiftUI scrim/allowsHitTesting anyway).
+                                .allowsHitTesting(engine.chrome.level == 3)
+                        }
                     }
-                }
-            }
-            // inline track-name editor
-            .overlay {
-                if let te = ui.editingTrack {
-                    TrackNameEditor(engine: engine, target: te, theme: theme,
-                                    onDone: { ui.editingTrack = nil; engine.trackEditing = false; refocusCatcher() })
-                }
-            }
-            // inline band-title editor
-            .overlay {
-                if let be = ui.editingBand {
-                    BandTitleEditor(engine: engine, target: be, theme: theme,
-                                    onDone: { ui.editingBand = nil; engine.bandEditing = false; refocusCatcher() })
-                }
-            }
-            // inline timed-event-title editor (keyboard "Enter → edit title", or click-a-selected-event)
-            .overlay {
-                if let te = ui.editingTimed {
-                    TimedTitleEditor(engine: engine, target: te, theme: theme,
-                                     onDone: { ui.editingTimed = nil; engine.timedEditing = false; refocusCatcher() })
-                }
-            }
-            // 4a. scrim — blocks the canvas + closes on outside-click (fades). Light dim; the blur behind
-            // it carries most of the "inactive" cue.
-            .overlay {
-                if ui.openEventId != nil {
-                    Rectangle()
-                        .fill(.black.opacity(0.12))
-                        .contentShape(Rectangle())
-                        .onTapGesture { ui.openEventId = nil }
-                        .transition(.opacity)
-                }
-            }
-            // 4a′. the clicked event, LIFTED sharp above the scrim so the user sees what they're focused
-            // on. A second render of the events with `onlyBox` = the selected box: everything packs as
-            // usual (exact position) but only that box draws, un-blurred. Reads the same frame the main
-            // TimelineView computed (snapshotInput — no double tween-advance) + the live drawer shift.
-            .overlay {
-                if ui.openEventId != nil, let sel = engine.selectedId {
-                    TimelineView(.animation(paused: !awake)) { _ in liftedBox(sel: sel, theme: theme) }
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
-            }
-            // 4a″. …and the lifted DEADLINE (moment line + dots + tag), sharp above the scrim too.
-            .overlay {
-                if ui.openEventId != nil, let sel = engine.selectedId {
-                    TimelineView(.animation(paused: !awake)) { _ in liftedDeadline(sel: sel, theme: theme) }
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
-            }
-            // 4b. the drawer panel — slides in from the trailing edge
-            .overlay(alignment: .trailing) {
-                if let id = ui.openEventId {
-                    EventDrawer(engine: engine, id: id, width: $drawerWidth, containerWidth: geo.size.width, theme: theme, onClose: { ui.openEventId = nil }, ui: ui, refocus: { refocusCatcher() },
-                                demoNoteFeed: demo.noteFeed, demoNotePreview: demo.notePreview)
-                        .transition(.move(edge: .trailing))
-                }
-            }
-            .animation(.easeOut(duration: 0.26), value: ui.openEventId)
-            // Cmd+K shortcut guide — held-open overlay showing the current state's keys (fades in/out).
-            // Also opened (latched) by Help → Keyboard Shortcuts; a tap anywhere dismisses it (the ⌘K
-            // hold path releases on keyUp as before, so the tap layer is only the exit for the latched case).
-            .overlay {
-                if ui.showKeyGuide {
-                    ZStack {
-                        Color.black.opacity(0.001).contentShape(Rectangle())
-                            .onTapGesture { ui.showKeyGuide = false; engine.wake() }
-                        KeyGuideOverlay(model: KeyboardModel(engine: engine, ui: ui), theme: theme)
+                    // TODO/NOTE tabs + note edit/preview toggle — SEPARATE overlays ABOVE the WebView so the
+                    // hosted WKWebView NSView can't hit-test over the native controls. Tabs carousel via dashAnim.
+                    .overlay {
+                        if ui.openEventId == nil {
+                            DashTabsOverlay(engine: engine, anim: dashAnim, tab: $dashTab, frac: dashFrac, vp: vp,
+                                            containerWidth: geo.size.width, theme: theme)
+                        }
                     }
-                    .transition(.opacity)
-                }
+                    .overlay {
+                        if ui.openEventId == nil {
+                            NoteModeToggleOverlay(engine: engine, anim: dashAnim, tab: dashTab, noteMode: $noteMode,
+                                                  containerWidth: geo.size.width, height: geo.size.height, theme: theme)
+                        }
+                    }
+                    // Day-view split handle: drag the timeline↔dashboard boundary to resize. Above the catcher
+                    // so it grabs the mouse in its narrow zone (the rest passes through). Shown in day view;
+                    // reads chrome.level (@Observable) so it appears/disappears as you zoom.
+                    .overlay {
+                        if engine.chrome.level == 3, ui.openEventId == nil {
+                            DashboardSplitHandle(engine: engine, vp: vp, height: geo.size.height, theme: theme,
+                                                 onFrac: { dashFrac = $0 })
+                        }
+                    }
+                    // Timeline scale bar (week + day views): the video-editor thumb on the leftmost day's
+                    // left border — drag the body to scroll, drag an end circle to rescale the hour height.
+                    // Wrapped in the per-frame TimelineView (like liftedBox): tlScroll/hourH are hot,
+                    // observation-ignored fields, so the thumb must re-read geometry every frame to track
+                    // scrolling and its own drags.
+                    .overlay {
+                        if engine.chrome.level >= 2, ui.openEventId == nil {
+                            TimelineView(.animation(paused: !awake)) { ctx in
+                                // ctx.date passes through as `tick` so the bar's body re-evaluates every
+                                // frame (equal inputs would be diff-skipped, freezing the thumb).
+                                TimelineScaleBar(engine: engine, theme: theme, tick: ctx.date)
+                            }
+                        }
+                    }
+                    // inline track-name editor
+                    .overlay {
+                        if let te = ui.editingTrack {
+                            TrackNameEditor(engine: engine, target: te, theme: theme,
+                                            onDone: {
+                                                ui.editingTrack = nil; engine.trackEditing = false; refocusCatcher()
+                                            })
+                        }
+                    }
+                    // inline band-title editor
+                    .overlay {
+                        if let be = ui.editingBand {
+                            BandTitleEditor(engine: engine, target: be, theme: theme,
+                                            onDone: {
+                                                ui.editingBand = nil; engine.bandEditing = false; refocusCatcher()
+                                            })
+                        }
+                    }
+                    // inline timed-event-title editor (keyboard "Enter → edit title", or click-a-selected-event)
+                    .overlay {
+                        if let te = ui.editingTimed {
+                            TimedTitleEditor(engine: engine, target: te, theme: theme,
+                                             onDone: {
+                                                 ui.editingTimed = nil; engine.timedEditing = false; refocusCatcher()
+                                             })
+                        }
+                    }
+                    // 4a. scrim — blocks the canvas + closes on outside-click (fades). Light dim; the blur behind
+                    // it carries most of the "inactive" cue.
+                    .overlay {
+                        if ui.openEventId != nil {
+                            Rectangle()
+                                .fill(.black.opacity(0.12))
+                                .contentShape(Rectangle())
+                                .onTapGesture { ui.openEventId = nil }
+                                .transition(.opacity)
+                        }
+                    }
+                    // 4a′. the clicked event, LIFTED sharp above the scrim so the user sees what they're focused
+                    // on. A second render of the events with `onlyBox` = the selected box: everything packs as
+                    // usual (exact position) but only that box draws, un-blurred. Reads the same frame the main
+                    // TimelineView computed (snapshotInput — no double tween-advance) + the live drawer shift.
+                    .overlay {
+                        if ui.openEventId != nil, let sel = engine.selectedId {
+                            TimelineView(.animation(paused: !awake)) { _ in liftedBox(sel: sel, theme: theme) }
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
+                    // 4a″. …and the lifted DEADLINE (moment line + dots + tag), sharp above the scrim too.
+                    .overlay {
+                        if ui.openEventId != nil, let sel = engine.selectedId {
+                            TimelineView(.animation(paused: !awake)) { _ in liftedDeadline(sel: sel, theme: theme) }
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
+                    // 4b. the drawer panel — slides in from the trailing edge
+                    .overlay(alignment: .trailing) {
+                        if let id = ui.openEventId {
+                            EventDrawer(
+                                engine: engine,
+                                id: id,
+                                width: $drawerWidth,
+                                containerWidth: geo.size.width,
+                                theme: theme,
+                                onClose: { ui.openEventId = nil },
+                                ui: ui,
+                                refocus: { refocusCatcher() },
+                                demoNoteFeed: demo.noteFeed,
+                                demoNotePreview: demo.notePreview
+                            )
+                            .transition(.move(edge: .trailing))
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.26), value: ui.openEventId)
+                    // Cmd+K shortcut guide — held-open overlay showing the current state's keys (fades in/out).
+                    // Also opened (latched) by Help → Keyboard Shortcuts; a tap anywhere dismisses it (the ⌘K
+                    // hold path releases on keyUp as before, so the tap layer is only the exit for the latched case).
+                    .overlay {
+                        if ui.showKeyGuide {
+                            ZStack {
+                                Color.black.opacity(0.001).contentShape(Rectangle())
+                                    .onTapGesture { ui.showKeyGuide = false; engine.wake() }
+                                KeyGuideOverlay(model: KeyboardModel(engine: engine, ui: ui), theme: theme)
+                            }
+                            .transition(.opacity)
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.15), value: ui.showKeyGuide)
+                    .onReceive(NotificationCenter.default.publisher(for: .showKeyboardShortcuts)) { _ in
+                        ui.showKeyGuide = true; engine.wake()
+                    }
+                    // Blocking-modal overlays (delete-confirm dialog + onboarding tutorial) bundled into one
+                    // modifier so the body's modifier chain stays within the type-checker's budget.
+                    .modifier(modalOverlays(theme: theme))
+                    // ai-assistant recording scene: a staged, offline chat panel in the main window (the real
+                    // assistant is a separate window the recorder can't frame). No-op outside that scene.
+                    .overlay(alignment: .topTrailing) {
+                        if demo.showAssistantPanel, let a = demo.assistant {
+                            AssistantCalloutView(state: a, onOpenWindow: {})
+                                .background(
+                                    .regularMaterial,
+                                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(.white.opacity(0.12)))
+                                .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+                                .padding(.top, 48)
+                                .padding(.trailing, 14) // clear the toolbar (full-size content window)
+                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .overlay {
+                        DemoCursorOverlay(demo: demo)
+                    } // synthetic pointer during a GIF recording (no-op otherwise)
+                    // Live frame-rate HUD (CC_FPS_HUD=1 / defaults cc.fpsHUD) — measures THIS run, whatever it is:
+                    // Xcode-attached, standalone, or the signed app. Reads the render loop's own tick.
+                    .overlay(alignment: .bottomLeading) {
+                        if DemoController.hudEnabled {
+                            FPSHUD(demo: demo)
+                        }
+                    }
+                    .onAppear { setupOnAppear(size: geo.size) }
+                    .onChange(of: geo.size) { _, s in engine.setViewport(s) }
+                    .onChange(of: ui.openEventId) { _, v in
+                        engine.drawerOpen = v != nil
+                        if let id = v {
+                            engine.onHoverExit() // clear any lingering highlight now
+                            engine.openDrawerShift(id: id, drawerWidth: drawerWidth)
+                            NSCursor.arrow.set() // reset a stale hover cursor; SwiftUI takes over while open
+                            // Keep the canvas as first responder while the drawer is open (no field focused), so its
+                            // keys work — e.g. Space to close. (The notes WebView no longer steals focus; this covers
+                            // any other control the appearing overlay might grab.)
+                            if ui.drawerFocus == nil {
+                                refocusCatcher()
+                            }
+                        } else {
+                            ui.drawerFocus = nil
+                            engine.closeDrawerShift()
+                            refocusCatcher() // drawer closed → canvas keeps the keys (so Space re-opens it)
+                        }
+                    }
+                    .onChange(of: drawerWidth) { _, w in
+                        if let id = ui.openEventId {
+                            engine.updateDrawerShift(id: id, drawerWidth: w)
+                        }
+                    }
+                    // Leaving day view → snap the dashboard back to the TODO tab (the NOTE editor is a
+                    // day-level-only surface; this keeps the zoom-out reveal driven by the TODO WebView).
+                    .onChange(of: engine.chrome.level) {
+                        _, lvl in if lvl != 3 {
+                            dashTab = .todo
+                        }
+                    }
+                    // The dashboard tab/mode toggles are SwiftUI overlays (not routed through the engine), and
+                    // their transition animates via the timeline's CarouselDriver — so wake the render loop when
+                    // they change, else the switch would freeze while the calendar is idle.
+                    .onChange(of: dashTab) { _, _ in engine.wake() }
+                    .onChange(of: noteMode) { _, _ in engine.wake() }
+                    // Apple Calendar import: pull on first appearance, whenever the app returns to the foreground
+                    // (auto-refresh), and when the Settings window changes the connection.
+                    .onAppear { engine.importAppleCalendar() }
+                    .onReceive(NotificationCenter.default
+                        .publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                            engine.importAppleCalendar()
+                            engine.syncNow() // also pull/push iCloud on foreground (was never wired before)
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .appleCalendarSettingsChanged)) { _ in
+                        engine.importAppleCalendar()
+                    }
+                    // "Show Hidden Imported Events" flipped → repaint. onChange catches the SwiftUI menu's @AppStorage
+                    // write; the notification catches the AppKit (dev-build) menu's direct UserDefaults write.
+                    .onChange(of: showHiddenImported) { _, _ in engine.viewPrefsChanged() }
+                    .onChange(of: mainTzPref) { _, _ in engine.viewPrefsChanged() } // Current Timezone picker → repaint
+                    .onChange(of: altTzPref) { _, _ in
+                        engine.viewPrefsChanged()
+                    } // Alternative Timezone picker → repaint
+                    .onReceive(NotificationCenter.default.publisher(for: .calendarViewPrefsChanged)) { _ in
+                        engine.viewPrefsChanged()
+                    }
             }
-            .animation(.easeOut(duration: 0.15), value: ui.showKeyGuide)
-            .onReceive(NotificationCenter.default.publisher(for: .showKeyboardShortcuts)) { _ in
-                ui.showKeyGuide = true; engine.wake()
-            }
-            // Blocking-modal overlays (delete-confirm dialog + onboarding tutorial) bundled into one
-            // modifier so the body's modifier chain stays within the type-checker's budget.
-            .modifier(modalOverlays(theme: theme))
-            // ai-assistant recording scene: a staged, offline chat panel in the main window (the real
-            // assistant is a separate window the recorder can't frame). No-op outside that scene.
-            .overlay(alignment: .topTrailing) {
-                if demo.showAssistantPanel, let a = demo.assistant {
-                    AssistantCalloutView(state: a, onOpenWindow: {})
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white.opacity(0.12)))
-                        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
-                        .padding(.top, 48).padding(.trailing, 14)   // clear the toolbar (full-size content window)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                        .allowsHitTesting(false)
-                }
-            }
-            .overlay { DemoCursorOverlay(demo: demo) }   // synthetic pointer during a GIF recording (no-op otherwise)
-            // Live frame-rate HUD (CC_FPS_HUD=1 / defaults cc.fpsHUD) — measures THIS run, whatever it is:
-            // Xcode-attached, standalone, or the signed app. Reads the render loop's own tick.
-            .overlay(alignment: .bottomLeading) { if DemoController.hudEnabled { FPSHUD(demo: demo) } }
-            .onAppear { setupOnAppear(size: geo.size) }
-            .onChange(of: geo.size) { _, s in engine.setViewport(s) }
-            .onChange(of: ui.openEventId) { _, v in
-                engine.drawerOpen = v != nil
-                if let id = v {
-                    engine.onHoverExit()   // clear any lingering highlight now
-                    engine.openDrawerShift(id: id, drawerWidth: drawerWidth)
-                    NSCursor.arrow.set()   // reset a stale hover cursor; SwiftUI takes over while open
-                    // Keep the canvas as first responder while the drawer is open (no field focused), so its
-                    // keys work — e.g. Space to close. (The notes WebView no longer steals focus; this covers
-                    // any other control the appearing overlay might grab.)
-                    if ui.drawerFocus == nil { refocusCatcher() }
-                } else {
-                    ui.drawerFocus = nil
-                    engine.closeDrawerShift()
-                    refocusCatcher()   // drawer closed → canvas keeps the keys (so Space re-opens it)
-                }
-            }
-            .onChange(of: drawerWidth) { _, w in
-                if let id = ui.openEventId { engine.updateDrawerShift(id: id, drawerWidth: w) }
-            }
-            // Leaving day view → snap the dashboard back to the TODO tab (the NOTE editor is a
-            // day-level-only surface; this keeps the zoom-out reveal driven by the TODO WebView).
-            .onChange(of: engine.chrome.level) { _, lvl in if lvl != 3 { dashTab = .todo } }
-            // The dashboard tab/mode toggles are SwiftUI overlays (not routed through the engine), and
-            // their transition animates via the timeline's CarouselDriver — so wake the render loop when
-            // they change, else the switch would freeze while the calendar is idle.
-            .onChange(of: dashTab) { _, _ in engine.wake() }
-            .onChange(of: noteMode) { _, _ in engine.wake() }
-            // Apple Calendar import: pull on first appearance, whenever the app returns to the foreground
-            // (auto-refresh), and when the Settings window changes the connection.
-            .onAppear { engine.importAppleCalendar() }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                engine.importAppleCalendar()
-                engine.syncNow()   // also pull/push iCloud on foreground (was never wired before)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .appleCalendarSettingsChanged)) { _ in engine.importAppleCalendar() }
-            // "Show Hidden Imported Events" flipped → repaint. onChange catches the SwiftUI menu's @AppStorage
-            // write; the notification catches the AppKit (dev-build) menu's direct UserDefaults write.
-            .onChange(of: showHiddenImported) { _, _ in engine.viewPrefsChanged() }
-            .onChange(of: mainTzPref) { _, _ in engine.viewPrefsChanged() }   // Current Timezone picker → repaint
-            .onChange(of: altTzPref) { _, _ in engine.viewPrefsChanged() }    // Alternative Timezone picker → repaint
-            .onReceive(NotificationCenter.default.publisher(for: .calendarViewPrefsChanged)) { _ in engine.viewPrefsChanged() }
-        }
-        .ignoresSafeArea()
+            .ignoresSafeArea()
             // Search overlays — siblings inside the ZStack, so they respect the toolbar safe-area inset
             // (the dropdown lands just BELOW the toolbar) while the calendar above stays full-bleed. The
             // dropdown is right-aligned under the (trailing) search field and styled like the drawer.
             if search.open {
-                Color.black.opacity(0.001).contentShape(Rectangle())   // click-outside closes search
+                Color.black.opacity(0.001).contentShape(Rectangle()) // click-outside closes search
                     .onTapGesture { closeSearch() }
             }
             if search.open, !search.query.isEmpty {
@@ -625,7 +725,7 @@ public struct CalendarView: View {
                     }
                     .transition(.opacity)
             }
-        }   // ZStack
+        } // ZStack
         .animation(.easeOut(duration: 0.12), value: search.query.isEmpty)
         .toolbar { mainToolbar }
         // Let the translucent window material show through the toolbar (native tint).
@@ -661,8 +761,11 @@ public struct CalendarView: View {
             // With a shared assistant: a quick-ask CALLOUT anchored to this button (an NSPopover —
             // caret + glass, may extend beyond the window). Without one (dev shell): the window.
             Button {
-                if assistant != nil { showAssistantCallout.toggle() }
-                else { openWindow(id: "assistant") }
+                if assistant != nil {
+                    showAssistantCallout.toggle()
+                } else {
+                    openWindow(id: "assistant")
+                }
             } label: { Image(systemName: "sparkles") }
                 .buttonStyle(.glass).buttonBorderShape(.circle).help("MagiCal AI (⌘I)")
                 .popover(isPresented: $showAssistantCallout, arrowEdge: .bottom) {
@@ -672,7 +775,9 @@ public struct CalendarView: View {
                             // point the window's session at it, close the callout, open the window.
                             showAssistantCallout = false
                             assistant.persistNow()
-                            if let id = assistant.currentId { windowAssistant?.selectConversation(id) }
+                            if let id = assistant.currentId {
+                                windowAssistant?.selectConversation(id)
+                            }
                             openWindow(id: "assistant")
                         }
                         // Publish from INSIDE the popover too, so ⌘I still toggles (closes) while

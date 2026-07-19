@@ -8,14 +8,14 @@
 // of those can't reach it. It returns a strict JSON verdict and, matching the web, fails OPEN
 // (allow) on a parse error or exception. That default is the spot to harden if you want stricter.
 
-import Foundation
 import CalendarEngine
+import Foundation
 
 struct AuditVerdict {
     enum Decision: String { case allow, deny }
     var decision: Decision
     var reason: String
-    var risk: String            // "low" | "med" | "high"
+    var risk: String // "low" | "med" | "high"
 
     static let failOpen = AuditVerdict(decision: .allow, reason: "auditor unavailable", risk: "med")
 }
@@ -46,19 +46,22 @@ enum Auditor {
                                                 temperature: 0, maxTokens: 512)
             return parse(resp.content) ?? .failOpen
         } catch {
-            return .failOpen        // fail open — matches the web auditor
+            return .failOpen // fail open — matches the web auditor
         }
     }
 
-    // ── Trusted context: existing items on the proposed date, read from the engine ──────
+    /// ── Trusted context: existing items on the proposed date, read from the engine ──────
     @MainActor
     private static func buildContext(call: ToolCall, engine: CalendarEngine?) async -> String {
         guard let engine else { return "Calendar state unavailable." }
         let args = JSONValue.parse(call.function.arguments)
         // create_event → the item's date; update_event → the target item's own date.
         var ymd: (Int, Int, Int)?
-        if let dateStr = args["date"]?.stringValue, let d = parseDate(dateStr) { ymd = d }
-        else if let id = args["id"]?.stringValue { ymd = engine.dateOf(id) }
+        if let dateStr = args["date"]?.stringValue, let d = parseDate(dateStr) {
+            ymd = d
+        } else if let id = args["id"]?.stringValue {
+            ymd = engine.dateOf(id)
+        }
 
         guard let (y, m, d) = ymd else {
             return "No specific date resolved from the arguments."
@@ -71,11 +74,11 @@ enum Auditor {
         return "Already scheduled on \(y)-\(String(format: "%02d", m + 1))-\(String(format: "%02d", d)):\n\(lines)"
     }
 
-    // ── Verdict parsing: first {...} JSON block ─────────────────────────────────────────
+    /// ── Verdict parsing: first {...} JSON block ─────────────────────────────────────────
     private static func parse(_ text: String) -> AuditVerdict? {
         guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end
         else { return nil }
-        let json = String(text[start...end])
+        let json = String(text[start ... end])
         guard let obj = JSONValue.parse(json).asObject,
               let decision = obj["decision"]?.stringValue.flatMap({ AuditVerdict.Decision(rawValue: $0) })
         else { return nil }
@@ -113,18 +116,22 @@ enum Auditor {
 func parseDate(_ s: String) -> (Int, Int, Int)? {
     let parts = s.split(separator: "-")
     guard parts.count == 3, let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]),
-          (1...12).contains(m), (1...31).contains(d) else { return nil }
+          (1 ... 12).contains(m), (1 ... 31).contains(d) else { return nil }
     return (y, m - 1, d)
 }
 
 /// Parse "HH:MM" (or "HH") → fractional hour 0–24.
 func parseTime(_ s: String) -> CGFloat? {
     let parts = s.split(separator: ":")
-    guard let h = Int(parts.first ?? ""), (0...24).contains(h) else { return nil }
+    guard let h = Int(parts.first ?? ""), (0 ... 24).contains(h) else { return nil }
     let mins = parts.count > 1 ? (Int(parts[1]) ?? 0) : 0
     return CGFloat(h) + CGFloat(max(0, min(59, mins))) / 60
 }
 
 extension JSONValue {
-    var asObject: [String: JSONValue]? { if case .object(let o) = self { return o }; return nil }
+    var asObject: [String: JSONValue]? {
+        if case let .object(o) = self {
+            return o
+        }; return nil
+    }
 }

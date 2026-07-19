@@ -2,9 +2,9 @@
 // undo snapshots, and the sync layer persists. First step of the engine's field-composition
 // hierarchy (items / caches / cursor / … instead of one flat sea of properties).
 
-import Foundation
-import CoreGraphics
 import CalendarGeometry
+import CoreGraphics
+import Foundation
 
 public struct CalendarItems: Sendable {
     public internal(set) var events: [TimedEvent] = []
@@ -20,7 +20,7 @@ public struct CalendarItems: Sendable {
     var dailyNotes: [String: String] = [:]
 
     /// Per-month lane labels (12 × 4). Read-only outside the engine module.
-    public internal(set) var trackNames = Array(repeating: TRACKS.map { $0.name }, count: 12)
+    public internal(set) var trackNames = Array(repeating: TRACKS.map(\.name), count: 12)
 }
 
 /// Derived-display caches + their invalidation generations — rebuilt on demand, keyed by
@@ -72,26 +72,26 @@ public struct CursorState {
 /// zoom anchoring, and the one-shot completion callbacks that sequence multi-phase navigations
 /// (e.g. jumpToDay: fly out → flip year → fly in). All transient; never persisted.
 struct AnimState {
-    var tween: Tween?                     // the z (zoom-level) tween
-    var scrollTween: Tween?               // year-view vertical scroll glide (before a zoom-in)
-    var tlScrollTween: Tween?             // timeline (hour) scroll glide
+    var tween: Tween? // the z (zoom-level) tween
+    var scrollTween: Tween? // year-view vertical scroll glide (before a zoom-in)
+    var tlScrollTween: Tween? // timeline (hour) scroll glide
     var weekTween: Tween?
-    var dayTween: Tween?                  // fractional-day glide (day view "scroll to today")
-    var shiftTween: Tween?                // drawer canvas-shift
+    var dayTween: Tween? // fractional-day glide (day view "scroll to today")
+    var shiftTween: Tween? // drawer canvas-shift
     var zTweenDone: (() -> Void)?
     var weekTweenDone: (() -> Void)?
     var scrollTweenDone: (() -> Void)?
     var flipDone: (() -> Void)?
     var dayLandDone: (() -> Void)?
-    var zoomAnchorHour: CGFloat?          // hour held at `zoomAnchorY` for the duration of a zoom
-    var zoomAnchorY: CGFloat?             // viewport y to hold it at (nil = viewport centre)
-    var monthAnim: PageAnim?              // vertical month↕month page-turn (nil = settled)
+    var zoomAnchorHour: CGFloat? // hour held at `zoomAnchorY` for the duration of a zoom
+    var zoomAnchorY: CGFloat? // viewport y to hold it at (nil = viewport centre)
+    var monthAnim: PageAnim? // vertical month↕month page-turn (nil = settled)
     var flipAnim: CalendarEngine.FlipAnim?
     var flipFade: CGFloat = 1
     var monthFlip: CalendarEngine.MonthFlip?
     var monthFlipShift: CGFloat = 0
     var weekFlip: CalendarEngine.WeekFlip?
-    var weekFlipFade: CGFloat = 0         // 0→1 cross-fade of the dim/bright swap
+    var weekFlipFade: CGFloat = 0 // 0→1 cross-fade of the dim/bright swap
     var dayFlip: CalendarEngine.DayFlip?
 }
 
@@ -99,18 +99,18 @@ struct AnimState {
 /// and overscroll flip-arming. Distinct from view position (z/focus/week/scrollY/tlScroll stay
 /// on the engine) — this is only the in-progress gesture state.
 struct ScrollGestureState {
-    var didInitialScroll = false          // center the current month once, at first layout
-    var liveScrolling = false             // fingers-down phase of a trackpad gesture (year view)
+    var didInitialScroll = false // center the current month once, at first layout
+    var liveScrolling = false // fingers-down phase of a trackpad gesture (year view)
     var liveMonthScrolling = false
     var liveWeekScrolling = false
     var liveDayScrolling = false
-    var startedAtTop = false              // the drag began already resting at an edge —
-    var startedAtBottom = false           // only then does an overscroll pull arm a flip
+    var startedAtTop = false // the drag began already resting at an edge —
+    var startedAtBottom = false // only then does an overscroll pull arm a flip
     var lastOverscroll: (over: CGFloat, atTop: Bool) = (0, false)
     var wheelAccumX: CGFloat = 0
-    var yearPull: YearPull?               // pull-to-change-year hint (nil when not pulling)
+    var yearPull: YearPull? // pull-to-change-year hint (nil when not pulling)
     var monthPull: YearPull?
     var weekPull: WeekPull?
     var dayPull: DayPull?
-    var daySettleWork: DispatchWorkItem?  // safety-net: snap a residual day-page if the pager stalls
+    var daySettleWork: DispatchWorkItem? // safety-net: snap a residual day-page if the pager stalls
 }

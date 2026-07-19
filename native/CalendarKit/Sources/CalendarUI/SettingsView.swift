@@ -10,8 +10,8 @@
 //
 // Native controls throughout, tinted with the app's red accent (0xff3b6b, as in EventDrawer).
 
-import SwiftUI
 import CalendarEngine
+import SwiftUI
 
 private let accent = Theme.accent
 
@@ -35,7 +35,7 @@ public struct SettingsView: View {
 // ── Account ───────────────────────────────────────────────────────────────────────
 
 private struct AccountTab: View {
-    @State private var iCloud: ICloudStatus?   // nil = still probing
+    @State private var iCloud: ICloudStatus? // nil = still probing
 
     var body: some View {
         Form {
@@ -50,7 +50,7 @@ private struct AccountTab: View {
                     Text("Sign in with Google to sync your Google calendars.")
                         .font(.callout).foregroundStyle(.secondary)
                     Spacer()
-                    Button("Connect…") {}   // visual mockup — not wired up yet
+                    Button("Connect…") {} // visual mockup — not wired up yet
                 }
                 .padding(.vertical, 2)
             }
@@ -76,26 +76,26 @@ private struct AccountTab: View {
     private static func describe(_ s: ICloudStatus?) -> (String, String, Color) {
         switch s {
         case .available:
-            return ("Syncing via iCloud", "Your calendar syncs across every device signed in to the same Apple ID.", .green)
+            ("Syncing via iCloud", "Your calendar syncs across every device signed in to the same Apple ID.", .green)
         case .localOnly:
-            return ("Local only", "This build isn't set up for iCloud sync — your data stays on this Mac.", .secondary)
+            ("Local only", "This build isn't set up for iCloud sync — your data stays on this Mac.", .secondary)
         case .noAccount:
-            return ("Not signed in", "Sign in to iCloud in System Settings to sync across your devices.", .orange)
+            ("Not signed in", "Sign in to iCloud in System Settings to sync across your devices.", .orange)
         case .restricted:
-            return ("Restricted", "iCloud is restricted by a configuration profile or parental controls.", .orange)
+            ("Restricted", "iCloud is restricted by a configuration profile or parental controls.", .orange)
         case .unavailable:
-            return ("Temporarily unavailable", "iCloud is momentarily unavailable — it'll retry automatically.", .orange)
+            ("Temporarily unavailable", "iCloud is momentarily unavailable — it'll retry automatically.", .orange)
         case .unknown:
-            return ("Unavailable", "Couldn't determine iCloud status.", .orange)
+            ("Unavailable", "Couldn't determine iCloud status.", .orange)
         case nil:
-            return ("Checking…", "Determining iCloud status.", .secondary)
+            ("Checking…", "Determining iCloud status.", .secondary)
         }
     }
 }
 
-// ── Apple Calendar connection (EventKit) ────────────────────────────────────────────
-// The Settings window is isolated from the running engine, so this talks to EventKit directly and
-// shares state with the engine through UserDefaults + a `.appleCalendarSettingsChanged` notification.
+/// ── Apple Calendar connection (EventKit) ────────────────────────────────────────────
+/// The Settings window is isolated from the running engine, so this talks to EventKit directly and
+/// shares state with the engine through UserDefaults + a `.appleCalendarSettingsChanged` notification.
 private struct AppleCalendarRows: View {
     @AppStorage(PrefKeys.appleEnabled) private var enabled = false
     @Environment(\.openURL) private var openURL
@@ -116,7 +116,9 @@ private struct AppleCalendarRows: View {
         .onAppear {
             selected = Set(UserDefaults.standard.stringArray(forKey: PrefKeys.appleCalendars) ?? [])
             access = CalendarEngine.appleAccess
-            if access == .authorized { calendars = importer.calendars() }
+            if access == .authorized {
+                calendars = importer.calendars()
+            }
         }
 
         // The user's calendars, once connected — a compact, indented checklist in the same group:
@@ -134,11 +136,11 @@ private struct AppleCalendarRows: View {
                             Text(c.source).foregroundStyle(.secondary).lineLimit(1)
                         }
                         .font(.callout)
-                        .padding(.leading, 7)   // breathing room between the checkbox and the color dot
+                        .padding(.leading, 7) // breathing room between the checkbox and the color dot
                     }
                     .toggleStyle(.checkbox)
                     .controlSize(.small)
-                    .padding(.leading, 16)   // indent the calendars under the connection row
+                    .padding(.leading, 16) // indent the calendars under the connection row
                 }
             }
         }
@@ -146,16 +148,19 @@ private struct AppleCalendarRows: View {
 
     private var statusText: String {
         switch access {
-        case .denied:        return "Calendar access is off — turn it on in System Settings ▸ Privacy."
-        case .notDetermined: return "Read events from the Calendar app on this Mac."
-        case .authorized:    return enabled ? "\(selected.count) calendar\(selected.count == 1 ? "" : "s") importing." : "Choose which calendars to import."
+        case .denied: "Calendar access is off — turn it on in System Settings ▸ Privacy."
+        case .notDetermined: "Read events from the Calendar app on this Mac."
+        case .authorized: enabled ? "\(selected.count) calendar\(selected.count == 1 ? "" : "s") importing." : "Choose which calendars to import."
         }
     }
 
     @ViewBuilder private var trailing: some View {
-        if busy { ProgressView().controlSize(.small) }
-        else if access == .denied {
-            Button("Open Settings…") { openURL(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!) }
+        if busy {
+            ProgressView().controlSize(.small)
+        } else if access == .denied {
+            Button("Open Settings…") {
+                openURL(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!)
+            }
         } else if enabled {
             Button("Disconnect") { enabled = false; notifyEngine() }
         } else {
@@ -172,11 +177,13 @@ private struct AppleCalendarRows: View {
                 // would hide the calendar list. Drive the UI off `ok` and ask the store directly.
                 access = .authorized
                 calendars = importer.calendars()
-                if selected.isEmpty { selected = Set(calendars.map(\.id)) }   // default: import all
+                if selected.isEmpty {
+                    selected = Set(calendars.map(\.id))
+                } // default: import all
                 enabled = true
                 save()
             } else {
-                access = CalendarEngine.appleAccess   // denied / restricted
+                access = CalendarEngine.appleAccess // denied / restricted
             }
             busy = false
         }
@@ -184,13 +191,23 @@ private struct AppleCalendarRows: View {
 
     private func toggle(_ id: String) -> Binding<Bool> {
         Binding(get: { selected.contains(id) },
-                set: { on in if on { selected.insert(id) } else { selected.remove(id) }; save() })
+                set: {
+                    on in if on {
+                        selected.insert(id)
+                    } else {
+                        selected.remove(id)
+                    }; save()
+                })
     }
+
     private func save() {
         UserDefaults.standard.set(Array(selected), forKey: PrefKeys.appleCalendars)
         notifyEngine()
     }
-    private func notifyEngine() { NotificationCenter.default.post(name: .appleCalendarSettingsChanged, object: nil) }
+
+    private func notifyEngine() {
+        NotificationCenter.default.post(name: .appleCalendarSettingsChanged, object: nil)
+    }
 
     private func dot(_ hex: String) -> Color {
         let s = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
@@ -241,15 +258,25 @@ private struct APIKeysTab: View {
                           placeholder: "AWS access key") {
                     BedrockRegionPicker()
                 }
-                APIKeyRow(account: "openai", name: "OpenAI", subtitle: "GPT models", placeholder: "sk-…") { EmptyView() }
-                APIKeyRow(account: "anthropic", name: "Anthropic", subtitle: "Claude models", placeholder: "sk-ant-…") { EmptyView() }
+                APIKeyRow(account: "openai", name: "OpenAI", subtitle: "GPT models", placeholder: "sk-…") { EmptyView()
+                }
+                APIKeyRow(account: "anthropic", name: "Anthropic", subtitle: "Claude models", placeholder: "sk-ant-…") {
+                    EmptyView()
+                }
             }
             Section("Web search") {
-                APIKeyRow(account: "tavily", name: "Tavily", subtitle: "Web search for the assistant", placeholder: "tvly-…") { EmptyView() }
+                APIKeyRow(
+                    account: "tavily",
+                    name: "Tavily",
+                    subtitle: "Web search for the assistant",
+                    placeholder: "tvly-…"
+                ) { EmptyView() }
             }
             Section {
-                Text("Keys are stored in your macOS Keychain on this device only — not synced. The assistant uses the JHU Gateway key for chat and the Tavily key for web search.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(
+                    "Keys are stored in your macOS Keychain on this device only — not synced. The assistant uses the JHU Gateway key for chat and the Tavily key for web search."
+                )
+                .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -265,8 +292,8 @@ private struct APIKeyRow<Extra: View>: View {
     let placeholder: String
     @ViewBuilder var extra: () -> Extra
 
-    @State private var value = ""        // what's typed in the field (never shows the stored secret)
-    @State private var saved: String?    // the currently-stored secret, for the masked status
+    @State private var value = "" // what's typed in the field (never shows the stored secret)
+    @State private var saved: String? // the currently-stored secret, for the masked status
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -302,8 +329,10 @@ private struct APIKeyRow<Extra: View>: View {
         // Trim whitespace/newlines — a stray trailing newline from a paste would make
         // URLRequest silently drop the "Authorization: Bearer …" header (→ gateway 401).
         let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if Keychain.set(clean, account: account) { saved = clean }
-        value = ""   // don't leave the raw secret sitting in the field
+        if Keychain.set(clean, account: account) {
+            saved = clean
+        }
+        value = "" // don't leave the raw secret sitting in the field
     }
 
     private func remove() {
@@ -324,7 +353,7 @@ private struct JHUModelPicker: View {
         ("workers-ai/@cf/qwen/qwq-32b", "Qwen QwQ 32B · reasoning"),
         ("workers-ai/@cf/qwen/qwen2.5-coder-32b-instruct", "Qwen2.5 Coder 32B · instruct"),
     ]
-    // Non-secret config → UserDefaults (not in `syncedPrefKeys`, so it stays local).
+    /// Non-secret config → UserDefaults (not in `syncedPrefKeys`, so it stays local).
     @AppStorage("cc.apikeys.jhu.model") private var model = JHUModelPicker.models[0].id
 
     var body: some View {
@@ -336,7 +365,14 @@ private struct JHUModelPicker: View {
 
 /// AWS region picker for Bedrock.
 private struct BedrockRegionPicker: View {
-    private static let regions = ["us-east-1", "us-west-2", "eu-central-1", "eu-west-1", "ap-northeast-1", "ap-southeast-2"]
+    private static let regions = [
+        "us-east-1",
+        "us-west-2",
+        "eu-central-1",
+        "eu-west-1",
+        "ap-northeast-1",
+        "ap-southeast-2",
+    ]
     @AppStorage("cc.apikeys.bedrock.region") private var region = "us-east-1"
 
     var body: some View {

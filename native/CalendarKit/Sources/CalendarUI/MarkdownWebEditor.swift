@@ -2,9 +2,9 @@
 // editor (see webeditor/). Reusable — bind `text`, flip `mode` (.edit / .preview); the drawer owns
 // the toggle. Background is transparent so the drawer's glass shows through.
 
+import AppKit
 import SwiftUI
 import WebKit
-import AppKit
 
 enum NotesMode: Hashable { case edit, preview }
 
@@ -19,23 +19,31 @@ protocol FocusGatedControl: AnyObject { var focusAllowed: Bool { get } }
 /// is refused until the user actually clicks the editor (or `enableFocus()` is called, e.g. to Tab into
 /// it); after that it behaves like a normal web view.
 final class FocusGatedWebView: WKWebView, FocusGatedControl {
-    // Readable so the keyboard monitor can tell "user clicked into notes" (real editing → pass keys
-    // through) from "WebKit grabbed focus on load" (its internal WKContentView became first responder
-    // even though we refuse it here — treat as NOT editing so drawer shortcuts still fire).
+    /// Readable so the keyboard monitor can tell "user clicked into notes" (real editing → pass keys
+    /// through) from "WebKit grabbed focus on load" (its internal WKContentView became first responder
+    /// even though we refuse it here — treat as NOT editing so drawer shortcuts still fire).
     private(set) var focusAllowed = false
     /// Permit focus (a real click, or an explicit programmatic focus request such as Tab-to-notes).
-    func enableFocus() { focusAllowed = true }
-    override func becomeFirstResponder() -> Bool { focusAllowed ? super.becomeFirstResponder() : false }
-    override func mouseDown(with event: NSEvent) { focusAllowed = true; super.mouseDown(with: event) }
+    func enableFocus() {
+        focusAllowed = true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        focusAllowed ? super.becomeFirstResponder() : false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        focusAllowed = true; super.mouseDown(with: event)
+    }
 }
 
 struct MarkdownWebEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var mode: NotesMode
     var theme: Theme
-    // When set (daily-note tab), horizontal scroll + pinch forward to the calendar instead of being
-    // eaten by the editor; vertical scroll stays here. Unset in the drawer (no calendar underneath).
-    var forwarder: GestureForwarder? = nil
+    /// When set (daily-note tab), horizontal scroll + pinch forward to the calendar instead of being
+    /// eaten by the editor; vertical scroll stays here. Unset in the drawer (no calendar underneath).
+    var forwarder: GestureForwarder?
     // Keyboard integration (drawer): bump `focusPulse` to grab keyboard focus (switch to edit + focus
     // CodeMirror). `onExit` fires on Escape in the editor; `onSavePreview` on ⌘S — both let the host
     // return focus to the drawer's field ring.
@@ -43,7 +51,9 @@ struct MarkdownWebEditor: NSViewRepresentable {
     var onExit: () -> Void = {}
     var onSavePreview: () -> Void = {}
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text, mode: $mode) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, mode: $mode)
+    }
 
     func makeNSView(context: Context) -> WKWebView {
         let cfg = WKWebViewConfiguration()
@@ -52,10 +62,10 @@ struct MarkdownWebEditor: NSViewRepresentable {
         if let forwarder {
             let pt = PassThroughWebView(frame: .zero, configuration: cfg); pt.forwarder = forwarder; web = pt
         } else {
-            web = FocusGatedWebView(frame: .zero, configuration: cfg)   // don't steal focus when the drawer opens
+            web = FocusGatedWebView(frame: .zero, configuration: cfg) // don't steal focus when the drawer opens
         }
-        web.setValue(false, forKey: "drawsBackground")   // transparent → glass shows through
-        web.navigationDelegate = context.coordinator     // open link clicks in the system browser
+        web.setValue(false, forKey: "drawsBackground") // transparent → glass shows through
+        web.navigationDelegate = context.coordinator // open link clicks in the system browser
         context.coordinator.web = web
         if let root = editorRoot {
             web.loadFileURL(root.appendingPathComponent("editor.html"), allowingReadAccessTo: root)
@@ -67,10 +77,14 @@ struct MarkdownWebEditor: NSViewRepresentable {
         let c = context.coordinator
         c.onExit = onExit; c.onSavePreview = onSavePreview
         c.apply(text: text, mode: mode, theme: themeVars())
-        if focusPulse != c.lastFocusPulse { c.lastFocusPulse = focusPulse; c.grabFocus() }   // keyboard: focus the editor
+        if focusPulse != c.lastFocusPulse {
+            c.lastFocusPulse = focusPulse; c.grabFocus()
+        } // keyboard: focus the editor
     }
 
-    private var editorRoot: URL? { Bundle.module.resourceURL?.appendingPathComponent("editor", isDirectory: true) }
+    private var editorRoot: URL? {
+        Bundle.module.resourceURL?.appendingPathComponent("editor", isDirectory: true)
+    }
 
     private func themeVars() -> [String: String] {
         [
@@ -80,6 +94,7 @@ struct MarkdownWebEditor: NSViewRepresentable {
             "color-scheme": theme.dark ? "dark" : "light",
         ]
     }
+
     private func cssColor(_ c: Color) -> String {
         guard let n = NSColor(c).usingColorSpace(.sRGB) else { return "#e8e8ea" }
         return String(format: "rgba(%d,%d,%d,%.3f)", Int(n.redComponent * 255), Int(n.greenComponent * 255),
@@ -92,13 +107,15 @@ struct MarkdownWebEditor: NSViewRepresentable {
         private let mode: Binding<NotesMode>
         weak var web: WKWebView?
         private var ready = false
-        private var lastSent = ""                     // last value pushed to / received from JS (echo guard)
+        private var lastSent = "" // last value pushed to / received from JS (echo guard)
         private var want: (text: String, mode: NotesMode, theme: [String: String])?
-        private var pendingCursorLine: Int?           // ⌘-clicked preview line → place caret after mode flip
-        var onExit: () -> Void = {}                    // Escape in the editor → host returns focus to the ring
-        var onSavePreview: () -> Void = {}             // ⌘S → preview → host returns focus to the ring
-        var lastFocusPulse = 0                         // dedup the keyboard focus trigger (see grabFocus)
-        init(text: Binding<String>, mode: Binding<NotesMode>) { self.text = text; self.mode = mode }
+        private var pendingCursorLine: Int? // ⌘-clicked preview line → place caret after mode flip
+        var onExit: () -> Void = {} // Escape in the editor → host returns focus to the ring
+        var onSavePreview: () -> Void = {} // ⌘S → preview → host returns focus to the ring
+        var lastFocusPulse = 0 // dedup the keyboard focus trigger (see grabFocus)
+        init(text: Binding<String>, mode: Binding<NotesMode>) {
+            self.text = text; self.mode = mode
+        }
 
         /// Keyboard: switch to edit mode and focus CodeMirror. For the drawer's FocusGatedWebView we
         /// must first allow focus (it refuses it by default) and make it first responder.
@@ -114,9 +131,13 @@ struct MarkdownWebEditor: NSViewRepresentable {
             want = (text, mode, theme)
             guard ready else { return }
             push(theme)
-            if text != lastSent { lastSent = text; eval("CK.setValue(\(jsString(text)))") }
+            if text != lastSent {
+                lastSent = text; eval("CK.setValue(\(jsString(text)))")
+            }
             eval("CK.setMode('\(mode == .edit ? "edit" : "preview")')")
-            if mode == .edit, let ln = pendingCursorLine { pendingCursorLine = nil; eval("CK.setCursorLine(\(ln))") }
+            if mode == .edit, let ln = pendingCursorLine {
+                pendingCursorLine = nil; eval("CK.setCursorLine(\(ln))")
+            }
         }
 
         func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -124,25 +145,36 @@ struct MarkdownWebEditor: NSViewRepresentable {
             switch type {
             case "ready":
                 ready = true
-                if let w = want { push(w.theme); lastSent = w.text; eval("CK.setValue(\(jsString(w.text)))"); eval("CK.setMode('\(w.mode == .edit ? "edit" : "preview")')") }
+                if let w = want {
+                    push(w.theme); lastSent = w
+                        .text; eval("CK.setValue(\(jsString(w.text)))"); eval(
+                            "CK.setMode('\(w.mode == .edit ? "edit" : "preview")')"
+                        )
+                }
             case "change":
-                if let v = body["value"] as? String { lastSent = v; text.wrappedValue = v }
+                if let v = body["value"] as? String {
+                    lastSent = v; text.wrappedValue = v
+                }
             case "openLink":
-                if let s = body["url"] as? String, let u = URL(string: s) { NSWorkspace.shared.open(u) }
+                if let s = body["url"] as? String, let u = URL(string: s) {
+                    NSWorkspace.shared.open(u)
+                }
             case "editAt":
                 // ⌘-click in preview → remember the line, flip to edit; apply() places the caret.
-                if let line = body["line"] as? Int { pendingCursorLine = line; mode.wrappedValue = .edit }
+                if let line = body["line"] as? Int {
+                    pendingCursorLine = line; mode.wrappedValue = .edit
+                }
             case "preview":
-                mode.wrappedValue = .preview   // ⌘S in the editor
-                onSavePreview()                // …and hand focus back to the drawer's field ring
+                mode.wrappedValue = .preview // ⌘S in the editor
+                onSavePreview() // …and hand focus back to the drawer's field ring
             case "exit":
-                onExit()                       // Escape in the editor → back to the ring
+                onExit() // Escape in the editor → back to the ring
             default: break
             }
         }
 
-        // A clicked http(s) link opens in the default browser instead of navigating the editor away.
-        // file:// (the editor bundle itself) and other schemes load normally.
+        /// A clicked http(s) link opens in the default browser instead of navigating the editor away.
+        /// file:// (the editor bundle itself) and other schemes load normally.
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if let url = navigationAction.request.url, let s = url.scheme?.lowercased(), s == "http" || s == "https" {
@@ -158,7 +190,11 @@ struct MarkdownWebEditor: NSViewRepresentable {
                   let json = String(data: data, encoding: .utf8) else { return }
             eval("CK.setTheme(\(json))")
         }
-        private func eval(_ js: String) { web?.evaluateJavaScript(js) }
+
+        private func eval(_ js: String) {
+            web?.evaluateJavaScript(js)
+        }
+
         private func jsString(_ s: String) -> String {
             (try? String(data: JSONEncoder().encode(s), encoding: .utf8) ?? "\"\"") ?? "\"\""
         }

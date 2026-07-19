@@ -8,10 +8,10 @@
 // into this ScrollView's backing NSScrollView via `bridge`, axis-locking against the vertical
 // hour-timeline scroll.
 
-import SwiftUI
 import AppKit
 import CalendarEngine
 import CalendarGeometry
+import SwiftUI
 
 /// Snap policy: a gentle scroll nudges by a few days (day-aligned); only a deliberate hard fling
 /// snaps to a week boundary — and always to the boundary in the DIRECTION of the fling, never the
@@ -24,10 +24,10 @@ import CalendarGeometry
 ///     momentum otherwise projects a light flick many days out; this caps it).
 struct WeekScrollBehavior: ScrollTargetBehavior {
     var dayW: CGFloat
-    var maxDay: CGFloat                 // last valid left-edge day index (= maxWeek·7)
-    var liveDay: () -> CGFloat          // the CURRENT content position in day-units (from the engine)
-    var weekVelocity: CGFloat = 1100    // |velocity| above this → a week jump (deliberate only)
-    var maxDayStep: CGFloat = 3         // a small scroll moves at most this many days per gesture
+    var maxDay: CGFloat // last valid left-edge day index (= maxWeek·7)
+    var liveDay: () -> CGFloat // the CURRENT content position in day-units (from the engine)
+    var weekVelocity: CGFloat = 1100 // |velocity| above this → a week jump (deliberate only)
+    var maxDayStep: CGFloat = 3 // a small scroll moves at most this many days per gesture
 
     func updateTarget(_ target: inout ScrollTarget, context: ScrollTargetBehaviorContext) {
         guard dayW > 0 else { return }
@@ -35,18 +35,18 @@ struct WeekScrollBehavior: ScrollTargetBehavior {
         // reports the settled rest the gesture STARTED from (day 0 of a fling), so catching mid-flight
         // would cap `maxDayStep` from day 0 and always land ~mid-week regardless of the catch point.
         let cur = liveDay()
-        let proposedDay = target.rect.origin.x / dayW                // SwiftUI's momentum projection
+        let proposedDay = target.rect.origin.x / dayW // SwiftUI's momentum projection
         let v = context.velocity.dx
         let landed: CGFloat
         // A catch near the end of a fling has decelerated (low velocity) → the day path settles near
         // where you grabbed it. Only a genuinely fast gesture jumps to a week boundary.
         if abs(v) > weekVelocity {
-            let weekStart = (cur / 7).rounded(.down) * 7             // Sunday of the current week
+            let weekStart = (cur / 7).rounded(.down) * 7 // Sunday of the current week
             landed = v > 0 ? weekStart + 7
-                           : ((cur - weekStart < 0.5) ? weekStart - 7 : weekStart)
+                : ((cur - weekStart < 0.5) ? weekStart - 7 : weekStart)
         } else {
             let step = min(maxDayStep, max(-maxDayStep, proposedDay - cur))
-            landed = (cur + step).rounded()                          // nearest day near the live position
+            landed = (cur + step).rounded() // nearest day near the live position
         }
         target.rect.origin.x = min(max(0, landed), maxDay) * dayW
     }
@@ -57,10 +57,17 @@ struct WeekScrollBehavior: ScrollTargetBehavior {
 /// position binding re-renders the pager on every day boundary crossed, re-applying itself
 /// mid-scroll and jumping the offset. This way nothing in the pager re-renders while scrolling.
 @MainActor final class WeekPagerBridge {
-    weak var scrollView: NSScrollView? { didSet { if let p = pending { pending = nil; scrollTo(p) } } }
+    weak var scrollView: NSScrollView? {
+        didSet {
+            if let p = pending {
+                pending = nil; scrollTo(p)
+            }
+        }
+    }
+
     private var pending: CGFloat?
     func scrollTo(_ x: CGFloat) {
-        guard let sv = scrollView else { pending = x; return }   // not captured yet → apply on capture
+        guard let sv = scrollView else { pending = x; return } // not captured yet → apply on capture
         sv.contentView.scroll(to: NSPoint(x: max(0, x), y: 0))
         sv.reflectScrolledClipView(sv.contentView)
     }
@@ -80,14 +87,14 @@ struct WeekPager: View {
             let maxDay = CGFloat((weeks - 1) * 7)
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
-                    ForEach(0..<(weeks * 7), id: \.self) { d in
+                    ForEach(0 ..< (weeks * 7), id: \.self) { d in
                         Color.clear.frame(width: dayW, height: 1).id(d)
                     }
                 }
                 .scrollTargetLayout()
                 .background(WeekScrollGrabber(bridge: bridge))
             }
-            .frame(width: gridW, height: 8)                 // viewport = one 7-day window
+            .frame(width: gridW, height: 8) // viewport = one 7-day window
             // liveDay reads the engine's CURRENT week (updated every frame by onScrollGeometryChange)
             // — the true position even mid-animation. Read on the main actor (updateTarget runs there).
             .scrollTargetBehavior(WeekScrollBehavior(dayW: dayW, maxDay: maxDay,
@@ -100,7 +107,9 @@ struct WeekPager: View {
             .onAppear { bridge.scrollTo(engine.week * 7 * dayW) }
             // Entering week view (from month/day): position the strip on the current week.
             .onChange(of: engine.chrome.level) { _, lvl in
-                if lvl == 2 { bridge.scrollTo(engine.week * 7 * dayW) }
+                if lvl == 2 {
+                    bridge.scrollTo(engine.week * 7 * dayW)
+                }
             }
             // A month-edge flip re-anchored focus/week to the neighbor month → re-sync the strip
             // (the cell count also changed with weeksInMonth) to the new resting week.
@@ -114,8 +123,16 @@ struct WeekPager: View {
 /// Zero-size probe that hands the SwiftUI ScrollView's backing NSScrollView to the bridge.
 private struct WeekScrollGrabber: NSViewRepresentable {
     let bridge: WeekPagerBridge
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
     func updateNSView(_ v: NSView, context: Context) {
-        DispatchQueue.main.async { if let sv = v.enclosingScrollView, bridge.scrollView !== sv { bridge.scrollView = sv } }
+        DispatchQueue.main
+            .async {
+                if let sv = v.enclosingScrollView, bridge.scrollView !== sv {
+                    bridge.scrollView = sv
+                }
+            }
     }
 }

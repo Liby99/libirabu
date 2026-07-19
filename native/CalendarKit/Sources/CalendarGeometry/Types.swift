@@ -7,16 +7,18 @@ import Foundation
 public struct Viewport: Sendable, Equatable {
     public var w: CGFloat
     public var h: CGFloat
-    public init(w: CGFloat, h: CGFloat) { self.w = w; self.h = h }
+    public init(w: CGFloat, h: CGFloat) {
+        self.w = w; self.h = h
+    }
 }
 
 /// A month's geometry at the current zoom: where day 1 sits, day width, band top,
 /// track-row height, and overall opacity.
 public struct Frame: Sendable, Equatable {
-    public var x0: CGFloat       // pixel of day-1's left edge
-    public var dayW: CGFloat     // per-day column width
-    public var bandY: CGFloat    // top of the 4-lane band
-    public var trackH: CGFloat   // lane height
+    public var x0: CGFloat // pixel of day-1's left edge
+    public var dayW: CGFloat // per-day column width
+    public var bandY: CGFloat // top of the 4-lane band
+    public var trackH: CGFloat // lane height
     public var opacity: CGFloat
     public init(x0: CGFloat, dayW: CGFloat, bandY: CGFloat, trackH: CGFloat, opacity: CGFloat) {
         self.x0 = x0; self.dayW = dayW; self.bandY = bandY; self.trackH = trackH; self.opacity = opacity
@@ -32,9 +34,10 @@ public struct DeadlineAddSpot: Sendable, Equatable {
     public let month: Int
     public let day: Int
     public let hour: Int
-    public let hovering: Bool   // the cursor is directly over the "+" → brighten it
+    public let hovering: Bool // the cursor is directly over the "+" → brighten it
     public init(x: CGFloat, y: CGFloat, year: Int, month: Int, day: Int, hour: Int, hovering: Bool = false) {
-        self.x = x; self.y = y; self.year = year; self.month = month; self.day = day; self.hour = hour; self.hovering = hovering
+        self.x = x; self.y = y; self.year = year; self.month = month; self.day = day; self.hour = hour; self
+            .hovering = hovering
     }
 }
 
@@ -42,13 +45,13 @@ public struct Hover: Sendable, Equatable {
     public var month: Int?
     public var dom: Int?
     public var week: Int?
-    public var track: Int?      // hovered track lane 0…3 (month view)
+    public var track: Int? // hovered track lane 0…3 (month view)
     public var hour: Int?
     public var hourFrac: CGFloat?
     public var nameMonth: Int?
     public var nearLeft: Bool?
-    public var overTimed: Bool     // cursor is over a timed event → hide the cursor LINE, keep the end dots + tag
-    public var overDeadline: Bool  // cursor is over a deadline → hide the whole cursor (line, dots, tag)
+    public var overTimed: Bool // cursor is over a timed event → hide the cursor LINE, keep the end dots + tag
+    public var overDeadline: Bool // cursor is over a deadline → hide the whole cursor (line, dots, tag)
     public init(month: Int? = nil, dom: Int? = nil, week: Int? = nil, track: Int? = nil, hour: Int? = nil,
                 hourFrac: CGFloat? = nil, nameMonth: Int? = nil, nearLeft: Bool? = nil,
                 overTimed: Bool = false, overDeadline: Bool = false) {
@@ -56,6 +59,7 @@ public struct Hover: Sendable, Equatable {
         self.hourFrac = hourFrac; self.nameMonth = nameMonth; self.nearLeft = nearLeft
         self.overTimed = overTimed; self.overDeadline = overDeadline
     }
+
     public static let none = Hover()
 }
 
@@ -78,25 +82,27 @@ public struct Item: Sendable {
     public var h: CGFloat
     public var opacity: CGFloat
     public var z: Int = 0
-    public var color: String? = nil      // palette key (red/blue/…) — rows & events
-    public var text: String? = nil
-    public var fontSize: CGFloat? = nil
+    public var color: String? // palette key (red/blue/…) — rows & events
+    public var text: String?
+    public var fontSize: CGFloat?
     public var align: TextAlign = .center
-    public var cols: Int? = nil          // row: number of day cells for the dotted verticals
-    public var lineStyle: LineStyle? = nil
-    public var inner: Bool = false       // row: inner lane (t>0) → dotted top separator
-    public var instant: Bool = false     // now/label: drop the opacity transition
-    public var today: Bool = false       // dayLabel: red capsule + white text
-    public var gutter: Bool = false      // lives in the left gutter [0, LABEL_W]:
-                                         // month name, hour labels, gutter borders, gutter hover
-    public var lineW: CGFloat = 1        // gridline stroke width
-    public var hollow: Bool = false      // cursor: draw only the end dots, not the connecting line
+    public var cols: Int? // row: number of day cells for the dotted verticals
+    public var lineStyle: LineStyle?
+    public var inner: Bool = false // row: inner lane (t>0) → dotted top separator
+    public var instant: Bool = false // now/label: drop the opacity transition
+    public var today: Bool = false // dayLabel: red capsule + white text
+    public var gutter: Bool = false // lives in the left gutter [0, LABEL_W]:
+    // month name, hour labels, gutter borders, gutter hover
+    public var lineW: CGFloat = 1 // gridline stroke width
+    public var hollow: Bool = false // cursor: draw only the end dots, not the connecting line
 
-    public var rect: CGRect { CGRect(x: x, y: y, width: w, height: h) }
+    public var rect: CGRect {
+        CGRect(x: x, y: y, width: w, height: h)
+    }
 
-    // NOTE: `z` is declared LAST-ish (Swift call-site args must follow declared order),
-    // so every call lists styling before z: color, text, fontSize, align, cols,
-    // lineStyle, inner, instant, today, then z, then gutter, then lineW, then hollow.
+    /// NOTE: `z` is declared LAST-ish (Swift call-site args must follow declared order),
+    /// so every call lists styling before z: color, text, fontSize, align, cols,
+    /// lineStyle, inner, instant, today, then z, then gutter, then lineW, then hollow.
     public init(key: String, kind: ItemKind, x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat,
                 opacity: CGFloat, color: String? = nil, text: String? = nil,
                 fontSize: CGFloat? = nil, align: TextAlign = .center, cols: Int? = nil,
@@ -113,22 +119,26 @@ public struct Item: Sendable {
 
 public struct Scene: Sendable {
     public var items: [Item]
-    public init(items: [Item]) { self.items = items }
+    public init(items: [Item]) {
+        self.items = items
+    }
 }
 
 // ── Page-turn + daily state (was module-level globals in frames.ts) ──────────────
 
 public struct PageAnim: Sendable, Equatable {
-    public var dir: Int        // +1 next, -1 prev
-    public var p: CGFloat      // 0…1 progress
-    public init(dir: Int, p: CGFloat) { self.dir = dir; self.p = p }
+    public var dir: Int // +1 next, -1 prev
+    public var p: CGFloat // 0…1 progress
+    public init(dir: Int, p: CGFloat) {
+        self.dir = dir; self.p = p
+    }
 }
 
 public struct DailyState: Sendable, Equatable {
-    public var dom: Int        // chosen day (focus-relative day-of-month)
-    public var frac: CGFloat   // timeline width as a fraction of the content area
+    public var dom: Int // chosen day (focus-relative day-of-month)
+    public var frac: CGFloat // timeline width as a fraction of the content area
     public var anim: PageAnim? // day↔day paging
-    public var over: CGFloat   // month-boundary overscroll (px)
+    public var over: CGFloat // month-boundary overscroll (px)
     public init(dom: Int = 1, frac: CGFloat = 0.45, anim: PageAnim? = nil, over: CGFloat = 0) {
         self.dom = dom; self.frac = frac; self.anim = anim; self.over = over
     }
@@ -138,7 +148,7 @@ public struct DailyState: Sendable, Equatable {
 /// rubber-banded overscroll distance (px); `armed` means past the flip threshold.
 public struct YearPull: Sendable, Equatable {
     public var targetYear: Int
-    public var atTop: Bool       // pulling down past the top (→ previous year) vs up past bottom
+    public var atTop: Bool // pulling down past the top (→ previous year) vs up past bottom
     public var over: CGFloat
     public var armed: Bool
     public init(targetYear: Int, atTop: Bool, over: CGFloat, armed: Bool) {
@@ -150,11 +160,11 @@ public struct YearPull: Sendable, Equatable {
 /// dim-swap (the boundary week already shows the neighbor month, dimmed → it just brightens)
 /// from an aligned advance (month ends/starts on a week boundary → a real move to a new week).
 public struct WeekPull: Sendable, Equatable {
-    public var dir: Int          // +1 next month, -1 previous
-    public var over: CGFloat     // rubber-banded overscroll distance (px)
-    public var armed: Bool       // past the flip threshold
-    public var shared: Bool      // dim-swap boundary vs aligned advance
-    public var targetMonth: Int  // 0–11
+    public var dir: Int // +1 next month, -1 previous
+    public var over: CGFloat // rubber-banded overscroll distance (px)
+    public var armed: Bool // past the flip threshold
+    public var shared: Bool // dim-swap boundary vs aligned advance
+    public var targetMonth: Int // 0–11
     public var targetYear: Int
     public init(dir: Int, over: CGFloat, armed: Bool, shared: Bool, targetMonth: Int, targetYear: Int) {
         self.dir = dir; self.over = over; self.armed = armed
@@ -165,10 +175,10 @@ public struct WeekPull: Sendable, Equatable {
 /// Day-view boundary pull state, for the overscroll flip hint. Simpler than WeekPull — a day flip is
 /// always a plain advance to the neighbor month's first/last day (no shared-week reveal).
 public struct DayPull: Sendable, Equatable {
-    public var dir: Int          // +1 next month, -1 previous
-    public var over: CGFloat     // rubber-banded overscroll distance (px)
-    public var armed: Bool       // past the flip threshold
-    public var targetMonth: Int  // 0–11
+    public var dir: Int // +1 next month, -1 previous
+    public var over: CGFloat // rubber-banded overscroll distance (px)
+    public var armed: Bool // past the flip threshold
+    public var targetMonth: Int // 0–11
     public var targetYear: Int
     public init(dir: Int, over: CGFloat, armed: Bool, targetMonth: Int, targetYear: Int) {
         self.dir = dir; self.over = over; self.armed = armed
@@ -195,17 +205,17 @@ public struct SceneInput: Sendable, Equatable {
     public var detailMul: CGFloat
     public var altDeltaHours: CGFloat?
     public var altLabel: String?
-    public var mainTz: String           // the deadline main timezone id (for origin-tz labels)
+    public var mainTz: String // the deadline main timezone id (for origin-tz labels)
     public var dimPast: Bool
     public var yearPull: YearPull?
-    public var flipFade: CGFloat        // whole-calendar opacity for the year/month-flip transition
-    public var animating: Bool          // a tween/flip/page-turn is in flight → cheaper rendering OK
-    public var monthPull: YearPull?     // month-view boundary pull (Jan→prev Dec / Dec→next Jan)
-    public var monthFlipShift: CGFloat  // vertical px offset applied to the month view during a flip
-    public var weekPull: WeekPull?      // week-view boundary pull (overscroll flip hint)
-    public var weekFlipDir: Int         // in-flight week-boundary flip direction (0 = none, ±1)
-    public var weekFlipFade: CGFloat    // 0→1 cross-fade progress of the dim/bright swap
-    public var dayPull: DayPull?        // day-view boundary pull (overscroll flip hint)
+    public var flipFade: CGFloat // whole-calendar opacity for the year/month-flip transition
+    public var animating: Bool // a tween/flip/page-turn is in flight → cheaper rendering OK
+    public var monthPull: YearPull? // month-view boundary pull (Jan→prev Dec / Dec→next Jan)
+    public var monthFlipShift: CGFloat // vertical px offset applied to the month view during a flip
+    public var weekPull: WeekPull? // week-view boundary pull (overscroll flip hint)
+    public var weekFlipDir: Int // in-flight week-boundary flip direction (0 = none, ±1)
+    public var weekFlipFade: CGFloat // 0→1 cross-fade progress of the dim/bright swap
+    public var dayPull: DayPull? // day-view boundary pull (overscroll flip hint)
 
     public init(z: CGFloat, focus: Int, week: CGFloat, vp: Viewport, scrollY: CGFloat,
                 tlScroll: CGFloat, now: Date, year: Int, hover: Hover = .none,

@@ -10,18 +10,20 @@ import Foundation
 
 public struct YMD: Sendable, Equatable, Hashable {
     public var year: Int
-    public var month: Int   // 0-based, matching the web
+    public var month: Int // 0-based, matching the web
     public var day: Int
-    public init(_ year: Int, _ month: Int, _ day: Int) { self.year = year; self.month = month; self.day = day }
+    public init(_ year: Int, _ month: Int, _ day: Int) {
+        self.year = year; self.month = month; self.day = day
+    }
 }
 
 /// Recurrence config, mirroring the web `Repeat` (kind + optional n/until/days/exdates).
 public struct Repeat: Sendable, Equatable, Codable {
-    public var kind: String            // "none" | "daily" | "weekly" | "weekdays" | "yearly"
-    public var n: Int?                 // every n weeks/years (default 1)
-    public var until: String?          // "YYYY-MM-DD" inclusive end, or nil
-    public var days: [Int]?            // weekdays 0=Sun..6=Sat (weekdays kind)
-    public var exdates: [String]?      // excluded occurrence dates "YYYY-MM-DD" — the "holes"
+    public var kind: String // "none" | "daily" | "weekly" | "weekdays" | "yearly"
+    public var n: Int? // every n weeks/years (default 1)
+    public var until: String? // "YYYY-MM-DD" inclusive end, or nil
+    public var days: [Int]? // weekdays 0=Sun..6=Sat (weekdays kind)
+    public var exdates: [String]? // excluded occurrence dates "YYYY-MM-DD" — the "holes"
 
     public init(kind: String, n: Int? = nil, until: String? = nil, days: [Int]? = nil, exdates: [String]? = nil) {
         self.kind = kind; self.n = n; self.until = until; self.days = days; self.exdates = exdates
@@ -35,8 +37,13 @@ public struct Repeat: Sendable, Equatable, Codable {
     }
 }
 
-public func occDate(_ p: YMD) -> String { String(format: "%04d-%02d-%02d", p.year, p.month + 1, p.day) }
-public func occKey(_ id: String, _ p: YMD) -> String { "\(id)@\(p.year)-\(p.month)-\(p.day)" }
+public func occDate(_ p: YMD) -> String {
+    String(format: "%04d-%02d-%02d", p.year, p.month + 1, p.day)
+}
+
+public func occKey(_ id: String, _ p: YMD) -> String {
+    "\(id)@\(p.year)-\(p.month)-\(p.day)"
+}
 
 /// The real item id behind a display-box id: an occurrence "ghost" carries `realId@Y-M-D` (see occKey),
 /// optionally with a promoted (`~p`) or month-segment (`#segN`) marker after it; a base box carries the
@@ -48,7 +55,9 @@ public func occKey(_ id: String, _ p: YMD) -> String { "\(id)@\(p.year)-\(p.mont
 /// so the item couldn't be found and its drawer immediately closed.
 public func sourceId(of boxId: String) -> String {
     let pat = "@[0-9]+-[0-9]+-[0-9]+(\(PROMOTED_SUFFIX)|\(SEGMENT_MARKER)[0-9]+)?$"
-    if let r = boxId.range(of: pat, options: .regularExpression) { return String(boxId[..<r.lowerBound]) }
+    if let r = boxId.range(of: pat, options: .regularExpression) {
+        return String(boxId[..<r.lowerBound])
+    }
     return boxId
 }
 
@@ -64,7 +73,9 @@ public let SEGMENT_MARKER = "#seg"
 /// month-crossing tail segment, and the timeline occurrence all resolve to the same per-occurrence date.
 public func occurrenceKey(of boxId: String) -> String {
     var s = boxId
-    if let r = s.range(of: "\(SEGMENT_MARKER)[0-9]+$", options: .regularExpression) { s = String(s[..<r.lowerBound]) }
+    if let r = s.range(of: "\(SEGMENT_MARKER)[0-9]+$", options: .regularExpression) {
+        s = String(s[..<r.lowerBound])
+    }
     return s.hasSuffix(PROMOTED_SUFFIX) ? String(s.dropLast(PROMOTED_SUFFIX.count)) : s
 }
 
@@ -72,33 +83,47 @@ public func occurrenceKey(of boxId: String) -> String {
 /// from the source item's rich fields + the box's nature (ghost = recurrent, promoted-band = promoted).
 public struct EventBadges: OptionSet, Sendable, Equatable {
     public let rawValue: Int
-    public init(rawValue: Int) { self.rawValue = rawValue }
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
     public static let recurrent = EventBadges(rawValue: 1 << 0)
-    public static let promoted  = EventBadges(rawValue: 1 << 1)
-    public static let ai        = EventBadges(rawValue: 1 << 2)
-    public static let imported  = EventBadges(rawValue: 1 << 3)
-    public static let hidden    = EventBadges(rawValue: 1 << 4)   // user-hidden imported, revealed by "Show Hidden" → dotted bar
+    public static let promoted = EventBadges(rawValue: 1 << 1)
+    public static let ai = EventBadges(rawValue: 1 << 2)
+    public static let imported = EventBadges(rawValue: 1 << 3)
+    public static let hidden =
+        EventBadges(rawValue: 1 << 4) // user-hidden imported, revealed by "Show Hidden" → dotted bar
 }
 
 // ── Date helpers (UTC, calendar-based add so no DST drift) ────────────────────────────
-private let utcCal = utcCalendar   // canonical UTC calendar (Dates.swift)
+private let utcCal = utcCalendar // canonical UTC calendar (Dates.swift)
 private func date(_ y: Int, _ m0: Int, _ d: Int) -> Date {
     utcCal.date(from: DateComponents(year: y, month: m0 + 1, day: d)) ?? Date(timeIntervalSince1970: 0)
 }
-private func addDays(_ d: Date, _ n: Int) -> Date { utcCal.date(byAdding: .day, value: n, to: d) ?? d }
-private func daysBetween(_ a: Date, _ b: Date) -> Int { utcCal.dateComponents([.day], from: a, to: b).day ?? 0 }
+
+private func addDays(_ d: Date, _ n: Int) -> Date {
+    utcCal.date(byAdding: .day, value: n, to: d) ?? d
+}
+
+private func daysBetween(_ a: Date, _ b: Date) -> Int {
+    utcCal.dateComponents([.day], from: a, to: b).day ?? 0
+}
+
 private func ymdOf(_ d: Date) -> YMD {
     let c = utcCal.dateComponents([.year, .month, .day], from: d)
     return YMD(c.year ?? 0, (c.month ?? 1) - 1, c.day ?? 1)
 }
-private func weekday0(_ d: Date) -> Int { (utcCal.component(.weekday, from: d) - 1) } // 0=Sun..6=Sat
+
+private func weekday0(_ d: Date) -> Int {
+    utcCal.component(.weekday, from: d) - 1
+} // 0=Sun..6=Sat
 private func parseDate(_ s: String) -> Date? {
     let p = s.split(separator: "-").map { Int($0) ?? -1 }
     guard p.count == 3, !p.contains(-1) else { return nil }
     return date(p[0], p[1] - 1, p[2])
 }
 
-private let MAX = 400   // safety cap per displayed year
+private let MAX = 400 // safety cap per displayed year
 
 /// First base + k·stepDays (k ≥ 1) that is ≥ winStart — jumps whole spans instead of stepping
 /// day-by-day from a far-back base.
@@ -106,12 +131,17 @@ private func firstStepIn(_ base: Date, _ step: Int, _ winStart: Date) -> Date {
     let gapDays = daysBetween(base, winStart)
     let k = gapDays > step ? gapDays / step : 1
     var d = addDays(base, step * k)
-    while d < winStart { d = addDays(d, step) }
+    while d < winStart {
+        d = addDays(d, step)
+    }
     return d
 }
+
 /// Largest in-phase week-start ≤ winStart (so boundary-week days aren't skipped); base week if later.
 private func firstWeekIn(_ baseWeek: Date, _ step: Int, _ winStart: Date) -> Date {
-    if baseWeek >= winStart { return baseWeek }
+    if baseWeek >= winStart {
+        return baseWeek
+    }
     let k = daysBetween(baseWeek, winStart) / step
     return addDays(baseWeek, step * k)
 }
@@ -125,34 +155,48 @@ public func occurrenceDates(_ base: YMD, _ rep: Repeat?, _ year: Int) -> [YMD] {
     let yearEnd = date(year, 11, 31)
     let until = rep.until.flatMap(parseDate)
     let winEnd = (until != nil && until! < yearEnd) ? until! : yearEnd
-    if winEnd < winStart { return [] }
+    if winEnd < winStart {
+        return []
+    }
     let ex = Set(rep.exdates ?? [])
     let n = max(1, rep.n ?? 1)
     var out: [YMD] = []
 
     func add(_ d: Date) {
-        if d <= baseDate || d < winStart || d > winEnd { return }
+        if d <= baseDate || d < winStart || d > winEnd {
+            return
+        }
         let p = ymdOf(d)
-        if !ex.contains(occDate(p)) { out.append(p) }
+        if !ex.contains(occDate(p)) {
+            out.append(p)
+        }
     }
 
     switch rep.kind {
     case "daily":
         var d = baseDate >= winStart ? addDays(baseDate, 1) : winStart
-        while d <= winEnd && out.count < MAX { add(d); d = addDays(d, 1) }
+        while d <= winEnd && out.count < MAX {
+            add(d); d = addDays(d, 1)
+        }
     case "weekly":
         let step = 7 * n
         var d = firstStepIn(baseDate, step, winStart)
-        while d <= winEnd && out.count < MAX { add(d); d = addDays(d, step) }
+        while d <= winEnd && out.count < MAX {
+            add(d); d = addDays(d, step)
+        }
     case "yearly":
-        if year > base.year && (year - base.year) % n == 0 { add(date(year, base.month, base.day)) }
+        if year > base.year && (year - base.year) % n == 0 {
+            add(date(year, base.month, base.day))
+        }
     default: // "weekdays": selected weekdays, every n weeks (phase anchored to the base week)
         let days = (rep.days?.isEmpty == false) ? rep.days! : [weekday0(baseDate)]
-        let baseWeek = addDays(baseDate, -weekday0(baseDate))   // Sunday of the base week
+        let baseWeek = addDays(baseDate, -weekday0(baseDate)) // Sunday of the base week
         let step = 7 * n
         var ws = firstWeekIn(baseWeek, step, winStart)
         while ws <= winEnd && out.count < MAX {
-            for dow in days { add(addDays(ws, dow)) }
+            for dow in days {
+                add(addDays(ws, dow))
+            }
             ws = addDays(ws, step)
         }
     }
@@ -163,7 +207,11 @@ public func occurrenceDates(_ base: YMD, _ rep: Repeat?, _ year: Int) -> [YMD] {
 /// its own date being an exdate ("delete just this") or past `until` ("delete this & following").
 public func baseHidden(_ dateStr: String, _ rep: Repeat?) -> Bool {
     guard let rep, rep.kind != "none" else { return false }
-    if (rep.exdates ?? []).contains(dateStr) { return true }
-    if let until = rep.until, dateStr > until { return true }   // "YYYY-MM-DD" compares chronologically
+    if (rep.exdates ?? []).contains(dateStr) {
+        return true
+    }
+    if let until = rep.until, dateStr > until {
+        return true
+    } // "YYYY-MM-DD" compares chronologically
     return false
 }

@@ -3,10 +3,10 @@
 // system prompt, and mirroring into the shared ConversationStore. The standalone window and
 // the quick-ask callout each own one of these over the same store.
 
+import CalendarEngine
+import CalendarGeometry
 import Foundation
 import Observation
-import CalendarGeometry
-import CalendarEngine
 
 @MainActor
 @Observable
@@ -18,7 +18,10 @@ public final class AssistantState {
     /// The persisted conversation list, SHARED between assistant sessions (the standalone window
     /// and the quick-ask callout each own an AssistantState; both mirror into this one store).
     public let store: ConversationStore
-    var conversations: [StoredConversation] { store.conversations }
+    var conversations: [StoredConversation] {
+        store.conversations
+    }
+
     private(set) var currentId: UUID?
 
     /// Shared calendar engine for tool context. Assigned by the App so both surfaces read the
@@ -26,7 +29,9 @@ public final class AssistantState {
     /// `unowned`: a deallocated engine must nil out, never dangle (matches CloudSync's choice).
     public weak var engine: CalendarEngine?
 
-    public init(store: ConversationStore) { self.store = store }
+    public init(store: ConversationStore) {
+        self.store = store
+    }
 
     @ObservationIgnored private var task: Task<Void, Never>?
     /// The stashed scratchpad from a run that hit the step ceiling, so "Continue" can pick up where
@@ -40,6 +45,7 @@ public final class AssistantState {
         var calls: [ToolCall]
         var index: Int
     }
+
     @ObservationIgnored private var blockedState: BlockedState?
 
     /// The model id currently selected in the picker (persisted by the panel via @AppStorage).
@@ -65,7 +71,7 @@ public final class AssistantState {
         messages.append(ChatTurn(role: .user, text: text))
         messages.append(ChatTurn(role: .typing, text: ""))
         busy = true
-        persistCurrent()   // the conversation appears in the sidebar as soon as it starts
+        persistCurrent() // the conversation appears in the sidebar as soon as it starts
 
         let model = self.model
         task = Task { [weak self] in await self?.runAgent(model: model) }
@@ -77,30 +83,38 @@ public final class AssistantState {
     /// When `resuming` is provided (from "Continue"), it picks up that stashed scratchpad instead of
     /// rebuilding from history — so the accumulated tool calls/results aren't lost.
     private func runAgent(model: String, resuming: [ChatMessage]? = nil) async {
-        var wire = resuming ?? buildWireMessages()   // system + user/assistant history (typing skipped)
+        var wire = resuming ?? buildWireMessages() // system + user/assistant history (typing skipped)
         let ctx = ToolContext(engine: engine)
 
-        for _ in 0..<Self.maxSteps {
-            if Task.isCancelled { return }
+        for _ in 0 ..< Self.maxSteps {
+            if Task.isCancelled {
+                return
+            }
             let resp: ChatResponse
             do {
                 resp = try await LLMClient.chat(messages: wire, model: model, tools: AssistantTools.defs)
             } catch {
-                if !Task.isCancelled { finish(error: error) }
+                if !Task.isCancelled {
+                    finish(error: error)
+                }
                 return
             }
-            if Task.isCancelled { return }
+            if Task.isCancelled {
+                return
+            }
 
             // Record the assistant turn (content + any requested tool calls) in the scratchpad.
             wire.append(ChatMessage(role: "assistant", content: resp.content,
                                     toolCalls: resp.toolCalls.isEmpty ? nil : resp.toolCalls))
 
-            if resp.toolCalls.isEmpty { finish(text: resp.content); return }
+            if resp.toolCalls.isEmpty {
+                finish(text: resp.content); return
+            }
 
             switch await executeBatch(&wire, resp.toolCalls, startAt: 0, bypassFirstAudit: false,
                                       ctx: ctx, model: model) {
             case .completed: continue
-            case .halted: return        // blocked (state stashed for "Allow") or cancelled
+            case .halted: return // blocked (state stashed for "Allow") or cancelled
             }
         }
         // Hit the step ceiling — stash the scratchpad and offer to continue (like the web's resumeId).
@@ -118,12 +132,13 @@ public final class AssistantState {
     /// with the audit bypassed — the user's explicit override (the web's /api/assistant/allow).
     private func executeBatch(_ wire: inout [ChatMessage], _ calls: [ToolCall], startAt: Int,
                               bypassFirstAudit: Bool, ctx: ToolContext, model: String) async -> BatchOutcome {
-        for i in startAt..<calls.count {
+        for i in startAt ..< calls.count {
             let call = calls[i]
             guard let tool = AssistantTools.tool(named: call.function.name) else {
                 wire.append(ChatMessage(role: "tool",
-                    content: JSONValue.obj(["error": .str("unknown tool: \(call.function.name)")]).jsonString,
-                    toolCallId: call.id))
+                                        content: JSONValue.obj(["error": .str("unknown tool: \(call.function.name)")])
+                                            .jsonString,
+                                        toolCallId: call.id))
                 continue
             }
             let args = JSONValue.parse(call.function.arguments)
@@ -131,11 +146,16 @@ public final class AssistantState {
             if !tool.readOnly, !(bypassFirstAudit && i == startAt) {
                 let verdict = await Auditor.audit(userTurns: userTurns(), call: call,
                                                   engine: engine, model: model)
-                if Task.isCancelled { return .halted }
+                if Task.isCancelled {
+                    return .halted
+                }
                 if verdict.decision == .deny {
                     blockedState = BlockedState(wire: wire, calls: calls, index: i)
                     insertBeforeTyping(ChatTurn(role: .blocked, text: "",
-                        blockedReq: BlockedRequest(toolName: call.function.name, reason: verdict.reason)))
+                                                blockedReq: BlockedRequest(
+                                                    toolName: call.function.name,
+                                                    reason: verdict.reason
+                                                )))
                     messages.removeAll { $0.role == .typing }
                     busy = false
                     persistCurrent()
@@ -145,15 +165,17 @@ public final class AssistantState {
 
             let started = Date()
             let output = await run(tool, args, ctx)
-            if Task.isCancelled { return .halted }
+            if Task.isCancelled {
+                return .halted
+            }
             let result = JSONValue.parse(output)
             if tool.confirm, result["staged"]?.boolValue == true, let id = result["id"]?.stringValue {
                 // Resolve-only delete → an interactive confirmation card, not a plain chip.
                 addConfirm(ConfirmRequest(id: id,
-                    title: result["title"]?.stringValue ?? "item",
-                    kind: result["kind"]?.stringValue ?? "",
-                    date: result["date"]?.stringValue ?? "",
-                    occurrenceDate: result["occurrenceDate"]?.stringValue))
+                                          title: result["title"]?.stringValue ?? "item",
+                                          kind: result["kind"]?.stringValue ?? "",
+                                          date: result["date"]?.stringValue ?? "",
+                                          occurrenceDate: result["occurrenceDate"]?.stringValue))
             } else {
                 // Every other tool call — read or write — posts an expandable action bubble.
                 // Compact JSON is stored; the card renders it as structured rows (web-app style).
@@ -173,7 +195,9 @@ public final class AssistantState {
     func allowBlocked(_ turnId: UUID) {
         guard let bs = blockedState, !busy else { return }
         blockedState = nil
-        if let i = messages.firstIndex(where: { $0.id == turnId }) { messages[i].blockedReq?.status = .allowed }
+        if let i = messages.firstIndex(where: { $0.id == turnId }) {
+            messages[i].blockedReq?.status = .allowed
+        }
         messages.append(ChatTurn(role: .typing, text: ""))
         busy = true
         let model = self.model
@@ -185,7 +209,7 @@ public final class AssistantState {
         let ctx = ToolContext(engine: engine)
         switch await executeBatch(&wire, bs.calls, startAt: bs.index, bypassFirstAudit: true,
                                   ctx: ctx, model: model) {
-        case .halted: return            // a LATER call in the batch got blocked (new card posted)
+        case .halted: return // a LATER call in the batch got blocked (new card posted)
         case .completed: await runAgent(model: model, resuming: wire)
         }
     }
@@ -193,7 +217,9 @@ public final class AssistantState {
     /// "Tell it what to do" on a blocked card — drop the stashed run; the composer takes over.
     func dismissBlocked(_ turnId: UUID) {
         blockedState = nil
-        if let i = messages.firstIndex(where: { $0.id == turnId }) { messages[i].blockedReq?.status = .dismissed }
+        if let i = messages.firstIndex(where: { $0.id == turnId }) {
+            messages[i].blockedReq?.status = .dismissed
+        }
         persistCurrent()
     }
 
@@ -213,7 +239,9 @@ public final class AssistantState {
     }
 
     /// The user's verbatim messages — the only untrusted input the auditor is allowed to see.
-    private func userTurns() -> [String] { messages.filter { $0.role == .user }.map(\.text) }
+    private func userTurns() -> [String] {
+        messages.filter { $0.role == .user }.map(\.text)
+    }
 
     /// Insert a tool-activity chip just above the trailing typing indicator.
     private func addAction(_ text: String, icon: String, detail: ActionDetail? = nil) {
@@ -226,8 +254,11 @@ public final class AssistantState {
     }
 
     private func insertBeforeTyping(_ turn: ChatTurn) {
-        if let i = messages.lastIndex(where: { $0.role == .typing }) { messages.insert(turn, at: i) }
-        else { messages.append(turn) }
+        if let i = messages.lastIndex(where: { $0.role == .typing }) {
+            messages.insert(turn, at: i)
+        } else {
+            messages.append(turn)
+        }
     }
 
     /// Confirm-card buttons call this. Confirmed → navigate to the item, then delete (the whole
@@ -236,7 +267,9 @@ public final class AssistantState {
         guard let i = messages.firstIndex(where: { $0.id == turnId }),
               var req = messages[i].confirm, req.status == .pending else { return }
         if confirmed, let e = engine {
-            if let (y, m, _) = e.dateOf(req.id) { e.setView(year: y, zoom: "month", focusedMonth: m) }
+            if let (y, m, _) = e.dateOf(req.id) {
+                e.setView(year: y, zoom: "month", focusedMonth: m)
+            }
             if let od = req.occurrenceDate, let (oy, om, oday) = parseDate(od) {
                 e.deleteOccurrence(req.id, occKey(req.id, YMD(oy, om, oday)))
             } else {
@@ -262,7 +295,9 @@ public final class AssistantState {
     func continueChat(_ turnId: UUID) {
         guard let wire = resumeWire, !busy else { return }
         resumeWire = nil
-        if let i = messages.firstIndex(where: { $0.id == turnId }) { messages[i].resumeConsumed = true }
+        if let i = messages.firstIndex(where: { $0.id == turnId }) {
+            messages[i].resumeConsumed = true
+        }
         messages.append(ChatTurn(role: .typing, text: ""))
         busy = true
         let model = self.model
@@ -270,7 +305,7 @@ public final class AssistantState {
     }
 
     private func finish(text: String) {
-        resumeWire = nil                       // a completed turn has nothing left to resume
+        resumeWire = nil // a completed turn has nothing left to resume
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         replaceTyping(with: body.isEmpty ? "_(no response)_" : body)
         busy = false
@@ -295,7 +330,9 @@ public final class AssistantState {
     private(set) var focusInput = 0
 
     /// Put the keyboard focus back in the composer (blocked-card "Tell it what to do", etc.).
-    func requestInputFocus() { focusInput &+= 1 }
+    func requestInputFocus() {
+        focusInput &+= 1
+    }
 
     public func newChat() {
         task?.cancel(); task = nil
@@ -304,7 +341,7 @@ public final class AssistantState {
         messages.removeAll()
         currentId = nil
         busy = false
-        focusInput &+= 1   // a fresh chat starts with the input box ready to type
+        focusInput &+= 1 // a fresh chat starts with the input box ready to type
     }
 
     // ── Conversation history ─────────────────────────────────────────────────────────
@@ -346,16 +383,24 @@ public final class AssistantState {
     }
 
     /// Flush the live transcript to the store NOW (before handing this thread to another surface).
-    func persistNow() { persistCurrent() }
+    func persistNow() {
+        persistCurrent()
+    }
 
     /// Pending interactive cards can't survive a reload — their stashed run state (the blocked
     /// batch, the resume scratchpad) lives only in memory. Downgrade them to settled states.
     private static func sanitized(_ turns: [ChatTurn]) -> [ChatTurn] {
         turns.map { turn in
             var t = turn
-            if t.confirm?.status == .pending { t.confirm?.status = .cancelled }
-            if t.blockedReq?.status == .pending { t.blockedReq?.status = .dismissed }
-            if t.role == .resume { t.resumeConsumed = true }
+            if t.confirm?.status == .pending {
+                t.confirm?.status = .cancelled
+            }
+            if t.blockedReq?.status == .pending {
+                t.blockedReq?.status = .dismissed
+            }
+            if t.role == .resume {
+                t.resumeConsumed = true
+            }
             return t
         }
     }
@@ -380,10 +425,10 @@ public final class AssistantState {
         var wire: [ChatMessage] = [ChatMessage(role: "system", content: systemPrompt())]
         for turn in messages {
             switch turn.role {
-            case .user:      wire.append(ChatMessage(role: "user", content: turn.text))
+            case .user: wire.append(ChatMessage(role: "user", content: turn.text))
             case .assistant: wire.append(ChatMessage(role: "assistant", content: turn.text))
             case .typing, .action, .confirm, .resume, .blocked:
-                break   // transient UI-only rows — not LLM history
+                break // transient UI-only rows — not LLM history
             }
         }
         return wire
@@ -402,7 +447,9 @@ public final class AssistantState {
             viewContextLine(),
             timezoneLine(),
         ]
-        if let mem = memoryLine() { lines.append(mem) }
+        if let mem = memoryLine() {
+            lines.append(mem)
+        }
         lines += [
             "",
             "Event kinds: 'timed' (an hourly event on one day), 'band' (a multi-day bar pinned to the year-scale track lanes — that's just WHERE it's shown; it does NOT mean the event lasts all day, so never call it 'all-day'), 'deadline' (a single moment, optionally in a timezone like AOE). Each has title, color, tags (string[]), notes (markdown), optional repeat.",
@@ -446,7 +493,7 @@ public final class AssistantState {
     /// (Events are anchored to their own zones internally, but the assistant always reads/writes in this one.)
     private func timezoneLine() -> String {
         guard let engine else { return "" }
-        let tz = DeadlineTZ.concrete(engine.mainTz)   // resolve "auto" → the device zone id
+        let tz = DeadlineTZ.concrete(engine.mainTz) // resolve "auto" → the device zone id
         let name = CalendarTimezones.label(for: tz)
         let abbr = DeadlineTZ.shortLabel(tz, at: Date())
         return "All times you read (list_events, get_event) and write (create_event, update_event) are in the user's CURRENT timezone: \(name) (\(abbr)). get_event also returns each item's own 'anchorTz' for reference, but you always work in the current zone."

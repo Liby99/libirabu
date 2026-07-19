@@ -1,12 +1,12 @@
-import XCTest
 @testable import CalendarGeometry
+import XCTest
 
 final class SourceIdTests: XCTestCase {
     func testStripsOccurrenceSuffix() {
-        XCTAssertEqual(sourceId(of: "tev-abc"), "tev-abc")               // base box
-        XCTAssertEqual(sourceId(of: "tev-abc@2026-6-24"), "tev-abc")     // occurrence ghost
-        XCTAssertEqual(sourceId(of: "tev-abc@2026-6-24\(PROMOTED_SUFFIX)"), "tev-abc")   // promoted bar
-        XCTAssertEqual(sourceId(of: "tev-abc@2026-6-24\(SEGMENT_MARKER)1"), "tev-abc")   // month-crossing tail
+        XCTAssertEqual(sourceId(of: "tev-abc"), "tev-abc") // base box
+        XCTAssertEqual(sourceId(of: "tev-abc@2026-6-24"), "tev-abc") // occurrence ghost
+        XCTAssertEqual(sourceId(of: "tev-abc@2026-6-24\(PROMOTED_SUFFIX)"), "tev-abc") // promoted bar
+        XCTAssertEqual(sourceId(of: "tev-abc@2026-6-24\(SEGMENT_MARKER)1"), "tev-abc") // month-crossing tail
     }
 
     /// Imported ids bake the vendor uid in; Google/Exchange uids contain `@` — which must NOT truncate the

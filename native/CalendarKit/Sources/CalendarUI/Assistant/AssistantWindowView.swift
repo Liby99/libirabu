@@ -36,7 +36,7 @@ public struct AssistantWindowView: View {
         let theme = Theme(dark: scheme == .dark)
         NavigationSplitView(columnVisibility: $columns) {
             sidebar(theme)
-                .navigationSplitViewColumnWidth(240)   // fixed width → no size interpolation on toggle
+                .navigationSplitViewColumnWidth(240) // fixed width → no size interpolation on toggle
         } detail: {
             ConversationView(state: state, theme: theme)
                 .navigationTitle("MagiCal AI")
@@ -63,13 +63,13 @@ public struct AssistantWindowView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.sidebarFocusDelay) { sidebarFocused = true }
         } else {
             sidebarFocused = false
-            state.requestInputFocus()   // closing hands the keyboard back to the composer
+            state.requestInputFocus() // closing hands the keyboard back to the composer
         }
     }
 
-    // ── Sidebar: saved conversations (New Chat lives in the toolbar) ─────────────────
-    // Selection is rendered manually (accent pill, not the system highlight); rows select on
-    // click, delete via right-click menu or a trailing swipe.
+    /// ── Sidebar: saved conversations (New Chat lives in the toolbar) ─────────────────
+    /// Selection is rendered manually (accent pill, not the system highlight); rows select on
+    /// click, delete via right-click menu or a trailing swipe.
     private func sidebar(_ theme: Theme) -> some View {
         ScrollViewReader { proxy in
             List {
@@ -174,7 +174,7 @@ public struct AssistantWindowView: View {
                 .foregroundStyle(selected ? .white.opacity(0.8) : theme.textMuted)
                 .lineLimit(1)
         }
-        .padding(.vertical, 7)     // roomier rows
+        .padding(.vertical, 7) // roomier rows
         .padding(.horizontal, 8)
         // The pill lives on the row content itself (not listRowBackground) so the context-menu
         // highlight and the selection share the exact same bounds. The keyboard cursor draws a
@@ -189,7 +189,7 @@ public struct AssistantWindowView: View {
         return fmt.localizedString(for: date, relativeTo: Date())
     }
 
-    // ── Toolbar: model picker + new chat ────────────────────────────────────────────
+    /// ── Toolbar: model picker + new chat ────────────────────────────────────────────
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             Menu {
@@ -197,8 +197,11 @@ public struct AssistantWindowView: View {
                     Button {
                         model = m.id
                     } label: {
-                        if m.id == model { Label("\(m.label) · \(m.note)", systemImage: "checkmark") }
-                        else { Text("\(m.label) · \(m.note)") }
+                        if m.id == model {
+                            Label("\(m.label) · \(m.note)", systemImage: "checkmark")
+                        } else {
+                            Text("\(m.label) · \(m.note)")
+                        }
                     }
                 }
             } label: {

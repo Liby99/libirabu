@@ -2,21 +2,21 @@
 // a backend. This is an interim store; the sync engine will later reconcile the same
 // PersistedState shape with the server.
 
-import Foundation
 import CalendarGeometry
+import Foundation
 import os
 
 public struct PersistedState: Codable, Sendable {
     public var events: [TimedEvent]
     public var bands: [BandEvent]
     public var deadlines: [Deadline]
-    public var monthTrackNames: [[String]]?   // per-month lane names; nil on older saves
-    // Full-fidelity fields the lean geometry types (TimedEvent/BandEvent/Deadline) don't carry,
-    // keyed by item id. Kept alongside so notes/tags/recurrence survive a round-trip through the
-    // store and CloudKit even though the renderer doesn't surface them yet. nil on older saves.
+    public var monthTrackNames: [[String]]? // per-month lane names; nil on older saves
+    /// Full-fidelity fields the lean geometry types (TimedEvent/BandEvent/Deadline) don't carry,
+    /// keyed by item id. Kept alongside so notes/tags/recurrence survive a round-trip through the
+    /// store and CloudKit even though the renderer doesn't surface them yet. nil on older saves.
     public var rich: [String: RichFields]?
-    // The daily-dashboard NOTE tab: one free-form markdown note per day, keyed by ISO date
-    // "YYYY-MM-DD". nil on older saves. (Mirrors the web's `dailyNote` table.)
+    /// The daily-dashboard NOTE tab: one free-form markdown note per day, keyed by ISO date
+    /// "YYYY-MM-DD". nil on older saves. (Mirrors the web's `dailyNote` table.)
     public var dailyNotes: [String: String]?
 
     public init(events: [TimedEvent], bands: [BandEvent], deadlines: [Deadline],
@@ -34,15 +34,15 @@ public struct RichFields: Codable, Sendable, Equatable {
     public var notes: String?
     public var tags: [String]
     public var repeatJSON: String?
-    public var promoteTrack: Int?   // timed/deadline ghost-band lane; nil = not promoted
-    public var originTz: String?    // deadline origin tz ("AOE"/IANA); nil = main tz canonical
-    public var source: String       // "manual" | "apple" | "ical"
-    public var hidden: Bool         // soft-deleted (imported items)
-    public var createdByAI: Bool    // provenance: created/edited by the AI assistant
-    public var occurrenceNotes: [String: String]?   // per-occurrence notes (recurring), keyed by box id
-    public var colorOverride: String?   // user-chosen color for an imported (vendor-colored) event; nil = vendor color
-    public var userHidden: Bool     // user chose to HIDE this imported series (persists across re-imports,
-                                    // unlike the dedup `hidden`); keyed by the imported series key
+    public var promoteTrack: Int? // timed/deadline ghost-band lane; nil = not promoted
+    public var originTz: String? // deadline origin tz ("AOE"/IANA); nil = main tz canonical
+    public var source: String // "manual" | "apple" | "ical"
+    public var hidden: Bool // soft-deleted (imported items)
+    public var createdByAI: Bool // provenance: created/edited by the AI assistant
+    public var occurrenceNotes: [String: String]? // per-occurrence notes (recurring), keyed by box id
+    public var colorOverride: String? // user-chosen color for an imported (vendor-colored) event; nil = vendor color
+    public var userHidden: Bool // user chose to HIDE this imported series (persists across re-imports,
+    // unlike the dedup `hidden`); keyed by the imported series key
 
     public init(notes: String? = nil, tags: [String] = [], repeatJSON: String? = nil,
                 promoteTrack: Int? = nil, originTz: String? = nil,
@@ -56,8 +56,8 @@ public struct RichFields: Codable, Sendable, Equatable {
         self.userHidden = userHidden
     }
 
-    // Tolerant decode: a field absent in an OLDER store just takes its default, so adding a field
-    // (like createdByAI) never fails the whole rich-map decode and drops notes/recurrence/etc.
+    /// Tolerant decode: a field absent in an OLDER store just takes its default, so adding a field
+    /// (like createdByAI) never fails the whole rich-map decode and drops notes/recurrence/etc.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
@@ -107,18 +107,25 @@ struct ItemStore {
             let data = try JSONEncoder().encode(state)
             try data.write(to: url, options: .atomic)
         } catch {
-            storeLog.error("calendar store write FAILED (\(self.url.lastPathComponent, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+            storeLog
+                .error(
+                    "calendar store write FAILED (\(self.url.lastPathComponent, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+                )
         }
     }
 
-    // ── CKSyncEngine state serialization ──────────────────────────────────────────
-    // CKSyncEngine hands us an opaque Data blob (its record/zone change-tracking state)
-    // to persist across launches. Kept beside the item cache; nil means "never synced".
-    func loadSyncState() -> Data? { try? Data(contentsOf: syncStateURL) }
+    /// ── CKSyncEngine state serialization ──────────────────────────────────────────
+    /// CKSyncEngine hands us an opaque Data blob (its record/zone change-tracking state)
+    /// to persist across launches. Kept beside the item cache; nil means "never synced".
+    func loadSyncState() -> Data? {
+        try? Data(contentsOf: syncStateURL)
+    }
+
     func saveSyncState(_ data: Data?) {
         do {
-            if let data { try data.write(to: syncStateURL, options: .atomic) }
-            else if FileManager.default.fileExists(atPath: syncStateURL.path) {
+            if let data {
+                try data.write(to: syncStateURL, options: .atomic)
+            } else if FileManager.default.fileExists(atPath: syncStateURL.path) {
                 try FileManager.default.removeItem(at: syncStateURL)
             }
         } catch {

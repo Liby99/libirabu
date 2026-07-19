@@ -2,30 +2,34 @@
 // launch (see CalendarView's @AppStorage "cc.tutorial.seen") and re-openable from Help ▸ Tutorial. The
 // body isn't really a tutorial: each slide is just a GIF demoing one gesture/feature.
 
-import SwiftUI
 import AppKit
+import SwiftUI
 
 /// One carousel slide: a GIF (loaded by name from the bundle's `tutorial/` folder) + a caption. The final
 /// slide is a `welcome` card (app icon + a friendly sign-off) instead of a demo GIF.
 struct TutorialSlide: Identifiable {
     let id = UUID()
-    let gif: String        // resource name without extension (see Resources/tutorial/README.md); "" for welcome
+    let gif: String // resource name without extension (see Resources/tutorial/README.md); "" for welcome
     let caption: String
     var welcome: Bool = false
 }
 
 struct TutorialView: View {
     let theme: Theme
-    var ui: CalendarUIState        // reads/writes ui.tutorialIndex (also driven by the key monitor)
+    var ui: CalendarUIState // reads/writes ui.tutorialIndex (also driven by the key monitor)
     var onClose: () -> Void
 
     static let slides: [TutorialSlide] = [
-        .init(gif: "pinch-zoom",     caption: "Pinch to zoom into monthly, weekly, or daily view."),
-        .init(gif: "band-year",      caption: "Drag across days in the year view to create multi-day events."),
-        .init(gif: "timed-week",     caption: "Drag on the timeline to create timed events."),
-        .init(gif: "ai-assistant",   caption: "Click the AI button to let AI help you manage your calendar."),
+        .init(gif: "pinch-zoom", caption: "Pinch to zoom into monthly, weekly, or daily view."),
+        .init(gif: "band-year", caption: "Drag across days in the year view to create multi-day events."),
+        .init(gif: "timed-week", caption: "Drag on the timeline to create timed events."),
+        .init(gif: "ai-assistant", caption: "Click the AI button to let AI help you manage your calendar."),
         .init(gif: "markdown-notes", caption: "Edit markdown notes in events or the daily notepad to add TODO items."),
-        .init(gif: "", caption: "That's the tour — your calendar is ready. Enjoy planning your time with MagiCal!", welcome: true),
+        .init(
+            gif: "",
+            caption: "That's the tour — your calendar is ready. Enjoy planning your time with MagiCal!",
+            welcome: true
+        ),
     ]
 
     // The demo GIFs span aspect ratios from ~4.3:1 (year band) to ~0.85:1 (AI panel). A landscape stage
@@ -34,8 +38,13 @@ struct TutorialView: View {
     static let stageW: CGFloat = 620
     static let stageH: CGFloat = 440
 
-    private var idx: Int { min(max(0, ui.tutorialIndex), Self.slides.count - 1) }
-    private var isLast: Bool { idx == Self.slides.count - 1 }
+    private var idx: Int {
+        min(max(0, ui.tutorialIndex), Self.slides.count - 1)
+    }
+
+    private var isLast: Bool {
+        idx == Self.slides.count - 1
+    }
 
     var body: some View {
         ZStack {
@@ -63,7 +72,7 @@ struct TutorialView: View {
                     }
                 }
                 .frame(width: Self.stageW, height: Self.stageH)
-                .id(idx)   // swap the NSImageView when the slide changes
+                .id(idx) // swap the NSImageView when the slide changes
                 .transition(.opacity)
 
                 Text(Self.slides[idx].caption)
@@ -85,7 +94,13 @@ struct TutorialView: View {
                     Button("Back") { go(to: idx - 1) }
                         .disabled(idx == 0)
                     Spacer()
-                    Button(isLast ? "Done" : "Next") { if isLast { onClose() } else { go(to: idx + 1) } }
+                    Button(isLast ? "Done" : "Next") {
+                        if isLast {
+                            onClose()
+                        } else {
+                            go(to: idx + 1)
+                        }
+                    }
                 }
                 .buttonStyle(.bordered)
                 .frame(width: Self.stageW)
@@ -99,7 +114,9 @@ struct TutorialView: View {
         }
     }
 
-    private func go(to i: Int) { ui.tutorialIndex = min(max(0, i), Self.slides.count - 1) }
+    private func go(to i: Int) {
+        ui.tutorialIndex = min(max(0, i), Self.slides.count - 1)
+    }
 }
 
 /// The final slide: the MagiCal app icon + a welcome heading, centered (the friendly sign-off is the
@@ -111,7 +128,7 @@ private struct WelcomeStage: View {
             if let img = Self.appIcon() {
                 Image(nsImage: img)
                     .resizable().interpolation(.high)
-                    .frame(width: 150, height: 150)   // the icon already has rounded corners + margins
+                    .frame(width: 150, height: 150) // the icon already has rounded corners + margins
                     .shadow(color: .black.opacity(0.22), radius: 16, y: 8)
             } else {
                 Image(systemName: "calendar")
@@ -152,13 +169,17 @@ private struct GIFStage: View {
             AnimatedGIFView(image: img)
                 .aspectRatio(img.size.width / img.size.height, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(theme.sep.opacity(0.4), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(
+                    theme.sep.opacity(0.4),
+                    lineWidth: 1
+                ))
                 .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
         } else {
             RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.text.opacity(0.06))
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
                 .overlay(VStack(spacing: 10) {
-                    Image(systemName: "play.rectangle.on.rectangle").font(.system(size: 30)).foregroundStyle(theme.textMuted)
+                    Image(systemName: "play.rectangle.on.rectangle").font(.system(size: 30))
+                        .foregroundStyle(theme.textMuted)
                     Text("Demo GIF").font(.system(size: 12)).foregroundStyle(theme.textMuted)
                 })
         }
@@ -182,7 +203,10 @@ private struct AnimatedGIFView: NSViewRepresentable {
         v.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return v
     }
+
     func updateNSView(_ v: NSImageView, context: Context) {
-        if v.image !== image { v.image = image; v.animates = true }
+        if v.image !== image {
+            v.image = image; v.animates = true
+        }
     }
 }

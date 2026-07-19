@@ -17,15 +17,15 @@
 // isn't in the responder chain), so `handle` never runs for those — the field owns Enter/Esc/typing.
 // Such states still LIST their keys here (empty actions) so the guide can show them.
 
-import SwiftUI
 import CalendarEngine
 import CalendarGeometry
+import SwiftUI
 
-// ── A normalized key, independent of view/state (mapped from the raw NSEvent by the catcher) ──
+/// ── A normalized key, independent of view/state (mapped from the raw NSEvent by the catcher) ──
 enum KeyToken: Equatable {
     case enter, space, escape, tab, backTab, left, right, up, down, delete, cmdS, cmdN, cmdT, cmdU, cmdL
-    case cmdEqual, cmdMinus                        // ⌘= / ⌘− → zoom in / out (keeps the current focus)
-    case cmdUp, cmdDown, cmdLeft, cmdRight         // ⌘+arrows → move the selected event
+    case cmdEqual, cmdMinus // ⌘= / ⌘− → zoom in / out (keeps the current focus)
+    case cmdUp, cmdDown, cmdLeft, cmdRight // ⌘+arrows → move the selected event
     case shiftUp, shiftDown, shiftLeft, shiftRight // ⇧+arrows → resize the selected event
     case char(Character)
 
@@ -35,129 +35,152 @@ enum KeyToken: Equatable {
         switch self {
         case .left, .right, .up, .down,
              .cmdUp, .cmdDown, .cmdLeft, .cmdRight,
-             .shiftUp, .shiftDown, .shiftLeft, .shiftRight: return true
-        default: return false
+             .shiftUp, .shiftDown, .shiftLeft, .shiftRight: true
+        default: false
         }
     }
 
     /// The glyph shown on the keycap in the Cmd+K guide.
     var cap: String {
         switch self {
-        case .enter:   return "return"
-        case .space:   return "space"
-        case .escape:  return "esc"
-        case .tab:     return "tab"
-        case .backTab: return "⇧tab"
-        case .left:    return "←"
-        case .right:   return "→"
-        case .up:      return "↑"
-        case .down:    return "↓"
-        case .delete:  return "delete"
-        case .cmdS:    return "⌘S"
-        case .cmdN:    return "⌘N"
-        case .cmdT:    return "⌘T"
-        case .cmdU:    return "⌘U"
-        case .cmdL:    return "⌘L"
-        case .cmdEqual:return "⌘+"
-        case .cmdMinus:return "⌘−"
-        case .cmdUp:   return "⌘↑"
-        case .cmdDown: return "⌘↓"
-        case .cmdLeft: return "⌘←"
-        case .cmdRight:return "⌘→"
-        case .shiftUp:   return "⇧↑"
-        case .shiftDown: return "⇧↓"
-        case .shiftLeft: return "⇧←"
-        case .shiftRight:return "⇧→"
-        case .char(let c): return String(c).uppercased()
+        case .enter: "return"
+        case .space: "space"
+        case .escape: "esc"
+        case .tab: "tab"
+        case .backTab: "⇧tab"
+        case .left: "←"
+        case .right: "→"
+        case .up: "↑"
+        case .down: "↓"
+        case .delete: "delete"
+        case .cmdS: "⌘S"
+        case .cmdN: "⌘N"
+        case .cmdT: "⌘T"
+        case .cmdU: "⌘U"
+        case .cmdL: "⌘L"
+        case .cmdEqual: "⌘+"
+        case .cmdMinus: "⌘−"
+        case .cmdUp: "⌘↑"
+        case .cmdDown: "⌘↓"
+        case .cmdLeft: "⌘←"
+        case .cmdRight: "⌘→"
+        case .shiftUp: "⇧↑"
+        case .shiftDown: "⇧↓"
+        case .shiftLeft: "⇧←"
+        case .shiftRight: "⇧→"
+        case let .char(c): String(c).uppercased()
         }
     }
 }
 
-// ── One row of the keymap: a key, what it does (`action`), and a human label for the guide ──
+/// ── One row of the keymap: a key, what it does (`action`), and a human label for the guide ──
 struct KeyBinding: Identifiable {
     let token: KeyToken
     let label: String
     let action: () -> Void
-    var id: String { token.cap + label }
+    var id: String {
+        token.cap + label
+    }
+
     init(_ token: KeyToken, _ label: String, _ action: @escaping () -> Void = {}) {
         self.token = token; self.label = label; self.action = action
     }
 }
 
-// ── The current leaf state. Grown one at a time; `.idle` = nothing special (no bindings yet). ──
+/// ── The current leaf state. Grown one at a time; `.idle` = nothing special (no bindings yet). ──
 enum AppKeyState: Equatable {
     case idle
-    case block                // block cursor (default/home): navigate time cells, Space/Esc zoom
-    case bandCursor           // band cursor: a lane×day grid cell (⌘N creates a band there)
-    case trackName            // month view: a focused track NAME (Enter edits it)
-    case trackNameEditing     // its inline text field is open (the field owns the keys)
-    case timedSelected        // a timed event is selected in a detail view (Enter/Space/Escape)
-    case timedTitleEditing    // its inline title editor is open (the field owns the keys)
-    case bandSelected         // a band (multi-day) event is selected (Enter/Space/Escape)
-    case bandTitleEditing     // its inline title editor is open (the field owns the keys)
-    case deadlineSelected     // a deadline is selected (Space/Escape + ⌘↑/↓ nudge)
-    case multiSelected        // 2+ events selected → single-event ops are OFF; batch ops act on the set
-    case drawerOpen           // the event drawer is open, no field focused
-    case drawerTitleEditing   // the drawer's title field is focused (the field owns the keys)
-    case drawerField(DrawerField)   // a drawer field is keyboard-focused (Tab-cycled); sub-keys act on it
-    case dashTodo             // day view: the dashboard TODO list is focused (↑/↓ rows, Space toggles)
-    case dashNote             // day view: the daily NOTE is focused (Enter → edit)
-    case dashNoteEditing      // the daily NOTE editor has focus (the WebView owns the keys)
+    case block // block cursor (default/home): navigate time cells, Space/Esc zoom
+    case bandCursor // band cursor: a lane×day grid cell (⌘N creates a band there)
+    case trackName // month view: a focused track NAME (Enter edits it)
+    case trackNameEditing // its inline text field is open (the field owns the keys)
+    case timedSelected // a timed event is selected in a detail view (Enter/Space/Escape)
+    case timedTitleEditing // its inline title editor is open (the field owns the keys)
+    case bandSelected // a band (multi-day) event is selected (Enter/Space/Escape)
+    case bandTitleEditing // its inline title editor is open (the field owns the keys)
+    case deadlineSelected // a deadline is selected (Space/Escape + ⌘↑/↓ nudge)
+    case multiSelected // 2+ events selected → single-event ops are OFF; batch ops act on the set
+    case drawerOpen // the event drawer is open, no field focused
+    case drawerTitleEditing // the drawer's title field is focused (the field owns the keys)
+    case drawerField(DrawerField) // a drawer field is keyboard-focused (Tab-cycled); sub-keys act on it
+    case dashTodo // day view: the dashboard TODO list is focused (↑/↓ rows, Space toggles)
+    case dashNote // day view: the daily NOTE is focused (Enter → edit)
+    case dashNoteEditing // the daily NOTE editor has focus (the WebView owns the keys)
 
     /// Heading shown at the top of the Cmd+K guide.
     var title: String {
         switch self {
-        case .idle:              return "Calendar"
-        case .block:             return "Navigate"
-        case .bandCursor:        return "Band cursor"
-        case .trackName:         return "Track name"
-        case .trackNameEditing:  return "Editing track name"
-        case .timedSelected:     return "Event selected"
-        case .timedTitleEditing: return "Editing title"
-        case .bandSelected:      return "Band selected"
-        case .multiSelected:     return "Multiple selected"
-        case .bandTitleEditing:  return "Editing title"
-        case .deadlineSelected:  return "Deadline selected"
-        case .drawerOpen:        return "Event drawer"
-        case .drawerTitleEditing:return "Drawer · editing title"
-        case .drawerField(let f):return "Drawer · " + f.label
-        case .dashTodo:          return "Dashboard · to-dos"
-        case .dashNote:          return "Daily note"
-        case .dashNoteEditing:   return "Editing daily note"
+        case .idle: "Calendar"
+        case .block: "Navigate"
+        case .bandCursor: "Band cursor"
+        case .trackName: "Track name"
+        case .trackNameEditing: "Editing track name"
+        case .timedSelected: "Event selected"
+        case .timedTitleEditing: "Editing title"
+        case .bandSelected: "Band selected"
+        case .multiSelected: "Multiple selected"
+        case .bandTitleEditing: "Editing title"
+        case .deadlineSelected: "Deadline selected"
+        case .drawerOpen: "Event drawer"
+        case .drawerTitleEditing: "Drawer · editing title"
+        case let .drawerField(f): "Drawer · " + f.label
+        case .dashTodo: "Dashboard · to-dos"
+        case .dashNote: "Daily note"
+        case .dashNoteEditing: "Editing daily note"
         }
     }
 }
 
-// ── The state machine: derives the state, exposes the keymap, and dispatches a pressed key. ──
-// Holds the engine + UI by reference and reads them LIVE, so a model built at render time still sees
-// current state when a key is pressed later.
+/// ── The state machine: derives the state, exposes the keymap, and dispatches a pressed key. ──
+/// Holds the engine + UI by reference and reads them LIVE, so a model built at render time still sees
+/// current state when a key is pressed later.
 @MainActor struct KeyboardModel {
     let engine: CalendarEngine
     let ui: CalendarUIState
 
     var state: AppKeyState {
-        if engine.timedEditing { return .timedTitleEditing }
-        if engine.bandEditing { return .bandTitleEditing }
-        if engine.trackEditing { return .trackNameEditing }
+        if engine.timedEditing {
+            return .timedTitleEditing
+        }
+        if engine.bandEditing {
+            return .bandTitleEditing
+        }
+        if engine.trackEditing {
+            return .trackNameEditing
+        }
         if ui.openEventId != nil {
-            if ui.drawerTitleEditing { return .drawerTitleEditing }   // title in text-editing mode
+            if ui.drawerTitleEditing {
+                return .drawerTitleEditing
+            } // title in text-editing mode
             switch ui.drawerFocus {
-            case .none:        return .drawerOpen
-            case .some(let f): return .drawerField(f)   // ring focus (includes .title as a ring)
+            case .none: return .drawerOpen
+            case let .some(f): return .drawerField(f) // ring focus (includes .title as a ring)
             }
         }
-        if engine.multiSelectActive { return .multiSelected }   // 2+ selected → batch state (single ops off)
-        if engine.selectedIsTimed { return .timedSelected }
-        if engine.selectedIsBand { return .bandSelected }
-        if engine.selectedIsDeadline { return .deadlineSelected }
-        switch engine.cursor.dashStop {   // day-view dashboard Tab stops (checked before the plain cursors)
+        if engine.multiSelectActive {
+            return .multiSelected
+        } // 2+ selected → batch state (single ops off)
+        if engine.selectedIsTimed {
+            return .timedSelected
+        }
+        if engine.selectedIsBand {
+            return .bandSelected
+        }
+        if engine.selectedIsDeadline {
+            return .deadlineSelected
+        }
+        switch engine.cursor.dashStop { // day-view dashboard Tab stops (checked before the plain cursors)
         case .todo: return .dashTodo
         case .note: return engine.cursor.dashNoteEditing ? .dashNoteEditing : .dashNote
         case .none: break
         }
-        if engine.cursor.trackNameCursor != nil { return .trackName }
-        if engine.cursor.bandCursorActive { return .bandCursor }
-        return .block   // nothing selected → the block cursor is home
+        if engine.cursor.trackNameCursor != nil {
+            return .trackName
+        }
+        if engine.cursor.bandCursorActive {
+            return .bandCursor
+        }
+        return .block // nothing selected → the block cursor is home
     }
 
     /// The ⌘↑/⌘↓ move bindings, shared by every "… selected" state (they mean lane-shift for bands and
@@ -187,7 +210,14 @@ enum AppKeyState: Equatable {
     private var deleteBinding: KeyBinding {
         KeyBinding(.delete, "Delete…") {
             if let t = engine.deleteTargetForSelection() {
-                ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring, imported: t.imported, alreadyHidden: t.alreadyHidden, kind: engine.kind(of: t.id) ?? .timed)
+                ui.requestDelete(
+                    id: t.id,
+                    occKey: t.occKey,
+                    recurring: t.recurring,
+                    imported: t.imported,
+                    alreadyHidden: t.alreadyHidden,
+                    kind: engine.kind(of: t.id) ?? .timed
+                )
             }
         }
     }
@@ -221,10 +251,22 @@ enum AppKeyState: Equatable {
         switch state {
         case .timedSelected:
             return [
-                KeyBinding(.enter, "Edit title") { if let s = engine.selectedId { engine.editTimed(s) } },
-                KeyBinding(.space, "Open drawer") { if let s = engine.selectedId { ui.openEventId = sourceId(of: s) } },
+                KeyBinding(.enter, "Edit title") {
+                    if let s = engine.selectedId {
+                        engine.editTimed(s)
+                    }
+                },
+                KeyBinding(.space, "Open drawer") {
+                    if let s = engine.selectedId {
+                        ui.openEventId = sourceId(of: s)
+                    }
+                },
                 KeyBinding(.escape, "Deselect") { engine.deselect() },
-                KeyBinding(.cmdU, "Toggle promote") { if let s = engine.selectedId { engine.togglePromote(s) } },
+                KeyBinding(.cmdU, "Toggle promote") {
+                    if let s = engine.selectedId {
+                        engine.togglePromote(s)
+                    }
+                },
                 KeyBinding(.shiftUp, "Shrink") { engine.resizeSelected(0, -1) },
                 KeyBinding(.shiftDown, "Extend") { engine.resizeSelected(0, 1) },
             ] + [deleteBinding] + verticalMoveBindings + eventNavBindings + eventTabBindings + zoomBindings
@@ -236,8 +278,16 @@ enum AppKeyState: Equatable {
             ]
         case .bandSelected:
             return [
-                KeyBinding(.enter, "Edit title") { if let s = engine.selectedId { engine.editBand(sourceId(of: s)) } },
-                KeyBinding(.space, "Open drawer") { if let s = engine.selectedId { ui.openEventId = sourceId(of: s) } },
+                KeyBinding(.enter, "Edit title") {
+                    if let s = engine.selectedId {
+                        engine.editBand(sourceId(of: s))
+                    }
+                },
+                KeyBinding(.space, "Open drawer") {
+                    if let s = engine.selectedId {
+                        ui.openEventId = sourceId(of: s)
+                    }
+                },
                 KeyBinding(.escape, "Deselect") { engine.deselect() },
                 KeyBinding(.shiftLeft, "Shrink") { engine.resizeSelected(-1, 0) },
                 KeyBinding(.shiftRight, "Extend") { engine.resizeSelected(1, 0) },
@@ -250,7 +300,11 @@ enum AppKeyState: Equatable {
             ]
         case .deadlineSelected:
             return [
-                KeyBinding(.space, "Open drawer") { if let s = engine.selectedId { ui.openEventId = sourceId(of: s) } },
+                KeyBinding(.space, "Open drawer") {
+                    if let s = engine.selectedId {
+                        ui.openEventId = sourceId(of: s)
+                    }
+                },
                 KeyBinding(.escape, "Deselect") { engine.deselect() },
             ] + [deleteBinding] + verticalMoveBindings + eventNavBindings + eventTabBindings + zoomBindings
         case .multiSelected:
@@ -283,7 +337,7 @@ enum AppKeyState: Equatable {
                 KeyBinding(.enter, "Done"),
                 KeyBinding(.escape, "Done"),
             ]
-        case .drawerField(let f):
+        case let .drawerField(f):
             // Field-specific sub-keys first, then the shared Tab / Shift-Tab / Escape navigation.
             var b: [KeyBinding] = []
             switch f {
@@ -332,7 +386,7 @@ enum AppKeyState: Equatable {
             }
             b.append(KeyBinding(.tab, "Next field") { ui.drawerFocus = ui.fieldAfter(f) })
             b.append(KeyBinding(.backTab, "Prev field") { ui.drawerFocus = ui.fieldBefore(f) })
-            b.append(KeyBinding(.delete, "Delete…") { ui.postDrawer(.confirmDelete) })   // Delete key → confirm dialog
+            b.append(KeyBinding(.delete, "Delete…") { ui.postDrawer(.confirmDelete) }) // Delete key → confirm dialog
             // Escape from a Configuration child returns to its header; from any other field, to the body.
             if f.isConfigChild {
                 b.append(KeyBinding(.escape, "Back to config") { ui.drawerFocus = .config })
@@ -415,18 +469,20 @@ enum AppKeyState: Equatable {
     /// Run the binding for `token` if the current state has one. Returns whether it was handled (so the
     /// catcher can consume the event; unhandled keys fall through to the existing behavior / native field).
     @discardableResult func handle(_ token: KeyToken) -> Bool {
-        for b in bindings() where b.token == token { b.action(); return true }
+        for b in bindings() where b.token == token {
+            b.action(); return true
+        }
         return false
     }
 }
 
-// ── The Cmd+K guide overlay ─────────────────────────────────────────────────────────
-// Fades in while Cmd+K is held, out on release. Shows the current state's bindings as a grid of
-// keycaps + labels. Reads the SAME `bindings()` the dispatcher uses.
+/// ── The Cmd+K guide overlay ─────────────────────────────────────────────────────────
+/// Fades in while Cmd+K is held, out on release. Shows the current state's bindings as a grid of
+/// keycaps + labels. Reads the SAME `bindings()` the dispatcher uses.
 struct KeyGuideOverlay: View {
     let model: KeyboardModel
     let theme: Theme
-    private let maxCols = 5   // wrap to a new row past this, so a many-key panel doesn't run off-screen
+    private let maxCols = 5 // wrap to a new row past this, so a many-key panel doesn't run off-screen
 
     var body: some View {
         let binds = model.bindings()
@@ -452,13 +508,13 @@ struct KeyGuideOverlay: View {
             }
         }
         .padding(24)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))   // frosted glass, like the events
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16)) // frosted glass, like the events
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
         .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
-        .fixedSize()   // hug the content (don't stretch to the overlay); the overlay centers it
+        .fixedSize() // hug the content (don't stretch to the overlay); the overlay centers it
     }
 
-    @ViewBuilder private func keycap(_ b: KeyBinding) -> some View {
+    private func keycap(_ b: KeyBinding) -> some View {
         VStack(spacing: 6) {
             Text(b.token.cap)
                 .font(.system(size: 12, weight: .semibold, design: .rounded))

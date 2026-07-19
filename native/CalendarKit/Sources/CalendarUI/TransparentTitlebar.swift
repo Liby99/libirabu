@@ -6,11 +6,13 @@
 // and hide the material/backdrop views (toolbar ITEMS live in sibling views and stay visible).
 // Everything hidden is restored on exit, so windowed behavior is untouched.
 
-import SwiftUI
 import AppKit
+import SwiftUI
 
 struct TransparentTitlebar: NSViewRepresentable {
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> NSView {
         let v = HookView()
@@ -36,7 +38,7 @@ struct TransparentTitlebar: NSViewRepresentable {
     final class Coordinator {
         private weak var window: NSWindow?
         private var observers: [NSObjectProtocol] = []
-        private var hiddenBackdrops: [NSView] = []   // what we hid, to restore on exit
+        private var hiddenBackdrops: [NSView] = [] // what we hid, to restore on exit
         private var dumped = false
 
         func attach(to window: NSWindow?) {
@@ -128,14 +130,16 @@ struct TransparentTitlebar: NSViewRepresentable {
         /// classes actually make up its full-screen toolbar. DEBUG builds only.
         private func dumpOnce(_ view: NSView, label: String) {
             #if DEBUG
-            guard !dumped else { return }
-            dumped = true
-            func walk(_ v: NSView, _ depth: Int) {
-                print("[TransparentTitlebar] \(String(repeating: "  ", count: depth))\(type(of: v)) hidden=\(v.isHidden)")
-                v.subviews.forEach { walk($0, depth + 1) }
-            }
-            print("[TransparentTitlebar] —— \(label) hierarchy ——")
-            walk(view, 0)
+                guard !dumped else { return }
+                dumped = true
+                func walk(_ v: NSView, _ depth: Int) {
+                    print(
+                        "[TransparentTitlebar] \(String(repeating: "  ", count: depth))\(type(of: v)) hidden=\(v.isHidden)"
+                    )
+                    v.subviews.forEach { walk($0, depth + 1) }
+                }
+                print("[TransparentTitlebar] —— \(label) hierarchy ——")
+                walk(view, 0)
             #endif
         }
     }

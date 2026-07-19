@@ -1,12 +1,21 @@
-import XCTest
-import CoreGraphics
 @testable import CalendarGeometry
+import CoreGraphics
+import XCTest
 
 final class GeometryTests: XCTestCase {
     let vp = Viewport(w: 1280, h: 840)
 
     func input(z: CGFloat, focus: Int = 0, week: CGFloat = 0) -> SceneInput {
-        SceneInput(z: z, focus: focus, week: week, vp: vp, scrollY: 0, tlScroll: 0, now: Date(timeIntervalSince1970: 0), year: 2026)
+        SceneInput(
+            z: z,
+            focus: focus,
+            week: week,
+            vp: vp,
+            scrollY: 0,
+            tlScroll: 0,
+            now: Date(timeIntervalSince1970: 0),
+            year: 2026
+        )
     }
 
     func testYearFrameLayout() {
@@ -25,7 +34,7 @@ final class GeometryTests: XCTestCase {
     }
 
     func testDatesFixedTableAndDOW() {
-        XCTAssertEqual(daysInMonth(2026, 1), 28)          // Feb always 28 (no leap handling)
+        XCTAssertEqual(daysInMonth(2026, 1), 28) // Feb always 28 (no leap handling)
         // 2026-01-01 is a Thursday → dayOfWeek == 4.
         XCTAssertEqual(dayOfWeek(2026, 0, 1), 4)
         XCTAssertEqual(firstDOW(2026, 0), 4)

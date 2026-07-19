@@ -2,9 +2,9 @@
 // (dispatching to create/move/resize per item kind), click-to-navigate, hover highlights,
 // and the cursor-hint (arrow/grab/plus) resolution.
 
-import Foundation
-import CoreGraphics
 import CalendarGeometry
+import CoreGraphics
+import Foundation
 
 extension CalendarEngine {
     /// Day view: is `p` inside the daily-dashboard panel (the right region)? Pointer actions there
@@ -15,15 +15,15 @@ extension CalendarEngine {
         p.x >= dashboardLeftAnimated(snapshot())
     }
 
-    // ── Pointer: unified down / drag / up ────────────────────────────────────────
-    // A plain click (down+up, no movement) navigates (drills in). A drag creates,
-    // moves, or resizes an event depending on what's under the cursor at down.
+    /// ── Pointer: unified down / drag / up ────────────────────────────────────────
+    /// A plain click (down+up, no movement) navigates (drills in). A drag creates,
+    /// moves, or resizes an event depending on what's under the cursor at down.
     public func onPointerDown(at p: CGPoint, shift: Bool = false, command: Bool = false) {
         wake()
-        commitTxn()   // flush any pending (e.g. drawer typing) before a new gesture
+        commitTxn() // flush any pending (e.g. drawer typing) before a new gesture
         cancelTween()
         let g = snapshot()
-        let prior = selectedId   // decide deselect-vs-navigate on a plain click (see onPointerUp)
+        let prior = selectedId // decide deselect-vs-navigate on a plain click (see onPointerUp)
         // 0. Shift → a marquee (⌘⇧ = a negative/deselect marquee). If it turns out to be a CLICK (no drag),
         //    the box under the cursor is toggled instead (shift-click multi-select). Selection changes are
         //    driven on drag / up so a shift-drag from empty space doesn't create.
@@ -69,12 +69,27 @@ extension CalendarEngine {
         //    selected) or navigates. Selection is cleared on up (not now) so the drag
         //    can still create.
         if z >= 1.5, let spot = createSpot(at: p, g) {
-            drag = Drag(kind: .create, startPoint: p, anchorHour: spot.anchor, createYear: spot.year, createMonth: spot.month, createDay: spot.day, priorSelection: prior)
+            drag = Drag(
+                kind: .create,
+                startPoint: p,
+                anchorHour: spot.anchor,
+                createYear: spot.year,
+                createMonth: spot.month,
+                createDay: spot.day,
+                priorSelection: prior
+            )
             return
         }
         // 5. empty lane → band create (drag) / deselect / navigate
-        if let slot = bandSlotAtPoint(p.x, p.y, g) {   // empty lane, any zoom incl. year view
-            drag = Drag(kind: .bandCreate, startPoint: p, bandMonth: slot.month, bandTrack: slot.track, bandAnchorDay: slot.day, priorSelection: prior)
+        if let slot = bandSlotAtPoint(p.x, p.y, g) { // empty lane, any zoom incl. year view
+            drag = Drag(
+                kind: .bandCreate,
+                startPoint: p,
+                bandMonth: slot.month,
+                bandTrack: slot.track,
+                bandAnchorDay: slot.day,
+                priorSelection: prior
+            )
             return
         }
         drag = Drag(kind: .navigate, startPoint: p, priorSelection: prior)
@@ -84,7 +99,9 @@ extension CalendarEngine {
         wake()
         guard var d = drag else { return }
         if !d.activated {
-            if hypot(p.x - d.startPoint.x, p.y - d.startPoint.y) < 3 { return }
+            if hypot(p.x - d.startPoint.x, p.y - d.startPoint.y) < 3 {
+                return
+            }
             d.activated = true
             drag = d
         }
@@ -121,7 +138,7 @@ extension CalendarEngine {
 
     public func onPointerUp(at p: CGPoint) {
         wake()
-        defer { commitTxn(); drag = nil; marqueeRect = nil }   // one undo entry per drag; clear the marquee box
+        defer { commitTxn(); drag = nil; marqueeRect = nil } // one undo entry per drag; clear the marquee box
         guard let d = drag else { return }
         // Plain click (no drag) in empty space (create/band-create primed, or navigate):
         // deselect if something was selected, otherwise navigate (drill in).
@@ -130,29 +147,42 @@ extension CalendarEngine {
             case .marquee, .negMarquee:
                 // A shift-CLICK (no drag): toggle the box under the cursor; on truly-empty space, do nothing
                 // (keep the selection — shift-click-empty shouldn't clear it).
-                if let id = d.marqueeHitId { toggleInSelection(id) }
+                if let id = d.marqueeHitId {
+                    toggleInSelection(id)
+                }
             case .create, .bandCreate, .navigate:
                 // Empty-space click: clear ANY selection — single OR multi (a ⌘A / marquee set has no
                 // single primary, so check the set too). Nothing selected → navigate (drill in).
-                if selectedId != nil || !selectedIds.isEmpty { deselectAll() } else { navigate(at: p) }
+                if selectedId != nil || !selectedIds.isEmpty {
+                    deselectAll()
+                } else {
+                    navigate(at: p)
+                }
             case .bandMove:
                 // click the body of an ALREADY-selected band → edit its title inline
-                if d.priorSelection == d.eventId, let id = d.eventId { editBand(id) }
+                if d.priorSelection == d.eventId, let id = d.eventId {
+                    editBand(id)
+                }
             case .move:
                 // click the TITLE of an ALREADY-selected timed event → edit its title inline (the I-beam
                 // affordance). A click elsewhere on the body (grab) leaves it selected without editing.
                 // Pass the click so the editor opens over the SEGMENT you clicked (a cross-midnight event
                 // draws on several days), not always the first one.
-                if d.priorSelection == d.eventId, d.titleHit, let id = d.eventId { editTimed(id, at: p) }
+                if d.priorSelection == d.eventId, d.titleHit, let id = d.eventId {
+                    editTimed(id, at: p)
+                }
             default:
                 break
             }
             return
         }
         // discard a too-small created timed event
-        if d.kind == .create, let id = d.eventId, let e = items.events.first(where: { $0.id == id }), e.endHour - e.startHour < 0.25 {
+        if d.kind == .create, let id = d.eventId, let e = items.events.first(where: { $0.id == id }),
+           e.endHour - e.startHour < 0.25 {
             items.events.removeAll { $0.id == id }
-            if selectedId == id { selectedId = nil }
+            if selectedId == id {
+                selectedId = nil
+            }
         }
         // a freshly drag-created band → open its title editor so the name is focused for typing
         if d.kind == .bandCreate, let id = d.eventId, items.bands.contains(where: { $0.id == id }) {
@@ -160,14 +190,17 @@ extension CalendarEngine {
         }
     }
 
-
     private func navigate(at p: CGPoint) {
         let g = snapshot()
         switch level(z) {
         case 0:
-            if let m = monthAtPoint(p.x, p.y, g) ?? monthNameAtPoint(p.x, p.y, g) { focus = m; tweenZ(to: 1) }
+            if let m = monthAtPoint(p.x, p.y, g) ?? monthNameAtPoint(p.x, p.y, g) {
+                focus = m; tweenZ(to: 1)
+            }
         case 1:
-            if let w = weekAtPointInMonth(p.x, g) { week = CGFloat(w); captureZoomAnchor(pointerY: p.y); tweenZ(to: 2) }
+            if let w = weekAtPointInMonth(p.x, g) {
+                week = CGFloat(w); captureZoomAnchor(pointerY: p.y); tweenZ(to: 2)
+            }
         case 2:
             // Only focus-month days drill into day view; spillover days aren't zoomable.
             if let d = dayAtPointInWeek(p.x, g), let rd = relDomOf(year, focus, d.year, d.month, d.day),
@@ -178,46 +211,57 @@ extension CalendarEngine {
         }
     }
 
-    // ── Keyboard navigation cursor: input mode, movement, geometry, zoom ───────────
+    /// ── Keyboard navigation cursor: input mode, movement, geometry, zoom ───────────
     /// True while any view anim.tween/flip is in flight — the cursor ring should follow the geometry each
     /// frame WITHOUT its own spring (avoids lag during zoom/scroll); it springs only for discrete moves.
     public var isAnimating: Bool {
-        anim.tween != nil || anim.scrollTween != nil || anim.tlScrollTween != nil || anim.weekTween != nil || anim.dayTween != nil ||
-        anim.flipAnim != nil || anim.monthAnim != nil || anim.weekFlip != nil || anim.dayFlip != nil
+        anim.tween != nil || anim.scrollTween != nil || anim.tlScrollTween != nil || anim.weekTween != nil || anim
+            .dayTween != nil ||
+            anim.flipAnim != nil || anim.monthAnim != nil || anim.weekFlip != nil || anim.dayFlip != nil
     }
 
     public func onHover(at p: CGPoint) {
-        if drawerOpen { onHoverExit(); return }   // drawer open → no calendar hover highlights
-        pointerPos = p                            // for the deadline "+" hover glow (pixel-precise)
+        if drawerOpen {
+            onHoverExit(); return
+        } // drawer open → no calendar hover highlights
+        pointerPos = p // for the deadline "+" hover glow (pixel-precise)
         // Timeline scale-bar proximity reveal: the bar fades in only when the cursor approaches
         // the timeline's left border (week/day views). Observable + wake, so the overlay reacts
         // even when the render loop is idle.
         let near = level(z) >= 2 && abs(p.x - Layout.labelW) < ViewConst.tlEdgeRevealDist
-        if near != nearTlEdge { nearTlEdge = near; wake() }
+        if near != nearTlEdge {
+            nearTlEdge = near; wake()
+        }
         let g = snapshot()
-        let prevHover = hover, prevHovered = hoveredEventId   // wake the render only if the visual actually changes
+        let prevHover = hover, prevHovered = hoveredEventId // wake the render only if the visual actually changes
         var hv = Hover()
         switch level(z) {
         case 0:
             let m = monthRowAtPoint(p.x, p.y, g)
             hv.month = m
             hv.nameMonth = monthNameAtPoint(p.x, p.y, g)
-            if let m { hv.dom = domInMonthBand(p.x, m, g) }
+            if let m {
+                hv.dom = domInMonthBand(p.x, m, g)
+            }
         case 1:
             // Crosshair: track lane (band cell or track-name gutter) + day column (band or timeline).
             let f = frameFor(focus, g)
             let bandTop = f.bandY, bandBottom = f.bandY + 4 * f.trackH
             let inGutter = p.x < Layout.labelW
             if p.y >= bandTop, p.y < bandBottom,
-               (!inGutter || (p.x >= Layout.mnameW && p.x <= Layout.labelW - Layout.rightPad)) {
+               !inGutter || (p.x >= Layout.mnameW && p.x <= Layout.labelW - Layout.rightPad) {
                 hv.track = min(3, max(0, Int((p.y - bandTop) / f.trackH)))
             }
-            if !inGutter { hv.dom = domInFocus(p.x, g) }   // day column when over content (band or timeline)
+            if !inGutter {
+                hv.dom = domInFocus(p.x, g)
+            } // day column when over content (band or timeline)
         default:
             // In daily view the right panel is the dashboard — no background time cursor there.
             // Use the FIXED dashboard boundary (pan-independent) so a mid-scroll cursor near the edge
             // doesn't leak into the dashboard region.
-            if z > 2, p.x >= dashboardLeft(g) { hover = .none; return }
+            if z > 2, p.x >= dashboardLeft(g) {
+                hover = .none; return
+            }
             let c = cellInWeek(p.x, p.y, g)
             hv.dom = c.dom; hv.hour = c.hour; hv.hourFrac = c.hourFrac; hv.nearLeft = c.nearLeft
         }
@@ -227,58 +271,81 @@ extension CalendarEngine {
         if let cur = hoveredEventId, bandContains(cur, p, g) {
             // keep hoveredEventId — a band (no timeline cursor change)
         } else if let cur = hoveredEventId, timedContains(cur, p, g) {
-            hv.overTimed = true   // keep hoveredEventId — a timed event
-        } else if let b = bandAt(p, g) { hoveredEventId = b.id }
-        else if z >= 1.5, let e = eventAt(p, g) { hoveredEventId = e.id; hv.overTimed = true }
-        else if z >= ViewConst.detailZ, let d = deadlineAt(p, g) { hoveredEventId = d; hv.overDeadline = true }
-        else { hoveredEventId = nil }
+            hv.overTimed = true // keep hoveredEventId — a timed event
+        } else if let b = bandAt(p, g) {
+            hoveredEventId = b.id
+        } else if z >= 1.5, let e = eventAt(p, g) {
+            hoveredEventId = e.id; hv.overTimed = true
+        } else if z >= ViewConst.detailZ, let d = deadlineAt(p, g) {
+            hoveredEventId = d; hv.overDeadline = true
+        } else {
+            hoveredEventId = nil
+        }
         hover = hv
         // Wake on any change, plus every move while near a day's left edge so the deadline "+" glow
         // tracks the cursor pixel-precisely (the cell-based `hv` alone wouldn't change within a cell).
-        if hv != prevHover || hoveredEventId != prevHovered || hv.nearLeft == true { wake() }
+        if hv != prevHover || hoveredEventId != prevHovered || hv.nearLeft == true {
+            wake()
+        }
     }
 
     private func bandContains(_ id: String, _ p: CGPoint, _ g: SceneInput) -> Bool {
-        guard let b = items.bands.first(where: { $0.id == id }), let r = bandEventRect(b, g, anim: g.monthAnim) else { return false }
+        guard let b = items.bands.first(where: { $0.id == id }),
+              let r = bandEventRect(b, g, anim: g.monthAnim) else { return false }
         return CGRect(x: r.x, y: r.y, width: r.w, height: r.h).contains(p)
     }
+
     private func timedContains(_ id: String, _ p: CGPoint, _ g: SceneInput) -> Bool {
         guard z >= 1.5, let e = items.events.first(where: { $0.id == id }) else { return false }
         let tl = timelineInfo(g)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return false }
-        guard p.y >= tl.tlTop, p.y <= tl.tlBottom else { return false }   // clip to the timeline (see eventAt)
+        guard p.y >= tl.tlTop, p.y <= tl.tlBottom else { return false } // clip to the timeline (see eventAt)
         let sameDay = eventsOn(year, e.month, e.day)
         guard let r = eventRect(e, year, focus, tl, g.vp, layoutDay(sameDay)[e.id]) else { return false }
         return CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height).contains(p)
     }
 
     public func onHoverExit() {
-        if hover != .none || hoveredEventId != nil { wake() }
+        if hover != .none || hoveredEventId != nil {
+            wake()
+        }
         hover = .none; hoveredEventId = nil; pointerPos = nil
-        if nearTlEdge { nearTlEdge = false; wake() }
+        if nearTlEdge {
+            nearTlEdge = false; wake()
+        }
     }
 
     /// Clear the hover HIGHLIGHT only — used when scrolling starts (the content moves under a
     /// stationary cursor, so the highlight is stale) — but keep the pointer position and the
     /// scale-bar proximity (`nearTlEdge`): the mouse hasn't gone anywhere.
     public func clearHoverHighlight() {
-        if hover != .none || hoveredEventId != nil { wake() }
+        if hover != .none || hoveredEventId != nil {
+            wake()
+        }
         hover = .none; hoveredEventId = nil
     }
 
     /// Clear the current event selection — the same effect as a plain click on empty calendar space.
     /// Used by the daily-dashboard WebView so clicking its empty content deselects too.
-    public func deselect() { selectedId = nil; cursor.bandCursorActive = false }   // Esc from an event → block cursor (home)
+    public func deselect() {
+        selectedId = nil; cursor.bandCursorActive = false
+    } // Esc from an event → block cursor (home)
 
     public func cursorHint(at p: CGPoint) -> CursorHint {
-        if trackNameHit(at: p) != nil { return .text }   // editable lane label
+        if trackNameHit(at: p) != nil {
+            return .text
+        } // editable lane label
         let g = snapshot()
         if let hit = bandAt(p, g) {
             // A promoted ghost only drags across LANES (its date mirrors the source) → always a grab hand,
             // never the ↔ resize even at its edges, and no title I-beam (rename the source event instead).
-            if hit.id.hasSuffix(PROMOTED_SUFFIX) { return .grab }
-            if hit.zone == .bandResizeL || hit.zone == .bandResizeR { return .resizeLR }
-            return hit.id == selectedId ? .text : .grab   // a selected band edits its title on click
+            if hit.id.hasSuffix(PROMOTED_SUFFIX) {
+                return .grab
+            }
+            if hit.zone == .bandResizeL || hit.zone == .bandResizeR {
+                return .resizeLR
+            }
+            return hit.id == selectedId ? .text : .grab // a selected band edits its title on click
         }
         // Timed event: the top/bottom edges resize (↕); the title of a SELECTED event is an I-beam (a second
         // click inline-edits it); the accent bar, the time text, and the empty body are a grab hand.
@@ -288,7 +355,9 @@ extension CalendarEngine {
             default: return (hit.id == selectedId && hit.overTitle) ? .text : .grab
             }
         }
-        if z >= ViewConst.detailZ, deadlineAt(p, g) != nil { return .grab }
-        return .normal   // empty calendar → plain arrow (no create "+" cursor)
+        if z >= ViewConst.detailZ, deadlineAt(p, g) != nil {
+            return .grab
+        }
+        return .normal // empty calendar → plain arrow (no create "+" cursor)
     }
 }

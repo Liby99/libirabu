@@ -9,8 +9,21 @@
 import Foundation
 
 public let MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-public let MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-public let WD = ["S", "M", "T", "W", "T", "F", "S"]           // single-letter weekday
+public let MONTH_LONG = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+]
+public let WD = ["S", "M", "T", "W", "T", "F", "S"] // single-letter weekday
 public let WD3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 public let WD_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
@@ -42,7 +55,10 @@ public func isoDayString(_ date: Date = Date()) -> String {
 }
 
 private let DIM = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-public func isLeapYear(_ y: Int) -> Bool { (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 }
+public func isLeapYear(_ y: Int) -> Bool {
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
+
 public func daysInMonth(_ year: Int, _ month: Int) -> Int {
     (month == 1 && isLeapYear(year)) ? 29 : DIM[month]
 }
@@ -52,14 +68,20 @@ public func dayOfWeek(_ year: Int, _ month0: Int, _ day: Int) -> Int {
     let t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4]
     var y = year
     let m = month0 + 1
-    if m < 3 { y -= 1 }
+    if m < 3 {
+        y -= 1
+    }
     return (y + y / 4 - y / 100 + y / 400 + t[m - 1] + day) % 7
 }
 
-public func firstDOW(_ year: Int, _ m: Int) -> Int { dayOfWeek(year, m, 1) }  // 0=Sun
+public func firstDOW(_ year: Int, _ m: Int) -> Int {
+    dayOfWeek(year, m, 1)
+} // 0=Sun
 
 /// Day-of-month of a week's Sunday; may be ≤0 or >daysInMonth when it spills over.
-public func weekStartDOM(_ year: Int, _ m: Int, _ week: Int) -> Int { 1 - firstDOW(year, m) + week * 7 }
+public func weekStartDOM(_ year: Int, _ m: Int, _ week: Int) -> Int {
+    1 - firstDOW(year, m) + week * 7
+}
 
 public func weeksInMonth(_ year: Int, _ m: Int) -> Int {
     Int(ceil(Double(firstDOW(year, m) + daysInMonth(year, m)) / 7.0))
@@ -74,7 +96,9 @@ public func weekOfDate(_ year: Int, _ month: Int, _ day: Int) -> Int {
 /// at focus=Dec → Jan of year+1), so week-view boundary columns resolve to real dates in both years.
 public func resolveDate(_ year: Int, _ focus: Int, _ dom: Int) -> (year: Int, month: Int, day: Int)? {
     let dimF = daysInMonth(year, focus)
-    if dom >= 1 && dom <= dimF { return (year, focus, dom) }
+    if dom >= 1 && dom <= dimF {
+        return (year, focus, dom)
+    }
     if dom < 1 {
         let m = (focus + 11) % 12, my = focus == 0 ? year - 1 : year
         return (my, m, daysInMonth(my, m) + dom)

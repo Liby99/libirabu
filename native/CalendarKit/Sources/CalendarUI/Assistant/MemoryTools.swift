@@ -4,7 +4,7 @@
 
 import Foundation
 
-// ── remember ────────────────────────────────────────────────────────────────────────────
+/// ── remember ────────────────────────────────────────────────────────────────────────────
 struct RememberTool: AssistantTool {
     let def = ToolDef(
         name: "remember",
@@ -15,7 +15,8 @@ struct RememberTool: AssistantTool {
           "key":{"type":"string","description":"Short stable identifier, e.g. 'advisor' or 'timezone'."},
           "value":{"description":"Any JSON value to remember."}
         },"required":["key","value"],"additionalProperties":false}
-        """#))
+        """#)
+    )
     let readOnly = true
     let actionKind = ActionKind.remember
     func card(_ args: JSONValue, result: JSONValue) -> String {
@@ -31,12 +32,15 @@ struct RememberTool: AssistantTool {
     }
 }
 
-// ── forget ──────────────────────────────────────────────────────────────────────────────
+/// ── forget ──────────────────────────────────────────────────────────────────────────────
 struct ForgetTool: AssistantTool {
     let def = ToolDef(
         name: "forget",
         description: "Remove a previously remembered fact by its key.",
-        parameters: .parse(#"{"type":"object","properties":{"key":{"type":"string"}},"required":["key"],"additionalProperties":false}"#))
+        parameters: .parse(
+            #"{"type":"object","properties":{"key":{"type":"string"}},"required":["key"],"additionalProperties":false}"#
+        )
+    )
     let readOnly = true
     let actionKind = ActionKind.forget
     func card(_ args: JSONValue, result: JSONValue) -> String {

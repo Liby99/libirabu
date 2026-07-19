@@ -8,17 +8,17 @@
 // forwards horizontal day-view scroll into this ScrollView's backing NSScrollView via `bridge`,
 // axis-locked against the vertical hour-timeline scroll.
 
-import SwiftUI
 import AppKit
 import CalendarEngine
 import CalendarGeometry
+import SwiftUI
 
 /// Snap the momentum-projected landing to the nearest DAY: a gentle nudge advances one day, a fast
 /// fling carries several (SwiftUI projects farther), and either way lands exactly on a day boundary
 /// with the native deceleration curve. Clamped to the month.
 struct DayScrollBehavior: ScrollTargetBehavior {
     var dayW: CGFloat
-    var maxDay: CGFloat   // last valid day index (= daysInMonth − 1)
+    var maxDay: CGFloat // last valid day index (= daysInMonth − 1)
 
     func updateTarget(_ target: inout ScrollTarget, context: ScrollTargetBehaviorContext) {
         guard dayW > 0 else { return }
@@ -31,7 +31,14 @@ struct DayScrollBehavior: ScrollTargetBehavior {
 /// IMPERATIVE (scroll the backing NSScrollView), NOT via `.scrollPosition` — a two-way binding
 /// re-renders the pager on every day crossed and re-applies itself, jumping the offset.
 @MainActor final class DayPagerBridge {
-    weak var scrollView: NSScrollView? { didSet { if let p = pending { pending = nil; scrollTo(p) } } }
+    weak var scrollView: NSScrollView? {
+        didSet {
+            if let p = pending {
+                pending = nil; scrollTo(p)
+            }
+        }
+    }
+
     private var pending: CGFloat?
     func scrollTo(_ x: CGFloat) {
         guard let sv = scrollView else { pending = x; return }
@@ -54,14 +61,14 @@ struct DayPager: View {
             let maxDay = CGFloat(days - 1)
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
-                    ForEach(0..<days, id: \.self) { d in
+                    ForEach(0 ..< days, id: \.self) { d in
                         Color.clear.frame(width: dayW, height: 1).id(d)
                     }
                 }
                 .scrollTargetLayout()
                 .background(DayScrollGrabber(bridge: bridge))
             }
-            .frame(width: dayW, height: 8)                    // viewport = one day
+            .frame(width: dayW, height: 8) // viewport = one day
             .scrollTargetBehavior(DayScrollBehavior(dayW: dayW, maxDay: maxDay))
             .scrollBounceBehavior(.always)
             .scrollIndicators(.hidden)
@@ -71,7 +78,9 @@ struct DayPager: View {
             .onAppear { bridge.scrollTo(CGFloat(engine.daily.dom - 1) * dayW) }
             // Entering day view (from week): position the strip on the chosen day.
             .onChange(of: engine.chrome.level) { _, lvl in
-                if lvl == 3 { bridge.scrollTo(CGFloat(engine.daily.dom - 1) * dayW) }
+                if lvl == 3 {
+                    bridge.scrollTo(CGFloat(engine.daily.dom - 1) * dayW)
+                }
             }
             // A non-scroll change to the day (jump-to-today, zoom-in landing) or the split width
             // (dayW changed) — re-sync the strip (setDayProgress is guarded off during the resync).
@@ -85,8 +94,16 @@ struct DayPager: View {
 /// Zero-size probe that hands the SwiftUI ScrollView's backing NSScrollView to the bridge.
 private struct DayScrollGrabber: NSViewRepresentable {
     let bridge: DayPagerBridge
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
     func updateNSView(_ v: NSView, context: Context) {
-        DispatchQueue.main.async { if let sv = v.enclosingScrollView, bridge.scrollView !== sv { bridge.scrollView = sv } }
+        DispatchQueue.main
+            .async {
+                if let sv = v.enclosingScrollView, bridge.scrollView !== sv {
+                    bridge.scrollView = sv
+                }
+            }
     }
 }

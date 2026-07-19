@@ -22,7 +22,9 @@ enum AssistantModels {
     static let fallback = all[0].id
     static let defaultsKey = "cc.assistant.model"
 
-    static func label(for id: String) -> String { all.first { $0.id == id }?.label ?? id }
+    static func label(for id: String) -> String {
+        all.first { $0.id == id }?.label ?? id
+    }
 }
 
 // ── Transcript view model ───────────────────────────────────────────────────────────
@@ -35,20 +37,20 @@ struct ChatTurn: Identifiable, Codable, Equatable {
     var id = UUID()
     var role: Role
     var text: String
-    var icon: String? = nil            // SF Symbol for an .action chip
+    var icon: String? = nil // SF Symbol for an .action chip
     var confirm: ConfirmRequest? = nil // payload for a .confirm card
-    var resumeConsumed: Bool = false   // a .resume ("Continue") card that's been tapped
-    var detail: ActionDetail? = nil    // expandable payload for an .action chip
-    var expanded: Bool = false         // the .action chip's disclosure state
-    var blockedReq: BlockedRequest? = nil  // payload for a .blocked card
+    var resumeConsumed: Bool = false // a .resume ("Continue") card that's been tapped
+    var detail: ActionDetail? = nil // expandable payload for an .action chip
+    var expanded: Bool = false // the .action chip's disclosure state
+    var blockedReq: BlockedRequest? = nil // payload for a .blocked card
 }
 
 /// The expandable details behind an action chip: what the tool was called with, what it returned,
 /// and how long it took.
 struct ActionDetail: Equatable, Codable {
-    var params: String     // pretty-printed tool arguments
-    var result: String     // pretty-printed (truncated) tool result
-    var seconds: Double    // tool execution time
+    var params: String // pretty-printed tool arguments
+    var result: String // pretty-printed (truncated) tool result
+    var seconds: Double // tool execution time
 }
 
 /// A safety-check denial shown as an interactive card. "Allow" overrides the auditor (the user's
@@ -64,7 +66,7 @@ struct BlockedRequest: Equatable, Codable {
 /// meaningful change, persisted as JSON in Application Support.
 struct StoredConversation: Codable, Identifiable {
     var id = UUID()
-    var title: String          // derived from the first user message
+    var title: String // derived from the first user message
     var updatedAt: Date
     var turns: [ChatTurn]
 }
@@ -78,7 +80,7 @@ struct ConfirmRequest: Equatable, Codable {
     var title: String
     var kind: String
     var date: String
-    var occurrenceDate: String? = nil   // set → skip ONE occurrence of a recurrence, not the series
+    var occurrenceDate: String? = nil // set → skip ONE occurrence of a recurrence, not the series
     var status: Status = .pending
 }
 
@@ -91,23 +93,31 @@ indirect enum JSONValue: Codable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
-        if c.decodeNil() { self = .null }
-        else if let v = try? c.decode(Bool.self) { self = .bool(v) }
-        else if let v = try? c.decode(Double.self) { self = .number(v) }
-        else if let v = try? c.decode(String.self) { self = .string(v) }
-        else if let v = try? c.decode([String: JSONValue].self) { self = .object(v) }
-        else if let v = try? c.decode([JSONValue].self) { self = .array(v) }
-        else { self = .null }
+        if c.decodeNil() {
+            self = .null
+        } else if let v = try? c.decode(Bool.self) {
+            self = .bool(v)
+        } else if let v = try? c.decode(Double.self) {
+            self = .number(v)
+        } else if let v = try? c.decode(String.self) {
+            self = .string(v)
+        } else if let v = try? c.decode([String: JSONValue].self) {
+            self = .object(v)
+        } else if let v = try? c.decode([JSONValue].self) {
+            self = .array(v)
+        } else {
+            self = .null
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.singleValueContainer()
         switch self {
-        case .string(let v): try c.encode(v)
-        case .number(let v): try c.encode(v)
-        case .bool(let v): try c.encode(v)
-        case .object(let v): try c.encode(v)
-        case .array(let v): try c.encode(v)
+        case let .string(v): try c.encode(v)
+        case let .number(v): try c.encode(v)
+        case let .bool(v): try c.encode(v)
+        case let .object(v): try c.encode(v)
+        case let .array(v): try c.encode(v)
         case .null: try c.encodeNil()
         }
     }

@@ -8,13 +8,13 @@
 //
 // When the UIKit renderer lands, swap SyncHarnessView for it — the engine + sync are already here.
 
-import SwiftUI
 import CalendarEngine
+import SwiftUI
 
 @main
 struct CalendarPhoneApp: App {
-    // One engine for the process. Constructing it kicks off CloudKit sync (see
-    // CalendarEngine.enableCloudSyncIfEntitled → CloudSync.startIfAccountAvailable).
+    /// One engine for the process. Constructing it kicks off CloudKit sync (see
+    /// CalendarEngine.enableCloudSyncIfEntitled → CloudSync.startIfAccountAvailable).
     @State private var engine = CalendarEngine()
 
     var body: some Scene {

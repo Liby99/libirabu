@@ -13,7 +13,9 @@ import Foundation
 @MainActor
 enum AssistantMemory {
     private static let prefix = "cc.mem."
-    private static var kv: NSUbiquitousKeyValueStore { .default }
+    private static var kv: NSUbiquitousKeyValueStore {
+        .default
+    }
 
     /// All remembered facts (excluding reserved `assistant.*` keys) — injected into the prompt.
     static func recallAll() -> [String: JSONValue] {
@@ -32,9 +34,9 @@ enum AssistantMemory {
         do {
             let data = try JSONEncoder().encode(value)
             kv.set(data, forKey: prefix + key)
-            kv.synchronize()      // flush now so it starts syncing out promptly
+            kv.synchronize() // flush now so it starts syncing out promptly
         } catch {
-            assertionFailure("unencodable memory value for '\(key)': \(error)")   // JSONValue should always encode
+            assertionFailure("unencodable memory value for '\(key)': \(error)") // JSONValue should always encode
         }
     }
 

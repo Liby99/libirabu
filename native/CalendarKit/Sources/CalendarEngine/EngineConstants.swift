@@ -1,8 +1,8 @@
 // Grouped engine constants, Layout/Theme-style — tuning values in one place instead of
 // scattered instance `let`s on the engine.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// Animation timing + gesture-feel constants: every duration, overscroll threshold, and
 /// sensitivity the navigation choreography uses. Durations are seconds.
@@ -11,39 +11,39 @@ enum Motion {
     static let idleSleep: TimeInterval = 0.4
 
     // ── Zoom / pinch ──
-    static let zoomDur: TimeInterval = 0.52          // default z-level tween
-    static let pinchSens: CGFloat = 1.6              // trackpad magnification → z units
+    static let zoomDur: TimeInterval = 0.52 // default z-level tween
+    static let pinchSens: CGFloat = 1.6 // trackpad magnification → z units
 
     // ── jumpToDay choreography (fly out → travel → fly in) ──
-    static let flyOutDur: TimeInterval = 0.58        // zoom out to year before travelling
-    static let flyInFarDur: TimeInterval = 1.05      // year → day after a cross-year scroll
-    static let flyInMidDur: TimeInterval = 0.9       // year → day, same year
-    static let flyInNearDur: TimeInterval = 0.7      // week/day-level hop, then zoom to day
-    static let yearGlideDur: TimeInterval = 0.5      // year-view scroll glide before the fly-in
-    static let weekGlideDur: TimeInterval = 0.32     // week hop glide (same-month target)
+    static let flyOutDur: TimeInterval = 0.58 // zoom out to year before travelling
+    static let flyInFarDur: TimeInterval = 1.05 // year → day after a cross-year scroll
+    static let flyInMidDur: TimeInterval = 0.9 // year → day, same year
+    static let flyInNearDur: TimeInterval = 0.7 // week/day-level hop, then zoom to day
+    static let yearGlideDur: TimeInterval = 0.5 // year-view scroll glide before the fly-in
+    static let weekGlideDur: TimeInterval = 0.32 // week hop glide (same-month target)
     /// Day-view day↔day glide: base + per-day-of-distance, capped.
     static let dayGlideBase: TimeInterval = 0.2
     static let dayGlidePerDay: TimeInterval = 0.035
     static let dayGlideMax: TimeInterval = 0.7
 
     // ── Snaps / keyboard glides ──
-    static let weekSnapDur: TimeInterval = 0.2       // settle a fractional week position
-    static let keyScrollPace: TimeInterval = 0.3     // year-view keyboard scroll: seconds per month band
-    static let keyScrollMin: TimeInterval = 0.12     // floor for very short keyboard glides
+    static let weekSnapDur: TimeInterval = 0.2 // settle a fractional week position
+    static let keyScrollPace: TimeInterval = 0.3 // year-view keyboard scroll: seconds per month band
+    static let keyScrollMin: TimeInterval = 0.12 // floor for very short keyboard glides
 
     // ── Boundary flips (overscroll past an edge) ──
-    static let yearFlipDur: TimeInterval = 1.0       // year-flip: scroll out + fade, swap, scroll in
-    static let yearFadeSwapDur: TimeInterval = 0.5   // selectYear cross-fade (out → swap → in), no scroll motion
+    static let yearFlipDur: TimeInterval = 1.0 // year-flip: scroll out + fade, swap, scroll in
+    static let yearFadeSwapDur: TimeInterval = 0.5 // selectYear cross-fade (out → swap → in), no scroll motion
     static let monthFlipDur: TimeInterval = 0.8
     static let weekFlipDur: TimeInterval = 0.5
-    static let weekFlipOver: CGFloat = 34            // on-screen overscroll (px) that arms a week flip
-    static let weekOverMul: CGFloat = 1.9            // amplify the rubber-band travel past a month edge
+    static let weekFlipOver: CGFloat = 34 // on-screen overscroll (px) that arms a week flip
+    static let weekOverMul: CGFloat = 1.9 // amplify the rubber-band travel past a month edge
     static let dayFlipDur: TimeInterval = 0.42
-    static let dayFlipOver: CGFloat = 40             // on-screen overscroll (px) that arms a day flip
-    static let dayOverMul: CGFloat = 1.4             // maps rubber-band px → day-page progress (preview)
+    static let dayFlipOver: CGFloat = 40 // on-screen overscroll (px) that arms a day flip
+    static let dayOverMul: CGFloat = 1.4 // maps rubber-band px → day-page progress (preview)
 
-    // ── Drawer ──
-    static let drawerShiftDur: TimeInterval = 0.28   // canvas slide when the detail drawer opens/closes
+    /// ── Drawer ──
+    static let drawerShiftDur: TimeInterval = 0.28 // canvas slide when the detail drawer opens/closes
 }
 
 /// View-behavior thresholds that aren't layout (Layout) or timing (Motion).

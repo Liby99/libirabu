@@ -6,10 +6,10 @@
 // CalendarEngine isn't @Observable (it's driven by a per-frame clock on macOS), so we re-read it
 // on a 1s TimelineView tick rather than via property observation — coarse, but all a harness needs.
 
-import SwiftUI
-import CloudKit
 import CalendarEngine
 import CalendarGeometry
+import CloudKit
+import SwiftUI
 
 struct SyncHarnessView: View {
     let engine: CalendarEngine
@@ -83,20 +83,20 @@ struct SyncHarnessView: View {
 
     private func swatch(_ key: String) -> Color {
         switch key {
-        case "red", "rose": return .red
-        case "orange": return .orange
-        case "yellow", "amber": return .yellow
-        case "green": return .green
-        case "blue": return .blue
-        case "purple", "violet": return .purple
-        case "pink": return .pink
-        default: return .gray
+        case "red", "rose": .red
+        case "orange": .orange
+        case "yellow", "amber": .yellow
+        case "green": .green
+        case "blue": .blue
+        case "purple", "violet": .purple
+        case "pink": .pink
+        default: .gray
         }
     }
 
     private func refreshAccount() async {
         let container = CKContainer(identifier: "iCloud.dev.libirabu.calendar")
-        let status = (try? await container.accountStatus()) ?? .couldNotDetermine
+        let status = await (try? container.accountStatus()) ?? .couldNotDetermine
         account = {
             switch status {
             case .available: return "available"

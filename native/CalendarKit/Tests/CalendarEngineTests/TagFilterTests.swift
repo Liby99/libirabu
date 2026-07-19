@@ -1,6 +1,6 @@
-import XCTest
 @testable import CalendarEngine
-import CalendarGeometry   // sourceId(of:)
+import CalendarGeometry // sourceId(of:)
+import XCTest
 
 /// View ▸ Filter by Tags — web-parity "If Any" semantics over the display caches.
 @MainActor
@@ -10,6 +10,7 @@ final class TagFilterTests: XCTestCase {
         setenv("CC_DEMO_DATADIR", NSTemporaryDirectory() + "cc-tagfilter-tests-" + UUID().uuidString, 1)
         UserDefaults.standard.removeObject(forKey: PrefKeys.hiddenTags)
     }
+
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: PrefKeys.hiddenTags)
         unsetenv("CC_DEMO_DATADIR")
@@ -27,15 +28,25 @@ final class TagFilterTests: XCTestCase {
         let y = e.year
         let work = e.createTimedEvent(year: y, month: 5, day: 10, startHour: 9, endHour: 10, title: "W", color: "blue")
         let both = e.createTimedEvent(year: y, month: 5, day: 11, startHour: 9, endHour: 10, title: "WF", color: "blue")
-        let untagged = e.createTimedEvent(year: y, month: 5, day: 12, startHour: 9, endHour: 10, title: "U", color: "blue")
+        let untagged = e.createTimedEvent(
+            year: y,
+            month: 5,
+            day: 12,
+            startHour: 9,
+            endHour: 10,
+            title: "U",
+            color: "blue"
+        )
         let band = e.demoAddBand(month: 5, track: 0, startDay: 3, endDay: 6, title: "B", color: "green")
-        e.setTags(work, ["Work"])            // stored with original casing — filter must match lowercased
+        e.setTags(work, ["Work"]) // stored with original casing — filter must match lowercased
         e.setTags(both, ["work", "fun"])
         e.setTags(band, ["work"])
         return (e, work, both, untagged, band)
     }
 
-    private func visibleEventIds(_ e: CalendarEngine) -> Set<String> { Set(e.displayEvents(for: e.year).map(\.id)) }
+    private func visibleEventIds(_ e: CalendarEngine) -> Set<String> {
+        Set(e.displayEvents(for: e.year).map(\.id))
+    }
 
     func testNoFilterShowsEverything() {
         let (e, work, both, untagged, band) = makeEngine()

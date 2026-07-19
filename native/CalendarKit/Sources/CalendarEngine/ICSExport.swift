@@ -2,9 +2,9 @@
 // Timed events/deadlines carry their anchor timezone as TZID wall-clock times; bands are
 // all-day DATE spans (DTEND exclusive). Recurrence maps the app's Repeat subset to RRULE.
 
-import Foundation
-import CoreGraphics
 import CalendarGeometry
+import CoreGraphics
+import Foundation
 
 extension CalendarEngine {
     /// A one-VEVENT VCALENDAR for the box's SOURCE item, or nil if the id resolves to nothing.
@@ -31,12 +31,16 @@ extension CalendarEngine {
             let tz = d.anchorTz ?? DeadlineTZ.concrete(mainTz)
             lines.append("SUMMARY:\(Self.icsEscape(d.title))")
             lines.append("DTSTART;TZID=\(tz):\(Self.icsLocal(d.year, d.month, d.day, d.hour))")
-        } else { return nil }
+        } else {
+            return nil
+        }
 
-        if let n = notes { lines.append("DESCRIPTION:\(Self.icsEscape(n))") }
+        if let n = notes {
+            lines.append("DESCRIPTION:\(Self.icsEscape(n))")
+        }
         if let rep = repeatConfig(src), let rrule = Self.icsRRule(rep) {
             lines.append(rrule)
-            for ex in rep.exdates ?? [] where ex.count == 10 {   // "YYYY-MM-DD"
+            for ex in rep.exdates ?? [] where ex.count == 10 { // "YYYY-MM-DD"
                 lines.append("EXDATE;VALUE=DATE:\(ex.replacingOccurrences(of: "-", with: ""))")
             }
         }
@@ -49,23 +53,28 @@ extension CalendarEngine {
         let interval = max(1, rep.n ?? 1)
         var parts: [String]
         switch rep.kind {
-        case "daily":    parts = ["FREQ=DAILY"]
-        case "weekly":   parts = ["FREQ=WEEKLY"]
-        case "yearly":   parts = ["FREQ=YEARLY"]
+        case "daily": parts = ["FREQ=DAILY"]
+        case "weekly": parts = ["FREQ=WEEKLY"]
+        case "yearly": parts = ["FREQ=YEARLY"]
         case "weekdays":
             let names = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
             let days = (rep.days?.isEmpty == false ? rep.days! : [1, 2, 3, 4, 5])
-            parts = ["FREQ=WEEKLY", "BYDAY=" + days.compactMap { $0 >= 0 && $0 < 7 ? names[$0] : nil }.joined(separator: ",")]
+            parts = [
+                "FREQ=WEEKLY",
+                "BYDAY=" + days.compactMap { $0 >= 0 && $0 < 7 ? names[$0] : nil }.joined(separator: ","),
+            ]
         default: return nil
         }
-        if interval > 1 { parts.append("INTERVAL=\(interval)") }
+        if interval > 1 {
+            parts.append("INTERVAL=\(interval)")
+        }
         if let until = rep.until, until.count == 10 {
             parts.append("UNTIL=\(until.replacingOccurrences(of: "-", with: ""))")
         }
         return "RRULE:" + parts.joined(separator: ";")
     }
 
-    // ── Formatting helpers ──
+    /// ── Formatting helpers ──
     static func icsEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: ";", with: "\\;")
@@ -73,13 +82,18 @@ extension CalendarEngine {
             .replacingOccurrences(of: "\r\n", with: "\\n")
             .replacingOccurrences(of: "\n", with: "\\n")
     }
-    static func icsDate(_ d: YMD) -> String { String(format: "%04d%02d%02d", d.year, d.month + 1, d.day) }
+
+    static func icsDate(_ d: YMD) -> String {
+        String(format: "%04d%02d%02d", d.year, d.month + 1, d.day)
+    }
+
     static func icsLocal(_ year: Int, _ month0: Int, _ day: Int, _ hour: CGFloat) -> String {
         let mins = max(0, min(24 * 60, Int((hour * 60).rounded())))
         // 24:00 → 00:00 next day would need a date bump; clamp to 23:59:59 instead (rare edge).
         let m = min(mins, 24 * 60 - 1)
         return String(format: "%04d%02d%02dT%02d%02d00", year, month0 + 1, day, m / 60, m % 60)
     }
+
     static func icsUTCStamp(_ date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"

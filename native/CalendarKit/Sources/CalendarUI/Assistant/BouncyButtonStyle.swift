@@ -18,6 +18,11 @@ struct BouncyButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == BouncyButtonStyle {
     /// `.buttonStyle(.bouncy)` — spring scale-on-press.
-    static var bouncy: BouncyButtonStyle { BouncyButtonStyle() }
-    static func bouncy(scale: CGFloat) -> BouncyButtonStyle { BouncyButtonStyle(scale: scale) }
+    static var bouncy: BouncyButtonStyle {
+        BouncyButtonStyle()
+    }
+
+    static func bouncy(scale: CGFloat) -> BouncyButtonStyle {
+        BouncyButtonStyle(scale: scale)
+    }
 }

@@ -2,11 +2,11 @@
 // src/lib/assistant/tools/calendar.ts (the mutating create/update/delete tools + web + memory
 // tools arrive in later stages). Each tool reads the shared CalendarEngine via ToolContext.
 
-import Foundation
 import CalendarEngine
-import CalendarGeometry   // Repeat / YMD / occKey — recurrence config + occurrence-level delete
+import CalendarGeometry // Repeat / YMD / occKey — recurrence config + occurrence-level delete
+import Foundation
 
-// ── Registry ────────────────────────────────────────────────────────────────────────
+/// ── Registry ────────────────────────────────────────────────────────────────────────
 @MainActor
 enum AssistantTools {
     static let all: [any AssistantTool] = [
@@ -28,16 +28,22 @@ enum AssistantTools {
         ForgetTool(),
     ]
 
-    static func tool(named name: String) -> (any AssistantTool)? { all.first { $0.def.name == name } }
-    static var defs: [ToolDef] { all.map(\.def) }
+    static func tool(named name: String) -> (any AssistantTool)? {
+        all.first { $0.def.name == name }
+    }
+
+    static var defs: [ToolDef] {
+        all.map(\.def)
+    }
 }
 
-// ── get_screen_state ──────────────────────────────────────────────────────────────────
+/// ── get_screen_state ──────────────────────────────────────────────────────────────────
 struct GetScreenStateTool: AssistantTool {
     let def = ToolDef(
         name: "get_screen_state",
         description: "Return the calendar's current on-screen state: year, zoom level, and focused month.",
-        parameters: .parse(#"{"type":"object","properties":{},"additionalProperties":false}"#))
+        parameters: .parse(#"{"type":"object","properties":{},"additionalProperties":false}"#)
+    )
     let readOnly = true
     let actionKind = ActionKind.getScreenState
     func card(_ args: JSONValue, result: JSONValue) -> String {
@@ -60,9 +66,9 @@ struct GetScreenStateTool: AssistantTool {
     }
 }
 
-// ── list_events ───────────────────────────────────────────────────────────────────────
+/// ── list_events ───────────────────────────────────────────────────────────────────────
 struct ListEventsTool: AssistantTool {
-    private static let cap = 120   // never dump a whole year into the context
+    private static let cap = 120 // never dump a whole year into the context
 
     let def = ToolDef(
         name: "list_events",
@@ -78,7 +84,8 @@ struct ListEventsTool: AssistantTool {
           "kind":{"type":"string","enum":["timed","band","deadline"],"description":"Filter to a single kind."},
           "query":{"type":"string","description":"Case-insensitive text search across title, tags, and notes."}
         },"additionalProperties":false}
-        """#))
+        """#)
+    )
     let readOnly = true
     let actionKind = ActionKind.readCalendar
     func card(_ args: JSONValue, result: JSONValue) -> String {
@@ -96,19 +103,31 @@ struct ListEventsTool: AssistantTool {
         // Window: either endpoint alone means a single-day window.
         var from = args["from"]?.stringValue.flatMap(parseDate)
         var to = args["to"]?.stringValue.flatMap(parseDate)
-        if from == nil { from = to }
-        if to == nil { to = from }
-        func key(_ y: Int, _ m: Int, _ d: Int) -> Int { y * 10000 + (m + 1) * 100 + d }
+        if from == nil {
+            from = to
+        }
+        if to == nil {
+            to = from
+        }
+        func key(_ y: Int, _ m: Int, _ d: Int) -> Int {
+            y * 10000 + (m + 1) * 100 + d
+        }
         let fromKey = from.map { key($0.0, $0.1, $0.2) } ?? Int.min
         let toKey = to.map { key($0.0, $0.1, $0.2) } ?? Int.max
-        let years: [Int]
-        if let f = from, let t = to { years = Array(min(f.0, t.0)...max(f.0, t.0)) }
-        else { years = [args["year"]?.intValue ?? e.year] }
+        let years: [Int] = if let f = from, let t = to {
+            Array(min(f.0, t.0) ... max(f.0, t.0))
+        } else {
+            [args["year"]?.intValue ?? e.year]
+        }
 
         func matches(_ title: String, _ id: String) -> Bool {
             guard let query else { return true }
-            if title.lowercased().contains(query) { return true }
-            if e.richTags(id).joined(separator: " ").lowercased().contains(query) { return true }
+            if title.lowercased().contains(query) {
+                return true
+            }
+            if e.richTags(id).joined(separator: " ").lowercased().contains(query) {
+                return true
+            }
             return e.notes(id).lowercased().contains(query)
         }
 
@@ -172,17 +191,22 @@ struct ListEventsTool: AssistantTool {
     }
 }
 
-// ── get_event ─────────────────────────────────────────────────────────────────────────
+/// ── get_event ─────────────────────────────────────────────────────────────────────────
 struct GetEventTool: AssistantTool {
     let def = ToolDef(
         name: "get_event",
         description: "Full detail for ONE item by id: title, when, color, tags, notes, promoted "
             + "lane, repeat, timezone. Use after list_events when you need the notes/details.",
-        parameters: .parse(#"{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}"#))
+        parameters: .parse(
+            #"{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}"#
+        )
+    )
     let readOnly = true
     let actionKind = ActionKind.readCalendar
     func card(_ args: JSONValue, result: JSONValue) -> String {
-        if let err = result["error"]?.stringValue { return "Lookup failed: \(err)" }
+        if let err = result["error"]?.stringValue {
+            return "Lookup failed: \(err)"
+        }
         return "Lookup: “\(result["title"]?.stringValue ?? "event")” detail"
     }
 
@@ -194,12 +218,15 @@ struct GetEventTool: AssistantTool {
         switch kind {
         case .timed:
             guard let ev0 = e.event(id) else { break }
-            let ev = e.displayEvent(ev0)   // convert to the current view timezone (matches list_events + the prompt)
+            let ev = e.displayEvent(ev0) // convert to the current view timezone (matches list_events + the prompt)
             out["title"] = .str(ev.title); out["color"] = .str(ev.color)
             out["date"] = .str(iso(ev.year, ev.month, ev.day))
             out["weekday"] = .str(weekday(ev.year, ev.month, ev.day))
             out["start"] = .str(hhmm(ev.startHour)); out["end"] = .str(hhmm(ev.endHour))
-            if let tz = ev0.anchorTz { out["anchorTz"] = .str(tz) }   // the event's own zone (times above are in the view zone)
+            if let tz = ev0
+                .anchorTz {
+                out["anchorTz"] = .str(tz)
+            } // the event's own zone (times above are in the view zone)
         case .band:
             guard let b = e.band(id) else { break }
             out["title"] = .str(b.title); out["color"] = .str(b.color); out["track"] = .num(b.track)
@@ -207,30 +234,44 @@ struct GetEventTool: AssistantTool {
             out["end"] = .str(iso(b.year, b.month, b.endDay))
         case .deadline:
             guard let d0 = e.deadline(id) else { break }
-            let d = e.displayDeadline(d0)   // convert to the current view timezone
+            let d = e.displayDeadline(d0) // convert to the current view timezone
             out["title"] = .str(d.title); out["color"] = .str(d.color)
             out["date"] = .str(iso(d.year, d.month, d.day))
             out["weekday"] = .str(weekday(d.year, d.month, d.day))
             out["time"] = .str(hhmm(d.hour))
-            if let tz = d0.anchorTz { out["anchorTz"] = .str(tz) }   // the deadline's own zone (time above is in the view zone)
+            if let tz = d0
+                .anchorTz {
+                out["anchorTz"] = .str(tz)
+            } // the deadline's own zone (time above is in the view zone)
         }
         let tags = e.richTags(id)
-        if !tags.isEmpty { out["tags"] = .arr(tags.map(JSONValue.str)) }
+        if !tags.isEmpty {
+            out["tags"] = .arr(tags.map(JSONValue.str))
+        }
         let notes = e.notes(id)
-        if !notes.isEmpty { out["notes"] = .str(String(notes.prefix(2000))) }
-        if let lane = e.promoteTrack(id) { out["promoteTrack"] = .num(lane) }
-        if let r = e.repeatConfig(id) { out["repeats"] = .str(r.kind) }
+        if !notes.isEmpty {
+            out["notes"] = .str(String(notes.prefix(2000)))
+        }
+        if let lane = e.promoteTrack(id) {
+            out["promoteTrack"] = .num(lane)
+        }
+        if let r = e.repeatConfig(id) {
+            out["repeats"] = .str(r.kind)
+        }
         return .obj(out)
     }
 }
 
-// ── get_daily_note / set_daily_note (the dashboard NOTE tab) ──────────────────────────
+/// ── get_daily_note / set_daily_note (the dashboard NOTE tab) ──────────────────────────
 struct GetDailyNoteTool: AssistantTool {
     let def = ToolDef(
         name: "get_daily_note",
         description: "Read the user's free-form daily note (the day view's NOTE tab, markdown — "
             + "often holds TODOs and plans) for a date.",
-        parameters: .parse(#"{"type":"object","properties":{"date":{"type":"string","description":"YYYY-MM-DD"}},"required":["date"],"additionalProperties":false}"#))
+        parameters: .parse(
+            #"{"type":"object","properties":{"date":{"type":"string","description":"YYYY-MM-DD"}},"required":["date"],"additionalProperties":false}"#
+        )
+    )
     let readOnly = true
     let actionKind = ActionKind.readCalendar
     func card(_ args: JSONValue, result: JSONValue) -> String {
@@ -258,11 +299,14 @@ struct SetDailyNoteTool: AssistantTool {
           "date":{"type":"string","description":"YYYY-MM-DD"},
           "note":{"type":"string","description":"The full new markdown note ('' clears it)."}
         },"required":["date","note"],"additionalProperties":false}
-        """#))
-    let readOnly = false          // writes user data → auditor-gated
+        """#)
+    )
+    let readOnly = false // writes user data → auditor-gated
     let actionKind = ActionKind.setDailyNote
     func card(_ args: JSONValue, result: JSONValue) -> String {
-        if let err = result["error"]?.stringValue { return "Note update failed: \(err)" }
+        if let err = result["error"]?.stringValue {
+            return "Note update failed: \(err)"
+        }
         return "Updated daily note · \(args["date"]?.stringValue ?? "")"
     }
 
@@ -276,15 +320,18 @@ struct SetDailyNoteTool: AssistantTool {
     }
 }
 
-// ── get_tracks ────────────────────────────────────────────────────────────────────────
+/// ── get_tracks ────────────────────────────────────────────────────────────────────────
 struct GetTracksTool: AssistantTool {
     let def = ToolDef(
         name: "get_tracks",
         description: "Return the four band-lane names (index 0–3) for each of the 12 months.",
-        parameters: .parse(#"{"type":"object","properties":{"year":{"type":"integer"}},"additionalProperties":false}"#))
+        parameters: .parse(#"{"type":"object","properties":{"year":{"type":"integer"}},"additionalProperties":false}"#)
+    )
     let readOnly = true
     let actionKind = ActionKind.readCalendar
-    func card(_ args: JSONValue, result: JSONValue) -> String { "Lookup: track names" }
+    func card(_ args: JSONValue, result: JSONValue) -> String {
+        "Lookup: track names"
+    }
 
     func run(_ args: JSONValue, _ ctx: ToolContext) async throws -> JSONValue {
         guard let e = ctx.engine else { return .obj(["error": .str("calendar unavailable")]) }
@@ -294,7 +341,7 @@ struct GetTracksTool: AssistantTool {
     }
 }
 
-// ── set_view ──────────────────────────────────────────────────────────────────────────
+/// ── set_view ──────────────────────────────────────────────────────────────────────────
 struct SetViewTool: AssistantTool {
     let def = ToolDef(
         name: "set_view",
@@ -308,7 +355,8 @@ struct SetViewTool: AssistantTool {
           "focusedMonth":{"type":"integer","minimum":0,"maximum":11,"description":"0 = January."},
           "date":{"type":"string","description":"YYYY-MM-DD — fly to this specific day (opens the day view)."}
         },"additionalProperties":false}
-        """#))
+        """#)
+    )
     // UI navigation only — not a data mutation, so not auditor-gated (matches the web set_view).
     let readOnly = true
     let actionKind = ActionKind.setView
@@ -341,7 +389,7 @@ struct SetViewTool: AssistantTool {
     }
 }
 
-// ── create_event (mutating → auditor-gated) ─────────────────────────────────────────────
+/// ── create_event (mutating → auditor-gated) ─────────────────────────────────────────────
 struct CreateEventTool: AssistantTool {
     let def = ToolDef(
         name: "create_event",
@@ -370,11 +418,14 @@ struct CreateEventTool: AssistantTool {
           "notes":{"type":"string"},
           "tags":{"type":"array","items":{"type":"string"}}
         },"required":["kind","title","date"],"additionalProperties":false}
-        """#))
+        """#)
+    )
     let readOnly = false
     let actionKind = ActionKind.createEvent
     func card(_ args: JSONValue, result: JSONValue) -> String {
-        if let err = result["error"]?.stringValue { return "Create failed: \(err)" }
+        if let err = result["error"]?.stringValue {
+            return "Create failed: \(err)"
+        }
         let title = args["title"]?.stringValue ?? "event"
         let kind = result["kind"]?.stringValue ?? "item"
         let segments = result["segments"]?.intValue ?? 1
@@ -391,7 +442,7 @@ struct CreateEventTool: AssistantTool {
         let title = args["title"]?.stringValue ?? "New event"
         let color = args["color"]?.stringValue ?? "blue"
         let notes = args["notes"]?.stringValue
-        let tags = (args["tags"]?.arrayValue ?? []).compactMap { $0.stringValue }
+        let tags = (args["tags"]?.arrayValue ?? []).compactMap(\.stringValue)
 
         let promote = args["promoteTrack"]?.intValue
         let repeatCfg = repeatConfig(from: args["repeat"])
@@ -403,7 +454,9 @@ struct CreateEventTool: AssistantTool {
             let id = e.createTimedEvent(year: y, month: m, day: d, startHour: start,
                                         endHour: max(start + 0.25, end), title: title, color: color,
                                         notes: notes, tags: tags, promoteTrack: promote, byAI: true)
-            if let repeatCfg { e.setRepeat(id, repeatCfg) }
+            if let repeatCfg {
+                e.setRepeat(id, repeatCfg)
+            }
             return .obj(["ok": .bool(true), "id": .str(id), "kind": .str("timed"),
                          "repeats": .bool(repeatCfg != nil)])
         case "band":
@@ -414,7 +467,9 @@ struct CreateEventTool: AssistantTool {
             let ids = e.createBandSpan(startYear: y, startMonth: m, startDay: d,
                                        endYear: end.0, endMonth: end.1, endDay: end.2, track: track,
                                        title: title, color: color, notes: notes, tags: tags, byAI: true)
-            if let repeatCfg, let first = ids.first { e.setRepeat(first, repeatCfg) }
+            if let repeatCfg, let first = ids.first {
+                e.setRepeat(first, repeatCfg)
+            }
             return .obj([
                 "ok": .bool(true), "kind": .str("band"),
                 "id": .str(ids.first ?? ""), "segments": .num(ids.count),
@@ -433,7 +488,9 @@ struct CreateEventTool: AssistantTool {
             let id = e.createDeadline(year: dy, month: dm, day: dd, hour: hour, title: title,
                                       color: color, originTz: args["originTz"]?.stringValue,
                                       notes: notes, tags: tags, promoteTrack: promote, byAI: true)
-            if let repeatCfg { e.setRepeat(id, repeatCfg) }
+            if let repeatCfg {
+                e.setRepeat(id, repeatCfg)
+            }
             return .obj(["ok": .bool(true), "id": .str(id), "kind": .str("deadline"),
                          "localDate": .str(iso(dy, dm, dd)), "localTime": .str(hhmm(hour))])
         default:
@@ -442,7 +499,7 @@ struct CreateEventTool: AssistantTool {
     }
 }
 
-// ── update_event (mutating → auditor-gated) ─────────────────────────────────────────────
+/// ── update_event (mutating → auditor-gated) ─────────────────────────────────────────────
 struct UpdateEventTool: AssistantTool {
     let def = ToolDef(
         name: "update_event",
@@ -466,13 +523,20 @@ struct UpdateEventTool: AssistantTool {
             "tags":{"type":"array","items":{"type":"string"}}
           }}
         },"required":["id","patch"],"additionalProperties":false}
-        """#))
+        """#)
+    )
     let readOnly = false
     let actionKind = ActionKind.updateEvent
     func card(_ args: JSONValue, result: JSONValue) -> String {
-        if let err = result["error"]?.stringValue { return "Update failed: \(err)" }
-        if result["ok"]?.boolValue == false { return "Update failed: item not found" }
-        if let title = args["patch"]?["title"]?.stringValue { return "Updated: \(title)" }
+        if let err = result["error"]?.stringValue {
+            return "Update failed: \(err)"
+        }
+        if result["ok"]?.boolValue == false {
+            return "Update failed: item not found"
+        }
+        if let title = args["patch"]?["title"]?.stringValue {
+            return "Updated: \(title)"
+        }
         return "Updated \(result["kind"]?.stringValue ?? "event")"
     }
 
@@ -491,28 +555,39 @@ struct UpdateEventTool: AssistantTool {
 
         // repeat: object sets the recurrence, null / kind "none" clears it.
         if let rv = patch["repeat"] {
-            if case .null = rv { e.setRepeat(id, nil) }
-            else { e.setRepeat(id, repeatConfig(from: rv)) }
+            if case .null = rv {
+                e.setRepeat(id, nil)
+            } else {
+                e.setRepeat(id, repeatConfig(from: rv))
+            }
         }
 
         // promoteTrack: an integer sets the mirror lane; an explicit JSON null clears it.
         var promote: Int? = nil, clearPromote = false
         if let pv = patch["promoteTrack"] {
-            if case .null = pv { clearPromote = true } else { promote = pv.intValue }
+            if case .null = pv {
+                clearPromote = true
+            } else {
+                promote = pv.intValue
+            }
         }
 
         // Band moves/resizes re-span the band (handles cross-month ranges by splitting per month).
         if itemKind == .band, patch["date"] != nil || patch["endDate"] != nil {
             guard let b = e.band(id) else { return .obj(["error": .str("no item with id \(id)")]) }
             let start = patch["date"]?.stringValue.flatMap(parseDate) ?? (b.year, b.month, b.startDay)
-            let end: (Int, Int, Int)
-            if let pe = patch["endDate"]?.stringValue.flatMap(parseDate) { end = pe }
-            else if patch["date"] != nil { end = addDays(start, b.endDay - b.startDay) }  // keep length
-            else { end = (b.year, b.month, b.endDay) }
+            let end: (Int, Int, Int) = if let pe = patch["endDate"]?.stringValue.flatMap(parseDate) {
+                pe
+            } else if patch["date"] != nil {
+                addDays(start, b.endDay - b.startDay)
+            } // keep length
+            else {
+                (b.year, b.month, b.endDay)
+            }
             // Apply the non-geometry fields first so the re-span carries them over.
             e.updateItem(id: id, title: patch["title"]?.stringValue, color: patch["color"]?.stringValue,
                          track: patch["track"]?.intValue, notes: notes,
-                         tags: patch["tags"]?.arrayValue?.compactMap { $0.stringValue }, byAI: true)
+                         tags: patch["tags"]?.arrayValue?.compactMap(\.stringValue), byAI: true)
             let ids = e.reshapeBand(id: id, startYear: start.0, startMonth: start.1, startDay: start.2,
                                     endYear: end.0, endMonth: end.1, endDay: end.2)
             return .obj(["ok": .bool(!ids.isEmpty), "id": .str(ids.first ?? id),
@@ -525,22 +600,29 @@ struct UpdateEventTool: AssistantTool {
             year = py; month = pm; day = pd
         }
         if let ss = patch["start"]?.stringValue, let t = parseTime(ss) {
-            if itemKind == .deadline { hour = t } else { startHour = t }
+            if itemKind == .deadline {
+                hour = t
+            } else {
+                startHour = t
+            }
         }
-        if let ee = patch["end"]?.stringValue, let t = parseTime(ee) { endHour = t }
+        if let ee = patch["end"]?.stringValue, let t = parseTime(ee) {
+            endHour = t
+        }
 
         let ok = e.updateItem(
             id: id, title: patch["title"]?.stringValue, color: patch["color"]?.stringValue,
             year: year, month: month, day: day, startHour: startHour, endHour: endHour,
             track: patch["track"]?.intValue, hour: hour,
             notes: notes,
-            tags: patch["tags"]?.arrayValue?.compactMap { $0.stringValue },
-            promoteTrack: promote, clearPromote: clearPromote, byAI: true)
+            tags: patch["tags"]?.arrayValue?.compactMap(\.stringValue),
+            promoteTrack: promote, clearPromote: clearPromote, byAI: true
+        )
         return .obj(["ok": .bool(ok), "id": .str(id), "kind": .str(itemKind.rawValue)])
     }
 }
 
-// ── delete_event (mutating + confirm → resolve-only, UI-confirmed) ──────────────────────
+/// ── delete_event (mutating + confirm → resolve-only, UI-confirmed) ──────────────────────
 struct DeleteEventTool: AssistantTool {
     let def = ToolDef(
         name: "delete_event",
@@ -553,14 +635,19 @@ struct DeleteEventTool: AssistantTool {
           "id":{"type":"string"},
           "occurrenceDate":{"type":"string","description":"YYYY-MM-DD — remove only this occurrence of a recurring event (punches an exdate hole), not the series."}
         },"required":["id"],"additionalProperties":false}
-        """#))
+        """#)
+    )
     let readOnly = false
     let confirm = true
     let actionKind = ActionKind.deleteEvent
     func card(_ args: JSONValue, result: JSONValue) -> String {
-        if let err = result["error"]?.stringValue { return "Delete failed: \(err)" }
+        if let err = result["error"]?.stringValue {
+            return "Delete failed: \(err)"
+        }
         let title = result["title"]?.stringValue ?? "item"
-        if let od = result["occurrenceDate"]?.stringValue { return "Confirm skip: \(title) · \(od)" }
+        if let od = result["occurrenceDate"]?.stringValue {
+            return "Confirm skip: \(title) · \(od)"
+        }
         return "Confirm delete: \(title)"
     }
 
@@ -568,11 +655,10 @@ struct DeleteEventTool: AssistantTool {
         guard let e = ctx.engine else { return .obj(["error": .str("calendar unavailable")]) }
         guard let id = args["id"]?.stringValue else { return .obj(["error": .str("missing 'id'")]) }
         guard let kind = e.kind(of: id) else { return .obj(["error": .str("no item with id \(id)")]) }
-        let title: String
-        switch kind {
-        case .timed:    title = e.event(id)?.title ?? "event"
-        case .band:     title = e.band(id)?.title ?? "band"
-        case .deadline: title = e.deadline(id)?.title ?? "deadline"
+        let title: String = switch kind {
+        case .timed: e.event(id)?.title ?? "event"
+        case .band: e.band(id)?.title ?? "band"
+        case .deadline: e.deadline(id)?.title ?? "deadline"
         }
         let date = e.dateOf(id).map { iso($0.0, $0.1, $0.2) } ?? ""
         // RESOLVE ONLY — do NOT delete here. The UI confirmation card triggers the actual removal.
@@ -594,7 +680,7 @@ struct DeleteEventTool: AssistantTool {
     }
 }
 
-// ── list_todos — the TODO panel's contents ──────────────────────────────────────────────
+/// ── list_todos — the TODO panel's contents ──────────────────────────────────────────────
 struct ListTodosTool: AssistantTool {
     private static let cap = 100
 
@@ -611,7 +697,8 @@ struct ListTodosTool: AssistantTool {
           "dueFrom":{"type":"string","description":"YYYY-MM-DD — drop DATED todos due before this (undated ones stay)."},
           "dueTo":{"type":"string","description":"YYYY-MM-DD — drop DATED todos due after this (undated ones stay)."}
         },"additionalProperties":false}
-        """#))
+        """#)
+    )
     let readOnly = true
     let actionKind = ActionKind.readCalendar
     func card(_ args: JSONValue, result: JSONValue) -> String {
@@ -633,15 +720,23 @@ struct ListTodosTool: AssistantTool {
                 guard let m = line.range(of: #"^[-*]\s*\[( |x|X)\]\s*"#, options: .regularExpression)
                 else { continue }
                 let checked = line.range(of: #"^[-*]\s*\[[xX]\]"#, options: .regularExpression) != nil
-                if checked && !includeDone { continue }
+                if checked && !includeDone {
+                    continue
+                }
                 let text = String(line[m.upperBound...])
-                if let query, !text.lowercased().contains(query) { continue }
+                if let query, !text.lowercased().contains(query) {
+                    continue
+                }
 
                 let due = text.range(of: #"due:(\d{4}-\d{2}-\d{2})"#, options: .regularExpression)
                     .map { String(text[$0].dropFirst(4)) }
                 if let due {
-                    if let dueFrom, due < dueFrom { continue }
-                    if let dueTo, due > dueTo { continue }
+                    if let dueFrom, due < dueFrom {
+                        continue
+                    }
+                    if let dueTo, due > dueTo {
+                        continue
+                    }
                 }
                 let bangs = text.range(of: #"\bp:(!{1,5})"#, options: .regularExpression)
                     .map { text[$0].filter { $0 == "!" }.count }
@@ -655,9 +750,15 @@ struct ListTodosTool: AssistantTool {
                 var entry = source
                 entry["text"] = .str(text)
                 entry["done"] = .bool(checked)
-                if let due { entry["due"] = .str(due) }
-                if let bangs { entry["priority"] = .num(bangs) }
-                if !tags.isEmpty { entry["tags"] = .arr(tags.map(JSONValue.str)) }
+                if let due {
+                    entry["due"] = .str(due)
+                }
+                if let bangs {
+                    entry["priority"] = .num(bangs)
+                }
+                if !tags.isEmpty {
+                    entry["tags"] = .arr(tags.map(JSONValue.str))
+                }
                 todos.append((due ?? "9999", .obj(entry)))
             }
         }
@@ -672,19 +773,20 @@ struct ListTodosTool: AssistantTool {
             harvest(note, source: ["source": .str("dailyNote"), "date": .str(date)])
         }
 
-        todos.sort { $0.sort < $1.sort }   // dated first (ascending), undated after
+        todos.sort { $0.sort < $1.sort } // dated first (ascending), undated after
         var out: [String: JSONValue] = [
             "count": .num(todos.count),
             "todos": .arr(todos.prefix(Self.cap).map(\.v)),
         ]
         if todos.count > Self.cap {
-            out["truncated"] = .str("showing the first \(Self.cap) of \(todos.count) — narrow with query or dueFrom/dueTo")
+            out["truncated"] =
+                .str("showing the first \(Self.cap) of \(todos.count) — narrow with query or dueFrom/dueTo")
         }
         return .obj(out)
     }
 }
 
-// ── set_track_name (mutating → auditor-gated) ───────────────────────────────────────────
+/// ── set_track_name (mutating → auditor-gated) ───────────────────────────────────────────
 struct SetTrackNameTool: AssistantTool {
     let def = ToolDef(
         name: "set_track_name",
@@ -695,19 +797,22 @@ struct SetTrackNameTool: AssistantTool {
           "track":{"type":"integer","minimum":0,"maximum":3},
           "name":{"type":"string"}
         },"required":["month","track","name"],"additionalProperties":false}
-        """#))
+        """#)
+    )
     let readOnly = false
     let actionKind = ActionKind.setTrackName
     func card(_ args: JSONValue, result: JSONValue) -> String {
-        if let err = result["error"]?.stringValue { return "Rename failed: \(err)" }
+        if let err = result["error"]?.stringValue {
+            return "Rename failed: \(err)"
+        }
         let m = args["month"]?.intValue.map(monthName) ?? "?"
         return "Renamed lane \(args["track"]?.intValue ?? 0) (\(m)): \(args["name"]?.stringValue ?? "")"
     }
 
     func run(_ args: JSONValue, _ ctx: ToolContext) async throws -> JSONValue {
         guard let e = ctx.engine else { return .obj(["error": .str("calendar unavailable")]) }
-        guard let m = args["month"]?.intValue, (0...11).contains(m),
-              let t = args["track"]?.intValue, (0...3).contains(t),
+        guard let m = args["month"]?.intValue, (0 ... 11).contains(m),
+              let t = args["track"]?.intValue, (0 ... 3).contains(t),
               let name = args["name"]?.stringValue else {
             return .obj(["error": .str("need month (0–11), track (0–3), and name")])
         }
@@ -719,13 +824,17 @@ struct SetTrackNameTool: AssistantTool {
 // ── Shared formatting helpers ─────────────────────────────────────────────────────────
 // Month/weekday names come from CalendarGeometry's canonical MONTH_NAMES / WD3.
 
-private func monthName(_ m: Int) -> String { MONTH_NAMES.indices.contains(m) ? MONTH_NAMES[m] : "?" }
+private func monthName(_ m: Int) -> String {
+    MONTH_NAMES.indices.contains(m) ? MONTH_NAMES[m] : "?"
+}
 
 @MainActor private func zoomName(_ e: CalendarEngine) -> String {
     e.isDayLevel ? "day" : e.isWeekLevel ? "week" : e.isMonthLevel ? "month" : "year"
 }
 
-private func iso(_ y: Int, _ m: Int, _ d: Int) -> String { String(format: "%04d-%02d-%02d", y, m + 1, d) }
+private func iso(_ y: Int, _ m: Int, _ d: Int) -> String {
+    String(format: "%04d-%02d-%02d", y, m + 1, d)
+}
 
 private func hhmm(_ h: CGFloat) -> String {
     let total = max(0, Int((h * 60).rounded()))
@@ -738,8 +847,8 @@ private func repeatConfig(from v: JSONValue?) -> Repeat? {
     return Repeat(kind: kind,
                   n: o["n"]?.intValue,
                   until: o["until"]?.stringValue,
-                  days: o["days"]?.arrayValue?.compactMap { $0.intValue },
-                  exdates: o["exdates"]?.arrayValue?.compactMap { $0.stringValue })
+                  days: o["days"]?.arrayValue?.compactMap(\.intValue),
+                  exdates: o["exdates"]?.arrayValue?.compactMap(\.stringValue))
 }
 
 /// (year, month0, day) + n days, in a DST-free UTC calendar.
@@ -767,7 +876,7 @@ private func convertFromOrigin(_ y: Int, _ m: Int, _ d: Int, _ hour: CGFloat,
     let totalMin = max(0, Int((hour * 60).rounded()))
     c.hour = totalMin / 60; c.minute = totalMin % 60
     guard let instant = origin.date(from: c) else { return nil }
-    let local = Calendar(identifier: .gregorian)   // device timezone
+    let local = Calendar(identifier: .gregorian) // device timezone
     let o = local.dateComponents([.year, .month, .day, .hour, .minute], from: instant)
     guard let ly = o.year, let lm = o.month, let ld = o.day, let lh = o.hour, let lmin = o.minute
     else { return nil }
@@ -777,6 +886,6 @@ private func convertFromOrigin(_ y: Int, _ m: Int, _ d: Int, _ hour: CGFloat,
 private func weekday(_ y: Int, _ m: Int, _ d: Int) -> String {
     var c = DateComponents(); c.year = y; c.month = m + 1; c.day = d
     guard let date = Calendar(identifier: .gregorian).date(from: c) else { return "" }
-    let wd = Calendar(identifier: .gregorian).component(.weekday, from: date)  // 1 = Sun
+    let wd = Calendar(identifier: .gregorian).component(.weekday, from: date) // 1 = Sun
     return WD3.indices.contains(wd - 1) ? WD3[wd - 1] : ""
 }

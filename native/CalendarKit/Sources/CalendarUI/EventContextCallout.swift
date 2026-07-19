@@ -5,11 +5,11 @@
 // EventMenuActions built field-by-field — NEVER grow a many-argument call here (type-checker
 // cliff, bisected 2026-07-18).
 
-import SwiftUI
 import AppKit
-import UniformTypeIdentifiers
-import CalendarGeometry
 import CalendarEngine
+import CalendarGeometry
+import SwiftUI
+import UniformTypeIdentifiers
 
 /// Every action the event callout can trigger. Assignment-style construction only.
 struct EventMenuActions {
@@ -21,7 +21,7 @@ struct EventMenuActions {
     var repeatCfg: () -> Void = {}
     var promote: () -> Void = {}
     var goOriginal: () -> Void = {}
-    var occurrence: (Int) -> Void = { _ in }   // −1 previous / +1 next
+    var occurrence: (Int) -> Void = { _ in } // −1 previous / +1 next
     var exportICS: () -> Void = {}
     var email: () -> Void = {}
     var delete: () -> Void = {}
@@ -42,10 +42,19 @@ struct EventMenuOverlay: ViewModifier {
     var readClip: () -> CalendarEngine.ClipPayload? = { nil }
 
     private var shown: Binding<Bool> {
-        Binding<Bool>(get: { ui.eventMenu != nil }, set: { (v: Bool) in if !v { ui.eventMenu = nil } })
+        Binding<Bool>(get: { ui.eventMenu != nil }, set: {
+            (v: Bool) in if !v {
+                ui.eventMenu = nil
+            }
+        })
     }
+
     private var spaceShown: Binding<Bool> {
-        Binding<Bool>(get: { ui.spaceMenu != nil }, set: { (v: Bool) in if !v { ui.spaceMenu = nil } })
+        Binding<Bool>(get: { ui.spaceMenu != nil }, set: {
+            (v: Bool) in if !v {
+                ui.spaceMenu = nil
+            }
+        })
     }
 
     private func eventActions(_ id: String) -> EventMenuActions {
@@ -54,11 +63,19 @@ struct EventMenuOverlay: ViewModifier {
         a.rename = { onRename(id) }
         a.cut = { onCut() }
         a.copy = { onCopy() }
-        a.pasteHere = { if let clip = readClip() { engine.pasteHere(clip, on: id) } }
+        a.pasteHere = {
+            if let clip = readClip() {
+                engine.pasteHere(clip, on: id)
+            }
+        }
         a.repeatCfg = { ui.openRepeatOnOpen = true; ui.openEventId = sourceId(of: id) }
         a.promote = { engine.togglePromote(id) }
         a.goOriginal = { engine.goToBox(sourceId(of: id)) }
-        a.occurrence = { dir in if let t = engine.neighborOccurrence(of: id, dir: dir) { engine.goToBox(t) } }
+        a.occurrence = {
+            dir in if let t = engine.neighborOccurrence(of: id, dir: dir) {
+                engine.goToBox(t)
+            }
+        }
         a.exportICS = { Self.exportICS(engine: engine, boxId: id) }
         a.email = { Self.emailEvent(engine: engine, boxId: id) }
         a.delete = {
@@ -77,18 +94,19 @@ struct EventMenuOverlay: ViewModifier {
     private func createAtSpot(_ spot: CalendarEngine.EmptySpot) {
         let id: String
         switch spot {
-        case .timeline(let y, let m, let d, let h):
+        case let .timeline(y, m, d, h):
             let start = min(h, 23)
             id = engine.createTimedEvent(year: y, month: m, day: d, startHour: start,
                                          endHour: min(start + 1, 24), title: "New event", color: "blue")
-        case .bandLane(let y, let m, let t, let d):
+        case let .bandLane(y, m, t, d):
             id = engine.createBand(year: y, month: m, track: t, startDay: d, endDay: d,
                                    title: "New event", color: "blue")
         }
         ui.selectTitleOnOpen = true; ui.openEventId = id
     }
+
     private func createDeadlineAtSpot(_ spot: CalendarEngine.EmptySpot) {
-        guard case .timeline(let y, let m, let d, let h) = spot else { return }
+        guard case let .timeline(y, m, d, h) = spot else { return }
         let id = engine.createDeadline(year: y, month: m, day: d, hour: min(h, 23.75),
                                        title: "New Deadline", color: "default")
         ui.selectTitleOnOpen = true; ui.openEventId = id
@@ -112,12 +130,13 @@ struct EventMenuOverlay: ViewModifier {
                     onNewEvent: { createAtSpot(menu.spot) },
                     onNewDeadline: { createDeadlineAtSpot(menu.spot) },
                     onPaste: { onPaste() },
-                    onClose: { ui.spaceMenu = nil })
+                    onClose: { ui.spaceMenu = nil }
+                )
             }
         }
     }
 
-    // ── Export / email (Apple Mail via NSSharingService) ──
+    /// ── Export / email (Apple Mail via NSSharingService) ──
     private static func icsFileName(engine: CalendarEngine, boxId: String) -> String {
         let src = sourceId(of: boxId)
         let title = engine.event(src)?.title ?? engine.band(src)?.title ?? engine.deadline(src)?.title ?? "event"
@@ -125,39 +144,62 @@ struct EventMenuOverlay: ViewModifier {
             .trimmingCharacters(in: .whitespaces)
         return (safe.isEmpty ? "event" : safe) + ".ics"
     }
+
     static func exportICS(engine: CalendarEngine, boxId: String) {
         guard let ics = engine.icsText(for: boxId) else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "ics") ?? .data]
         panel.nameFieldStringValue = icsFileName(engine: engine, boxId: boxId)
-        if panel.runModal() == .OK, let url = panel.url { try? Data(ics.utf8).write(to: url) }
+        if panel.runModal() == .OK, let url = panel.url {
+            try? Data(ics.utf8).write(to: url)
+        }
     }
+
     static func emailEvent(engine: CalendarEngine, boxId: String) {
         guard let ics = engine.icsText(for: boxId) else { return }
         let name = icsFileName(engine: engine, boxId: boxId)
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         guard (try? Data(ics.utf8).write(to: tmp)) != nil,
               let svc = NSSharingService(named: .composeEmail) else { NSSound.beep(); return }
-        svc.subject = String(name.dropLast(4))   // event title (sans .ics)
+        svc.subject = String(name.dropLast(4)) // event title (sans .ics)
         svc.perform(withItems: [tmp])
     }
 }
 
 struct EventContextCallout: View {
     let engine: CalendarEngine
-    let id: String                 // the clicked BOX id (a ghost is fine; actions resolve the source)
+    let id: String // the clicked BOX id (a ghost is fine; actions resolve the source)
     let theme: Theme
-    let clipKind: String?          // "timed" | "band" | "deadline" on the pasteboard, else nil
+    let clipKind: String? // "timed" | "band" | "deadline" on the pasteboard, else nil
     let actions: EventMenuActions
 
-    private var imported: Bool { engine.isImported(id) }
-    private var kind: CalendarEngine.ItemKind? { engine.kind(of: id) }
-    private var promoted: Bool { engine.promoteTrack(id) != nil }
-    private var isGhost: Bool { sourceId(of: id) != id }   // recurrence occurrence / promoted mirror
-    private var recurring: Bool { engine.repeatConfig(sourceId(of: id)) != nil }
-    private var canPasteHere: Bool { clipKind == "timed" || clipKind == "deadline" }
+    private var imported: Bool {
+        engine.isImported(id)
+    }
+
+    private var kind: CalendarEngine.ItemKind? {
+        engine.kind(of: id)
+    }
+
+    private var promoted: Bool {
+        engine.promoteTrack(id) != nil
+    }
+
+    private var isGhost: Bool {
+        sourceId(of: id) != id
+    } // recurrence occurrence / promoted mirror
+    private var recurring: Bool {
+        engine.repeatConfig(sourceId(of: id)) != nil
+    }
+
+    private var canPasteHere: Bool {
+        clipKind == "timed" || clipKind == "deadline"
+    }
+
     private var currentColor: String {
-        if let o = engine.colorOverride(id) { return o }
+        if let o = engine.colorOverride(id) {
+            return o
+        }
         return engine.event(sourceId(of: id))?.color
             ?? engine.band(sourceId(of: id))?.color
             ?? engine.deadline(sourceId(of: id))?.color ?? "default"
@@ -168,7 +210,7 @@ struct EventContextCallout: View {
             colorRow.padding(.horizontal, 6).padding(.top, 2).padding(.bottom, 6)
             Divider().padding(.bottom, 3)
             row("Details", icon: "info.circle", key: "Space", action: actions.details)
-            if !imported {   // imported bodies are read-only (rename/repeat live in Calendar.app)
+            if !imported { // imported bodies are read-only (rename/repeat live in Calendar.app)
                 row("Rename", icon: "pencil", key: "⏎", action: actions.rename)
             }
             row("Cut", icon: "scissors", key: "⌘X", disabled: !engine.cutEligible(id), action: actions.cut)
@@ -180,7 +222,7 @@ struct EventContextCallout: View {
             if !imported {
                 row("Repeat…", icon: "repeat", key: nil, action: actions.repeatCfg)
             }
-            if kind == .timed {   // promote is an overlay, so imported timed events can too
+            if kind == .timed { // promote is an overlay, so imported timed events can too
                 row(promoted ? "Unpromote" : "Promote", icon: promoted ? "arrow.uturn.down" : "arrow.up.to.line",
                     key: "⌘U", action: actions.promote)
             }
@@ -207,7 +249,7 @@ struct EventContextCallout: View {
         .frame(width: 208)
     }
 
-    // ── Quick colors: the web's MENU_COLORS subset of the drawer's full palette ──
+    /// ── Quick colors: the web's MENU_COLORS subset of the drawer's full palette ──
     private var colorRow: some View {
         HStack(spacing: 7) {
             ForEach(MENU_COLORS, id: \.self) { key in
@@ -217,7 +259,11 @@ struct EventContextCallout: View {
                     .overlay(Circle().strokeBorder(theme.text, lineWidth: key == currentColor ? 2 : 0))
                     .contentShape(Circle())
                     .onHover { hovering in
-                        if hovering { engine.setColorPreview(id, key) } else { engine.clearColorPreview(key) }
+                        if hovering {
+                            engine.setColorPreview(id, key)
+                        } else {
+                            engine.clearColorPreview(key)
+                        }
                     }
                     .onTapGesture { commitColor(key); actions.close() }
                     .help(key)
@@ -229,7 +275,9 @@ struct EventContextCallout: View {
     private func commitColor(_ v: String) {
         // Mirrors the drawer: imported events keep a local color overlay; own items edit the body.
         let sid = sourceId(of: id)
-        if imported { engine.setColorOverride(sid, v); return }
+        if imported {
+            engine.setColorOverride(sid, v); return
+        }
         switch kind {
         case .timed: engine.update(sid) { $0.color = v }
         case .band: engine.updateBand(sid) { $0.color = v }
@@ -238,7 +286,7 @@ struct EventContextCallout: View {
         }
     }
 
-    // ── One menu row: icon + label, hotkey right-aligned, hover highlight; closes after ──
+    /// ── One menu row: icon + label, hotkey right-aligned, hover highlight; closes after ──
     private func row(_ label: String, icon: String, key: String?, destructive: Bool = false,
                      disabled: Bool = false, action: @escaping () -> Void) -> some View {
         MenuRow(label: label, icon: icon, key: key, destructive: destructive, disabled: disabled,
@@ -260,7 +308,12 @@ struct SpaceContextCallout: View {
     let onPaste: () -> Void
     let onClose: () -> Void
 
-    private var isTimeline: Bool { if case .timeline = spot { return true }; return false }
+    private var isTimeline: Bool {
+        if case .timeline = spot {
+            return true
+        }; return false
+    }
+
     private var canPaste: Bool {
         guard let clipKind else { return false }
         return isTimeline ? (clipKind == "timed" || clipKind == "deadline") : clipKind == "band"
@@ -308,7 +361,8 @@ private struct MenuRow: View {
             .foregroundStyle(disabled ? theme.text.opacity(0.35) : (destructive ? Color.red : theme.text))
             .padding(.horizontal, 7).padding(.vertical, 4.5)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 6).fill(hovering && !disabled ? theme.text.opacity(0.09) : .clear))
+            .background(RoundedRectangle(cornerRadius: 6)
+                .fill(hovering && !disabled ? theme.text.opacity(0.09) : .clear))
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)

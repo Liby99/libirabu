@@ -4,25 +4,27 @@
 // reports its content height so SwiftUI can grow the pill up to a cap, and scrolls internally
 // beyond it. Enter sends; Shift+Enter inserts a newline.
 
-import SwiftUI
 import AppKit
+import SwiftUI
 
 struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
     let textColor: NSColor
-    let focusToken: Int                   // bump → grab keyboard focus
+    let focusToken: Int // bump → grab keyboard focus
     let onSend: () -> Void
     let onHeightChange: (CGFloat) -> Void
 
     private static let fontSize: CGFloat = 14
 
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()   // a correctly-configured editable stack
+        let scroll = NSTextView.scrollableTextView() // a correctly-configured editable stack
         guard let tv = scroll.documentView as? NSTextView else {
             assertionFailure("scrollableTextView() did not vend an NSTextView document view")
-            return scroll   // degraded (no editor) instead of crashing on an AppKit change
+            return scroll // degraded (no editor) instead of crashing on an AppKit change
         }
         context.coordinator.textView = tv
 
@@ -51,7 +53,7 @@ struct ComposerTextView: NSViewRepresentable {
             MainActor.assumeIsolated { coordinator?.reportHeight() }
         }
 
-        DispatchQueue.main.async { tv.window?.makeFirstResponder(tv) }   // focus on appear
+        DispatchQueue.main.async { tv.window?.makeFirstResponder(tv) } // focus on appear
         return scroll
     }
 
@@ -63,7 +65,9 @@ struct ComposerTextView: NSViewRepresentable {
             tv.string = text
             c.reportHeight()
         }
-        if tv.textColor != textColor { tv.textColor = textColor }
+        if tv.textColor != textColor {
+            tv.textColor = textColor
+        }
         if c.lastFocusToken != focusToken {
             c.lastFocusToken = focusToken
             DispatchQueue.main.async { tv.window?.makeFirstResponder(tv) }
@@ -77,8 +81,15 @@ struct ComposerTextView: NSViewRepresentable {
         var lastFocusToken = 0
         var frameObserver: NSObjectProtocol?
 
-        init(_ parent: ComposerTextView) { self.parent = parent }
-        deinit { if let frameObserver { NotificationCenter.default.removeObserver(frameObserver) } }
+        init(_ parent: ComposerTextView) {
+            self.parent = parent
+        }
+
+        deinit {
+            if let frameObserver {
+                NotificationCenter.default.removeObserver(frameObserver)
+            }
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let tv = textView else { return }
@@ -89,7 +100,9 @@ struct ComposerTextView: NSViewRepresentable {
         /// Enter → send; Shift+Enter → a real newline.
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                if NSEvent.modifierFlags.contains(.shift) { return false }   // newline as typed
+                if NSEvent.modifierFlags.contains(.shift) {
+                    return false
+                } // newline as typed
                 parent.onSend()
                 return true
             }

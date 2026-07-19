@@ -3,9 +3,9 @@
 // request access, enumerate calendars, and fetch events for a window (recurring occurrences already
 // expanded by EventKit). Mapping into TimedEvent/BandEvent + provenance lives in CalendarEngine.
 
+import CoreGraphics
 import EventKit
 import Foundation
-import CoreGraphics
 
 public extension Notification.Name {
     /// Posted by the (isolated) Settings window when the Apple Calendar connection changes, so the
@@ -25,9 +25,9 @@ public extension Notification.Name {
 
 /// One selectable Apple calendar (an `EKCalendar`) — for the Settings picker.
 public struct AppleCalendarInfo: Identifiable, Sendable, Hashable {
-    public let id: String        // EKCalendar.calendarIdentifier (stable per calendar)
+    public let id: String // EKCalendar.calendarIdentifier (stable per calendar)
     public let title: String
-    public let source: String    // EKSource.title — "iCloud", "Google", the account name
+    public let source: String // EKSource.title — "iCloud", "Google", the account name
     public let colorHex: String
     public init(id: String, title: String, source: String, colorHex: String) {
         self.id = id; self.title = title; self.source = source; self.colorHex = colorHex
@@ -39,8 +39,8 @@ public struct AppleAttendee: Sendable { public let name: String; public let stat
 /// A raw event fetched from EventKit. Recurring events arrive already expanded to one entry per
 /// occurrence within the window, so there's no RRULE to interpret here.
 public struct FetchedAppleEvent: Sendable {
-    public let uid: String       // calendarItemExternalIdentifier — stable across a series' occurrences
-    public let eventId: String?  // EKEvent.eventIdentifier — for the `ical://ekevent/…` deep-link back to Calendar.app
+    public let uid: String // calendarItemExternalIdentifier — stable across a series' occurrences
+    public let eventId: String? // EKEvent.eventIdentifier — for the `ical://ekevent/…` deep-link back to Calendar.app
     public let title: String
     public let start: Date
     public let end: Date
@@ -50,9 +50,9 @@ public struct FetchedAppleEvent: Sendable {
     public let notes: String?
     public let location: String?
     public let url: String?
-    public let organizer: String?          // display name or email
+    public let organizer: String? // display name or email
     public let attendees: [AppleAttendee]
-    public let sourceTitle: String         // EKSource.title — "iCloud", "Google", the account name
+    public let sourceTitle: String // EKSource.title — "iCloud", "Google", the account name
     public let calendarTitle: String
 }
 
@@ -64,16 +64,21 @@ public final class AppleCalendarImporter {
     public enum Access { case authorized, denied, notDetermined }
     public static var access: Access {
         switch EKEventStore.authorizationStatus(for: .event) {
-        case .fullAccess, .authorized: return .authorized
-        case .denied, .restricted:     return .denied
-        default:                       return .notDetermined
+        case .fullAccess, .authorized: .authorized
+        case .denied, .restricted: .denied
+        default: .notDetermined
         }
     }
-    public static var isAuthorized: Bool { access == .authorized }
+
+    public static var isAuthorized: Bool {
+        access == .authorized
+    }
 
     /// Trigger the one-time TCC prompt (or return the existing grant). macOS 14+ full read access.
     public func requestAccess() async -> Bool {
-        if Self.isAuthorized { return true }
+        if Self.isAuthorized {
+            return true
+        }
         return await withCheckedContinuation { cont in
             store.requestFullAccessToEvents { ok, _ in cont.resume(returning: ok) }
         }
@@ -83,7 +88,7 @@ public final class AppleCalendarImporter {
     /// `authorizationStatus`, which lags for a beat right after a fresh grant) — it returns [] if the app
     /// truly lacks access, and the real list once granted, even before the status catches up.
     public func calendars() -> [AppleCalendarInfo] {
-        return store.calendars(for: .event).map {
+        store.calendars(for: .event).map {
             AppleCalendarInfo(id: $0.calendarIdentifier, title: $0.title,
                               source: $0.source.title, colorHex: Self.hex($0.cgColor))
         }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
@@ -110,25 +115,32 @@ public final class AppleCalendarImporter {
                 colorHex: Self.hex(e.calendar.cgColor),
                 notes: e.notes, location: e.location, url: e.url?.absoluteString,
                 organizer: Self.participant(e.organizer),
-                attendees: (e.attendees ?? []).map { AppleAttendee(name: Self.participant($0) ?? "", status: Self.statusString($0.participantStatus)) },
-                sourceTitle: e.calendar.source.title, calendarTitle: e.calendar.title)
+                attendees: (e.attendees ?? []).map { AppleAttendee(
+                    name: Self.participant($0) ?? "",
+                    status: Self.statusString($0.participantStatus)
+                ) },
+                sourceTitle: e.calendar.source.title, calendarTitle: e.calendar.title
+            )
         }
     }
 
     /// Display label for a participant: name, else the mailto-stripped email.
     static func participant(_ p: EKParticipant?) -> String? {
         guard let p else { return nil }
-        if let name = p.name, !name.isEmpty { return name }
+        if let name = p.name, !name.isEmpty {
+            return name
+        }
         let email = p.url.absoluteString.replacingOccurrences(of: "mailto:", with: "")
         return email.isEmpty ? nil : email
     }
+
     static func statusString(_ s: EKParticipantStatus) -> String {
         switch s {
-        case .accepted:  return "accepted"
-        case .declined:  return "declined"
-        case .tentative: return "tentative"
-        case .pending:   return "needs-action"
-        default:         return "unknown"
+        case .accepted: "accepted"
+        case .declined: "declined"
+        case .tentative: "tentative"
+        case .pending: "needs-action"
+        default: "unknown"
         }
     }
 

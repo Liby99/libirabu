@@ -14,7 +14,7 @@ import Foundation
 /// One chat message. `toolCalls`/`toolCallId` are unused in v1 but defined now for the Phase-2
 /// tool loop.
 struct ChatMessage: Codable {
-    var role: String                 // "system" | "user" | "assistant" | "tool"
+    var role: String // "system" | "user" | "assistant" | "tool"
     var content: String?
     var toolCalls: [ToolCall]?
     var toolCallId: String?
@@ -34,14 +34,14 @@ struct ToolCall: Codable {
     var id: String
     var type: String = "function"
     var function: Function
-    struct Function: Codable { var name: String; var arguments: String }  // arguments = JSON string
+    struct Function: Codable { var name: String; var arguments: String } // arguments = JSON string
 }
 
 /// A function/tool the model may call. Defined for Phase 2; unused in v1.
 struct ToolDef: Codable {
     var name: String
     var description: String
-    var parameters: JSONValue        // JSON Schema
+    var parameters: JSONValue // JSON Schema
 }
 
 /// The parsed assistant turn.
@@ -61,7 +61,7 @@ enum LLMError: LocalizedError {
         switch self {
         case .missingKey:
             return "No API key set. Add your JHU WSE AI Gateway key in Settings → API Keys."
-        case .http(let status, let body):
+        case let .http(status, body):
             let trimmed = body.count > 300 ? String(body.prefix(300)) + "…" : body
             return "The assistant service returned an error (\(status)). \(trimmed)"
         case .badResponse:
@@ -105,26 +105,29 @@ enum LLMClient {
         request.timeoutInterval = 90
         request.httpBody = try JSONEncoder().encode(RequestBody(
             model: model, messages: messages, temperature: temperature, maxTokens: maxTokens,
-            tools: tools.isEmpty ? nil : tools.map { ToolWrapper(function: $0) }))
+            tools: tools.isEmpty ? nil : tools.map { ToolWrapper(function: $0) }
+        ))
 
         var lastError: Error = LLMError.badResponse
-        for attempt in 0..<3 {
+        for attempt in 0 ..< 3 {
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                if status == 429 || (500...599).contains(status) {
+                if status == 429 || (500 ... 599).contains(status) {
                     lastError = LLMError.http(status: status, body: String(decoding: data, as: UTF8.self))
                     try await backoff(attempt); continue
                 }
-                guard (200...299).contains(status) else {
+                guard (200 ... 299).contains(status) else {
                     throw LLMError.http(status: status, body: String(decoding: data, as: UTF8.self))
                 }
                 return try parse(data)
             } catch let error as LLMError {
-                throw error   // permanent (4xx / bad response) — don't retry
+                throw error // permanent (4xx / bad response) — don't retry
             } catch {
-                lastError = error   // network — retry
-                if attempt < 2 { try await backoff(attempt) }
+                lastError = error // network — retry
+                if attempt < 2 {
+                    try await backoff(attempt)
+                }
             }
         }
         throw lastError
@@ -142,10 +145,11 @@ enum LLMClient {
             content: m.content ?? "",
             toolCalls: m.toolCalls ?? [],
             finishReason: choice.finishReason,
-            reasoning: m.reasoningContent ?? m.reasoning)
+            reasoning: m.reasoningContent ?? m.reasoning
+        )
     }
 
-    // Encoded request/response envelopes.
+    /// Encoded request/response envelopes.
     private struct RequestBody: Encodable {
         var model: String
         var messages: [ChatMessage]
@@ -154,6 +158,7 @@ enum LLMClient {
         var tools: [ToolWrapper]?
         enum CodingKeys: String, CodingKey { case model, messages, temperature, tools; case maxTokens = "max_tokens" }
     }
+
     private struct ToolWrapper: Encodable { var type = "function"; var function: ToolDef }
 
     private struct ResponseBody: Decodable {
@@ -163,6 +168,7 @@ enum LLMClient {
             var finishReason: String?
             enum CodingKeys: String, CodingKey { case message; case finishReason = "finish_reason" }
         }
+
         struct Msg: Decodable {
             var content: String?
             var toolCalls: [ToolCall]?

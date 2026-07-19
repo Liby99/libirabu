@@ -9,7 +9,7 @@ import Foundation
 public enum ManagedNote {
     static let begin = "libirabu:import:begin"
     static let end = "libirabu:import:end"
-    // Whole managed block (markers + body), dot-matches-newline, case-insensitive.
+    /// Whole managed block (markers + body), dot-matches-newline, case-insensitive.
     private static let blockPattern = "<!--\\s*\(begin)[\\s\\S]*?\(end)\\s*-->"
 
     /// Split a stored note into its managed prefix (incl. markers; "" if none) and the user postfix.
@@ -18,7 +18,7 @@ public enum ManagedNote {
         guard let r = text.range(of: blockPattern, options: [.regularExpression, .caseInsensitive]) else {
             return ("", text)
         }
-        let user = (String(text[text.startIndex..<r.lowerBound]) + String(text[r.upperBound...]))
+        let user = (String(text[text.startIndex ..< r.lowerBound]) + String(text[r.upperBound...]))
             .replacingOccurrences(of: "^\\s+", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
         return (String(text[r]), user)
@@ -28,7 +28,9 @@ public enum ManagedNote {
     public static func composeNote(_ managed: String, _ user: String) -> String {
         let m = managed.trimmingCharacters(in: .whitespacesAndNewlines)
         let u = user.trimmingCharacters(in: .whitespacesAndNewlines)
-        if m.isEmpty { return u }
+        if m.isEmpty {
+            return u
+        }
         return u.isEmpty ? m : "\(m)\n\n\(u)"
     }
 
@@ -38,26 +40,47 @@ public enum ManagedNote {
         composeNote(fresh, splitNote(notes).user)
     }
 
-    // ── Rendering vendor details → a managed block ──────────────────────────────────────────────
-    // Keep vendor text from smuggling in our markers (which would corrupt later splits).
+    /// ── Rendering vendor details → a managed block ──────────────────────────────────────────────
+    /// Keep vendor text from smuggling in our markers (which would corrupt later splits).
     private static func sanitize(_ s: String) -> String {
-        s.replacingOccurrences(of: "libirabu:import:(begin|end)", with: "libirabu import", options: [.regularExpression, .caseInsensitive])
+        s.replacingOccurrences(
+            of: "libirabu:import:(begin|end)",
+            with: "libirabu import",
+            options: [.regularExpression, .caseInsensitive]
+        )
     }
+
     private static func isURL(_ s: String) -> Bool {
         s.range(of: "^https?://", options: [.regularExpression, .caseInsensitive]) != nil
     }
+
     private static let statusMark = ["accepted": "✓", "declined": "✗", "tentative": "~", "needs-action": "?"]
     private static func linkLabel(_ url: String) -> String {
-        guard let host = URL(string: url)?.host?.replacingOccurrences(of: "www.", with: "").lowercased() else { return "link" }
-        if host.contains("zoom.") { return "zoom" }
-        if host.contains("meet.google") { return "meet" }
-        if host.contains("teams.") { return "teams" }
-        if host.contains("webex") { return "webex" }
+        guard let host = URL(string: url)?.host?.replacingOccurrences(of: "www.", with: "").lowercased()
+        else { return "link" }
+        if host.contains("zoom.") {
+            return "zoom"
+        }
+        if host.contains("meet.google") {
+            return "meet"
+        }
+        if host.contains("teams.") {
+            return "teams"
+        }
+        if host.contains("webex") {
+            return "webex"
+        }
         return "link"
     }
 
     /// True if a vendor event carries any detail worth a note (beyond bare provenance).
-    public static func hasDetail(url: String?, location: String?, organizer: String?, attendees: Int, description: String?) -> Bool {
+    public static func hasDetail(
+        url: String?,
+        location: String?,
+        organizer: String?,
+        attendees: Int,
+        description: String?
+    ) -> Bool {
         (url.map(isURL) ?? false) || !(location ?? "").isEmpty || !(organizer ?? "").isEmpty
             || attendees > 0 || !(description ?? "").isEmpty
     }
@@ -70,12 +93,21 @@ public enum ManagedNote {
         let loc = (location ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let url = { () -> String in
             let u = (meetingUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !u.isEmpty, isURL(u) { return u }
+            if !u.isEmpty, isURL(u) {
+                return u
+            }
             return isURL(loc) ? loc : ""
         }()
-        if !url.isEmpty { lines.append("\(linkLabel(url)): \(url)") }
-        if !loc.isEmpty, !isURL(loc) { lines.append("location: \(sanitize(loc))") }
-        if let org = organizer?.trimmingCharacters(in: .whitespacesAndNewlines), !org.isEmpty { lines.append("organizer: \(sanitize(org))") }
+        if !url.isEmpty {
+            lines.append("\(linkLabel(url)): \(url)")
+        }
+        if !loc.isEmpty, !isURL(loc) {
+            lines.append("location: \(sanitize(loc))")
+        }
+        if let org = organizer?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !org.isEmpty {
+            lines.append("organizer: \(sanitize(org))")
+        }
         if !attendees.isEmpty {
             let names = attendees.map { a -> String in
                 let n = a.name.isEmpty ? "someone" : a.name
@@ -85,7 +117,9 @@ public enum ManagedNote {
             lines.append("attendees: \(names.joined(separator: ", "))")
         }
         let desc = htmlToMarkdown(description ?? "")
-        if !desc.isEmpty { lines.append(""); lines.append(sanitize(desc)) }
+        if !desc.isEmpty {
+            lines.append(""); lines.append(sanitize(desc))
+        }
         lines.append("<!-- \(end) -->")
         return lines.joined(separator: "\n")
     }
@@ -105,8 +139,8 @@ public enum ManagedNote {
         r = rx(r, "<li\\b[^>]*>", "\n• ")
         r = rx(r, "<[^>]+>", "")
         r = r.replacingOccurrences(of: "&nbsp;", with: " ").replacingOccurrences(of: "&amp;", with: "&")
-             .replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">")
-             .replacingOccurrences(of: "&quot;", with: "\"").replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"").replacingOccurrences(of: "&#39;", with: "'")
         r = rx(r, "[ \\t]+\n", "\n")
         r = rx(r, "\n{3,}", "\n\n")
         return r.trimmingCharacters(in: .whitespacesAndNewlines)

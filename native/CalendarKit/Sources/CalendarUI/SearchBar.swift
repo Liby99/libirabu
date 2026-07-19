@@ -4,23 +4,25 @@
 // essentially), Esc closes. There's no web ground-truth for this — it's built on the engine's
 // `searchEvents` / `revealAndSelect` navigate-and-highlight API.
 
-import SwiftUI
 import AppKit
 import CalendarEngine
+import SwiftUI
 
 /// Shared search state — the toolbar field writes it; the dropdown overlay (a sibling in the content
 /// stack, since a toolbar item can't host its own anchored menu cleanly) reads it.
 @MainActor
 @Observable
 final class SearchState {
-    var open = false                 // the bar is mounted (in the toolbar)
-    var expanded = false             // the bar is at full width (animates the expand/collapse)
+    var open = false // the bar is mounted (in the toolbar)
+    var expanded = false // the bar is at full width (animates the expand/collapse)
     var query = ""
-    var results: [CalendarEngine.SearchHit] = []   // the shown rows (≤ display cap)
-    var total = 0                                   // total matches (may exceed results.count)
+    var results: [CalendarEngine.SearchHit] = [] // the shown rows (≤ display cap)
+    var total = 0 // total matches (may exceed results.count)
     var sel = 0
-    var fieldFrame: CGRect = .zero   // the bar's frame in the global space, so the dropdown can align to it
-    func reset() { open = false; expanded = false; query = ""; results = []; total = 0; sel = 0 }
+    var fieldFrame: CGRect = .zero // the bar's frame in the global space, so the dropdown can align to it
+    func reset() {
+        open = false; expanded = false; query = ""; results = []; total = 0; sel = 0
+    }
 }
 
 /// The centered toolbar text field. Owns focus + recompute; the parent supplies commit/close so it can
@@ -30,11 +32,11 @@ struct SearchBar: View {
     @Bindable var search: SearchState
     var onCommit: () -> Void
     var onClose: () -> Void
-    @State private var contentIn = false   // fades the field/close in once the bar has opened
-    @State private var debounce: Task<Void, Never>?   // coalesces fast typing before recompute
+    @State private var contentIn = false // fades the field/close in once the bar has opened
+    @State private var debounce: Task<Void, Never>? // coalesces fast typing before recompute
 
-    private let collapsedWidth: CGFloat = 22   // just the magnifyingglass (button-sized)
-    private let expandedWidth: CGFloat = 232    // field + close button
+    private let collapsedWidth: CGFloat = 22 // just the magnifyingglass (button-sized)
+    private let expandedWidth: CGFloat = 232 // field + close button
 
     var body: some View {
         HStack(spacing: 6) {
@@ -51,7 +53,7 @@ struct SearchBar: View {
                                 onMove: { move($0) }, onCommit: onCommit, onClose: onClose)
                     .frame(height: 18)
                     .frame(maxWidth: .infinity)
-                    .opacity(contentIn ? 1 : 0)   // fade the placeholder/caret in AFTER the bar has opened
+                    .opacity(contentIn ? 1 : 0) // fade the placeholder/caret in AFTER the bar has opened
                 Button(action: onClose) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 13))
@@ -82,10 +84,12 @@ struct SearchBar: View {
             // Reveal the field/close only after the bar has mostly opened, so the placeholder never
             // renders (and overshoots the capsule clip) while the width is still animating.
             withAnimation(.easeOut(duration: 0.16).delay(0.18)) { contentIn = true }
-            engine.primeSearch()   // warm the corpus in the background so the first keystroke is fast
+            engine.primeSearch() // warm the corpus in the background so the first keystroke is fast
         }
         .onChange(of: search.expanded) { _, exp in
-            if !exp { withAnimation(.easeOut(duration: 0.1)) { contentIn = false } }   // collapsing → hide content first
+            if !exp {
+                withAnimation(.easeOut(duration: 0.1)) { contentIn = false }
+            } // collapsing → hide content first
         }
         // Debounce fast typing, then run the MATCH off the main thread (engine.search is async) so the field
         // never stutters. A newer keystroke cancels this task; a stale result (query moved on) is dropped.
@@ -95,9 +99,11 @@ struct SearchBar: View {
             debounce = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(80))
                 guard !Task.isCancelled else { return }
-                if query.isEmpty { search.results = []; search.total = 0; search.sel = 0; return }
+                if query.isEmpty {
+                    search.results = []; search.total = 0; search.sel = 0; return
+                }
                 let r = await engine.search(query)
-                guard !Task.isCancelled, query == search.query else { return }   // drop stale results
+                guard !Task.isCancelled, query == search.query else { return } // drop stale results
                 search.results = r.hits
                 search.total = r.total
                 search.sel = 0
@@ -105,6 +111,7 @@ struct SearchBar: View {
         }
         .onDisappear { debounce?.cancel() }
     }
+
     private func move(_ d: Int) {
         guard !search.results.isEmpty else { return }
         search.sel = min(search.results.count - 1, max(0, search.sel + d))
@@ -117,7 +124,9 @@ struct SearchDropdown: View {
     let theme: Theme
     var onPick: (Int) -> Void
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 16, style: .continuous) }
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -133,7 +142,8 @@ struct SearchDropdown: View {
                 // Count header: "N matches" (with "· showing M" when capped above the display limit).
                 HStack {
                     Text(search.total == 1 ? "1 match"
-                         : "\(search.total) matches\(search.total > search.results.count ? " · showing \(search.results.count)" : "")")
+                        :
+                        "\(search.total) matches\(search.total > search.results.count ? " · showing \(search.results.count)" : "")")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.textMuted)
                     Spacer(minLength: 0)
@@ -161,7 +171,7 @@ struct SearchDropdown: View {
         HStack(spacing: 9) {
             RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                 .fill(theme.eventBorder(hit.color))
-                .frame(width: 3)   // a vertical color bar spanning the row height (not a dot)
+                .frame(width: 3) // a vertical color bar spanning the row height (not a dot)
             VStack(alignment: .leading, spacing: 1) {
                 Text(hit.title.isEmpty ? "Untitled" : hit.title)
                     .font(.system(size: 13, weight: .medium))
@@ -185,10 +195,15 @@ struct SearchDropdown: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(active ? theme.eventBorder(hit.color).opacity(0.16) : .clear))
+        .background(RoundedRectangle(cornerRadius: 8)
+            .fill(active ? theme.eventBorder(hit.color).opacity(0.16) : .clear))
         .contentShape(Rectangle())
         .onTapGesture { onPick(i) }
-        .onHover { if $0 { search.sel = i } }
+        .onHover {
+            if $0 {
+                search.sel = i
+            }
+        }
     }
 
     /// "Wed, Jul 22, 2026" plus " · 3:30 PM" for a timed event / deadline.
@@ -209,7 +224,9 @@ struct SearchDropdown: View {
 }
 
 private extension Int {
-    func clamped(_ lo: Int, _ hi: Int) -> Int { Swift.min(hi, Swift.max(lo, self)) }
+    func clamped(_ lo: Int, _ hi: Int) -> Int {
+        Swift.min(hi, Swift.max(lo, self))
+    }
 }
 
 /// Reports this view's frame in the window's content-view coordinate space (top-left origin). Unlike
@@ -217,21 +234,32 @@ private extension Int {
 /// so the toolbar search bar and the content dropdown can be aligned to each other.
 struct WindowRectReader: NSViewRepresentable {
     var onChange: (CGRect) -> Void
-    func makeNSView(context: Context) -> Tracker { let v = Tracker(); v.onChange = onChange; return v }
-    func updateNSView(_ v: Tracker, context: Context) { v.onChange = onChange; v.report() }
+    func makeNSView(context: Context) -> Tracker {
+        let v = Tracker(); v.onChange = onChange; return v
+    }
+
+    func updateNSView(_ v: Tracker, context: Context) {
+        v.onChange = onChange; v.report()
+    }
 
     final class Tracker: NSView {
         var onChange: ((CGRect) -> Void)?
         private var last: CGRect = .null
-        override func viewDidMoveToWindow() { report() }
-        override func layout() { super.layout(); report() }
+        override func viewDidMoveToWindow() {
+            report()
+        }
+
+        override func layout() {
+            super.layout(); report()
+        }
+
         func report() {
             guard let content = window?.contentView else { return }
-            let r = convert(bounds, to: content)   // any view → content view (works across the window)
+            let r = convert(bounds, to: content) // any view → content view (works across the window)
             // Normalize to top-left origin regardless of the content view's flip.
             let topLeft = content.isFlipped ? r
                 : CGRect(x: r.minX, y: content.bounds.height - r.maxY, width: r.width, height: r.height)
-            guard topLeft != last else { return }   // no change → nothing to publish (avoids churn)
+            guard topLeft != last else { return } // no change → nothing to publish (avoids churn)
             last = topLeft
             // report() runs inside AppKit layout(), which fires during SwiftUI's view-update pass; mutating
             // observable state there triggers "Modifying state during view update". Defer to the next tick.
@@ -247,9 +275,9 @@ struct WindowRectReader: NSViewRepresentable {
 struct SearchTextField: NSViewRepresentable {
     @Binding var text: String
     var autofocus: Bool
-    var onMove: (Int) -> Void      // -1 up, +1 down
-    var onCommit: () -> Void       // Enter
-    var onClose: () -> Void        // Esc
+    var onMove: (Int) -> Void // -1 up, +1 down
+    var onCommit: () -> Void // Enter
+    var onClose: () -> Void // Esc
 
     func makeNSView(context: Context) -> NSTextField {
         let tf = NSTextField(string: text)
@@ -270,19 +298,25 @@ struct SearchTextField: NSViewRepresentable {
 
     func updateNSView(_ tf: NSTextField, context: Context) {
         context.coordinator.parent = self
-        if tf.stringValue != text { tf.stringValue = text }
+        if tf.stringValue != text {
+            tf.stringValue = text
+        }
         if autofocus, !context.coordinator.didFocus {
             context.coordinator.didFocus = true
             context.coordinator.focus(tf, attempts: 12)
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
 
     @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SearchTextField
         var didFocus = false
-        init(_ p: SearchTextField) { parent = p }
+        init(_ p: SearchTextField) {
+            parent = p
+        }
 
         /// Retry until the field is in a window and its field editor is active (a toolbar item view may
         /// not be in the responder chain the moment SwiftUI first lays it out).
@@ -290,7 +324,9 @@ struct SearchTextField: NSViewRepresentable {
             guard attempts > 0 else { return }
             if let w = tf.window {
                 w.makeFirstResponder(tf)
-                if tf.currentEditor() != nil { return }   // caret is in → done
+                if tf.currentEditor() != nil {
+                    return
+                } // caret is in → done
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak tf] in
                 guard let tf else { return }
@@ -305,10 +341,10 @@ struct SearchTextField: NSViewRepresentable {
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
             switch sel {
-            case #selector(NSResponder.cancelOperation(_:)):  parent.onClose();  return true   // Esc
-            case #selector(NSResponder.insertNewline(_:)):    parent.onCommit(); return true   // Enter
-            case #selector(NSResponder.moveUp(_:)):           parent.onMove(-1); return true   // ↑
-            case #selector(NSResponder.moveDown(_:)):         parent.onMove(1);  return true   // ↓
+            case #selector(NSResponder.cancelOperation(_:)): parent.onClose(); return true // Esc
+            case #selector(NSResponder.insertNewline(_:)): parent.onCommit(); return true // Enter
+            case #selector(NSResponder.moveUp(_:)): parent.onMove(-1); return true // ↑
+            case #selector(NSResponder.moveDown(_:)): parent.onMove(1); return true // ↓
             default: return false
             }
         }

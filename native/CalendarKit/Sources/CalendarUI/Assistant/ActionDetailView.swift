@@ -3,15 +3,15 @@
 // Ported from the web app's ActionDetail (AssistantPanel.tsx); raw JSON only as a last resort.
 // Split out of ConversationView so the transcript view stays focused on layout.
 
+import CalendarGeometry // MONTH_NAMES
 import SwiftUI
-import CalendarGeometry   // MONTH_NAMES
 
 struct ActionDetailView: View {
     let paramsJSON: String
     let resultJSON: String
     let theme: Theme
 
-    private static let months = MONTH_NAMES   // canonical (CalendarGeometry/Dates.swift)
+    private static let months = MONTH_NAMES // canonical (CalendarGeometry/Dates.swift)
 
     var body: some View {
         let args = JSONValue.parse(paramsJSON).asObject ?? [:]
@@ -24,28 +24,30 @@ struct ActionDetailView: View {
     @ViewBuilder private func content(args: [String: JSONValue], res: [String: JSONValue]) -> some View {
         if let err = res["error"]?.stringValue {
             row("Error") { Text(err).foregroundStyle(Color(hex: 0xE0483B)) }
-        } else if args["title"] != nil, args["date"] != nil {                    // create_event
+        } else if args["title"] != nil, args["date"] != nil { // create_event
             eventRows(args)
-        } else if let patch = args["patch"]?.asObject {                          // update_event
+        } else if let patch = args["patch"]?.asObject { // update_event
             patchRows(patch)
-        } else if let results = res["results"]?.arrayValue {                     // web_search
+        } else if let results = res["results"]?.arrayValue { // web_search
             searchRows(results)
-        } else if let url = res["url"]?.stringValue, res["text"] != nil {        // web_open
+        } else if let url = res["url"]?.stringValue, res["text"] != nil { // web_open
             webOpenRows(url: url, title: res["title"]?.stringValue,
                         text: res["text"]?.stringValue ?? "")
-        } else if let events = res["events"]?.arrayValue {                       // list_events
+        } else if let events = res["events"]?.arrayValue { // list_events
             listRows(res, events: events)
-        } else if let todos = res["todos"]?.arrayValue {                         // list_todos
+        } else if let todos = res["todos"]?.arrayValue { // list_todos
             todoRows(res, todos: todos)
-        } else if res["zoom"] != nil || res["focusedMonth"] != nil {             // set_view / screen
+        } else if res["zoom"] != nil || res["focusedMonth"] != nil { // set_view / screen
             viewRows(res)
-        } else if let key = args["key"]?.stringValue {                           // remember / forget
+        } else if let key = args["key"]?.stringValue { // remember / forget
             row("Key") { plain(key) }
-            if let v = args["value"] { row("Value") { plain(compact(v)) } }
-        } else if res["staged"]?.boolValue == true {                             // delete (resolved)
+            if let v = args["value"] {
+                row("Value") { plain(compact(v)) }
+            }
+        } else if res["staged"]?.boolValue == true { // delete (resolved)
             row("Event") { plain(res["title"]?.stringValue ?? "") }
             row("Date") { plain(res["date"]?.stringValue ?? "") }
-        } else {                                                                 // fallback
+        } else { // fallback
             Text(paramsJSON == "{}" ? resultJSON : paramsJSON)
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(theme.textMuted).lineLimit(10).textSelection(.enabled)
@@ -57,11 +59,17 @@ struct ActionDetailView: View {
     /// Event-shaped args (create_event): Title / Kind / When / Color / Lane / Tags / Notes.
     @ViewBuilder private func eventRows(_ a: [String: JSONValue]) -> some View {
         row("Title") { plain(a["title"]?.stringValue ?? "") }
-        if let kind = a["kind"]?.stringValue { row("Kind") { badge(kind) } }
+        if let kind = a["kind"]?.stringValue {
+            row("Kind") { badge(kind) }
+        }
         row("When") { plain(whenLabel(a)) }
-        if let color = a["color"]?.stringValue { row("Color") { swatch(color) } }
-        if let lane = (a["promoteTrack"] ?? a["track"])?.intValue { row("Lane") { plain("\(lane)") } }
-        if let tags = a["tags"]?.arrayValue?.compactMap({ $0.stringValue }), !tags.isEmpty {
+        if let color = a["color"]?.stringValue {
+            row("Color") { swatch(color) }
+        }
+        if let lane = (a["promoteTrack"] ?? a["track"])?.intValue {
+            row("Lane") { plain("\(lane)") }
+        }
+        if let tags = a["tags"]?.arrayValue?.compactMap(\.stringValue), !tags.isEmpty {
             row("Tags") { tagPills(tags) }
         }
         if let notes = a["notes"]?.stringValue, !notes.isEmpty {
@@ -70,17 +78,21 @@ struct ActionDetailView: View {
     }
 
     /// update_event: one row per patched field.
-    @ViewBuilder private func patchRows(_ patch: [String: JSONValue]) -> some View {
+    private func patchRows(_ patch: [String: JSONValue]) -> some View {
         ForEach(patch.keys.sorted(), id: \.self) { key in
             row(key.capitalized) {
-                if key == "color", let c = patch[key]?.stringValue { swatch(c) }
-                else if key == "tags", let t = patch[key]?.arrayValue?.compactMap({ $0.stringValue }) { tagPills(t) }
-                else { plain(compact(patch[key] ?? .null)) }
+                if key == "color", let c = patch[key]?.stringValue {
+                    swatch(c)
+                } else if key == "tags", let t = patch[key]?.arrayValue?.compactMap(\.stringValue) {
+                    tagPills(t)
+                } else {
+                    plain(compact(patch[key] ?? .null))
+                }
             }
         }
     }
 
-    @ViewBuilder private func searchRows(_ results: [JSONValue]) -> some View {
+    private func searchRows(_ results: [JSONValue]) -> some View {
         ForEach(Array(results.prefix(6).enumerated()), id: \.offset) { _, r in
             if let urlStr = r["url"]?.stringValue, let url = URL(string: urlStr) {
                 Link(r["title"]?.stringValue ?? urlStr, destination: url)
@@ -91,16 +103,21 @@ struct ActionDetailView: View {
 
     @ViewBuilder private func webOpenRows(url: String, title: String?, text: String) -> some View {
         row("Page") {
-            if let u = URL(string: url) { Link(title?.isEmpty == false ? title! : url, destination: u)
-                .font(.system(size: 11.5)).lineLimit(1) }
-            else { plain(url) }
+            if let u = URL(string: url) {
+                Link(title?.isEmpty == false ? title! : url, destination: u)
+                    .font(.system(size: 11.5)).lineLimit(1)
+            } else {
+                plain(url)
+            }
         }
         Text(String(text.prefix(400)) + (text.count > 400 ? "…" : ""))
             .font(.system(size: 11)).foregroundStyle(theme.textMuted).lineLimit(6).textSelection(.enabled)
     }
 
     @ViewBuilder private func listRows(_ res: [String: JSONValue], events: [JSONValue]) -> some View {
-        if let year = res["year"]?.intValue { row("Year") { plain("\(year)") } }
+        if let year = res["year"]?.intValue {
+            row("Year") { plain("\(year)") }
+        }
         row("Items") { plain("\(res["count"]?.intValue ?? events.count)") }
         ForEach(Array(events.prefix(6).enumerated()), id: \.offset) { _, ev in
             HStack(spacing: 6) {
@@ -138,8 +155,12 @@ struct ActionDetailView: View {
     }
 
     @ViewBuilder private func viewRows(_ res: [String: JSONValue]) -> some View {
-        if let y = res["year"]?.intValue { row("Year") { plain("\(y)") } }
-        if let z = res["zoom"]?.stringValue { row("Zoom") { badge(z) } }
+        if let y = res["year"]?.intValue {
+            row("Year") { plain("\(y)") }
+        }
+        if let z = res["zoom"]?.stringValue {
+            row("Zoom") { badge(z) }
+        }
         if let m = res["focusedMonth"]?.intValue, Self.months.indices.contains(m) {
             row("Month") { plain(Self.months[m]) }
         }
@@ -196,19 +217,21 @@ struct ActionDetailView: View {
         default:
             let s = a["start"]?.stringValue ?? ""
             let e = a["end"]?.stringValue ?? ""
-            if s.isEmpty { return date }
+            if s.isEmpty {
+                return date
+            }
             return "\(date) · \(s)\(e.isEmpty ? "" : "–\(e)")"
         }
     }
 
     private func compact(_ v: JSONValue) -> String {
         switch v {
-        case .string(let s): return s
-        case .number(let n): return n == n.rounded() ? String(Int(n)) : String(n)
-        case .bool(let b): return b ? "yes" : "no"
+        case let .string(s): return s
+        case let .number(n): return n == n.rounded() ? String(Int(n)) : String(n)
+        case let .bool(b): return b ? "yes" : "no"
         case .null: return "—"
-        case .array(let a):
-            let strs = a.compactMap { $0.stringValue }
+        case let .array(a):
+            let strs = a.compactMap(\.stringValue)
             return strs.count == a.count ? strs.joined(separator: ", ") : "\(a.count) items"
         case .object:
             return String(v.jsonString.prefix(120))
@@ -222,7 +245,7 @@ struct TypingDots: View {
     @State private var on = false
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(0..<3, id: \.self) { i in
+            ForEach(0 ..< 3, id: \.self) { i in
                 Circle().frame(width: 6, height: 6).foregroundStyle(color)
                     .opacity(on ? 1 : 0.3)
                     .animation(.easeInOut(duration: 0.6).repeatForever().delay(Double(i) * 0.2), value: on)

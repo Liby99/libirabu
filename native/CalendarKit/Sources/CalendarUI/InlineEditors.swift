@@ -2,10 +2,10 @@
 // and timed-event titles. Commit on Return/blur, dismiss on Esc.
 // Split from CalendarView.swift (file diet).
 
-import SwiftUI
 import AppKit
-import CalendarGeometry
 import CalendarEngine
+import CalendarGeometry
+import SwiftUI
 
 /// Inline editor for a track (lane) name, placed over the clicked gutter slot. Updates
 /// the shared name live across all months; commits/dismisses on Return, Esc, or blur.
@@ -33,7 +33,11 @@ struct TrackNameEditor: View {
                 focused = true
             }
             .onChange(of: text) { _, v in engine.setTrackName(target.month, target.track, v) }
-            .onChange(of: focused) { _, f in if !f { onDone() } }
+            .onChange(of: focused) {
+                _, f in if !f {
+                    onDone()
+                }
+            }
             .onSubmit { onDone() }
             .onExitCommand { onDone() }
     }
@@ -47,7 +51,7 @@ struct BandTitleEditor: View {
     let theme: Theme
     var onDone: () -> Void
     @State private var text = ""
-    @State private var original = ""       // title before editing — restored if the field is left empty
+    @State private var original = "" // title before editing — restored if the field is left empty
     @FocusState private var focused: Bool
 
     // Commit: strip whitespace; a title that's empty after stripping reverts to the pre-edit title
@@ -70,10 +74,14 @@ struct BandTitleEditor: View {
             .frame(width: r.width, height: r.height, alignment: .leading)
             .position(x: r.midX + Layout.padLeft, y: r.midY)
             .onAppear { let t = engine.band(target.id)?.title ?? ""; text = t; original = t; focused = true }
-            .onChange(of: text) { _, v in engine.setBandTitle(target.id, v) }   // live (as typed)
-            .onChange(of: focused) { _, f in if !f { commit() } }
+            .onChange(of: text) { _, v in engine.setBandTitle(target.id, v) } // live (as typed)
+            .onChange(of: focused) {
+                _, f in if !f {
+                    commit()
+                }
+            }
             .onSubmit { commit() }
-            .onExitCommand { commit() }   // strip; revert to original if blank
+            .onExitCommand { commit() } // strip; revert to original if blank
     }
 }
 
@@ -86,7 +94,7 @@ struct TimedTitleEditor: View {
     let theme: Theme
     var onDone: () -> Void
     @State private var text = ""
-    @State private var original = ""       // title before editing — restored if the field is left empty
+    @State private var original = "" // title before editing — restored if the field is left empty
     @FocusState private var focused: Bool
 
     private func commit() {
@@ -99,12 +107,12 @@ struct TimedTitleEditor: View {
         let r = target.rect
         TextField("Event", text: $text)
             .textFieldStyle(.plain)
-            .font(.custom("Comic Sans MS", size: 13))   // matches EventSticker's title font
+            .font(.custom("Comic Sans MS", size: 13)) // matches EventSticker's title font
             .foregroundStyle(theme.text)
             .focused($focused)
             .padding(.leading, BandStyle.accentInset + BandStyle.accentWidthSelected + BandStyle.barTextGap)
             .padding(.trailing, BandStyle.titleTrailing)
-            .padding(.top, 3)   // match EventSticker's .padding(.vertical, 3) so the field sits on the title
+            .padding(.top, 3) // match EventSticker's .padding(.vertical, 3) so the field sits on the title
             .frame(width: r.width, height: r.height, alignment: .topLeading)
             .position(x: r.midX + Layout.padLeft, y: r.midY)
             .onAppear {
@@ -114,9 +122,13 @@ struct TimedTitleEditor: View {
                     (NSApp.keyWindow?.firstResponder as? NSText)?.selectAll(nil)
                 }
             }
-            .onChange(of: text) { _, v in engine.update(target.id) { $0.title = v } }   // live (as typed)
-            .onChange(of: focused) { _, f in if !f { commit() } }
+            .onChange(of: text) { _, v in engine.update(target.id) { $0.title = v } } // live (as typed)
+            .onChange(of: focused) {
+                _, f in if !f {
+                    commit()
+                }
+            }
             .onSubmit { commit() }
-            .onExitCommand { commit() }   // strip; revert to original if blank
+            .onExitCommand { commit() } // strip; revert to original if blank
     }
 }

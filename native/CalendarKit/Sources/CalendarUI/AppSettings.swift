@@ -6,8 +6,8 @@
 // plumbing. Persisted in UserDefaults under `appearanceDefaultsKey` (matching the app's
 // existing "cc." @AppStorage convention).
 
-import Foundation
 import AppKit
+import Foundation
 
 /// User's chosen appearance. `.auto` follows the system setting (NSApp.appearance = nil).
 public enum AppearanceMode: String, CaseIterable, Sendable {
@@ -16,9 +16,9 @@ public enum AppearanceMode: String, CaseIterable, Sendable {
     /// Label for the segmented picker.
     public var label: String {
         switch self {
-        case .auto:  return "Automatic"
-        case .light: return "Light"
-        case .dark:  return "Dark"
+        case .auto: "Automatic"
+        case .light: "Light"
+        case .dark: "Dark"
         }
     }
 }
@@ -32,9 +32,9 @@ public let appearanceDefaultsKey = "cc.appearance"
 @MainActor public func applyAppearance(_ mode: AppearanceMode) {
     let app = NSApplication.shared
     switch mode {
-    case .auto:  app.appearance = nil
+    case .auto: app.appearance = nil
     case .light: app.appearance = NSAppearance(named: .aqua)
-    case .dark:  app.appearance = NSAppearance(named: .darkAqua)
+    case .dark: app.appearance = NSAppearance(named: .darkAqua)
     }
 }
 
@@ -79,14 +79,16 @@ public final class PrefsSync {
         // Inbound: another device (or the initial iCloud fetch) changed a synced pref.
         NotificationCenter.default.addObserver(
             self, selector: #selector(cloudChanged(_:)),
-            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: store)
+            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: store
+        )
         // Outbound: a local @AppStorage write should propagate up to iCloud.
         NotificationCenter.default.addObserver(
             self, selector: #selector(defaultsChanged),
-            name: UserDefaults.didChangeNotification, object: nil)
+            name: UserDefaults.didChangeNotification, object: nil
+        )
 
-        store.synchronize()                 // kick off the iCloud fetch
-        adoptFromCloud(syncedPrefKeys)      // adopt anything already cached locally by KVS
+        store.synchronize() // kick off the iCloud fetch
+        adoptFromCloud(syncedPrefKeys) // adopt anything already cached locally by KVS
     }
 
     /// iCloud → UserDefaults, then re-apply anything with a live side effect (appearance).
@@ -102,7 +104,9 @@ public final class PrefsSync {
         let ud = UserDefaults.standard
         for key in syncedPrefKeys {
             guard let local = ud.string(forKey: key) else { continue }
-            if local != store.string(forKey: key) { store.set(local, forKey: key) }
+            if local != store.string(forKey: key) {
+                store.set(local, forKey: key)
+            }
         }
     }
 

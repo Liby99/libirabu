@@ -10,32 +10,35 @@
 // The AppKit input catcher sits on top (for clicks/hover/pinch), so it FORWARDS month-view
 // scroll events into this ScrollView's backing NSScrollView — handed over through `bridge`.
 
-import SwiftUI
 import AppKit
 import CalendarEngine
+import SwiftUI
 
 /// Month paging that's lighter than the built-in `.paging`: one gesture turns at most one
 /// month, and it commits on a small drag OR a gentle flick (both tunable) — so it doesn't feel
 /// like you have to heave a full screen to advance. SwiftUI still supplies the native
 /// deceleration to whichever page we pick.
 struct MonthPagingBehavior: ScrollTargetBehavior {
-    var commitFraction: CGFloat = 0.18   // drag ≥ this fraction of a page → turn
-    var flickVelocity: CGFloat = 180     // …or fling faster than this (pts/sec) → turn
+    var commitFraction: CGFloat = 0.18 // drag ≥ this fraction of a page → turn
+    var flickVelocity: CGFloat = 180 // …or fling faster than this (pts/sec) → turn
 
     func updateTarget(_ target: inout ScrollTarget, context: ScrollTargetBehaviorContext) {
         let page = context.containerSize.height
         guard page > 0 else { return }
-        let start = context.originalTarget.rect.origin.y      // page we began the gesture on
+        let start = context.originalTarget.rect.origin.y // page we began the gesture on
         let startPage = (start / page).rounded()
-        let dragged = target.rect.origin.y - start            // SwiftUI's projected landing
+        let dragged = target.rect.origin.y - start // SwiftUI's projected landing
         let v = context.velocity.dy
         var dest = startPage
-        if dragged > page * commitFraction || v > flickVelocity { dest = startPage + 1 }
-        else if dragged < -page * commitFraction || v < -flickVelocity { dest = startPage - 1 }
-        dest = min(11, max(0, dest))                          // never target beyond the 12 months (an edge
-                                                              // flick at Jan/Dec must NOT snap to page -1/12,
-                                                              // which is what overshot the year on a flip)
-        target.rect.origin.y = dest * page                    // land exactly on a month
+        if dragged > page * commitFraction || v > flickVelocity {
+            dest = startPage + 1
+        } else if dragged < -page * commitFraction || v < -flickVelocity {
+            dest = startPage - 1
+        }
+        dest = min(11, max(0, dest)) // never target beyond the 12 months (an edge
+        // flick at Jan/Dec must NOT snap to page -1/12,
+        // which is what overshot the year on a flip)
+        target.rect.origin.y = dest * page // land exactly on a month
     }
 }
 
@@ -43,16 +46,28 @@ struct MonthPagingBehavior: ScrollTargetBehavior {
 /// IMPERATIVE (scroll the backing NSScrollView), NOT via `.scrollPosition` — a two-way position
 /// binding re-renders the pager while scrolling and re-applies itself, which jumps the offset.
 @MainActor final class MonthPagerBridge {
-    weak var scrollView: NSScrollView? { didSet { if let p = pending { pending = nil; scrollTo(p) } } }
-    var pageH: CGFloat = 0   // current page height, so the catcher can re-sync the SV to a focus after a flip
+    weak var scrollView: NSScrollView? {
+        didSet {
+            if let p = pending {
+                pending = nil; scrollTo(p)
+            }
+        }
+    }
+
+    var pageH: CGFloat = 0 // current page height, so the catcher can re-sync the SV to a focus after a flip
     private var pending: CGFloat?
     func scrollTo(_ y: CGFloat) {
         guard let sv = scrollView else { pending = y; return }
         sv.contentView.scroll(to: NSPoint(x: 0, y: max(0, y)))
         sv.reflectScrolledClipView(sv.contentView)
     }
+
     /// Snap the backing scroll view to a month index (used to reset a stale offset left by a boundary flip).
-    func scrollToFocus(_ focus: Int) { if pageH > 0 { scrollTo(CGFloat(focus) * pageH) } }
+    func scrollToFocus(_ focus: Int) {
+        if pageH > 0 {
+            scrollTo(CGFloat(focus) * pageH)
+        }
+    }
 }
 
 struct MonthPager: View {
@@ -64,15 +79,15 @@ struct MonthPager: View {
             let pageH = geo.size.height
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
-                    ForEach(0..<12, id: \.self) { m in
+                    ForEach(0 ..< 12, id: \.self) { m in
                         Color.clear.frame(height: pageH).id(m)
                     }
                 }
                 .scrollTargetLayout()
-                .background(ScrollViewGrabber(bridge: bridge))   // capture the backing NSScrollView
+                .background(ScrollViewGrabber(bridge: bridge)) // capture the backing NSScrollView
             }
-            .scrollTargetBehavior(MonthPagingBehavior())   // lighter than .paging, still native decel
-            .scrollBounceBehavior(.always)                 // elastic overscroll at Jan/Dec → boundary flip
+            .scrollTargetBehavior(MonthPagingBehavior()) // lighter than .paging, still native decel
+            .scrollBounceBehavior(.always) // elastic overscroll at Jan/Dec → boundary flip
             .scrollIndicators(.hidden)
             .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, y in
                 engine.setMonthProgress(y, pageH: pageH)
@@ -81,7 +96,9 @@ struct MonthPager: View {
             .onChange(of: pageH) { _, h in bridge.pageH = h }
             // Entering month view (from year/week): snap the pager to the focused month.
             .onChange(of: engine.chrome.level) { _, lvl in
-                if lvl == 1 { bridge.scrollTo(CGFloat(engine.focus) * pageH) }
+                if lvl == 1 {
+                    bridge.scrollTo(CGFloat(engine.focus) * pageH)
+                }
             }
             // A boundary flip changed year+focus (Jan↔Dec across years) without leaving month
             // view — jump the pager to the new focus (setMonthProgress is guarded during the flip).
@@ -96,8 +113,16 @@ struct MonthPager: View {
 /// backed by) up to the bridge, so the AppKit catcher can forward scroll events into it.
 private struct ScrollViewGrabber: NSViewRepresentable {
     let bridge: MonthPagerBridge
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
     func updateNSView(_ v: NSView, context: Context) {
-        DispatchQueue.main.async { if let sv = v.enclosingScrollView, bridge.scrollView !== sv { bridge.scrollView = sv } }
+        DispatchQueue.main
+            .async {
+                if let sv = v.enclosingScrollView, bridge.scrollView !== sv {
+                    bridge.scrollView = sv
+                }
+            }
     }
 }

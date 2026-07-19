@@ -8,7 +8,7 @@
 
 import Foundation
 
-// ── web_search (Tavily) ─────────────────────────────────────────────────────────────────
+/// ── web_search (Tavily) ─────────────────────────────────────────────────────────────────
 struct WebSearchTool: AssistantTool {
     static let keychainAccount = "tavily"
 
@@ -20,11 +20,14 @@ struct WebSearchTool: AssistantTool {
           "query":{"type":"string"},
           "max_results":{"type":"integer","minimum":1,"maximum":10,"description":"Default 5."}
         },"required":["query"],"additionalProperties":false}
-        """#))
+        """#)
+    )
     let readOnly = true
     let actionKind = ActionKind.webSearch
     func card(_ args: JSONValue, result: JSONValue) -> String {
-        if result["available"]?.boolValue == false { return "Web search unavailable (no Tavily key)" }
+        if result["available"]?.boolValue == false {
+            return "Web search unavailable (no Tavily key)"
+        }
         let n = result["results"]?.arrayValue?.count ?? 0
         return "Web search: \(n) result\(n == 1 ? "" : "s") · \(args["query"]?.stringValue ?? "")"
     }
@@ -54,7 +57,7 @@ struct WebSearchTool: AssistantTool {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200...299).contains(status) else {
+        guard (200 ... 299).contains(status) else {
             return .obj(["error": .str("Tavily returned HTTP \(status)")])
         }
         let root = JSONValue.parse(String(decoding: data, as: UTF8.self))
@@ -69,7 +72,7 @@ struct WebSearchTool: AssistantTool {
     }
 }
 
-// ── web_open ────────────────────────────────────────────────────────────────────────────
+/// ── web_open ────────────────────────────────────────────────────────────────────────────
 struct WebOpenTool: AssistantTool {
     private static let maxText = 8000
 
@@ -77,11 +80,16 @@ struct WebOpenTool: AssistantTool {
         name: "web_open",
         description: "Fetch a web page by URL and return its readable text (truncated). Use after "
             + "web_search to read a result in detail.",
-        parameters: .parse(#"{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}"#))
+        parameters: .parse(
+            #"{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}"#
+        )
+    )
     let readOnly = true
     let actionKind = ActionKind.webOpen
     func card(_ args: JSONValue, result: JSONValue) -> String {
-        if let err = result["error"]?.stringValue { return "Open failed: \(err)" }
+        if let err = result["error"]?.stringValue {
+            return "Open failed: \(err)"
+        }
         let title = result["title"]?.stringValue ?? ""
         let host = (result["url"]?.stringValue).flatMap { URL(string: $0)?.host } ?? ""
         return "Read page: \(title.isEmpty ? host : title)"
@@ -98,7 +106,7 @@ struct WebOpenTool: AssistantTool {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200...299).contains(status) else {
+        guard (200 ... 299).contains(status) else {
             return .obj(["error": .str("HTTP \(status)"), "url": .str(url.absoluteString)])
         }
         let html = String(decoding: data, as: UTF8.self)
@@ -111,7 +119,7 @@ struct WebOpenTool: AssistantTool {
     }
 }
 
-// ── Regex HTML → text (dependency-free, mirrors htmlToText in web.ts) ────────────────────
+/// ── Regex HTML → text (dependency-free, mirrors htmlToText in web.ts) ────────────────────
 private func htmlToText(_ html: String) -> String {
     func strip(_ s: String, _ pattern: String, _ replacement: String) -> String {
         s.replacingOccurrences(of: pattern, with: replacement, options: [.regularExpression, .caseInsensitive])

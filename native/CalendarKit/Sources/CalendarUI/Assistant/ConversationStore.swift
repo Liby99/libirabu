@@ -34,13 +34,15 @@ public final class ConversationStore {
         }
         if let idx = conversations.firstIndex(where: { $0.id == id }) {
             guard normalized(conversations[idx].turns) != normalized(turns) else {
-                conversations[idx].turns = turns     // keep cosmetic state without re-ranking
+                conversations[idx].turns = turns // keep cosmetic state without re-ranking
                 save()
                 return
             }
             conversations[idx].turns = turns
             conversations[idx].updatedAt = Date()
-            if idx != 0 { conversations.insert(conversations.remove(at: idx), at: 0) }   // newest first
+            if idx != 0 {
+                conversations.insert(conversations.remove(at: idx), at: 0)
+            } // newest first
         } else {
             conversations.insert(StoredConversation(id: id, title: title, updatedAt: Date(), turns: turns),
                                  at: 0)
@@ -48,7 +50,9 @@ public final class ConversationStore {
         save()
     }
 
-    func turns(for id: UUID) -> [ChatTurn]? { conversations.first { $0.id == id }?.turns }
+    func turns(for id: UUID) -> [ChatTurn]? {
+        conversations.first { $0.id == id }?.turns
+    }
 
     func delete(_ id: UUID) {
         conversations.removeAll { $0.id == id }

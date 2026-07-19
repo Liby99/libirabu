@@ -6,38 +6,38 @@
 // `readOnly`/`confirm`/`actionKind` are defined now for the mutating tools + auditor + action
 // cards that land in later stages.
 
-import Foundation
 import CalendarEngine
+import Foundation
 
 /// What kind of action a tool performs. Drives the action-card UI (later stages) and mirrors the
 /// web `ActionKind`.
 enum ActionKind: String {
     case getScreenState = "get_screen_state"
-    case readCalendar   = "read_calendar"
-    case webSearch      = "web_search"
-    case webOpen        = "web_open"
-    case createEvent    = "create_event"
-    case updateEvent    = "update_event"
-    case deleteEvent    = "delete_event"
-    case setView        = "set_view"
-    case setDailyNote   = "set_daily_note"
-    case setTrackName   = "set_track_name"
+    case readCalendar = "read_calendar"
+    case webSearch = "web_search"
+    case webOpen = "web_open"
+    case createEvent = "create_event"
+    case updateEvent = "update_event"
+    case deleteEvent = "delete_event"
+    case setView = "set_view"
+    case setDailyNote = "set_daily_note"
+    case setTrackName = "set_track_name"
     case remember
     case forget
 
     /// SF Symbol for the action chip.
     var icon: String {
         switch self {
-        case .getScreenState, .readCalendar: return "magnifyingglass"
-        case .setView:      return "location.circle.fill"
-        case .createEvent:  return "plus.circle.fill"
-        case .updateEvent:  return "pencil.circle.fill"
-        case .deleteEvent:  return "trash.circle.fill"
-        case .setDailyNote: return "note.text"
-        case .setTrackName: return "tag"
-        case .webSearch:    return "globe"
-        case .webOpen:      return "safari.fill"
-        case .remember, .forget: return "brain"
+        case .getScreenState, .readCalendar: "magnifyingglass"
+        case .setView: "location.circle.fill"
+        case .createEvent: "plus.circle.fill"
+        case .updateEvent: "pencil.circle.fill"
+        case .deleteEvent: "trash.circle.fill"
+        case .setDailyNote: "note.text"
+        case .setTrackName: "tag"
+        case .webSearch: "globe"
+        case .webOpen: "safari.fill"
+        case .remember, .forget: "brain"
         }
     }
 }
@@ -54,8 +54,8 @@ struct ToolContext {
 @MainActor
 protocol AssistantTool {
     var def: ToolDef { get }
-    var readOnly: Bool { get }        // false → mutating → auditor-gated (Stage 2)
-    var confirm: Bool { get }         // true → human confirm in the UI (delete, Stage 3)
+    var readOnly: Bool { get } // false → mutating → auditor-gated (Stage 2)
+    var confirm: Bool { get } // true → human confirm in the UI (delete, Stage 3)
     var actionKind: ActionKind { get }
     /// The action-chip label shown in the transcript, built from the call args + the tool's result.
     /// Format is "Category: detail" (e.g. "Navigation: Sep 2026", "Created: Team sync").
@@ -65,7 +65,9 @@ protocol AssistantTool {
 }
 
 extension AssistantTool {
-    var confirm: Bool { false }       // most tools don't need confirmation
+    var confirm: Bool {
+        false
+    } // most tools don't need confirmation
 }
 
 // ── JSONValue ergonomics ──────────────────────────────────────────────────────────────
@@ -73,14 +75,41 @@ extension AssistantTool {
 
 extension JSONValue {
     subscript(_ key: String) -> JSONValue? {
-        if case .object(let o) = self { return o[key] }
+        if case let .object(o) = self {
+            return o[key]
+        }
         return nil
     }
-    var stringValue: String? { if case .string(let s) = self { return s }; return nil }
-    var doubleValue: Double? { if case .number(let n) = self { return n }; return nil }
-    var intValue: Int?       { if case .number(let n) = self { return Int(n) }; return nil }
-    var boolValue: Bool?     { if case .bool(let b) = self { return b }; return nil }
-    var arrayValue: [JSONValue]? { if case .array(let a) = self { return a }; return nil }
+
+    var stringValue: String? {
+        if case let .string(s) = self {
+            return s
+        }; return nil
+    }
+
+    var doubleValue: Double? {
+        if case let .number(n) = self {
+            return n
+        }; return nil
+    }
+
+    var intValue: Int? {
+        if case let .number(n) = self {
+            return Int(n)
+        }; return nil
+    }
+
+    var boolValue: Bool? {
+        if case let .bool(b) = self {
+            return b
+        }; return nil
+    }
+
+    var arrayValue: [JSONValue]? {
+        if case let .array(a) = self {
+            return a
+        }; return nil
+    }
 
     /// Parse a JSON string (a tool call's `arguments`, or a schema literal) → JSONValue; `.null` on failure.
     static func parse(_ s: String) -> JSONValue {
@@ -96,10 +125,24 @@ extension JSONValue {
         return s
     }
 
-    // Terse builders for tool output.
-    static func obj(_ d: [String: JSONValue]) -> JSONValue { .object(d) }
-    static func arr(_ a: [JSONValue]) -> JSONValue { .array(a) }
-    static func str(_ s: String) -> JSONValue { .string(s) }
-    static func num(_ n: Int) -> JSONValue { .number(Double(n)) }
-    static func num(_ n: Double) -> JSONValue { .number(n) }
+    /// Terse builders for tool output.
+    static func obj(_ d: [String: JSONValue]) -> JSONValue {
+        .object(d)
+    }
+
+    static func arr(_ a: [JSONValue]) -> JSONValue {
+        .array(a)
+    }
+
+    static func str(_ s: String) -> JSONValue {
+        .string(s)
+    }
+
+    static func num(_ n: Int) -> JSONValue {
+        .number(Double(n))
+    }
+
+    static func num(_ n: Double) -> JSONValue {
+        .number(n)
+    }
 }

@@ -26,13 +26,17 @@ enum Keychain {
         guard let value, !value.isEmpty else { return delete(account: account) }
         // Data-protection keychain first (entitlement-scoped → survives rebuilds/cleans);
         // unsigned dev builds lack an access group → fall back to the legacy login keychain.
-        if store(value, account: account, dataProtection: true) { return true }
+        if store(value, account: account, dataProtection: true) {
+            return true
+        }
         return store(value, account: account, dataProtection: false)
     }
 
     /// The stored secret for `account`, or nil if none.
     static func get(account: String) -> String? {
-        if let v = read(account: account, dataProtection: true) { return v }
+        if let v = read(account: account, dataProtection: true) {
+            return v
+        }
         // Migration + dev fallback: if a legacy login-keychain item exists (e.g. saved by a build
         // before this change), promote it into the data-protection keychain so future rebuilds
         // keep access without re-entering the key.
@@ -45,8 +49,10 @@ enum Keychain {
 
     @discardableResult
     static func delete(account: String) -> Bool {
-        // Remove from BOTH keychains, so a stale legacy copy can't resurface via migration.
-        func ok(_ s: OSStatus) -> Bool { s == errSecSuccess || s == errSecItemNotFound }
+        /// Remove from BOTH keychains, so a stale legacy copy can't resurface via migration.
+        func ok(_ s: OSStatus) -> Bool {
+            s == errSecSuccess || s == errSecItemNotFound
+        }
         let dp = SecItemDelete(baseQuery(account: account, dataProtection: true) as CFDictionary)
         let legacy = SecItemDelete(baseQuery(account: account, dataProtection: false) as CFDictionary)
         return ok(dp) && ok(legacy)
@@ -60,7 +66,9 @@ enum Keychain {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        if dataProtection { q[kSecUseDataProtectionKeychain as String] = true }
+        if dataProtection {
+            q[kSecUseDataProtectionKeychain as String] = true
+        }
         return q
     }
 

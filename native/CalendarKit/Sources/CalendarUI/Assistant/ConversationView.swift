@@ -1,13 +1,13 @@
 // One conversation — the transcript (iMessage-style bubbles) + composer. Fills its container;
 // the window (AssistantWindowView) provides the chrome. Extracted from the old in-window panel.
 
+import CalendarGeometry // MONTH_NAMES
 import SwiftUI
-import CalendarGeometry   // MONTH_NAMES
 
 private let accent = Theme.accent
 private let bodySize: CGFloat = 14.5
 private let smallSize: CGFloat = 12
-private let sendDiameter: CGFloat = 28   // send circle; sits inside the pill with a ~6px inset
+private let sendDiameter: CGFloat = 28 // send circle; sits inside the pill with a ~6px inset
 
 struct ConversationView: View {
     @Bindable var state: AssistantState
@@ -15,9 +15,10 @@ struct ConversationView: View {
     /// Callout mode: clear background so the popover's glass material shows through.
     var translucent: Bool = false
 
-
     /// Received-bubble gray — iMessage-like, adapts to the light/dark surface.
-    private var receivedFill: Color { theme.dark ? Color(hex: 0x3B3B3D) : Color(hex: 0xE9E9EB) }
+    private var receivedFill: Color {
+        theme.dark ? Color(hex: 0x3B3B3D) : Color(hex: 0xE9E9EB)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,12 +30,14 @@ struct ConversationView: View {
         .tint(accent)
     }
 
-    // ── Transcript ────────────────────────────────────────────────────────────────
+    /// ── Transcript ────────────────────────────────────────────────────────────────
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    if state.messages.isEmpty { emptyState }
+                    if state.messages.isEmpty {
+                        emptyState
+                    }
                     ForEach(state.messages) { turn in row(turn) }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -59,11 +62,15 @@ struct ConversationView: View {
         case .action:
             actionChip(turn)
         case .confirm:
-            if let req = turn.confirm { confirmCard(turn.id, req) }
+            if let req = turn.confirm {
+                confirmCard(turn.id, req)
+            }
         case .resume:
             resumeCard(turn)
         case .blocked:
-            if let req = turn.blockedReq { blockedCard(turn.id, req) }
+            if let req = turn.blockedReq {
+                blockedCard(turn.id, req)
+            }
         }
     }
 
@@ -80,7 +87,9 @@ struct ConversationView: View {
 
     private func collapsedActionPill(_ turn: ChatTurn) -> some View {
         HStack(spacing: 5) {
-            if let icon = turn.icon { Image(systemName: icon).font(.system(size: 10, weight: .semibold)) }
+            if let icon = turn.icon {
+                Image(systemName: icon).font(.system(size: 10, weight: .semibold))
+            }
             Text(turn.text).font(.system(size: 11.5, weight: .medium)).lineLimit(2)
             if turn.detail != nil {
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
@@ -153,7 +162,11 @@ struct ConversationView: View {
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background((turn.resumeConsumed ? theme.textMuted : accent).opacity(0.12), in: Capsule(style: .continuous))
         .contentShape(Capsule())
-        .onTapGesture { if !turn.resumeConsumed { state.continueChat(turn.id) } }
+        .onTapGesture {
+            if !turn.resumeConsumed {
+                state.continueChat(turn.id)
+            }
+        }
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
@@ -229,10 +242,10 @@ struct ConversationView: View {
                         state.dismissBlocked(turnId)
                         state.requestInputFocus()
                     }
-                        .buttonStyle(.bouncy)
-                        .foregroundStyle(theme.text)
-                        .padding(.horizontal, 14).padding(.vertical, 5)
-                        .background(theme.textMuted.opacity(0.15), in: Capsule())
+                    .buttonStyle(.bouncy)
+                    .foregroundStyle(theme.text)
+                    .padding(.horizontal, 14).padding(.vertical, 5)
+                    .background(theme.textMuted.opacity(0.15), in: Capsule())
                 }
                 .font(.system(size: 12, weight: .semibold))
                 .padding(.top, 2)
@@ -257,7 +270,8 @@ struct ConversationView: View {
             bottomLeadingRadius: isUser ? 18 : 5,
             bottomTrailingRadius: isUser ? 5 : 18,
             topTrailingRadius: 18,
-            style: .continuous)
+            style: .continuous
+        )
     }
 
     private func sentBubble(_ text: String) -> some View {
@@ -283,10 +297,12 @@ struct ConversationView: View {
     // (no stale sidebar-open wrap width), grows with the text up to `maxEditorHeight`, and scrolls
     // internally beyond that. Enter sends; Shift+Enter inserts a newline.
     @State private var editorHeight: CGFloat = 20
-    private var maxEditorHeight: CGFloat { 6 * 18 }   // ~6 lines before the inner scroll takes over
+    private var maxEditorHeight: CGFloat {
+        6 * 18
+    } // ~6 lines before the inner scroll takes over
 
     private var composer: some View {
-        HStack(alignment: .center, spacing: 6) {   // center → send stays inside the pill's rounded cap
+        HStack(alignment: .center, spacing: 6) { // center → send stays inside the pill's rounded cap
             ZStack(alignment: .topLeading) {
                 if state.draft.isEmpty {
                     Text("Message the assistant…")
@@ -299,15 +315,17 @@ struct ConversationView: View {
                                  focusToken: state.focusInput,
                                  onSend: { state.send() },
                                  onHeightChange: { h in
-                                     if abs(h - editorHeight) > 0.5 { editorHeight = h }
+                                     if abs(h - editorHeight) > 0.5 {
+                                         editorHeight = h
+                                     }
                                  })
-                    .frame(height: min(editorHeight, maxEditorHeight))
+                                 .frame(height: min(editorHeight, maxEditorHeight))
             }
             .padding(.leading, 16)
             .padding(.vertical, 9)
             sendButton
         }
-        .padding(.trailing, 6)   // inset so the send circle sits comfortably inside the pill's edge
+        .padding(.trailing, 6) // inset so the send circle sits comfortably inside the pill's edge
         .animation(.easeOut(duration: 0.12), value: editorHeight)
         // Frosted-glass pill (radius = half the height, so it stays a pill as it grows) + soft shadow.
         // Translucent material lets the surface behind blur through, rather than a solid fill.
@@ -325,7 +343,11 @@ struct ConversationView: View {
         let empty = state.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let disabled = !state.busy && empty
         return Button {
-            if state.busy { state.stop() } else if !empty { state.send() }
+            if state.busy {
+                state.stop()
+            } else if !empty {
+                state.send()
+            }
         } label: {
             Image(systemName: state.busy ? "stop.fill" : "arrow.up")
                 .font(.system(size: 14, weight: .bold))

@@ -36,7 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openCalendar() {
-        if let url = URL(string: calURL) { NSWorkspace.shared.open(url) }
+        if let url = URL(string: calURL) {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc func revealLog() {
@@ -44,9 +46,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.selectFile(p, inFileViewerRootedAtPath: (p as NSString).deletingLastPathComponent)
     }
 
-    @objc func quitApp() { stopServer(); NSApp.terminate(nil) }
+    @objc func quitApp() {
+        stopServer(); NSApp.terminate(nil)
+    }
 
-    func logPath() -> String { NSHomeDirectory() + "/Library/Logs/Libirabu/next-server.log" }
+    func logPath() -> String {
+        NSHomeDirectory() + "/Library/Logs/Libirabu/next-server.log"
+    }
 
     func startServer() {
         let info = Bundle.main.infoDictionary
@@ -56,7 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !dir.isEmpty else { NSLog("Libirabu: no project dir configured"); return }
 
         let logp = logPath()
-        try? FileManager.default.createDirectory(atPath: (logp as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            atPath: (logp as NSString).deletingLastPathComponent,
+            withIntermediateDirectories: true
+        )
         FileManager.default.createFile(atPath: logp, contents: nil)
         let logHandle = FileHandle(forWritingAtPath: logp)
 
@@ -67,7 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         env["PORT"] = "8100"
         env["LIBIRABU_NODE"] = node
         let nodeDir = (node as NSString).deletingLastPathComponent
-        env["PATH"] = nodeDir + ":/opt/homebrew/bin:/usr/local/bin:" + NSHomeDirectory() + "/.docker/bin:" + (env0["PATH"] ?? "/usr/bin:/bin")
+        env["PATH"] = nodeDir + ":/opt/homebrew/bin:/usr/local/bin:" + NSHomeDirectory() + "/.docker/bin:" +
+            (env0["PATH"] ?? "/usr/bin:/bin")
 
         // Run the production launcher (ensure DB → migrate → build-if-needed → next start), NOT dev.
         let p = Process()
@@ -75,12 +85,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         p.arguments = [dir + "/scripts/serve.sh"]
         p.currentDirectoryURL = URL(fileURLWithPath: dir)
         p.environment = env
-        if let h = logHandle { p.standardOutput = h; p.standardError = h }
+        if let h = logHandle {
+            p.standardOutput = h; p.standardError = h
+        }
         do { try p.run(); server = p } catch { NSLog("Libirabu: failed to start server: \(error)") }
     }
 
-    func stopServer() { server?.terminate(); server = nil }
-    func applicationWillTerminate(_ notification: Notification) { stopServer() }
+    func stopServer() {
+        server?.terminate(); server = nil
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        stopServer()
+    }
 }
 
 let app = NSApplication.shared

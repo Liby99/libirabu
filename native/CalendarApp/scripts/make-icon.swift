@@ -14,18 +14,20 @@ let ctx = CGContext(data: nil, width: Int(S), height: Int(S), bitsPerComponent: 
                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
 
 func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
-    CGColor(colorSpace: cs, components: [r/255, g/255, b/255, a])!
+    CGColor(colorSpace: cs, components: [r / 255, g / 255, b / 255, a])!
 }
 
 /// The brand accent (#FF3B6B) at a given opacity — the pinks are just the accent, lightened.
-func accent(_ a: CGFloat = 1) -> CGColor { rgb(255, 59, 107, a) }
+func accent(_ a: CGFloat = 1) -> CGColor {
+    rgb(255, 59, 107, a)
+}
 
 func squircle(_ rect: CGRect, radius: CGFloat) -> CGPath {
     NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).cgPath
 }
 
 let margin: CGFloat = 100
-let card = CGRect(x: margin, y: margin, width: S - 2*margin, height: S - 2*margin)
+let card = CGRect(x: margin, y: margin, width: S - 2 * margin, height: S - 2 * margin)
 let radius = card.width * 0.2237
 let cardPath = squircle(card, radius: radius)
 
@@ -52,29 +54,30 @@ ctx.fill(headerRect)
 // ---- body: hairline day/lane grid (SQUARE cells, filling most of the body) ----
 let body = CGRect(x: card.minX, y: card.minY, width: card.width, height: headerRect.minY - card.minY)
 let cols = 4, lanes = 3
-let cellS = min(body.width * 0.84 / CGFloat(cols),    // ~8% side margins
-                body.height * 0.82 / CGFloat(lanes))  // ~9% top/bottom gaps
+let cellS = min(body.width * 0.84 / CGFloat(cols), // ~8% side margins
+                body.height * 0.82 / CGFloat(lanes)) // ~9% top/bottom gaps
 let grid = CGRect(x: body.midX - cellS * CGFloat(cols) / 2,
                   y: body.minY + (body.height - cellS * CGFloat(lanes)) / 2,
                   width: cellS * CGFloat(cols), height: cellS * CGFloat(lanes))
 let colW = cellS
 let laneH = cellS
 let hairline: CGFloat = 7
-ctx.setFillColor(rgb(233, 227, 230))   // warm light gray — quiet next to the pinks
-for c in 1..<cols {                    // inner vertical day lines
+ctx.setFillColor(rgb(233, 227, 230)) // warm light gray — quiet next to the pinks
+for c in 1 ..< cols { // inner vertical day lines
     let x = grid.minX + CGFloat(c) * colW
-    ctx.fill(CGRect(x: x - hairline/2, y: grid.minY, width: hairline, height: grid.height))
-}
-for l in 1..<lanes {                   // inner horizontal lane lines
-    let y = grid.minY + CGFloat(l) * laneH
-    ctx.fill(CGRect(x: grid.minX, y: y - hairline/2, width: grid.width, height: hairline))
+    ctx.fill(CGRect(x: x - hairline / 2, y: grid.minY, width: hairline, height: grid.height))
 }
 
-// ---- light red/pink horizontal band events, one per lane ----
-// (startCol, endCol exclusive, lane from top, opacity) — a clean diagonal cascade: equal
-// 3-day bands stepping one column per lane, fading as they descend.
-// Together the four bars sketch a λ — the cascade is the right-leaning stroke, the
-// bottom-left bar its leg. (A calendar that likes programming languages.)
+for l in 1 ..< lanes { // inner horizontal lane lines
+    let y = grid.minY + CGFloat(l) * laneH
+    ctx.fill(CGRect(x: grid.minX, y: y - hairline / 2, width: grid.width, height: hairline))
+}
+
+/// ---- light red/pink horizontal band events, one per lane ----
+/// (startCol, endCol exclusive, lane from top, opacity) — a clean diagonal cascade: equal
+/// 3-day bands stepping one column per lane, fading as they descend.
+/// Together the four bars sketch a λ — the cascade is the right-leaning stroke, the
+/// bottom-left bar its leg. (A calendar that likes programming languages.)
 let pills: [(Int, Int, Int, CGFloat)] = [
     (0, 2, 0, 0.55),
     (1, 3, 1, 0.35),
@@ -84,14 +87,15 @@ let pills: [(Int, Int, Int, CGFloat)] = [
 let pillH = laneH * 0.58
 let inset = colW * 0.13
 for (c0, c1, lane, alpha) in pills {
-    let y = grid.maxY - CGFloat(lane) * laneH - laneH/2 - pillH/2
+    let y = grid.maxY - CGFloat(lane) * laneH - laneH / 2 - pillH / 2
     let x0 = grid.minX + CGFloat(c0) * colW + inset
     let x1 = grid.minX + CGFloat(c1) * colW - inset
     let r = CGRect(x: x0, y: y, width: x1 - x0, height: pillH)
-    ctx.addPath(squircle(r, radius: pillH/2))
+    ctx.addPath(squircle(r, radius: pillH / 2))
     ctx.setFillColor(accent(alpha))
     ctx.fillPath()
 }
+
 ctx.restoreGState()
 
 // ---- write PNG ----

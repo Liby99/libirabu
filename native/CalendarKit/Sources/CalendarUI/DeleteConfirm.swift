@@ -1,10 +1,10 @@
 // The delete-confirmation modal (keyboard-first dialog + backdrop) and the modal overlay
 // plumbing that hosts it. Split from CalendarView.swift (file diet).
 
-import SwiftUI
 import AppKit
-import CalendarGeometry
 import CalendarEngine
+import CalendarGeometry
+import SwiftUI
 
 /// The custom delete-confirmation modal. A dimmed backdrop + a centered card with the question and a
 /// horizontal row of buttons. Keyboard focus (the dashed ring) is driven by `pending.focus` via the key
@@ -41,7 +41,7 @@ struct DeleteConfirmDialog: View {
                     ForEach(Array(pending.choices.enumerated()), id: \.offset) { idx, choice in
                         DeleteDialogButton(label: choice.label(recurring: pending.recurring),
                                            destructive: !choice.isCancel,
-                                           focused: pending.focus == idx,   // nil focus → no ring shown yet
+                                           focused: pending.focus == idx, // nil focus → no ring shown yet
                                            theme: theme) { onChoose(choice) }
                     }
                 }
@@ -100,7 +100,7 @@ struct BatchRenameField: View {
             TextField("Name", text: $text)
                 .textFieldStyle(.plain).font(.custom("Comic Sans MS", size: 14)).foregroundStyle(theme.text)
                 .frame(width: 240).focused($focused)
-                .onChange(of: text) { _, v in engine.batchSetTitle(v) }   // live: all selected titles
+                .onChange(of: text) { _, v in engine.batchSetTitle(v) } // live: all selected titles
                 .onSubmit { ui.batchRenaming = false }
                 .onExitCommand { ui.batchRenaming = false }
         }
@@ -122,7 +122,9 @@ private struct DeleteDialogButton: View {
     var action: () -> Void
     @State private var hover = false
 
-    private var accent: Color { destructive ? theme.eventBorder("red") : theme.text }
+    private var accent: Color {
+        destructive ? theme.eventBorder("red") : theme.text
+    }
 
     var body: some View {
         Button(action: action) {
@@ -141,7 +143,13 @@ private struct DeleteDialogButton: View {
                               style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                 .padding(-3)
         )
-        .onHover { hover = $0; if $0 { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() } }
+        .onHover {
+            hover = $0; if $0 {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        }
     }
 }
 
@@ -162,7 +170,9 @@ struct ModalOverlays: ViewModifier {
     var readClip: () -> CalendarEngine.ClipPayload? = { nil }
 
     /// The canvas input gate reflects EVERY blocking dialog this modifier hosts.
-    private func syncModalGate() { engine.inputModalUp = ui.pendingDelete != nil || ui.notice != nil }
+    private func syncModalGate() {
+        engine.inputModalUp = ui.pendingDelete != nil || ui.notice != nil
+    }
 
     func body(content: Content) -> some View {
         content
@@ -190,7 +200,9 @@ struct ModalOverlays: ViewModifier {
             .overlay {
                 if let s = ui.pendingBatchDelete {
                     BatchDeleteDialog(summary: s, theme: theme,
-                                      onDelete: { engine.performBatchDelete(); ui.pendingBatchDelete = nil; engine.wake() },
+                                      onDelete: {
+                                          engine.performBatchDelete(); ui.pendingBatchDelete = nil; engine.wake()
+                                      },
                                       onCancel: { ui.pendingBatchDelete = nil })
                         .transition(.opacity)
                 }
@@ -203,7 +215,7 @@ struct ModalOverlays: ViewModifier {
                 }
             }
             .animation(.easeOut(duration: 0.12), value: ui.batchRenaming)
-            .overlay {   // tutorial carousel — topmost
+            .overlay { // tutorial carousel — topmost
                 if ui.showTutorial {
                     TutorialView(theme: theme, ui: ui, onClose: { ui.showTutorial = false })
                         .transition(.opacity)

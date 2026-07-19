@@ -11,16 +11,24 @@ import Foundation
 public enum DeadlineTZ {
     /// Resolve a stored tz id to a concrete IANA zone. "auto" → device zone; "AOE" → Etc/GMT+12.
     public static func iana(_ tz: String) -> String {
-        if tz == "auto" { return TimeZone.current.identifier }
-        if tz == "AOE" { return "Etc/GMT+12" }
+        if tz == "auto" {
+            return TimeZone.current.identifier
+        }
+        if tz == "AOE" {
+            return "Etc/GMT+12"
+        }
         return tz
     }
+
     /// Short abbreviation shown in the "(ABBR HH:MM)" part; "AOE" keeps its own label.
     public static func shortLabel(_ tz: String, at date: Date) -> String {
-        if tz == "AOE" { return "AOE" }
+        if tz == "AOE" {
+            return "AOE"
+        }
         let z = TimeZone(identifier: iana(tz)) ?? .gmt
         return z.abbreviation(for: date) ?? tz
     }
+
     private static func offset(_ tz: String, at date: Date) -> Int {
         (TimeZone(identifier: iana(tz)) ?? .gmt).secondsFromGMT(for: date)
     }
@@ -50,9 +58,9 @@ public enum DeadlineTZ {
     /// write-back (main→anchor).
     public static func convertWall(_ y: Int, _ m0: Int, _ d: Int, _ hour: CGFloat,
                                    from: String, to: String) -> (year: Int, month: Int, day: Int, hour: CGFloat) {
-        let base = utcInstant(y, m0, d, hour)                       // the wall-clock as a UTC-encoded instant
+        let base = utcInstant(y, m0, d, hour) // the wall-clock as a UTC-encoded instant
         let delta = Double(offset(to, at: base) - offset(from, at: base))
-        let shifted = base.addingTimeInterval(delta)               // same instant, expressed in `to`
+        let shifted = base.addingTimeInterval(delta) // same instant, expressed in `to`
         let c = utcCal.dateComponents([.year, .month, .day, .hour, .minute], from: shifted)
         let hr = CGFloat(c.hour ?? 0) + CGFloat(c.minute ?? 0) / 60
         return (c.year ?? y, (c.month ?? 1) - 1, c.day ?? d, hr)
@@ -65,19 +73,21 @@ public enum DeadlineTZ {
         Double(offset(altTz, at: date) - offset(mainTz, at: date)) / 3600
     }
 
-    private static let utcCal = utcCalendar   // canonical UTC calendar (Dates.swift)
+    private static let utcCal = utcCalendar // canonical UTC calendar (Dates.swift)
     /// The floating wall-clock (y, m0, d, fractional hour) as a UTC-encoded instant — matching the
     /// web's parseWallClock: the string is treated as if it were UTC so only y/m/d/h/m are meaningful.
     private static func utcInstant(_ y: Int, _ m0: Int, _ d: Int, _ hour: CGFloat) -> Date {
         let h = Int(hour), mi = Int((hour - CGFloat(h)) * 60 + 0.5)
-        return utcCal.date(from: DateComponents(year: y, month: m0 + 1, day: d, hour: h, minute: mi)) ?? Date(timeIntervalSince1970: 0)
+        return utcCal
+            .date(from: DateComponents(year: y, month: m0 + 1, day: d, hour: h, minute: mi)) ??
+            Date(timeIntervalSince1970: 0)
     }
 
     /// The deadline's time re-expressed in its origin timezone, as "ABBR HH:MM" (e.g. "AOE 23:59").
     /// nil when the deadline has no distinct origin tz. `mainTz` is where `hour` is expressed.
     public static func originLabel(_ d: Deadline, mainTz: String) -> String? {
         guard let otz = d.originTz, otz != mainTz else { return nil }
-        let base = utcInstant(d.year, d.month, d.day, d.hour)   // main-tz wall clock, UTC-encoded
+        let base = utcInstant(d.year, d.month, d.day, d.hour) // main-tz wall clock, UTC-encoded
         // Same instant, re-expressed in the origin zone: shift by the offset delta (same trick the web uses).
         let shifted = base.addingTimeInterval(Double(offset(otz, at: base) - offset(mainTz, at: base)))
         let c = utcCal.dateComponents([.hour, .minute], from: shifted)

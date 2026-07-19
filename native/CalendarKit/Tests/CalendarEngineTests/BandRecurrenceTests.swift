@@ -1,6 +1,6 @@
-import XCTest
 @testable import CalendarEngine
 import CalendarGeometry
+import XCTest
 
 @MainActor
 final class BandRecurrenceTests: XCTestCase {
@@ -37,7 +37,8 @@ final class BandRecurrenceTests: XCTestCase {
                                         startDay: 3, endDay: 5, title: "X", color: "red")])
         e.setRepeat("one-b", Repeat(kind: "weekly"))
         // The Jan-10 occurrence (Jan 10–12) is wholly within January → exactly one bar, no "#seg".
-        let jan10 = e.displayBands(for: yr).filter { sourceId(of: $0.id) == "one-b" && $0.month == 0 && $0.startDay == 10 }
+        let jan10 = e.displayBands(for: yr)
+            .filter { sourceId(of: $0.id) == "one-b" && $0.month == 0 && $0.startDay == 10 }
         XCTAssertEqual(jan10.count, 1)
         XCTAssertEqual(jan10.first?.endDay, 12)
         XCTAssertFalse(jan10.first?.id.contains(SEGMENT_MARKER) ?? true)

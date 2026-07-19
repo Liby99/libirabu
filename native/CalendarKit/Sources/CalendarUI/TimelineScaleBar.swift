@@ -8,9 +8,9 @@
 // Overlay pattern mirrors DashboardSplitHandle: a SwiftUI view above the input catcher that
 // reads the engine's per-frame geometry and writes back through engine setters.
 
-import SwiftUI
-import CalendarGeometry
 import CalendarEngine
+import CalendarGeometry
+import SwiftUI
 
 struct TimelineScaleBar: View {
     let engine: CalendarEngine
@@ -26,9 +26,9 @@ struct TimelineScaleBar: View {
     @State private var hovering = false
     @State private var dragging = false
 
-    private static let minThumb: CGFloat = 26   // keep it grabbable when fully zoomed in
-    private static let endD: CGFloat = 9        // end-circle diameter
-    private static let hitW: CGFloat = 10       // transparent grab strip width
+    private static let minThumb: CGFloat = 26 // keep it grabbable when fully zoomed in
+    private static let endD: CGFloat = 9 // end-circle diameter
+    private static let hitW: CGFloat = 10 // transparent grab strip width
 
     var body: some View {
         let tl = timelineInfo(engine.snapshotInput())
@@ -69,7 +69,7 @@ struct TimelineScaleBar: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .opacity(visible ? 1 : 0)
-            .allowsHitTesting(visible)   // an invisible bar must not swallow canvas clicks
+            .allowsHitTesting(visible) // an invisible bar must not swallow canvas clicks
             .animation(.easeOut(duration: 0.15), value: visible)
             .animation(.easeOut(duration: 0.12), value: active)
         }
@@ -83,10 +83,10 @@ struct TimelineScaleBar: View {
             .contentShape(Circle().inset(by: -4))
     }
 
-    // ── Body drag → scroll ──────────────────────────────────────────────────────────
-    // Gestures measure in .global space: the thumb (and its end circles) MOVE while dragging,
-    // so local-space translation would be measured against a moving origin — a feedback loop
-    // that makes the handle twitch.
+    /// ── Body drag → scroll ──────────────────────────────────────────────────────────
+    /// Gestures measure in .global space: the thumb (and its end circles) MOVE while dragging,
+    /// so local-space translation would be measured against a moving origin — a feedback loop
+    /// that makes the handle twitch.
     private func bodyDrag(tl: TimelineInfo, totalH: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { v in
@@ -102,7 +102,7 @@ struct TimelineScaleBar: View {
             .onEnded { _ in endDragCommon() }
     }
 
-    // ── End drag → resize the visible window (change hour height), anchor the other end ──
+    /// ── End drag → resize the visible window (change hour height), anchor the other end ──
     private enum Edge { case top, bottom }
 
     private func endDrag(edge: Edge, tl: TimelineInfo, thumbTop: CGFloat, thumbLen: CGFloat) -> some Gesture {
@@ -136,4 +136,3 @@ struct TimelineScaleBar: View {
         NSCursor.pop()
     }
 }
-

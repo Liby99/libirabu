@@ -2,10 +2,10 @@
 // timeline↔dashboard split handle, and the Year›Month›Week›Day breadcrumb.
 // Split from CalendarView.swift (file diet).
 
-import SwiftUI
 import AppKit
-import CalendarGeometry
 import CalendarEngine
+import CalendarGeometry
+import SwiftUI
 
 /// Draggable handle on the timeline↔dashboard boundary in day view. Mirrors the drawer's resize
 /// handle: a slim capsule that surfaces on hover, with a resize cursor; dragging it adjusts the
@@ -37,15 +37,15 @@ struct DashboardSplitHandle: View {
     let vp: Viewport
     let height: CGFloat
     let theme: Theme
-    var onFrac: (CGFloat) -> Void = { _ in }   // report the live split so the dashboard re-lays-out
-    @State private var inGap = false      // mouse anywhere in the timeline↔dashboard gap
-    @State private var onGrip = false     // mouse on the capsule itself (→ brighter + resize cursor)
+    var onFrac: (CGFloat) -> Void = { _ in } // report the live split so the dashboard re-lays-out
+    @State private var inGap = false // mouse anywhere in the timeline↔dashboard gap
+    @State private var onGrip = false // mouse on the capsule itself (→ brighter + resize cursor)
     @State private var dragFrac: CGFloat?
     @State private var startFrac: CGFloat = 0.45
 
-    private let minFrac: CGFloat = 0.22, maxFrac: CGFloat = 0.82   // must match engine.setDailyFrac
-    // The dashboard content is inset ~25px from the boundary (see drawDashboardChrome's barX); the
-    // capsule sits centered in that empty gap, which is also the zone that reveals it on hover.
+    private let minFrac: CGFloat = 0.22, maxFrac: CGFloat = 0.82 // must match engine.setDailyFrac
+    /// The dashboard content is inset ~25px from the boundary (see drawDashboardChrome's barX); the
+    /// capsule sits centered in that empty gap, which is also the zone that reveals it on hover.
     private let gapInset: CGFloat = 25
 
     var body: some View {
@@ -60,15 +60,23 @@ struct DashboardSplitHandle: View {
         Capsule()
             .fill(theme.text.opacity(opacity))
             .frame(width: 4, height: 48)
-            .frame(width: 12, height: 56)                 // grip zone: brighten + resize cursor + drag
+            .frame(width: 12, height: 56) // grip zone: brighten + resize cursor + drag
             .contentShape(Rectangle())
-            .onHover { h in onGrip = h; if h { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() } }
+            .onHover {
+                h in onGrip = h; if h {
+                    NSCursor.resizeLeftRight.set()
+                } else {
+                    NSCursor.arrow.set()
+                }
+            }
             .gesture(
                 // GLOBAL space: the handle repositions itself as `frac` changes, so a `.local`
                 // translation would be measured against a moving origin → feedback twitch.
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { v in
-                        if dragFrac == nil { startFrac = engine.daily.frac }
+                        if dragFrac == nil {
+                            startFrac = engine.daily.frac
+                        }
                         let nf = min(maxFrac, max(minFrac, startFrac + v.translation.width / contentW))
                         dragFrac = nf
                         engine.setDailyFrac(nf)
@@ -76,7 +84,7 @@ struct DashboardSplitHandle: View {
                     }
                     .onEnded { _ in dragFrac = nil }
             )
-            .frame(width: gapInset, height: height)       // gap zone: reveals the capsule (faint)
+            .frame(width: gapInset, height: height) // gap zone: reveals the capsule (faint)
             .contentShape(Rectangle())
             .onHover { inGap = $0 }
             .position(x: centerX, y: height / 2)
@@ -88,7 +96,9 @@ struct DashboardSplitHandle: View {
 /// The Year crumb is a menu that jumps between selectable years.
 struct Breadcrumb: View {
     let engine: CalendarEngine
-    private var chrome: CalendarChrome { engine.chrome }
+    private var chrome: CalendarChrome {
+        engine.chrome
+    }
 
     var body: some View {
         let atYear = chrome.level == 0
@@ -117,7 +127,9 @@ struct Breadcrumb: View {
                 sep; crumbButton(MONTH_LONG[chrome.displayFocus], active: chrome.level == 1) { engine.zoomToMonth() }
             }
             if chrome.level >= 2 {
-                sep; crumbButton("Week \(Int(chrome.week.rounded()) + 1)", active: chrome.level == 2) { engine.zoomToWeek() }
+                sep; crumbButton("Week \(Int(chrome.week.rounded()) + 1)", active: chrome.level == 2) {
+                    engine.zoomToWeek()
+                }
             }
             if chrome.level >= 3, let r = resolveDate(chrome.year, chrome.displayFocus, chrome.displayDom) {
                 sep; crumb("\(WD_LONG[dayOfWeek(r.year, r.month, r.day)]), \(r.day)\(ordinal(r.day))", active: true)
@@ -126,7 +138,7 @@ struct Breadcrumb: View {
         .padding(.horizontal, 18)
     }
 
-    @ViewBuilder private func yearLabel(atYear: Bool) -> some View {
+    private func yearLabel(atYear: Bool) -> some View {
         HStack(spacing: 0) {
             crumb("Year \(chrome.year)", active: atYear).fixedSize()
             if atYear {
@@ -140,21 +152,26 @@ struct Breadcrumb: View {
 
     private var sep: some View {
         Text("›").font(.system(size: 12)).foregroundStyle(.tertiary)
-            .padding(.horizontal, 3)   // a little more breathing room around the "›"
+            .padding(.horizontal, 3) // a little more breathing room around the "›"
     }
+
     private func crumb(_ text: String, active: Bool) -> some View {
         Text(text)
             .font(.system(size: 13, weight: active ? .semibold : .regular))
             .foregroundStyle(active ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
     }
+
     /// A crumb that navigates when clicked (Month / Week). Kept clickable even when it's the active
     /// level — clicking then just re-settles that view.
     private func crumbButton(_ text: String, active: Bool, _ action: @escaping () -> Void) -> some View {
         Button(action: action) { crumb(text, active: active) }
             .buttonStyle(.plain)
     }
+
     private func ordinal(_ n: Int) -> String {
-        if (n % 100) / 10 == 1 { return "th" }
+        if (n % 100) / 10 == 1 {
+            return "th"
+        }
         switch n % 10 { case 1: return "st"; case 2: return "nd"; case 3: return "rd"; default: return "th" }
     }
 }

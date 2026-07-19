@@ -9,10 +9,10 @@
 // Only started when the process actually carries the iCloud entitlement, so the
 // unsigned `CalendarMac` dev binary stays local-only and never touches CloudKit.
 
-import Foundation
-import CloudKit
-import Security
 import CalendarGeometry
+import CloudKit
+import Foundation
+import Security
 
 @MainActor
 final class CloudSync: NSObject, CKSyncEngineDelegate {
@@ -46,37 +46,37 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     /// container the process isn't entitled to, which throws an uncatchable exception).
     static var isEntitled: Bool {
         #if os(iOS)
-        // iOS apps are always signed with their entitlements (a real build carries the
-        // iCloud container), and SecTaskCreateFromSelf is macOS-only. So on iOS, sync is on.
-        return true
+            // iOS apps are always signed with their entitlements (a real build carries the
+            // iCloud container), and SecTaskCreateFromSelf is macOS-only. So on iOS, sync is on.
+            return true
         #else
-        guard let task = SecTaskCreateFromSelf(nil) else { return false }
-        let key = "com.apple.developer.icloud-container-identifiers" as CFString
-        return SecTaskCopyValueForEntitlement(task, key, nil) != nil
+            guard let task = SecTaskCreateFromSelf(nil) else { return false }
+            let key = "com.apple.developer.icloud-container-identifiers" as CFString
+            return SecTaskCopyValueForEntitlement(task, key, nil) != nil
         #endif
     }
 
-    // ── Status (for the settings UI) ──────────────────────────────────────────────
+    /// ── Status (for the settings UI) ──────────────────────────────────────────────
     /// Instance-free connectivity probe. Not entitled → `.localOnly` without ever building a
     /// CKContainer (which would throw for an unentitled process). Otherwise map the account status.
     static func iCloudStatus() async -> ICloudStatus {
         guard isEntitled else { return .localOnly }
-        let status = (try? await CKContainer(identifier: containerID).accountStatus()) ?? .couldNotDetermine
+        let status = await (try? CKContainer(identifier: containerID).accountStatus()) ?? .couldNotDetermine
         switch status {
-        case .available:              return .available
-        case .noAccount:              return .noAccount
-        case .restricted:             return .restricted
+        case .available: return .available
+        case .noAccount: return .noAccount
+        case .restricted: return .restricted
         case .temporarilyUnavailable: return .unavailable
-        case .couldNotDetermine:      return .unknown
-        @unknown default:             return .unknown
+        case .couldNotDetermine: return .unknown
+        @unknown default: return .unknown
         }
     }
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────────
+    /// ── Lifecycle ─────────────────────────────────────────────────────────────────
     func startIfAccountAvailable() async {
-        let status = (try? await container.accountStatus()) ?? .couldNotDetermine
-        guard status == .available else { return }   // signed out → stay local, retry on account change
-        guard let engine else { return }              // engine gone → nothing to sync
+        let status = await (try? container.accountStatus()) ?? .couldNotDetermine
+        guard status == .available else { return } // signed out → stay local, retry on account change
+        guard let engine else { return } // engine gone → nothing to sync
         loadRecordCache()
 
         let savedState = loadState()
@@ -99,7 +99,9 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
             let snap = engine.syncSnapshot()
             // Standalone overlay records for imported events the user has customized (color/promote/notes/tags).
-            let overlayIDs = (snap.rich ?? [:]).filter { CalendarEngine.isAppleSeriesKey($0.key) && CalendarEngine.hasUserOverlay($0.value) }.map(\.key)
+            let overlayIDs = (snap.rich ?? [:])
+                .filter { CalendarEngine.isAppleSeriesKey($0.key) && CalendarEngine.hasUserOverlay($0.value) }
+                .map(\.key)
             let ids = snap.events.map(\.id) + snap.bands.map(\.id) + snap.deadlines.map(\.id)
                 + overlayIDs + [CalendarEngine.trackNamesRecordID]
             syncEngine.state.add(pendingRecordZoneChanges: ids.map { .saveRecord(recordID(for: $0)) })
@@ -121,7 +123,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     /// CKSyncEngine already syncs on push, but pushes aren't always delivered (no APNs, backgrounded,
     /// throttled). A modest periodic fetch backstops that and keeps "last synced" moving predictably.
     private var periodicTimer: Timer?
-    private static let periodInterval: TimeInterval = 300   // 5 minutes
+    private static let periodInterval: TimeInterval = 300 // 5 minutes
     private func startPeriodicSync() {
         periodicTimer?.invalidate()
         periodicTimer = Timer.scheduledTimer(withTimeInterval: Self.periodInterval, repeats: true) { [weak self] _ in
@@ -129,13 +131,15 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         }
     }
 
-    // ── Outbound: local edits → pending CloudKit changes ──────────────────────────
+    /// ── Outbound: local edits → pending CloudKit changes ──────────────────────────
     private func localChanged(upserts: [String], deletes: [String]) {
         guard let syncEngine else { return }
         var pending: [CKSyncEngine.PendingRecordZoneChange] = []
         pending += upserts.map { .saveRecord(recordID(for: $0)) }
         pending += deletes.map { .deleteRecord(recordID(for: $0)) }
-        for id in deletes { knownRecords[id] = nil }
+        for id in deletes {
+            knownRecords[id] = nil
+        }
         syncEngine.state.add(pendingRecordZoneChanges: pending)
     }
 
@@ -150,27 +154,29 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         // closure, which CKSyncEngine calls off-actor, only reads the plain dictionary.
         var records: [CKRecord.ID: CKRecord] = [:]
         for change in pending {
-            if case .saveRecord(let id) = change { records[id] = materialize(id, from: snap) }
+            if case let .saveRecord(id) = change {
+                records[id] = materialize(id, from: snap)
+            }
         }
-        let resolved = records   // immutable capture for the off-actor provider closure
+        let resolved = records // immutable capture for the off-actor provider closure
         return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { recordID in
             resolved[recordID]
         }
     }
 
-    // ── Delegate event pump ───────────────────────────────────────────────────────
+    /// ── Delegate event pump ───────────────────────────────────────────────────────
     func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {
         switch event {
-        case .stateUpdate(let e):
+        case let .stateUpdate(e):
             saveState(e.stateSerialization)
-        case .accountChange(let e):
+        case let .accountChange(e):
             handleAccountChange(e)
-        case .fetchedRecordZoneChanges(let e):
+        case let .fetchedRecordZoneChanges(e):
             applyFetched(modifications: e.modifications, deletions: e.deletions)
-        case .sentRecordZoneChanges(let e):
+        case let .sentRecordZoneChanges(e):
             handleSent(e)
         case .didFetchChanges, .didSendChanges:
-            engine?.syncMonitor.markSynced()   // a fetch/push round-trip completed → stamp "last synced"
+            engine?.syncMonitor.markSynced() // a fetch/push round-trip completed → stamp "last synced"
         case .fetchedDatabaseChanges, .sentDatabaseChanges,
              .willFetchChanges, .willFetchRecordZoneChanges,
              .didFetchRecordZoneChanges, .willSendChanges:
@@ -193,7 +199,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         }
     }
 
-    // ── Inbound: server records → engine ──────────────────────────────────────────
+    /// ── Inbound: server records → engine ──────────────────────────────────────────
     private func applyFetched(
         modifications: [CKDatabase.RecordZoneChange.Modification],
         deletions: [CKDatabase.RecordZoneChange.Deletion]
@@ -206,53 +212,68 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             let name = r.recordID.recordName
             knownRecords[name] = r
             switch r.recordType {
-            case "TimedEvent": if let v = decodeEvent(r) { events.append(v); rich[name] = readRich(r) }
-            case "BandEvent":  if let v = decodeBand(r) { bands.append(v); rich[name] = readRich(r) }
-            case "Deadline":   if let v = decodeDeadline(r) { deadlines.append(v); rich[name] = readRich(r) }
+            case "TimedEvent": if let v = decodeEvent(r) {
+                    events.append(v); rich[name] = readRich(r)
+                }
+            case "BandEvent": if let v = decodeBand(r) {
+                    bands.append(v); rich[name] = readRich(r)
+                }
+            case "Deadline": if let v = decodeDeadline(r) {
+                    deadlines.append(v); rich[name] = readRich(r)
+                }
             case "TrackNames": trackNames = decodeTrackNames(r)
-            case "Overlay":    rich[name] = readRich(r)   // imported-event overlay: no body, merges into richById
+            case "Overlay": rich[name] = readRich(r) // imported-event overlay: no body, merges into richById
             default: break
             }
         }
-        let deletedIDs = deletions.map { $0.recordID.recordName }
-        for id in deletedIDs { knownRecords[id] = nil }
+        let deletedIDs = deletions.map(\.recordID.recordName)
+        for id in deletedIDs {
+            knownRecords[id] = nil
+        }
         saveRecordCache()
-        if !events.isEmpty || !bands.isEmpty || !deadlines.isEmpty || trackNames != nil || !deletedIDs.isEmpty || !rich.isEmpty {
+        if !events.isEmpty || !bands.isEmpty || !deadlines.isEmpty || trackNames != nil || !deletedIDs.isEmpty || !rich
+            .isEmpty {
             engine?.applyRemote(events: events, bands: bands, deadlines: deadlines,
                                 trackNames: trackNames, deletedIDs: deletedIDs, rich: rich)
         }
     }
 
     private func handleSent(_ e: CKSyncEngine.Event.SentRecordZoneChanges) {
-        for saved in e.savedRecords { knownRecords[saved.recordID.recordName] = saved }
+        for saved in e.savedRecords {
+            knownRecords[saved.recordID.recordName] = saved
+        }
         for fail in e.failedRecordSaves {
             let name = fail.record.recordID.recordName
             switch fail.error.code {
             case .serverRecordChanged:
                 // Adopt the server change-tag, then re-enqueue our save so the local edit
                 // wins (last-writer-wins, local-favoured). Rare for a single user.
-                if let server = fail.error.serverRecord { knownRecords[name] = server }
+                if let server = fail.error.serverRecord {
+                    knownRecords[name] = server
+                }
                 syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(fail.record.recordID)])
             case .zoneNotFound, .userDeletedZone:
                 syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
                 syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(fail.record.recordID)])
             case .serverRejectedRequest, .unknownItem:
-                break   // give up on this record
+                break // give up on this record
             default:
-                break   // transient — CKSyncEngine retries automatically
+                break // transient — CKSyncEngine retries automatically
             }
         }
         saveRecordCache()
     }
 
-    // ── Item ⇄ CKRecord mapping ───────────────────────────────────────────────────
-    private func recordID(for name: String) -> CKRecord.ID { CKRecord.ID(recordName: name, zoneID: zoneID) }
+    /// ── Item ⇄ CKRecord mapping ───────────────────────────────────────────────────
+    private func recordID(for name: String) -> CKRecord.ID {
+        CKRecord.ID(recordName: name, zoneID: zoneID)
+    }
 
     private func base(_ name: String, _ type: CKRecord.RecordType) -> CKRecord {
         knownRecords[name] ?? CKRecord(recordType: type, recordID: recordID(for: name))
     }
 
-    // ── Full-fidelity fields (notes/tags/recurrence/…) the lean item types don't carry ──
+    /// ── Full-fidelity fields (notes/tags/recurrence/…) the lean item types don't carry ──
     /// Write them onto the record, clearing any that are absent so an edit can't leave a stale value.
     private func writeRich(_ r: CKRecord, _ rf: RichFields?) {
         r["notes"] = rf?.notes as CKRecordValue?
@@ -266,6 +287,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         r["colorOverride"] = rf?.colorOverride as CKRecordValue?
         r["userHidden"] = ((rf?.userHidden ?? false) ? 1 : 0) as NSNumber
     }
+
     private func readRich(_ r: CKRecord) -> RichFields {
         RichFields(
             notes: r["notes"] as? String,
@@ -277,7 +299,8 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             hidden: ((r["hidden"] as? Int) ?? 0) != 0,
             createdByAI: ((r["createdByAI"] as? Int) ?? 0) != 0,
             colorOverride: r["colorOverride"] as? String,
-            userHidden: ((r["userHidden"] as? Int) ?? 0) != 0)
+            userHidden: ((r["userHidden"] as? Int) ?? 0) != 0
+        )
     }
 
     /// Build the CKRecord to save for `recordID` from the current snapshot, or nil if the
@@ -294,7 +317,8 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             r["year"] = e.year as NSNumber; r["month"] = e.month as NSNumber; r["day"] = e.day as NSNumber
             r["startHour"] = Double(e.startHour) as NSNumber; r["endHour"] = Double(e.endHour) as NSNumber
             r["title"] = e.title as NSString; r["color"] = e.color as NSString
-            r["anchorTz"] = e.anchorTz as CKRecordValue?   // the event's timezone anchor — must round-trip or it stops converting
+            r["anchorTz"] = e
+                .anchorTz as CKRecordValue? // the event's timezone anchor — must round-trip or it stops converting
             writeRich(r, snap.rich?[name]); return r
         }
         if let b = snap.bands.first(where: { $0.id == name }) {
@@ -309,7 +333,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             r["year"] = d.year as NSNumber; r["month"] = d.month as NSNumber; r["day"] = d.day as NSNumber
             r["hour"] = Double(d.hour) as NSNumber; r["title"] = d.title as NSString; r["color"] = d.color as NSString
             r["originTz"] = d.originTz as CKRecordValue?
-            r["anchorTz"] = d.anchorTz as CKRecordValue?   // timezone anchor — must round-trip or it stops converting
+            r["anchorTz"] = d.anchorTz as CKRecordValue? // timezone anchor — must round-trip or it stops converting
             writeRich(r, snap.rich?[name]); return r
         }
         // No body of ours: a user overlay on an imported event (color / promote / notes / tags), keyed by
@@ -331,6 +355,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
                           // rather than nil, so a fetched item keeps converting without waiting for an app restart.
                           anchorTz: (r["anchorTz"] as? String) ?? DeadlineTZ.concrete("auto"))
     }
+
     private func decodeBand(_ r: CKRecord) -> BandEvent? {
         guard let year = r["year"] as? Int, let month = r["month"] as? Int, let track = r["track"] as? Int,
               let sd = r["startDay"] as? Int, let ed = r["endDay"] as? Int,
@@ -338,6 +363,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         return BandEvent(id: r.recordID.recordName, year: year, month: month, track: track,
                          startDay: sd, endDay: ed, title: title, color: color)
     }
+
     private func decodeDeadline(_ r: CKRecord) -> Deadline? {
         guard let year = r["year"] as? Int, let month = r["month"] as? Int, let day = r["day"] as? Int,
               let hour = r["hour"] as? Double, let title = r["title"] as? String,
@@ -346,20 +372,23 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
                         hour: CGFloat(hour), title: title, color: color, originTz: r["originTz"] as? String,
                         anchorTz: (r["anchorTz"] as? String) ?? DeadlineTZ.concrete("auto"))
     }
+
     private func decodeTrackNames(_ r: CKRecord) -> [[String]]? {
         guard let json = r["json"] as? String, let data = json.data(using: .utf8),
               let names = try? JSONDecoder().decode([[String]].self, from: data) else { return nil }
         return names
     }
+
     private func jsonString(_ names: [[String]]) -> String {
         (try? String(data: JSONEncoder().encode(names), encoding: .utf8) ?? "") ?? ""
     }
 
-    // ── Persistence: CKSyncEngine state + record-metadata cache ───────────────────
+    /// ── Persistence: CKSyncEngine state + record-metadata cache ───────────────────
     private func loadState() -> CKSyncEngine.State.Serialization? {
         guard let data = engine?.loadSyncState() else { return nil }
         return try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
     }
+
     private func saveState(_ s: CKSyncEngine.State.Serialization) {
         engine?.saveSyncState(try? JSONEncoder().encode(s))
     }
@@ -367,14 +396,17 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     private func loadRecordCache() {
         guard let data = try? Data(contentsOf: recordCacheURL),
               let dict = (try? PropertyListSerialization.propertyList(from: data, options: [], format: nil))
-                  as? [String: Data] else { return }
+              as? [String: Data] else { return }
         for (id, d) in dict {
             guard let coder = try? NSKeyedUnarchiver(forReadingFrom: d) else { continue }
             coder.requiresSecureCoding = true
-            if let rec = CKRecord(coder: coder) { knownRecords[id] = rec }
+            if let rec = CKRecord(coder: coder) {
+                knownRecords[id] = rec
+            }
             coder.finishDecoding()
         }
     }
+
     private func saveRecordCache() {
         var dict: [String: Data] = [:]
         for (id, rec) in knownRecords {

@@ -9,8 +9,14 @@
 
 import CoreGraphics
 
-private func quarterBlock() -> CGFloat { Layout.qHeaderH + 3 * Layout.monthH }
-public func yearContentH() -> CGFloat { 4 * quarterBlock() + 3 * Layout.qGap }
+private func quarterBlock() -> CGFloat {
+    Layout.qHeaderH + 3 * Layout.monthH
+}
+
+public func yearContentH() -> CGFloat {
+    4 * quarterBlock() + 3 * Layout.qGap
+}
+
 public func yearMaxScroll(_ vp: Viewport) -> CGFloat {
     max(0, yearContentH() - (vp.h - Layout.yearTop - Layout.bottomPad))
 }
@@ -32,17 +38,22 @@ public func focusGeom(_ vp: Viewport) -> (x0: CGFloat, dayW: CGFloat, bandY: CGF
     (Layout.labelW, (vp.w - Layout.labelW) / 31, Layout.topPad, Layout.trackH)
 }
 
-private func detailFullH(_ vp: Viewport) -> CGFloat { vp.h - Layout.topPad - Layout.monthH - 30 }
+private func detailFullH(_ vp: Viewport) -> CGFloat {
+    vp.h - Layout.topPad - Layout.monthH - 30
+}
 
-// Year→Month accordion: the focus lane scrolls to the top; detail space opens below it.
+/// Year→Month accordion: the focus lane scrolls to the top; detail space opens below it.
 private func yearToMonthFrame(_ m: Int, _ t: CGFloat, _ focus: Int, _ vp: Viewport, _ scrollY: CGFloat) -> Frame {
     let yf = yearFrame(m, vp, scrollY)
     let yfocus = yearFrame(focus, vp, scrollY)
     let PAD: CGFloat = 80
     let scroll = (yfocus.bandY - Layout.topPad) * t
     var bandY = yf.bandY - scroll
-    if m < focus { bandY -= PAD * t }
-    else if m > focus { bandY += detailFullH(vp) * t + PAD * t }
+    if m < focus {
+        bandY -= PAD * t
+    } else if m > focus {
+        bandY += detailFullH(vp) * t + PAD * t
+    }
     return Frame(x0: Layout.labelW, dayW: yf.dayW, bandY: bandY, trackH: Layout.trackH, opacity: 1)
 }
 
@@ -60,7 +71,7 @@ private func weekFrame(_ m: Int, _ g: SceneInput) -> Frame {
     return Frame(x0: Layout.labelW, dayW: dayW, bandY: off, trackH: Layout.trackH, opacity: 0)
 }
 
-// Vertical month-to-month paging. dir +1 = next month, -1 = prev; p ∈ [0,1].
+/// Vertical month-to-month paging. dir +1 = next month, -1 = prev; p ∈ [0,1].
 private func monthSwipeFrame(_ m: Int, _ anim: PageAnim, _ focus: Int, _ vp: Viewport) -> Frame {
     let dir = anim.dir, p = anim.p
     let to = focus + dir
@@ -90,9 +101,13 @@ private func monthSwipeFrame(_ m: Int, _ anim: PageAnim, _ focus: Int, _ vp: Vie
 public func spillFactor(_ month: Int, _ g: SceneInput, dim: CGFloat = 0.45) -> CGFloat {
     if g.weekFlipDir != 0 {
         let f = g.weekFlipFade
-        let origin = (g.focus - g.weekFlipDir + 12) % 12   // month left behind (year-wrap safe)
-        if month == g.focus { return lerp(dim, 1, f) }     // destination brightens in
-        if month == origin { return lerp(1, dim, f) }      // origin dims out
+        let origin = (g.focus - g.weekFlipDir + 12) % 12 // month left behind (year-wrap safe)
+        if month == g.focus {
+            return lerp(dim, 1, f)
+        } // destination brightens in
+        if month == origin {
+            return lerp(1, dim, f)
+        } // origin dims out
         return dim
     }
     return month == g.focus ? 1 : dim
@@ -103,10 +118,16 @@ public func dailyFade(_ dom: Int, _ g: SceneInput) -> CGFloat {
     // Week/month view shows EVERY day at full opacity — check this FIRST so a leftover day-paging
     // `anim` (e.g. zoomed out mid-day-scroll, before the pager settled) can't blank out all the other
     // days (and their grid/labels) here. The day-paging carousel only applies within day view (z>2).
-    if g.z <= 2 { return 1 }
+    if g.z <= 2 {
+        return 1
+    }
     if let a = g.daily.anim {
-        if dom == g.daily.dom { return 1 - a.p }
-        if dom == g.daily.dom + a.dir { return a.p }
+        if dom == g.daily.dom {
+            return 1 - a.p
+        }
+        if dom == g.daily.dom + a.dir {
+            return a.p
+        }
         return 0
     }
     return dom == g.daily.dom ? 1 : 1 - clamp(g.z - 2, 0, 1)
@@ -144,21 +165,27 @@ public func dashboardLeft(_ g: SceneInput) -> CGFloat {
 /// (content, bands, deadlines, chrome) uses this so they reveal together.
 public func dashboardLeftAnimated(_ g: SceneInput) -> CGFloat {
     let reveal = easeInOut(clamp(g.z - 2, 0, 1))
-    if reveal <= 0.0001 { return g.vp.w }
+    if reveal <= 0.0001 {
+        return g.vp.w
+    }
     return lerp(g.vp.w, dashboardLeft(g), reveal)
 }
 
 /// Resolve month `m`'s frame at the current zoom. `anim` (month paging) overrides z when present.
 public func frameFor(_ m: Int, _ g: SceneInput, anim: PageAnim? = nil) -> Frame {
     var f: Frame
-    if let anim { f = monthSwipeFrame(m, anim, g.focus, g.vp) }
-    else if g.z <= 1 { f = yearToMonthFrame(m, easeInOut(clamp(g.z, 0, 1)), g.focus, g.vp, g.scrollY) }
-    else if g.z <= 2 {
+    if let anim {
+        f = monthSwipeFrame(m, anim, g.focus, g.vp)
+    } else if g.z <= 1 {
+        f = yearToMonthFrame(m, easeInOut(clamp(g.z, 0, 1)), g.focus, g.vp, g.scrollY)
+    } else if g.z <= 2 {
         let mf = yearToMonthFrame(m, 1, g.focus, g.vp, g.scrollY)
         f = blend(mf, weekFrame(m, g), easeInOut(clamp(g.z - 1, 0, 1)))
     } else {
         f = blend(weekFrame(m, g), dayFrame(m, g), easeInOut(clamp(g.z - 2, 0, 1)))
     }
-    if g.monthFlipShift != 0 { f.bandY += g.monthFlipShift }   // month boundary-flip: shift the view
+    if g.monthFlipShift != 0 {
+        f.bandY += g.monthFlipShift
+    } // month boundary-flip: shift the view
     return f
 }

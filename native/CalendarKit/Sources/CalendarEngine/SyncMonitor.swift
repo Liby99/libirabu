@@ -25,7 +25,9 @@ import Observation
     public init(cloudEnabled: Bool) {
         self.cloudEnabled = cloudEnabled
         let t = UserDefaults.standard.double(forKey: Self.lastAtKey)
-        if t > 0 { lastSyncedAt = Date(timeIntervalSince1970: t) }
+        if t > 0 {
+            lastSyncedAt = Date(timeIntervalSince1970: t)
+        }
         // A once-a-minute wake so the relative label ("5 minutes ago") advances on its own.
         ticker = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.minuteTick &+= 1 }

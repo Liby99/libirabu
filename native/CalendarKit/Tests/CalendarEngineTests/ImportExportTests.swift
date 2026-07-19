@@ -1,14 +1,43 @@
-import XCTest
 @testable import CalendarEngine
 import CalendarGeometry
+import XCTest
 
 @MainActor
 final class ImportExportTests: XCTestCase {
 
     private func sampleState() -> PersistedState {
-        let events = [TimedEvent(id: "t1", year: 2026, month: 6, day: 20, startHour: 9, endHour: 10.5, title: "Standup", color: "blue", anchorTz: "America/New_York")]
-        let bands = [BandEvent(id: "b1", year: 2026, month: 6, track: 2, startDay: 20, endDay: 22, title: "Conf", color: "green")]
-        let deadlines = [Deadline(id: "d1", year: 2026, month: 6, day: 25, hour: 17, title: "CFP", color: "red", originTz: "AOE", anchorTz: "AOE")]
+        let events = [TimedEvent(
+            id: "t1",
+            year: 2026,
+            month: 6,
+            day: 20,
+            startHour: 9,
+            endHour: 10.5,
+            title: "Standup",
+            color: "blue",
+            anchorTz: "America/New_York"
+        )]
+        let bands = [BandEvent(
+            id: "b1",
+            year: 2026,
+            month: 6,
+            track: 2,
+            startDay: 20,
+            endDay: 22,
+            title: "Conf",
+            color: "green"
+        )]
+        let deadlines = [Deadline(
+            id: "d1",
+            year: 2026,
+            month: 6,
+            day: 25,
+            hour: 17,
+            title: "CFP",
+            color: "red",
+            originTz: "AOE",
+            anchorTz: "AOE"
+        )]
         let rich: [String: RichFields] = [
             "t1": RichFields(notes: "hello", tags: ["work"], source: "manual"),
             "b1": RichFields(tags: ["imported"], source: "ical", hidden: true),
@@ -26,7 +55,7 @@ final class ImportExportTests: XCTestCase {
         XCTAssertEqual(back.events, s.events)
         XCTAssertEqual(back.bands, s.bands)
         XCTAssertEqual(back.deadlines, s.deadlines)
-        XCTAssertEqual(back.events.first?.anchorTz, "America/New_York")   // timezone anchor survives the .mdc round-trip
+        XCTAssertEqual(back.events.first?.anchorTz, "America/New_York") // timezone anchor survives the .mdc round-trip
         XCTAssertEqual(back.deadlines.first?.anchorTz, "AOE")
         XCTAssertEqual(back.dailyNotes, s.dailyNotes)
         XCTAssertEqual(back.rich?["t1"]?.notes, "hello")
@@ -64,7 +93,7 @@ final class ImportExportTests: XCTestCase {
     }
 
     /// .ics: all-day → band (exclusive DTEND → inclusive last day); timed same-day → timed event.
-    func testICSParse() {
+    func testICSParse() throws {
         let ics = """
         BEGIN:VCALENDAR
         VERSION:2.0
@@ -86,14 +115,14 @@ final class ImportExportTests: XCTestCase {
         let (events, bands, rich) = ICSImport.items(from: ics, provenance: "test.ics")
         XCTAssertEqual(bands.count, 1)
         XCTAssertEqual(bands.first?.startDay, 20)
-        XCTAssertEqual(bands.first?.endDay, 22)   // DTEND 23 exclusive → 22 inclusive
+        XCTAssertEqual(bands.first?.endDay, 22) // DTEND 23 exclusive → 22 inclusive
         XCTAssertEqual(bands.first?.title, "Conference")
         XCTAssertEqual(events.count, 1)
         XCTAssertEqual(events.first?.day, 20)
-        XCTAssertEqual(events.first?.startHour, 9)   // floating (no Z/TZID) → wall clock as-is
+        XCTAssertEqual(events.first?.startHour, 9) // floating (no Z/TZID) → wall clock as-is
         XCTAssertEqual(events.first?.endHour, 9.5)
         // vendor LOCATION lands in the managed-note block.
-        XCTAssertEqual(rich[events.first!.id]?.notes?.contains("Room 5"), true)
-        XCTAssertEqual(rich[events.first!.id]?.source, "ical")
+        XCTAssertEqual(try rich[XCTUnwrap(events.first?.id)]?.notes?.contains("Room 5"), true)
+        XCTAssertEqual(try rich[XCTUnwrap(events.first?.id)]?.source, "ical")
     }
 }

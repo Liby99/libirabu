@@ -17,33 +17,55 @@ let store = EKEventStore()
 
 enum BridgeError: Error { case accessDenied(Int); case badRequest(String) }
 
-// ── access ───────────────────────────────────────────────────────────────────────────────────
+/// ── access ───────────────────────────────────────────────────────────────────────────────────
 func ensureAccess() throws {
     let status = EKEventStore.authorizationStatus(for: .event)
-    if status.rawValue == 3 { return } // authorized / fullAccess (read)
+    if status.rawValue == 3 {
+        return
+    } // authorized / fullAccess (read)
     let sem = DispatchSemaphore(value: 0)
     var granted = false
-    if #available(macOS 14.0, *) { store.requestFullAccessToEvents { ok, _ in granted = ok; sem.signal() } }
-    else { store.requestAccess(to: .event) { ok, _ in granted = ok; sem.signal() } }
+    if #available(macOS 14.0, *) {
+        store.requestFullAccessToEvents { ok, _ in granted = ok; sem.signal() }
+    } else {
+        store.requestAccess(to: .event) { ok, _ in granted = ok; sem.signal() }
+    }
     _ = sem.wait(timeout: .now() + 30)
-    if !granted { throw BridgeError.accessDenied(Int(status.rawValue)) }
+    if !granted {
+        throw BridgeError.accessDenied(Int(status.rawValue))
+    }
 }
 
-// ── formatters / mappers ───────────────────────────────────────────────────────────────────────
-let isoFormatter: ISO8601DateFormatter = { let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f }()
-let dayFormatter: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.locale = Locale(identifier: "en_US_POSIX"); return f }()
-let untilFormatter: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"; f.timeZone = TimeZone(identifier: "UTC"); f.locale = Locale(identifier: "en_US_POSIX"); return f }()
+/// ── formatters / mappers ───────────────────────────────────────────────────────────────────────
+let isoFormatter: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f
+}()
+
+let dayFormatter: DateFormatter = {
+    let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.locale = Locale(identifier: "en_US_POSIX"); return f
+}()
+
+let untilFormatter: DateFormatter = {
+    let f = DateFormatter(); f.dateFormat = "yyyyMMdd'T'HHmmss'Z'"; f.timeZone = TimeZone(identifier: "UTC"); f
+        .locale = Locale(identifier: "en_US_POSIX"); return f
+}()
 
 func statusString(_ s: EKParticipantStatus) -> String {
     switch s {
-    case .accepted: return "accepted"
-    case .declined: return "declined"
-    case .tentative: return "tentative"
-    case .pending: return "needs-action"
-    default: return "unknown"
+    case .accepted: "accepted"
+    case .declined: "declined"
+    case .tentative: "tentative"
+    case .pending: "needs-action"
+    default: "unknown"
     }
 }
-func emailOf(_ p: EKParticipant?) -> String { (p?.url).map { $0.absoluteString.replacingOccurrences(of: "mailto:", with: "") } ?? "" }
+
+func emailOf(_ p: EKParticipant?) -> String {
+    (p?.url).map { $0.absoluteString.replacingOccurrences(
+        of: "mailto:",
+        with: ""
+    ) } ?? ""
+}
 
 let bydayToken: [Int: String] = [1: "SU", 2: "MO", 3: "TU", 4: "WE", 5: "TH", 6: "FR", 7: "SA"]
 func rruleString(_ r: EKRecurrenceRule) -> String {
@@ -55,28 +77,41 @@ func rruleString(_ r: EKRecurrenceRule) -> String {
     case .yearly: parts.append("FREQ=YEARLY")
     @unknown default: parts.append("FREQ=DAILY")
     }
-    if r.interval > 1 { parts.append("INTERVAL=\(r.interval)") }
+    if r.interval > 1 {
+        parts.append("INTERVAL=\(r.interval)")
+    }
     if let days = r.daysOfTheWeek, !days.isEmpty {
         let tokens = days.compactMap { bydayToken[$0.dayOfTheWeek.rawValue] }
-        if !tokens.isEmpty { parts.append("BYDAY=\(tokens.joined(separator: ","))") }
+        if !tokens.isEmpty {
+            parts.append("BYDAY=\(tokens.joined(separator: ","))")
+        }
     }
     if let end = r.recurrenceEnd {
-        if let d = end.endDate { parts.append("UNTIL=\(untilFormatter.string(from: d))") }
-        else if end.occurrenceCount > 0 { parts.append("COUNT=\(end.occurrenceCount)") }
+        if let d = end.endDate {
+            parts.append("UNTIL=\(untilFormatter.string(from: d))")
+        } else if end.occurrenceCount > 0 {
+            parts.append("COUNT=\(end.occurrenceCount)")
+        }
     }
     return parts.joined(separator: ";")
 }
 
-// ── compute (throwing; no process exit — reusable by CLI and serve modes) ──────────────────────
+/// ── compute (throwing; no process exit — reusable by CLI and serve modes) ──────────────────────
 func calendarsResult() throws -> Any {
     try ensureAccess()
     return store.calendars(for: .event).map { c -> [String: Any] in
         var color = ""
         if let cg = c.cgColor, let comps = cg.components, comps.count >= 3 {
-            color = String(format: "#%02X%02X%02X", Int((comps[0] * 255).rounded()), Int((comps[1] * 255).rounded()), Int((comps[2] * 255).rounded()))
+            color = String(
+                format: "#%02X%02X%02X",
+                Int((comps[0] * 255).rounded()),
+                Int((comps[1] * 255).rounded()),
+                Int((comps[2] * 255).rounded())
+            )
         }
         return ["id": c.calendarIdentifier, "title": c.title, "source": c.source.title,
-                "sourceType": String(c.source.sourceType.rawValue), "color": color, "allowsModify": c.allowsContentModifications]
+                "sourceType": String(c.source.sourceType.rawValue), "color": color,
+                "allowsModify": c.allowsContentModifications]
     }
 }
 
@@ -108,7 +143,11 @@ func eventsResult(fromISO: String, toISO: String, calendarIds: [String]) throws 
             obj["start"] = isoFormatter.string(from: e.startDate)
             obj["end"] = isoFormatter.string(from: e.endDate)
         }
-        obj["attendees"] = (e.attendees ?? []).map { ["name": $0.name ?? "", "email": emailOf($0), "status": statusString($0.participantStatus)] as [String: Any] }
+        obj["attendees"] = (e.attendees ?? []).map { [
+            "name": $0.name ?? "",
+            "email": emailOf($0),
+            "status": statusString($0.participantStatus),
+        ] as [String: Any] }
         obj["rrule"] = e.recurrenceRules?.first.map { rruleString($0) } ?? NSNull()
         obj["lastModified"] = e.lastModifiedDate.map { isoFormatter.string(from: $0) } ?? NSNull()
         return obj
@@ -136,32 +175,46 @@ func jsonString(_ value: Any) -> String {
           let s = String(data: d, encoding: .utf8) else { return "{\"error\":\"json-encode-failed\"}" }
     return s
 }
+
 func writeResult(_ s: String, to path: String?) {
-    if let p = path { try? s.write(toFile: p, atomically: true, encoding: .utf8) } else { print(s) }
+    if let p = path {
+        try? s.write(toFile: p, atomically: true, encoding: .utf8)
+    } else {
+        print(s)
+    }
 }
 
-// ── arg parsing ────────────────────────────────────────────────────────────────────────────────
+/// ── arg parsing ────────────────────────────────────────────────────────────────────────────────
 func argValue(_ name: String) -> String? {
     let a = CommandLine.arguments
     guard let i = a.firstIndex(of: name), i + 1 < a.count else { return nil }
     return a[i + 1]
 }
-func csv(_ s: String?) -> [String] { s.map { $0.split(separator: ",").map(String.init) } ?? [] }
+
+func csv(_ s: String?) -> [String] {
+    s.map { $0.split(separator: ",").map(String.init) } ?? []
+}
 
 let sub = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
 
 // ── serve-once (launchd) ───────────────────────────────────────────────────────────────────────
 if sub == "--serve-once" {
-    guard let dir = argValue("--requests") else { FileHandle.standardError.write("missing --requests\n".data(using: .utf8)!); exit(2) }
+    guard let dir = argValue("--requests")
+    else { FileHandle.standardError.write("missing --requests\n".data(using: .utf8)!); exit(2) }
     let fm = FileManager.default
     for f in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] where f.hasSuffix(".req.json") {
         let reqPath = "\(dir)/\(f)"
         let resPath = "\(dir)/" + f.replacingOccurrences(of: ".req.json", with: ".res.json")
         var cmd = "", from: String? = nil, to: String? = nil, cals: [String] = []
-        if let data = fm.contents(atPath: reqPath), let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        if let data = fm.contents(atPath: reqPath),
+           let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             cmd = o["cmd"] as? String ?? ""
             from = o["from"] as? String; to = o["to"] as? String
-            if let c = o["calendars"] as? String { cals = csv(c) } else if let c = o["calendars"] as? [String] { cals = c }
+            if let c = o["calendars"] as? String {
+                cals = csv(c)
+            } else if let c = o["calendars"] as? [String] {
+                cals = c
+            }
         }
         let result = jsonString(runRequest(cmd: cmd, from: from, to: to, calendars: cals))
         // atomic publish: write .tmp then rename, so the poller never reads a partial file
@@ -174,14 +227,25 @@ if sub == "--serve-once" {
     exit(0)
 }
 
-// ── CLI (for the one-time grant via `open`) ────────────────────────────────────────────────────
+/// ── CLI (for the one-time grant via `open`) ────────────────────────────────────────────────────
 let outPath = argValue("--out")
 switch sub {
 case "list-calendars":
     writeResult(jsonString(runRequest(cmd: "list-calendars", from: nil, to: nil, calendars: [])), to: outPath)
 case "events":
-    writeResult(jsonString(runRequest(cmd: "events", from: argValue("--from"), to: argValue("--to"), calendars: csv(argValue("--calendars")))), to: outPath)
+    writeResult(
+        jsonString(runRequest(
+            cmd: "events",
+            from: argValue("--from"),
+            to: argValue("--to"),
+            calendars: csv(argValue("--calendars"))
+        )),
+        to: outPath
+    )
 default:
-    writeResult("{\"error\":\"usage: list-calendars | events --from <ISO> --to <ISO> [--calendars id,id] | --serve-once --requests <dir>\"}", to: outPath)
+    writeResult(
+        "{\"error\":\"usage: list-calendars | events --from <ISO> --to <ISO> [--calendars id,id] | --serve-once --requests <dir>\"}",
+        to: outPath
+    )
     exit(2)
 }

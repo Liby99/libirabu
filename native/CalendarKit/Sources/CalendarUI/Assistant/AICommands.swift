@@ -7,13 +7,18 @@ import SwiftUI
 public struct AICommands: View {
     let assistant: AssistantState
     @Environment(\.openWindow) private var openWindow
-    // The model id the assistant uses, shared with the chat window's picker (same @AppStorage key).
+    /// The model id the assistant uses, shared with the chat window's picker (same @AppStorage key).
     @AppStorage(AssistantModels.defaultsKey) private var model = AssistantModels.fallback
 
-    public init(assistant: AssistantState) { self.assistant = assistant }
+    public init(assistant: AssistantState) {
+        self.assistant = assistant
+    }
 
     public var body: some View {
-        Button { assistant.newChat(); openWindow(id: "assistant") } label: { Label("New Conversation", systemImage: "square.and.pencil") }
+        Button { assistant.newChat(); openWindow(id: "assistant") } label: { Label(
+            "New Conversation",
+            systemImage: "square.and.pencil"
+        ) }
         Button { openWindow(id: "assistant") } label: { Label("Current Conversation", systemImage: "bubble.left") }
         Divider()
         // Renders as a "Model ▸" submenu with a checkmark on the active model.

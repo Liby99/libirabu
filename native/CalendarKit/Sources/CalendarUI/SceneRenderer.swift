@@ -9,8 +9,8 @@
 //   6. daily dashboard (z14)  opaque right panel — hides the other days in day view
 //   7. scene items z>=14       daily now-line / cursor / labels above the dashboard
 
-import SwiftUI
 import CalendarGeometry
+import SwiftUI
 
 enum SceneRenderer {
     // The renderer draws three Canvas passes; the frosted gutter/dashboard masks are
@@ -23,17 +23,18 @@ enum SceneRenderer {
     //   drawAbove  — chrome that sits ON the masks: gutter labels/borders, track names,
     //                now-line/cursor, dashboard title + bars
 
-    // now-line / mouse cursor + their labels — drawn in the top pass, above everything.
+    /// now-line / mouse cursor + their labels — drawn in the top pass, above everything.
     private static func isForeground(_ k: ItemKind) -> Bool {
         switch k { case .now, .nowLabel, .cursor, .timeTag: return true; default: return false }
     }
 
-    // Two disjoint regions. Content items clip to the content rect; gutter items
-    // (it.gutter) clip to the gutter rect — so neither can be drawn over the other,
-    // and no occlusion/background is needed.
+    /// Two disjoint regions. Content items clip to the content rect; gutter items
+    /// (it.gutter) clip to the gutter rect — so neither can be drawn over the other,
+    /// and no occlusion/background is needed.
     private static func contentRect(_ input: SceneInput) -> CGRect {
-        return CGRect(x: Layout.labelW, y: 0, width: max(0, dashboardLeftAnimated(input) - Layout.labelW), height: input.vp.h)
+        CGRect(x: Layout.labelW, y: 0, width: max(0, dashboardLeftAnimated(input) - Layout.labelW), height: input.vp.h)
     }
+
     private static func gutterRect(_ input: SceneInput) -> CGRect {
         // Extends left over the padding so the gutter hover can reach the window edge.
         CGRect(x: -Layout.padLeft, y: 0, width: Layout.labelW + Layout.padLeft, height: input.vp.h)
@@ -44,20 +45,36 @@ enum SceneRenderer {
     static func drawBelow(input: SceneInput, in ctx: inout GraphicsContext, theme: Theme) {
         var clipped = ctx; clipped.clip(to: Path(contentRect(input)))
         for it in buildScene(input).items.sorted(by: { $0.z < $1.z })
-        where it.opacity > 0.001 && !it.gutter && !isForeground(it.kind) {
+            where it.opacity > 0.001 && !it.gutter && !isForeground(it.kind) {
             var layer = clipped; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
     }
 
     /// Above the events, below the chrome: deadlines (self-clip to the content area).
-    static func drawMid(input: SceneInput, deadlines: [Deadline], selected: String?, drawerOpen: Bool = false, hovered: String? = nil, only: String? = nil, hide: String? = nil, in ctx: inout GraphicsContext, theme: Theme) {
+    static func drawMid(
+        input: SceneInput,
+        deadlines: [Deadline],
+        selected: String?,
+        drawerOpen: Bool = false,
+        hovered: String? = nil,
+        only: String? = nil,
+        hide: String? = nil,
+        in ctx: inout GraphicsContext,
+        theme: Theme
+    ) {
         drawDeadlines(input, deadlines, selected, drawerOpen, hovered, only, hide, &ctx, theme)
     }
 
     /// Chrome, each clipped to its own region so it can't collide with content:
     /// gutter items + track names (gutter region), now-line/cursor (content region),
     /// then the dashboard title.
-    static func drawAbove(input: SceneInput, tracks: [[String]], hideTrack: (Int, Int)? = nil, in ctx: inout GraphicsContext, theme: Theme) {
+    static func drawAbove(
+        input: SceneInput,
+        tracks: [[String]],
+        hideTrack: (Int, Int)? = nil,
+        in ctx: inout GraphicsContext,
+        theme: Theme
+    ) {
         let items = buildScene(input).items.sorted { $0.z < $1.z }
         // gutter region: month name, hour labels, gutter borders, gutter hover + tracks
         var gut = ctx; gut.clip(to: Path(gutterRect(input)))
@@ -80,25 +97,25 @@ enum SceneRenderer {
         drawScrollDebug(input, &ctx, theme)
     }
 
-    // Pull-to-flip-month hint (week view, at a month edge). Hugs the pulled left/right edge and
-    // names the neighbor month + how the flip resolves: an ALIGNED boundary (the boundary week is
-    // wholly this month) advances to a fresh "prev/next month"; a SHARED boundary week (already
-    // shows the neighbor's spillover, dimmed) merely "reveal"s it (brightens). Always full month name.
+    /// Pull-to-flip-month hint (week view, at a month edge). Hugs the pulled left/right edge and
+    /// names the neighbor month + how the flip resolves: an ALIGNED boundary (the boundary week is
+    /// wholly this month) advances to a fresh "prev/next month"; a SHARED boundary week (already
+    /// shows the neighbor's spillover, dimmed) merely "reveal"s it (brightens). Always full month name.
     private static func drawWeekPull(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         guard input.z >= 1.5, input.z < 2.5, let p = input.weekPull, p.over > 4 else { return }
         let reveal = min(1, p.over / 40)
         // A vertical (90°-rotated) label that slides IN from the pulled edge as the rubber-band grows,
         // hugging the gap the overscroll opens — right edge for a next-month pull, left for previous.
         let edgeX = p.dir > 0 ? input.vp.w - Layout.padLeft : Layout.labelW
-        let depth: CGFloat = 20                            // resting distance in from the edge
-        let slide = lerp(depth - 12, depth, reveal)        // peeks, then slides inward with the pull
+        let depth: CGFloat = 20 // resting distance in from the edge
+        let slide = lerp(depth - 12, depth, reveal) // peeks, then slides inward with the pull
         let cx = p.dir > 0 ? edgeX - slide : edgeX + slide
-        let tl = timelineInfo(input)                       // center on the daily timeline band, not the whole window
+        let tl = timelineInfo(input) // center on the daily timeline band, not the whole window
         let cy = (tl.tlTop + tl.tlBottom) * 0.5
         var layer = ctx
         layer.opacity = Double(reveal)
         layer.translateBy(x: cx, y: cy)
-        layer.rotate(by: .degrees(p.dir > 0 ? 90 : -90))   // reads top→bottom (right) / bottom→top (left)
+        layer.rotate(by: .degrees(p.dir > 0 ? 90 : -90)) // reads top→bottom (right) / bottom→top (left)
         // Local frame after the rotate: local-x runs ALONG the edge, local-y is depth. Stack the two
         // lines across the depth axis, centered on the edge.
         drawText(MONTH_LONG[p.targetMonth], CGRect(x: -130, y: -16, width: 260, height: 20),
@@ -109,9 +126,9 @@ enum SceneRenderer {
                  weight: p.armed ? .semibold : .regular, into: &layer)
     }
 
-    // Pull-to-flip-month hint (day view, at a month edge): names the neighbor month + "prev/next
-    // month". Mirrors drawWeekPull, hugging the pulled edge of the single day column (its left edge /
-    // the dashboard boundary on the right).
+    /// Pull-to-flip-month hint (day view, at a month edge): names the neighbor month + "prev/next
+    /// month". Mirrors drawWeekPull, hugging the pulled edge of the single day column (its left edge /
+    /// the dashboard boundary on the right).
     private static func drawDayPull(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         guard input.z >= 2.5, let p = input.dayPull, p.over > 4 else { return }
         let reveal = min(1, p.over / 40)
@@ -132,8 +149,8 @@ enum SceneRenderer {
                  weight: p.armed ? .semibold : .regular, into: &layer)
     }
 
-    // Pull-to-flip-month hint (month view, at the Jan/Dec boundary): the target month + year,
-    // captioned "Release to switch" once past the flip threshold. Hugs the top/bottom edge.
+    /// Pull-to-flip-month hint (month view, at the Jan/Dec boundary): the target month + year,
+    /// captioned "Release to switch" once past the flip threshold. Hugs the top/bottom edge.
     private static func drawMonthPull(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         guard input.z >= 0.5, input.z < 1.5, let p = input.monthPull, p.over > 4 else { return }
         let reveal = min(1, p.over / 40)
@@ -141,7 +158,7 @@ enum SceneRenderer {
         let cy = p.atTop ? max(21, Layout.topPad - 30) : min(input.vp.h - 21, input.vp.h - 34)
         var layer = ctx
         layer.opacity = Double(reveal)
-        let mName = p.atTop ? MONTH_LONG[11] : MONTH_LONG[0]   // prev Dec / next Jan
+        let mName = p.atTop ? MONTH_LONG[11] : MONTH_LONG[0] // prev Dec / next Jan
         drawText("\(mName) \(p.targetYear)", CGRect(x: cx - 120, y: cy - 17, width: 240, height: 22),
                  size: 18, align: .center, color: theme.text, weight: .semibold, into: &layer)
         let cap = p.armed ? "Release to switch" : (p.atTop ? "Previous month" : "Next month")
@@ -153,9 +170,9 @@ enum SceneRenderer {
     // DEBUG: visualize the year-scroll boundaries + flip threshold. Toggle with debugScroll.
     // Compile-time false in release, so the guarded draw path dead-strips entirely.
     #if DEBUG
-    static var debugScroll = false
+        static var debugScroll = false
     #else
-    static let debugScroll = false
+        static let debugScroll = false
     #endif
     private static func drawScrollDebug(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         guard debugScroll, input.z < 0.5 else { return }
@@ -171,8 +188,8 @@ enum SceneRenderer {
         hline(Layout.yearTop + thr, .red, dash: true)
         hline(vp.h - Layout.bottomPad, .blue)
         hline(vp.h - Layout.bottomPad - thr, .red, dash: true)
-        hline(Layout.yearTop - input.scrollY, .green, w: 2)                    // content top
-        hline(Layout.yearTop - input.scrollY + yearContentH(), .green, w: 2)   // content bottom
+        hline(Layout.yearTop - input.scrollY, .green, w: 2) // content top
+        hline(Layout.yearTop - input.scrollY + yearContentH(), .green, w: 2) // content bottom
         let over = input.scrollY < 0 ? -input.scrollY : max(0, input.scrollY - maxY)
         let hud = String(format: "scrollY %.0f   max %.0f   over %.0f   thr %.0f   armed %@",
                          input.scrollY, maxY, over, thr, (input.yearPull?.armed ?? false) ? "YES" : "no")
@@ -180,8 +197,8 @@ enum SceneRenderer {
                  size: 11, align: .left, color: .green, into: &ctx)
     }
 
-    // Pull-to-change-year hint shown in the overscroll gap (year view). The target year
-    // with a caption that flips to "Release to switch" once past the flip threshold.
+    /// Pull-to-change-year hint shown in the overscroll gap (year view). The target year
+    /// with a caption that flips to "Release to switch" once past the flip threshold.
     private static func drawYearPull(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         guard input.z < 0.5, let p = input.yearPull, p.over > 4 else { return }
         let reveal = min(1, p.over / 40)
@@ -205,45 +222,114 @@ enum SceneRenderer {
 
     // Deadlines: a colored horizontal rule across the day column at the deadline's
     // hour, with end dots + a title/time pill. Clipped to the visible day area.
-    private static func drawDeadlines(_ input: SceneInput, _ deadlines: [Deadline], _ selected: String?, _ drawerOpen: Bool, _ hovered: String?, _ only: String?, _ hide: String?, _ ctx: inout GraphicsContext, _ theme: Theme) {
+    private static func drawDeadlines(
+        _ input: SceneInput,
+        _ deadlines: [Deadline],
+        _ selected: String?,
+        _ drawerOpen: Bool,
+        _ hovered: String?,
+        _ only: String?,
+        _ hide: String?,
+        _ ctx: inout GraphicsContext,
+        _ theme: Theme
+    ) {
         let anim = input.monthAnim
         // Outgoing (current) month — slides + fades out during a page-turn (anim==nil → resting).
         let outMul = anim.map { outgoingDetailReveal($0.p) } ?? 1
-        drawDeadlineLayer(input, deadlines, selected, drawerOpen, hovered, only, hide, &ctx, theme, focus: input.focus, anim: anim, fadeMul: outMul)
+        drawDeadlineLayer(
+            input,
+            deadlines,
+            selected,
+            drawerOpen,
+            hovered,
+            only,
+            hide,
+            &ctx,
+            theme,
+            focus: input.focus,
+            anim: anim,
+            fadeMul: outMul
+        )
         // Incoming month during a page-turn: its deadlines slide in + fade in with its timeline.
         if let anim {
             let to = input.focus + anim.dir
             if to >= 0, to <= 11 {
-                drawDeadlineLayer(input, deadlines, selected, drawerOpen, hovered, only, hide, &ctx, theme, focus: to, anim: anim, fadeMul: incomingDetailReveal(anim.p))
+                drawDeadlineLayer(
+                    input,
+                    deadlines,
+                    selected,
+                    drawerOpen,
+                    hovered,
+                    only,
+                    hide,
+                    &ctx,
+                    theme,
+                    focus: to,
+                    anim: anim,
+                    fadeMul: incomingDetailReveal(anim.p)
+                )
             }
         }
     }
 
-    private static func drawDeadlineLayer(_ input: SceneInput, _ deadlinesIn: [Deadline], _ selected: String?, _ drawerOpen: Bool, _ hovered: String?, _ only: String?, _ hide: String?, _ ctx: inout GraphicsContext, _ theme: Theme, focus: Int, anim: PageAnim?, fadeMul: CGFloat) {
+    private static func drawDeadlineLayer(
+        _ input: SceneInput,
+        _ deadlinesIn: [Deadline],
+        _ selected: String?,
+        _ drawerOpen: Bool,
+        _ hovered: String?,
+        _ only: String?,
+        _ hide: String?,
+        _ ctx: inout GraphicsContext,
+        _ theme: Theme,
+        focus: Int,
+        anim: PageAnim?,
+        fadeMul: CGFloat
+    ) {
         let tl = timelineInfo(input, focus: focus, anim: anim)
         guard tl.reveal > 0.05, tl.hourH > 0 else { return }
-        // Draw the hovered / selected deadline LAST so its moment line + dots sit on top of neighbors.
+        /// Draw the hovered / selected deadline LAST so its moment line + dots sit on top of neighbors.
         func rank(_ d: Deadline) -> Int {
-            if d.id == selected { return drawerOpen ? 4 : 3 }
-            if selected.map({ sourceId(of: d.id) == sourceId(of: $0) }) == true { return 2 }
+            if d.id == selected {
+                return drawerOpen ? 4 : 3
+            }
+            if selected.map({ sourceId(of: d.id) == sourceId(of: $0) }) == true {
+                return 2
+            }
             return d.id == hovered ? 1 : 0
         }
-        let deadlines = deadlinesIn.enumerated().sorted { rank($0.element) != rank($1.element) ? rank($0.element) < rank($1.element) : $0.offset < $1.offset }.map(\.element)
-        let clipRight = dashboardLeftAnimated(input)   // clip to the animated dashboard mask
+        let deadlines = deadlinesIn.enumerated()
+            .sorted {
+                rank($0.element) != rank($1.element) ? rank($0.element) < rank($1.element) : $0.offset < $1.offset
+            }
+            .map(\.element)
+        let clipRight = dashboardLeftAnimated(input) // clip to the animated dashboard mask
         var clip = ctx
         // Widen BOTH edges by the end-dot radius so a deadline's left/right dots (centered on the
         // content boundaries — the gutter and the day-view dashboard mask) draw whole, not halved.
         let dotR: CGFloat = 4
-        clip.clip(to: Path(CGRect(x: Layout.labelW - dotR, y: tl.tlTop, width: max(0, clipRight - Layout.labelW + 2 * dotR), height: tl.tlBottom - tl.tlTop)))
+        clip.clip(to: Path(CGRect(
+            x: Layout.labelW - dotR,
+            y: tl.tlTop,
+            width: max(0, clipRight - Layout.labelW + 2 * dotR),
+            height: tl.tlBottom - tl.tlTop
+        )))
         var gf = input; gf.focus = focus
         for d in deadlines {
-            if let only, d.id != only { continue }   // lifted copy → draw ONLY this deadline
-            if let hide, d.id == hide { continue }    // blurred main scene → SKIP it (drawn sharp in the lift)
+            if let only, d.id != only {
+                continue
+            } // lifted copy → draw ONLY this deadline
+            if let hide, d.id == hide {
+                continue
+            } // blurred main scene → SKIP it (drawn sharp in the lift)
             guard let pos = deadlinePos(d, input, focus: focus, anim: anim) else { continue }
             let rd = relDomOf(input.year, focus, d.year, d.month, d.day) ?? -999
-            let spill = (input.z >= 1.5) ? spillFactor(d.month, gf) : 1   // dim spillover-day deadlines; cross-fade on flip
+            let spill = (input.z >= 1.5) ? spillFactor(d.month, gf) :
+                1 // dim spillover-day deadlines; cross-fade on flip
             let fade = dailyFade(rd, gf) * tl.reveal * fadeMul * spill
-            if fade <= 0.02 { continue }
+            if fade <= 0.02 {
+                continue
+            }
             var layer = clip
             layer.opacity = Double(fade)
             let color = theme.eventBorder(d.color)
@@ -262,7 +348,7 @@ enum SceneRenderer {
         }
     }
 
-    // ── Per-item ────────────────────────────────────────────────────────────────
+    /// ── Per-item ────────────────────────────────────────────────────────────────
     private static func drawItem(_ it: Item, into ctx: inout GraphicsContext, theme: Theme) {
         switch it.kind {
         case .row: drawRow(it, &ctx, theme)
@@ -291,18 +377,29 @@ enum SceneRenderer {
             ctx.fill(Path(it.rect), with: .color(theme.nowLine))
             drawEndDots(it, &ctx, color: theme.nowLine, bg: theme.bg)
         case .cursor:
-            if !it.hollow { ctx.fill(Path(it.rect), with: .color(theme.cursor)) }   // hollow → dots only
+            if !it.hollow {
+                ctx.fill(Path(it.rect), with: .color(theme.cursor))
+            } // hollow → dots only
             drawEndDots(it, &ctx, color: theme.cursor, bg: theme.bg)
         case .monthLabel: drawMonthLabel(it, &ctx, theme)
         case .dayLabel: drawDayLabel(it, &ctx, theme)
         case .todayTag:
-            drawText(it.text ?? "", it.rect, size: it.fontSize ?? 8, align: it.align, color: theme.nowLine, weight: .bold, tracking: 1.2, into: &ctx)
+            drawText(
+                it.text ?? "",
+                it.rect,
+                size: it.fontSize ?? 8,
+                align: it.align,
+                color: theme.nowLine,
+                weight: .bold,
+                tracking: 1.2,
+                into: &ctx
+            )
         case .weekdayTag:
             drawPillText(it.text ?? "", it.rect, size: it.fontSize ?? 9, color: theme.text, theme: theme, into: &ctx)
         case .nowLabel:
-            break   // the CURRENT TIME label is rendered in SwiftUI (EventsOverlay) for real glass
+            break // the CURRENT TIME label is rendered in SwiftUI (EventsOverlay) for real glass
         case .timeTag:
-            break   // the mouse-cursor time tag is rendered in SwiftUI (EventsOverlay) — see cursorTagView
+            break // the mouse-cursor time tag is rendered in SwiftUI (EventsOverlay) — see cursorTagView
         case .event: break
         }
     }
@@ -314,7 +411,7 @@ enum SceneRenderer {
         if cols > 1 {
             let cw = it.w / CGFloat(cols)
             var p = Path()
-            for c in 0...cols {
+            for c in 0 ... cols {
                 let x = it.x + CGFloat(c) * cw
                 p.move(to: CGPoint(x: x, y: it.y)); p.addLine(to: CGPoint(x: x, y: it.y + it.h))
             }
@@ -338,7 +435,11 @@ enum SceneRenderer {
             p.move(to: CGPoint(x: it.x, y: y)); p.addLine(to: CGPoint(x: it.x + it.w, y: y))
         }
         // solid = the strong line color; dashed/dotted = same but patterned (fainter reads via item opacity)
-        ctx.stroke(p, with: .color(it.lineStyle == nil ? theme.sep : theme.gridLine), style: strokeStyle(it.lineStyle, width: it.lineW))
+        ctx.stroke(
+            p,
+            with: .color(it.lineStyle == nil ? theme.sep : theme.gridLine),
+            style: strokeStyle(it.lineStyle, width: it.lineW)
+        )
     }
 
     private static func drawEndDots(_ it: Item, _ ctx: inout GraphicsContext, color: Color, bg: Color) {
@@ -356,7 +457,12 @@ enum SceneRenderer {
         let size = it.fontSize ?? 10
         if it.today {
             let tw = min(it.w, CGFloat(text.count) * size * 0.72 + 12)
-            let cap = CGRect(x: it.x + (it.w - tw) / 2, y: it.y + max(0, (it.h - size * 1.5) / 2), width: tw, height: min(it.h, size * 1.5))
+            let cap = CGRect(
+                x: it.x + (it.w - tw) / 2,
+                y: it.y + max(0, (it.h - size * 1.5) / 2),
+                width: tw,
+                height: min(it.h, size * 1.5)
+            )
             ctx.fill(Path(roundedRect: cap, cornerRadius: cap.height / 2), with: .color(theme.nowLine))
             drawText(text, cap, size: size, align: .center, color: .white, weight: .bold, into: &ctx)
         } else {
@@ -370,7 +476,9 @@ enum SceneRenderer {
         var layer = ctx
         layer.translateBy(x: it.x + it.w / 2, y: it.y + it.h / 2)
         layer.rotate(by: .degrees(90))
-        let resolved = layer.resolve(Text(text.lowercased()).font(.system(size: it.fontSize ?? 13, weight: .medium)).tracking(1).foregroundStyle(theme.text))
+        let resolved = layer
+            .resolve(Text(text.lowercased()).font(.system(size: it.fontSize ?? 13, weight: .medium)).tracking(1)
+                .foregroundStyle(theme.text))
         layer.draw(resolved, at: .zero, anchor: .center)
         // right dotted border + bottom border of the name cell
         var b = Path()
@@ -378,11 +486,13 @@ enum SceneRenderer {
         ctx.stroke(b, with: .color(theme.accentGrey), style: StrokeStyle(lineWidth: 1, dash: [1, 2]))
     }
 
-    // ── Chrome: dashboard title + bars, track names ───────────────────────────────
-    // (The gutter + dashboard masks themselves are frosted SwiftUI material views.)
+    /// ── Chrome: dashboard title + bars, track names ───────────────────────────────
+    /// (The gutter + dashboard masks themselves are frosted SwiftUI material views.)
     private static func drawDashboardChrome(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
         let reveal = clamp(input.z - 2, 0, 1)
-        if reveal <= 0.001 { return }
+        if reveal <= 0.001 {
+            return
+        }
         // The dashboard is a two-layer carousel (mirrors the web's cc-daily-dash / cc-daily-inner-dash):
         //  • a FIXED mask — the region between `dashLeft` and the right edge. It doesn't move or fade
         //    with day paging; the timeline is clipped out of it (window glass shows through), and it
@@ -390,20 +500,22 @@ enum SceneRenderer {
         //  • per-day PANELS (bars + name + date, and future content) that slide a full panel-width and
         //    cross-fade like a carousel as you page days — the whole panel moves together, not just the date.
         let dashLeft = dashboardLeftAnimated(input)
-        if dashLeft >= input.vp.w - 1 { return }
-        let barX = dashLeft + 25                       // matches the web's --dd-pad: 25px
+        if dashLeft >= input.vp.w - 1 {
+            return
+        }
+        let barX = dashLeft + 25 // matches the web's --dd-pad: 25px
         let barRight = input.vp.w - 18
         let lowerBarY = Layout.topPad + Layout.monthH
         let w = barRight - barX
-        let panelW = max(1, input.vp.w - dashLeft)     // one panel = the full dashboard width
+        let panelW = max(1, input.vp.w - dashLeft) // one panel = the full dashboard width
         let clipRect = Path(CGRect(x: dashLeft, y: 0, width: panelW, height: input.vp.h))
 
         let cal = Calendar.current
         let today = cal.dateComponents([.year, .month, .day], from: input.now)
 
-        // One day's panel, translated by `x` (0 = centered) and faded by distance from center.
+        /// One day's panel, translated by `x` (0 = centered) and faded by distance from center.
         func drawPanel(_ dom: Int, _ x: CGFloat) {
-            let op = max(0, 1 - abs(x) / panelW)       // web: opacity = 1 − |x|/width
+            let op = max(0, 1 - abs(x) / panelW) // web: opacity = 1 − |x|/width
             guard op > 0.01, let r = resolveDate(input.year, input.focus, dom) else { return }
             var layer = ctx
             layer.opacity = Double(reveal * op)
@@ -414,7 +526,11 @@ enum SceneRenderer {
             for y in [Layout.topPad - 0.5, lowerBarY - 0.5] {
                 var p = Path()
                 p.move(to: CGPoint(x: barX + x, y: y)); p.addLine(to: CGPoint(x: barRight + x, y: y))
-                layer.stroke(p, with: .color(theme.sep.opacity(Layout.bandEdgeOpacity)), lineWidth: Layout.bandEdgeWidth)
+                layer.stroke(
+                    p,
+                    with: .color(theme.sep.opacity(Layout.bandEdgeOpacity)),
+                    lineWidth: Layout.bandEdgeWidth
+                )
             }
             drawText("DAILY DASHBOARD", CGRect(x: barX + x, y: lowerBarY - 46, width: w, height: 14),
                      size: 10, align: .left, color: theme.textMuted, tracking: 1.5, into: &layer)
@@ -424,7 +540,8 @@ enum SceneRenderer {
             if let d0 = cal.date(from: DateComponents(year: today.year, month: today.month, day: today.day)),
                let d1 = cal.date(from: DateComponents(year: r.year, month: r.month + 1, day: r.day)) {
                 switch cal.dateComponents([.day], from: d0, to: d1).day ?? 99 {
-                case 0: special = " (Today)"; case -1: special = " (Yesterday)"; case 1: special = " (Tomorrow)"; default: break
+                case 0: special = " (Today)"; case -1: special = " (Yesterday)"; case 1: special =
+                    " (Tomorrow)"; default: break
                 }
             }
             drawText(base + special, CGRect(x: barX + x, y: lowerBarY - 33, width: w, height: 26),
@@ -432,30 +549,40 @@ enum SceneRenderer {
         }
         if let a = input.daily.anim {
             let dir = CGFloat(a.dir)
-            drawPanel(input.daily.dom, -dir * a.p * panelW)              // current slides out + fades
+            drawPanel(input.daily.dom, -dir * a.p * panelW) // current slides out + fades
             drawPanel(input.daily.dom + a.dir, dir * (1 - a.p) * panelW) // incoming slides in from the other side
         } else {
             drawPanel(input.daily.dom, 0)
         }
     }
 
-    private static func drawTrackNames(_ input: SceneInput, _ tracks: [[String]], _ hide: (Int, Int)?, _ ctx: inout GraphicsContext, _ theme: Theme) {
+    private static func drawTrackNames(
+        _ input: SceneInput,
+        _ tracks: [[String]],
+        _ hide: (Int, Int)?,
+        _ ctx: inout GraphicsContext,
+        _ theme: Theme
+    ) {
         let left = Layout.mnameW
         let width = Layout.labelW - Layout.mnameW - Layout.rightPad
-        for m in 0..<12 {
+        for m in 0 ..< 12 {
             let f = frameFor(m, input, anim: input.monthAnim)
-            if f.opacity < 0.05 || f.bandY + 4 * f.trackH < -4 || f.bandY > input.vp.h + 4 { continue }
+            if f.opacity < 0.05 || f.bandY + 4 * f.trackH < -4 || f.bandY > input.vp.h + 4 {
+                continue
+            }
             let names = m < tracks.count ? tracks[m] : []
             var layer = ctx
             layer.opacity = Double(f.opacity)
-            for i in 0..<4 {
+            for i in 0 ..< 4 {
                 let y = f.bandY + CGFloat(i) * f.trackH
                 if i > 0 {
                     var sep = Path()
                     sep.move(to: CGPoint(x: left, y: y)); sep.addLine(to: CGPoint(x: left + width, y: y))
                     layer.stroke(sep, with: .color(theme.cellGrid), style: StrokeStyle(lineWidth: 1, dash: [1, 2]))
                 }
-                if hide?.0 == m, hide?.1 == i { continue }   // slot is being edited inline
+                if hide?.0 == m, hide?.1 == i {
+                    continue
+                } // slot is being edited inline
                 let name = i < names.count ? names[i] : ""
                 // Match the event-name font (Comic Sans MS 13) for a consistent look; the
                 // left inset matches the inline editor's leading padding (no jump on edit).
@@ -471,37 +598,67 @@ enum SceneRenderer {
             let edge = max(quarterBottom ? 1 : 0, isFocus ? clamp((input.z - 0.82) / 0.18, 0, 1) : 0)
             var bottom = Path()
             let by = f.bandY + 4 * f.trackH
-            bottom.move(to: CGPoint(x: 0, y: by)); bottom.addLine(to: CGPoint(x: Layout.labelW - Layout.rightPad, y: by))
-            layer.stroke(bottom, with: .color(theme.sep.opacity(lerp(Layout.bandInnerOpacity, Layout.bandEdgeOpacity, edge))),
-                         lineWidth: lerp(Layout.bandInnerWidth, Layout.bandEdgeWidth, edge))
+            bottom.move(to: CGPoint(x: 0, y: by)); bottom.addLine(to: CGPoint(
+                x: Layout.labelW - Layout.rightPad,
+                y: by
+            ))
+            layer.stroke(
+                bottom,
+                with: .color(theme.sep.opacity(lerp(Layout.bandInnerOpacity, Layout.bandEdgeOpacity, edge))),
+                lineWidth: lerp(Layout.bandInnerWidth, Layout.bandEdgeWidth, edge)
+            )
         }
     }
 
-    // ── Text + stroke helpers ──────────────────────────────────────────────────────
+    /// ── Text + stroke helpers ──────────────────────────────────────────────────────
     private static func strokeStyle(_ s: LineStyle?, width: CGFloat = 1) -> StrokeStyle {
         switch s {
-        case .dashed: return StrokeStyle(lineWidth: width, dash: [4, 3])
-        case .dotted: return StrokeStyle(lineWidth: width, dash: [1, 3])
-        case .none: return StrokeStyle(lineWidth: width)
+        case .dashed: StrokeStyle(lineWidth: width, dash: [4, 3])
+        case .dotted: StrokeStyle(lineWidth: width, dash: [1, 3])
+        case .none: StrokeStyle(lineWidth: width)
         }
     }
 
-    private static func drawPillText(_ s: String, _ rect: CGRect, size: CGFloat, color: Color, theme: Theme, into ctx: inout GraphicsContext, border: Color? = nil) {
-        if s.isEmpty { return }
+    private static func drawPillText(
+        _ s: String,
+        _ rect: CGRect,
+        size: CGFloat,
+        color: Color,
+        theme: Theme,
+        into ctx: inout GraphicsContext,
+        border: Color? = nil
+    ) {
+        if s.isEmpty {
+            return
+        }
         let resolved = ctx.resolve(Text(s).font(.system(size: size, weight: .semibold)).foregroundStyle(color))
         let m = ctx.resolve(Text(s).font(.system(size: size, weight: .semibold)))
         let ts = m.measure(in: CGSize(width: 200, height: 40))
         let pillW = ts.width + 10, pillH = ts.height + 4
-        let px = rect.maxX - pillW  // right-anchored-ish; good enough for tags
+        let px = rect.maxX - pillW // right-anchored-ish; good enough for tags
         let pill = CGRect(x: max(rect.minX, px), y: rect.midY - pillH / 2, width: pillW, height: pillH)
         ctx.fill(Path(roundedRect: pill, cornerRadius: 5), with: .color(theme.bg.opacity(0.82)))
-        if let border { ctx.stroke(Path(roundedRect: pill, cornerRadius: 5), with: .color(border), lineWidth: 1) }
+        if let border {
+            ctx.stroke(Path(roundedRect: pill, cornerRadius: 5), with: .color(border), lineWidth: 1)
+        }
         ctx.draw(resolved, at: CGPoint(x: pill.midX, y: pill.midY), anchor: .center)
     }
 
-
-    private static func drawText(_ s: String, _ rect: CGRect, size: CGFloat, align: TextAlign, color: Color, weight: Font.Weight = .regular, tracking: CGFloat = 0, font: Font? = nil, into ctx: inout GraphicsContext, clipToRect: Bool = false) {
-        if s.isEmpty { return }
+    private static func drawText(
+        _ s: String,
+        _ rect: CGRect,
+        size: CGFloat,
+        align: TextAlign,
+        color: Color,
+        weight: Font.Weight = .regular,
+        tracking: CGFloat = 0,
+        font: Font? = nil,
+        into ctx: inout GraphicsContext,
+        clipToRect: Bool = false
+    ) {
+        if s.isEmpty {
+            return
+        }
         let f = font ?? .system(size: size, weight: weight)
         let resolved = ctx.resolve(Text(s).font(f).tracking(tracking).foregroundStyle(color))
         let pt: CGPoint

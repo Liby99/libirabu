@@ -2,17 +2,19 @@
 // category sidebar on the left, a task topic on the right — the modern stand-in for a registered Help book.
 // Content is data (HelpContent); this file is just presentation.
 
-import SwiftUI
 import AppKit
+import SwiftUI
 
 public struct HelpView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
-    @State private var selection: String?          // selected topic id
+    @State private var selection: String? // selected topic id
     /// Optional topic to open on launch (e.g. a “?” button could deep-link here later).
     private let initialTopic: String
 
-    public init(initialTopic: String = "welcome") { self.initialTopic = initialTopic }
+    public init(initialTopic: String = "welcome") {
+        self.initialTopic = initialTopic
+    }
 
     public var body: some View {
         let theme = Theme(dark: scheme == .dark)
@@ -23,12 +25,18 @@ public struct HelpView: View {
             detail(theme)
         }
         .frame(minWidth: 760, idealWidth: 860, minHeight: 500, idealHeight: 620)
-        .onAppear { if selection == nil { selection = initialTopic } }
+        .onAppear {
+            if selection == nil {
+                selection = initialTopic
+            }
+        }
     }
 
-    private var results: [HelpTopic] { HelpContent.search(query) }
+    private var results: [HelpTopic] {
+        HelpContent.search(query)
+    }
 
-    // ── Sidebar ───────────────────────────────────────────────────────────────────────
+    /// ── Sidebar ───────────────────────────────────────────────────────────────────────
     private func sidebar(_ theme: Theme) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
@@ -62,7 +70,9 @@ public struct HelpView: View {
         }
         // Searching: keep a valid selection so the detail always shows something relevant.
         .onChange(of: query) { _, _ in
-            if !query.isEmpty, !results.contains(where: { $0.id == selection }) { selection = results.first?.id }
+            if !query.isEmpty, !results.contains(where: { $0.id == selection }) {
+                selection = results.first?.id
+            }
         }
     }
 
@@ -75,7 +85,7 @@ public struct HelpView: View {
         .tag(topic.id)
     }
 
-    // ── Detail ────────────────────────────────────────────────────────────────────────
+    /// ── Detail ────────────────────────────────────────────────────────────────────────
     @ViewBuilder private func detail(_ theme: Theme) -> some View {
         if let id = selection, let topic = HelpContent.allTopics.first(where: { $0.id == id }) {
             ScrollView {
@@ -92,20 +102,23 @@ public struct HelpView: View {
                         HelpGIF(name: gif)
                             .frame(maxWidth: 540)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(theme.text.opacity(0.08)))
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(theme.text.opacity(0.08)))
                             .padding(.vertical, 4)
                     }
 
                     ForEach(Array(topic.blocks.enumerated()), id: \.offset) { _, block in
                         blockView(block, theme)
                     }
-                    if !topic.shortcuts.isEmpty { shortcutsView(topic.shortcuts, theme) }
+                    if !topic.shortcuts.isEmpty {
+                        shortcutsView(topic.shortcuts, theme)
+                    }
                 }
                 .padding(30)
                 .frame(maxWidth: 640, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .id(id)   // reset scroll position when switching topics
+            .id(id) // reset scroll position when switching topics
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "questionmark.circle").font(.system(size: 34)).foregroundStyle(theme.textMuted)
@@ -117,10 +130,10 @@ public struct HelpView: View {
 
     @ViewBuilder private func blockView(_ block: HelpBlock, _ theme: Theme) -> some View {
         switch block {
-        case .paragraph(let s):
+        case let .paragraph(s):
             Text(s).font(.system(size: 14)).foregroundStyle(theme.text)
                 .fixedSize(horizontal: false, vertical: true).lineSpacing(2)
-        case .steps(let xs):
+        case let .steps(xs):
             VStack(alignment: .leading, spacing: 9) {
                 ForEach(Array(xs.enumerated()), id: \.offset) { i, s in
                     HStack(alignment: .firstTextBaseline, spacing: 11) {
@@ -131,7 +144,7 @@ public struct HelpView: View {
                     }
                 }
             }
-        case .bullets(let xs):
+        case let .bullets(xs):
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(xs.enumerated()), id: \.offset) { _, s in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -141,7 +154,7 @@ public struct HelpView: View {
                     }
                 }
             }
-        case .tip(let s):
+        case let .tip(s):
             HStack(alignment: .firstTextBaseline, spacing: 9) {
                 Image(systemName: "lightbulb.fill").font(.system(size: 12)).foregroundStyle(Theme.accent)
                 Text(s).font(.system(size: 13)).foregroundStyle(theme.text)
@@ -158,7 +171,8 @@ public struct HelpView: View {
             Text("SHORTCUTS").font(.system(size: 10, weight: .semibold)).tracking(0.6).foregroundStyle(theme.textMuted)
             ForEach(Array(shortcuts.enumerated()), id: \.offset) { _, sc in
                 HStack(spacing: 10) {
-                    Text(sc.keys).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(theme.text)
+                    Text(sc.keys).font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.text)
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(RoundedRectangle(cornerRadius: 6).fill(theme.text.opacity(0.08)))
                         .frame(minWidth: 44)
@@ -170,7 +184,7 @@ public struct HelpView: View {
     }
 }
 
-// ── Animated GIF (SwiftUI.Image shows only the first frame) ──────────────────────────────
+/// ── Animated GIF (SwiftUI.Image shows only the first frame) ──────────────────────────────
 private struct HelpGIF: View {
     let name: String
     var body: some View {
@@ -194,7 +208,10 @@ private struct GIFImageView: NSViewRepresentable {
         v.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return v
     }
+
     func updateNSView(_ v: NSImageView, context: Context) {
-        if v.image !== image { v.image = image; v.animates = true }
+        if v.image !== image {
+            v.image = image; v.animates = true
+        }
     }
 }

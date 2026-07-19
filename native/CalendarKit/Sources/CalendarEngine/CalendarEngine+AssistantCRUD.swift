@@ -3,9 +3,9 @@
 // so it's one undo step, invalidates the display cache, and persists. `byAI` stamps
 // RichFields.createdByAI for provenance. Split from CalendarEngine.swift (the god-file diet).
 
-import Foundation
-import CoreGraphics
 import CalendarGeometry
+import CoreGraphics
+import Foundation
 
 extension CalendarEngine {
     // ── Programmatic CRUD for the AI assistant ─────────────────────────────────────────
@@ -17,9 +17,15 @@ extension CalendarEngine {
     /// The kind an item id resolves to, for the tools' routing + the auditor's context.
     public enum ItemKind: String, Sendable { case timed, band, deadline }
     public func kind(of id: String) -> ItemKind? {
-        if items.events.contains(where: { $0.id == id }) { return .timed }
-        if items.bands.contains(where: { $0.id == id }) { return .band }
-        if items.deadlines.contains(where: { $0.id == id }) { return .deadline }
+        if items.events.contains(where: { $0.id == id }) {
+            return .timed
+        }
+        if items.bands.contains(where: { $0.id == id }) {
+            return .band
+        }
+        if items.deadlines.contains(where: { $0.id == id }) {
+            return .deadline
+        }
         return nil
     }
 
@@ -27,10 +33,18 @@ extension CalendarEngine {
                          promoteTrack: Int? = nil) {
         guard notes != nil || !tags.isEmpty || byAI || promoteTrack != nil else { return }
         var rf = items.richById[id] ?? RichFields()
-        if let notes { rf.notes = notes }
-        if !tags.isEmpty { rf.tags = tags }
-        if let promoteTrack { rf.promoteTrack = max(0, min(3, promoteTrack)) }
-        if byAI { rf.createdByAI = true }
+        if let notes {
+            rf.notes = notes
+        }
+        if !tags.isEmpty {
+            rf.tags = tags
+        }
+        if let promoteTrack {
+            rf.promoteTrack = max(0, min(3, promoteTrack))
+        }
+        if byAI {
+            rf.createdByAI = true
+        }
         items.richById[id] = rf
     }
 
@@ -42,8 +56,8 @@ extension CalendarEngine {
         beginTxn()
         let id = "new-\(UUID().uuidString)"
         items.events.append(TimedEvent(id: id, year: year, month: month, day: day,
-                                     startHour: startHour, endHour: endHour, title: title, color: color,
-                                     anchorTz: anchorNow))
+                                       startHour: startHour, endHour: endHour, title: title, color: color,
+                                       anchorTz: anchorNow))
         setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
         selectedId = id
         commitTxn()
@@ -57,8 +71,8 @@ extension CalendarEngine {
         beginTxn()
         let id = "new-\(UUID().uuidString)"
         items.bands.append(BandEvent(id: id, year: year, month: month, track: max(0, min(3, track)),
-                                   startDay: startDay, endDay: max(startDay, endDay),
-                                   title: title, color: color))
+                                     startDay: startDay, endDay: max(startDay, endDay),
+                                     title: title, color: color))
         setRich(id, notes: notes, tags: tags, byAI: byAI)
         selectedId = id
         commitTxn()
@@ -85,7 +99,7 @@ extension CalendarEngine {
             anchor = anchorNow
         }
         items.deadlines.append(Deadline(id: id, year: dy, month: dm, day: dd, hour: dh,
-                                      title: title, color: color, anchorTz: anchor))
+                                        title: title, color: color, anchorTz: anchor))
         setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
         selectedId = id
         commitTxn()
@@ -101,7 +115,9 @@ extension CalendarEngine {
         // Order the endpoints so start ≤ end regardless of how they were passed.
         var (sy, sm, sd) = start
         var (ey, em, ed) = end
-        if (ey, em, ed) < (sy, sm, sd) { swap(&sy, &ey); swap(&sm, &em); swap(&sd, &ed) }
+        if (ey, em, ed) < (sy, sm, sd) {
+            swap(&sy, &ey); swap(&sm, &em); swap(&sd, &ed)
+        }
 
         var ids: [String] = []
         var (y, m) = (sy, sm)
@@ -110,13 +126,17 @@ extension CalendarEngine {
             let segEnd = (y == ey && m == em) ? min(daysInMonth(y, m), ed) : daysInMonth(y, m)
             let id = "new-\(UUID().uuidString)"
             items.bands.append(BandEvent(id: id, year: y, month: m, track: max(0, min(3, track)),
-                                       startDay: segStart, endDay: max(segStart, segEnd),
-                                       title: title, color: color))
+                                         startDay: segStart, endDay: max(segStart, segEnd),
+                                         title: title, color: color))
             seed(id)
             ids.append(id)
-            m += 1; if m > 11 { m = 0; y += 1 }
+            m += 1; if m > 11 {
+                m = 0; y += 1
+            }
         }
-        if let last = ids.last { selectedId = last }
+        if let last = ids.last {
+            selectedId = last
+        }
         return ids
     }
 
@@ -149,11 +169,15 @@ extension CalendarEngine {
         beginTxn()
         items.bands.removeAll { $0.id == id }
         items.richById[id] = nil
-        if selectedId == id { selectedId = nil }
+        if selectedId == id {
+            selectedId = nil
+        }
         let ids = appendBandSegments(from: (startYear, startMonth, startDay),
                                      to: (endYear, endMonth, endDay),
                                      track: b.track, title: b.title, color: b.color) { nid in
-            if let rich { items.richById[nid] = rich }
+            if let rich {
+                items.richById[nid] = rich
+            }
         }
         commitTxn()
         return ids
@@ -172,39 +196,88 @@ extension CalendarEngine {
         beginTxn()
         var found = true
         if let i = items.events.firstIndex(where: { $0.id == id }) {
-            if let title { items.events[i].title = title }
-            if let color { items.events[i].color = color }
-            if let year { items.events[i].year = year }
-            if let month { items.events[i].month = month }
-            if let day { items.events[i].day = day }
-            if let startHour { items.events[i].startHour = startHour }
-            if let endHour { items.events[i].endHour = endHour }
+            if let title {
+                items.events[i].title = title
+            }
+            if let color {
+                items.events[i].color = color
+            }
+            if let year {
+                items.events[i].year = year
+            }
+            if let month {
+                items.events[i].month = month
+            }
+            if let day {
+                items.events[i].day = day
+            }
+            if let startHour {
+                items.events[i].startHour = startHour
+            }
+            if let endHour {
+                items.events[i].endHour = endHour
+            }
         } else if let i = items.bands.firstIndex(where: { $0.id == id }) {
-            if let title { items.bands[i].title = title }
-            if let color { items.bands[i].color = color }
-            if let year { items.bands[i].year = year }
-            if let month { items.bands[i].month = month }
-            if let track { items.bands[i].track = max(0, min(3, track)) }
-            if let startDay { items.bands[i].startDay = startDay }
-            if let endDay { items.bands[i].endDay = max(items.bands[i].startDay, endDay) }
+            if let title {
+                items.bands[i].title = title
+            }
+            if let color {
+                items.bands[i].color = color
+            }
+            if let year {
+                items.bands[i].year = year
+            }
+            if let month {
+                items.bands[i].month = month
+            }
+            if let track {
+                items.bands[i].track = max(0, min(3, track))
+            }
+            if let startDay {
+                items.bands[i].startDay = startDay
+            }
+            if let endDay {
+                items.bands[i].endDay = max(items.bands[i].startDay, endDay)
+            }
         } else if let i = items.deadlines.firstIndex(where: { $0.id == id }) {
-            if let title { items.deadlines[i].title = title }
-            if let color { items.deadlines[i].color = color }
-            if let year { items.deadlines[i].year = year }
-            if let month { items.deadlines[i].month = month }
-            if let day { items.deadlines[i].day = day }
-            if let hour { items.deadlines[i].hour = hour }
+            if let title {
+                items.deadlines[i].title = title
+            }
+            if let color {
+                items.deadlines[i].color = color
+            }
+            if let year {
+                items.deadlines[i].year = year
+            }
+            if let month {
+                items.deadlines[i].month = month
+            }
+            if let day {
+                items.deadlines[i].day = day
+            }
+            if let hour {
+                items.deadlines[i].hour = hour
+            }
         } else {
             found = false
         }
         if found {
             if notes != nil || tags != nil || byAI || promoteTrack != nil || clearPromote {
                 var rf = items.richById[id] ?? RichFields()
-                if let notes { rf.notes = notes }
-                if let tags { rf.tags = tags }
-                if clearPromote { rf.promoteTrack = nil }
-                else if let promoteTrack { rf.promoteTrack = max(0, min(3, promoteTrack)) }
-                if byAI { rf.createdByAI = true }
+                if let notes {
+                    rf.notes = notes
+                }
+                if let tags {
+                    rf.tags = tags
+                }
+                if clearPromote {
+                    rf.promoteTrack = nil
+                } else if let promoteTrack {
+                    rf.promoteTrack = max(0, min(3, promoteTrack))
+                }
+                if byAI {
+                    rf.createdByAI = true
+                }
                 items.richById[id] = rf
             }
         }
@@ -215,9 +288,15 @@ extension CalendarEngine {
     /// The (year, month0, day) an item sits on — for the auditor's trusted date context.
     /// Bands report their start day.
     public func dateOf(_ id: String) -> (Int, Int, Int)? {
-        if let e = items.events.first(where: { $0.id == id }) { return (e.year, e.month, e.day) }
-        if let b = items.bands.first(where: { $0.id == id }) { return (b.year, b.month, b.startDay) }
-        if let d = items.deadlines.first(where: { $0.id == id }) { return (d.year, d.month, d.day) }
+        if let e = items.events.first(where: { $0.id == id }) {
+            return (e.year, e.month, e.day)
+        }
+        if let b = items.bands.first(where: { $0.id == id }) {
+            return (b.year, b.month, b.startDay)
+        }
+        if let d = items.deadlines.first(where: { $0.id == id }) {
+            return (d.year, d.month, d.day)
+        }
         return nil
     }
 

@@ -1,10 +1,20 @@
-import XCTest
-import CoreGraphics
 @testable import CalendarGeometry
+import CoreGraphics
+import XCTest
 
 final class SegmentTests: XCTestCase {
     private func ev(_ start: CGFloat, _ end: CGFloat) -> TimedEvent {
-        TimedEvent(id: "e", year: 2026, month: 6, day: 22, startHour: start, endHour: end, title: "Flight", color: "blue", anchorTz: "America/New_York")
+        TimedEvent(
+            id: "e",
+            year: 2026,
+            month: 6,
+            day: 22,
+            startHour: start,
+            endHour: end,
+            title: "Flight",
+            color: "blue",
+            anchorTz: "America/New_York"
+        )
     }
 
     /// A same-day event is one segment, unclipped.
@@ -17,7 +27,7 @@ final class SegmentTests: XCTestCase {
 
     /// A red-eye (endHour > 24) splits into a clipped-bottom head + clipped-top tail on the next day.
     func testCrossMidnightSplit() {
-        let s = timedSegments(ev(23, 30))   // 23:00 → 06:00 next day
+        let s = timedSegments(ev(23, 30)) // 23:00 → 06:00 next day
         XCTAssertEqual(s.count, 2)
         // Head: day 22, 23–24, continues below.
         XCTAssertEqual(s[0].event.day, 22)
@@ -36,19 +46,28 @@ final class SegmentTests: XCTestCase {
 
     /// A > 2 day span yields a fully-clipped middle segment.
     func testMultiDaySpan() {
-        let s = timedSegments(ev(23, 53))   // 23:00 → 05:00 two days later
+        let s = timedSegments(ev(23, 53)) // 23:00 → 05:00 two days later
         XCTAssertEqual(s.count, 3)
-        XCTAssertEqual(s.map { $0.event.day }, [22, 23, 24])
-        XCTAssertTrue(s[1].clipTop && s[1].clipBottom)   // middle day is continued on both edges
+        XCTAssertEqual(s.map(\.event.day), [22, 23, 24])
+        XCTAssertTrue(s[1].clipTop && s[1].clipBottom) // middle day is continued on both edges
         XCTAssertEqual(Double(s[2].event.endHour), 5, accuracy: 0.001)
     }
 
     /// Month rollover: a span crossing the last day of the month lands on day 1 of the next month.
     func testMonthRollover() {
-        let e = TimedEvent(id: "e", year: 2026, month: 5, day: 30, startHour: 23, endHour: 26, title: "x", color: "blue")   // June has 30 days
+        let e = TimedEvent(
+            id: "e",
+            year: 2026,
+            month: 5,
+            day: 30,
+            startHour: 23,
+            endHour: 26,
+            title: "x",
+            color: "blue"
+        ) // June has 30 days
         let s = timedSegments(e)
         XCTAssertEqual(s.count, 2)
-        XCTAssertEqual(s[1].event.month, 6)   // July (0-based)
+        XCTAssertEqual(s[1].event.month, 6) // July (0-based)
         XCTAssertEqual(s[1].event.day, 1)
     }
 }

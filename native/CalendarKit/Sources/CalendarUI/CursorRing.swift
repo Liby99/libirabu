@@ -7,16 +7,16 @@
 // content's left edge, before the padLeft inset), so the host places this in an overlay offset by
 // padLeft. A nil rect hides it (mouse mode, or a state without a cursor).
 
-import SwiftUI
 import CalendarGeometry
+import SwiftUI
 
 struct CursorRing: View {
     let rect: CGRect?
     var theme: Theme
     var cornerRadius: CGFloat = 8
-    // True while the view geometry is itself animating (zoom/scroll tween). Then the ring must follow
-    // the geometry EXACTLY each frame — its own spring would lag behind. It springs only for discrete
-    // cursor moves (at rest).
+    /// True while the view geometry is itself animating (zoom/scroll tween). Then the ring must follow
+    /// the geometry EXACTLY each frame — its own spring would lag behind. It springs only for discrete
+    /// cursor moves (at rest).
     var geometryAnimating: Bool = false
 
     var body: some View {
@@ -27,7 +27,7 @@ struct CursorRing: View {
                                   style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                     .frame(width: r.width, height: r.height)
                     .position(x: r.midX, y: r.midY)
-                    .transition(.opacity)   // fade in/out when it appears / disappears
+                    .transition(.opacity) // fade in/out when it appears / disappears
             }
         }
         .allowsHitTesting(false)

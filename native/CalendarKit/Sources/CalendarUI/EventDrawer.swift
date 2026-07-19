@@ -3,30 +3,31 @@
 // (date/time per kind), color, tags, repeat, and promote/lane — all as native segmented
 // controls / pickers. The markdown notes editor and imported/detach actions are deferred.
 
-import SwiftUI
 import AppKit
-import CalendarGeometry
 import CalendarEngine
+import CalendarGeometry
+import SwiftUI
 
 @MainActor
 @Observable
 public final class CalendarUIState {
     public var openEventId: String?
-    public var editingTrack: TrackEdit?   // inline track-name editor target
-    public var editingBand: BandEdit?     // inline band-title editor target
-    public var editingTimed: TimedEdit?   // inline timed-event-title editor target
+    public var editingTrack: TrackEdit? // inline track-name editor target
+    public var editingBand: BandEdit? // inline band-title editor target
+    public var editingTimed: TimedEdit? // inline timed-event-title editor target
     public var showKeyGuide: Bool = false // Cmd+K shortcut-guide overlay is held open
     public var showTutorial: Bool = false // the onboarding GIF-carousel overlay is up
-    public var tutorialIndex: Int = 0     // current carousel slide
-    public var drawerFocus: DrawerField?  // which drawer control the keyboard has focused (nil = drawer body)
-    public var drawerTitleEditing: Bool = false   // the title field is in text-editing mode (vs. ring focus)
-    public var selectTitleOnOpen: Bool = false    // a freshly-created item (e.g. deadline "+") → focus + select-all the title
-    // True while a native inline editor (the date/time NSDatePicker) is active. The key monitor treats
-    // this like text-input focus: it passes ALL keys — including Tab — to the native field so it cycles
-    // its own components, and the drawer-level Tab cycle does NOT advance until Enter/Esc commits.
+    public var tutorialIndex: Int = 0 // current carousel slide
+    public var drawerFocus: DrawerField? // which drawer control the keyboard has focused (nil = drawer body)
+    public var drawerTitleEditing: Bool = false // the title field is in text-editing mode (vs. ring focus)
+    public var selectTitleOnOpen: Bool =
+        false // a freshly-created item (e.g. deadline "+") → focus + select-all the title
+    /// True while a native inline editor (the date/time NSDatePicker) is active. The key monitor treats
+    /// this like text-input focus: it passes ALL keys — including Tab — to the native field so it cycles
+    /// its own components, and the drawer-level Tab cycle does NOT advance until Enter/Esc commits.
     public var drawerFieldEditing: Bool = false
-    // The Tab cycle for the open item — published by the drawer on load (it depends on the item kind,
-    // e.g. bands have no start/end *time*). Both the drawer and the keyboard model read it.
+    /// The Tab cycle for the open item — published by the drawer on load (it depends on the item kind,
+    /// e.g. bands have no start/end *time*). Both the drawer and the keyboard model read it.
     public var drawerFieldOrder: [DrawerField] = []
     // One-shot action channel: the keyboard model (which lives outside the drawer, in the key monitor)
     // posts a semantic action here; the drawer observes `drawerPulse` and runs it against its own state.
@@ -48,15 +49,21 @@ public final class CalendarUIState {
     public struct EventMenuTarget: Equatable {
         public var id: String
         public var anchor: CGRect
-        public init(id: String, anchor: CGRect) { self.id = id; self.anchor = anchor }
+        public init(id: String, anchor: CGRect) {
+            self.id = id; self.anchor = anchor
+        }
     }
+
     public var eventMenu: EventMenuTarget?
     /// Right-click on EMPTY space: the classified spot + pointer anchor (view coords).
     public struct SpaceMenuTarget: Equatable {
         public var spot: CalendarEngine.EmptySpot
         public var anchor: CGRect
-        public init(spot: CalendarEngine.EmptySpot, anchor: CGRect) { self.spot = spot; self.anchor = anchor }
+        public init(spot: CalendarEngine.EmptySpot, anchor: CGRect) {
+            self.spot = spot; self.anchor = anchor
+        }
     }
+
     public var spaceMenu: SpaceMenuTarget?
     /// One-shot: the next drawer open expands Configuration (the menu's "Repeat…" row).
     public var openRepeatOnOpen = false
@@ -65,10 +72,15 @@ public final class CalendarUIState {
     /// Raise the batch-delete confirm for the current multi-selection (no-op if nothing deletable).
     public func requestBatchDelete(_ engine: CalendarEngine) {
         let s = engine.batchDeleteSummary()
-        if !s.isEmpty { pendingBatchDelete = s }
+        if !s.isEmpty {
+            pendingBatchDelete = s
+        }
     }
+
     /// Open the floating "rename all" field (typing sets every selected title live).
-    public func startBatchRename() { batchRenameText = ""; batchRenaming = true }
+    public func startBatchRename() {
+        batchRenameText = ""; batchRenaming = true
+    }
 
     /// Raise the delete-confirm dialog for an event. No button is focused yet (no ring shows until the
     /// user arrows); Enter before that confirms the primary choice.
@@ -77,6 +89,7 @@ public final class CalendarUIState {
         pendingDelete = PendingDelete(id: id, occKey: occKey, recurring: recurring, imported: imported,
                                       alreadyHidden: alreadyHidden, kind: kind, focus: nil)
     }
+
     /// Move the focus ring. The first arrow reveals it by stepping off the (implicit) primary choice.
     public func moveDeleteFocus(_ d: Int) {
         guard var pd = pendingDelete else { return }
@@ -85,15 +98,22 @@ public final class CalendarUIState {
         pd.focus = (base + d + n) % n
         pendingDelete = pd
     }
-    public func cancelDelete() { pendingDelete = nil }
+
+    public func cancelDelete() {
+        pendingDelete = nil
+    }
 
     /// Post a keyboard action into the open drawer (see `drawerPulse`).
-    public func postDrawer(_ kind: DrawerActionKind) { drawerActionKind = kind; drawerPulse += 1 }
+    public func postDrawer(_ kind: DrawerActionKind) {
+        drawerActionKind = kind; drawerPulse += 1
+    }
+
     /// The field after / before `f` in the current Tab cycle (wrapping).
     public func fieldAfter(_ f: DrawerField) -> DrawerField? {
         guard let i = drawerFieldOrder.firstIndex(of: f) else { return drawerFieldOrder.first }
         return drawerFieldOrder[(i + 1) % drawerFieldOrder.count]
     }
+
     public func fieldBefore(_ f: DrawerField) -> DrawerField? {
         guard let i = drawerFieldOrder.firstIndex(of: f) else { return drawerFieldOrder.last }
         return drawerFieldOrder[(i - 1 + drawerFieldOrder.count) % drawerFieldOrder.count]
@@ -107,40 +127,59 @@ public enum DeleteChoice: Equatable {
     /// Button label; `deleteAll` reads "Delete" for a lone event, "All Events" for a series.
     public func label(recurring: Bool) -> String {
         switch self {
-        case .cancel:        return "Cancel"
-        case .thisEvent:     return "This Event"
-        case .thisAndFuture: return "This & Future"
-        case .deleteAll:     return recurring ? "All Events" : "Delete"
-        case .hide:          return "Hide"
+        case .cancel: "Cancel"
+        case .thisEvent: "This Event"
+        case .thisAndFuture: "This & Future"
+        case .deleteAll: recurring ? "All Events" : "Delete"
+        case .hide: "Hide"
         }
     }
-    public var isCancel: Bool { self == .cancel }
+
+    public var isCancel: Bool {
+        self == .cancel
+    }
 }
 
 /// The live delete-confirm dialog's state. Immutable target + a keyboard `focus` that is nil until the
 /// user first arrows (so no focus ring shows on open); Enter with no focus falls back to `primaryIndex`.
 public struct PendingDelete: Equatable {
-    public let id: String        // source event id
-    public let occKey: String    // focused occurrence-box id (for This-Event / This-&-Future)
+    public let id: String // source event id
+    public let occKey: String // focused occurrence-box id (for This-Event / This-&-Future)
     public let recurring: Bool
-    public let imported: Bool    // an imported (read-only) event → Hide instead of Delete
-    public let alreadyHidden: Bool   // imported + already hidden (revealed via View menu) → info-only, Cancel
-    public var kind: CalendarEngine.ItemKind = .timed   // drives the noun in the confirm text (deadline vs event)
-    public var focus: Int?       // nil = not navigating yet (no ring)
-    private var noun: String { kind == .deadline ? "deadline" : "event" }
+    public let imported: Bool // an imported (read-only) event → Hide instead of Delete
+    public let alreadyHidden: Bool // imported + already hidden (revealed via View menu) → info-only, Cancel
+    public var kind: CalendarEngine.ItemKind = .timed // drives the noun in the confirm text (deadline vs event)
+    public var focus: Int? // nil = not navigating yet (no ring)
+    private var noun: String {
+        kind == .deadline ? "deadline" : "event"
+    }
+
     public var choices: [DeleteChoice] {
-        if alreadyHidden { return [.cancel] }        // nothing to do — Cancel only (no confirm button)
-        if imported { return [.cancel, .hide] }
+        if alreadyHidden {
+            return [.cancel]
+        } // nothing to do — Cancel only (no confirm button)
+        if imported {
+            return [.cancel, .hide]
+        }
         return recurring ? [.cancel, .thisEvent, .thisAndFuture, .deleteAll] : [.cancel, .deleteAll]
     }
+
     /// The default confirm target — the first non-cancel choice (Hide / Delete / This Event). Enter lands
     /// here before any arrow. Clamped so an info-only dialog (Cancel alone) doesn't index past its end.
-    public var primaryIndex: Int { min(1, choices.count - 1) }
+    public var primaryIndex: Int {
+        min(1, choices.count - 1)
+    }
+
     public var title: String {
-        if alreadyHidden { return "This imported \(noun) is already hidden" }
-        if imported { return "This is an imported \(noun); Hide the \(noun)?" }
+        if alreadyHidden {
+            return "This imported \(noun) is already hidden"
+        }
+        if imported {
+            return "This is an imported \(noun); Hide the \(noun)?"
+        }
         return recurring ? "Delete recurring \(noun)?" : "Delete this \(noun)?"
     }
+
     /// A secondary note under the title. Already-hidden imported → why + how to re-hide; imported recurring →
     /// steer to a local copy for a single-occurrence delete.
     public var note: String? {
@@ -158,40 +197,43 @@ public struct PendingDelete: Equatable {
 /// three "when" parts (for bands, start/end are the start/end *day*; deadlines have date + one time).
 public enum DrawerField: Hashable {
     case title, date, start, end, color, config, notes, noteScope, delete
-    case cfgTags, cfgRepeat, cfgPromote, cfgTimezone   // controls inside Configuration (only in the cycle while it's open)
-    case repEvery, repDays, repUntil, repUntilDate   // repeat sub-controls (shown conditionally by kind)
-    case promoteLane   // the lane picker that appears when Promote is on (timed / deadline)
+    case cfgTags, cfgRepeat, cfgPromote,
+         cfgTimezone // controls inside Configuration (only in the cycle while it's open)
+    case repEvery, repDays, repUntil, repUntilDate // repeat sub-controls (shown conditionally by kind)
+    case promoteLane // the lane picker that appears when Promote is on (timed / deadline)
 }
 
 extension DrawerField {
     /// Human label for the Cmd+K guide heading.
     var label: String {
         switch self {
-        case .title:  return "title"
-        case .date:   return "date"
-        case .start:  return "start time"
-        case .end:    return "end time"
-        case .color:  return "color"
-        case .config: return "configuration"
-        case .notes:  return "notes"
-        case .noteScope: return "note scope"
-        case .delete: return "delete"
-        case .cfgTags:      return "tags"
-        case .cfgRepeat:    return "repeat"
-        case .cfgPromote:   return "promote / lane"
-        case .cfgTimezone:  return "timezone"
-        case .repEvery:     return "every N weeks"
-        case .repDays:      return "weekdays"
-        case .repUntil:     return "until"
-        case .repUntilDate: return "until date"
-        case .promoteLane:  return "lane"
+        case .title: "title"
+        case .date: "date"
+        case .start: "start time"
+        case .end: "end time"
+        case .color: "color"
+        case .config: "configuration"
+        case .notes: "notes"
+        case .noteScope: "note scope"
+        case .delete: "delete"
+        case .cfgTags: "tags"
+        case .cfgRepeat: "repeat"
+        case .cfgPromote: "promote / lane"
+        case .cfgTimezone: "timezone"
+        case .repEvery: "every N weeks"
+        case .repDays: "weekdays"
+        case .repUntil: "until"
+        case .repUntilDate: "until date"
+        case .promoteLane: "lane"
         }
     }
+
     /// Is this one of the controls nested inside Configuration? (Escape returns to the config header.)
     var isConfigChild: Bool {
         switch self {
-        case .cfgTags, .cfgRepeat, .cfgPromote, .repEvery, .repDays, .repUntil, .repUntilDate, .promoteLane, .cfgTimezone: return true
-        default: return false
+        case .cfgTags, .cfgRepeat, .cfgPromote, .repEvery, .repDays, .repUntil, .repUntilDate, .promoteLane,
+             .cfgTimezone: true
+        default: false
         }
     }
 }
@@ -208,6 +250,7 @@ private struct DrawerRingAnchors: PreferenceKey {
         value.merge(nextValue()) { _, new in new }
     }
 }
+
 private extension View {
     /// Mark this view as drawer field `field`'s focus target (its bounds feed the sliding ring).
     func drawerRingAnchor(_ field: DrawerField) -> some View {
@@ -223,8 +266,8 @@ public struct BandEdit: Equatable { public var id: String; public var rect: CGRe
 public struct TimedEdit: Equatable { public var id: String; public var rect: CGRect }
 
 private enum ItemKind2 { case timed, band, deadline }
-private enum WhenField: Hashable { case date, start, end }   // which "when" part is being edited inline
-private enum NoteScope: Hashable { case series, occurrence }  // recurring: shared note vs this-occurrence note
+private enum WhenField: Hashable { case date, start, end } // which "when" part is being edited inline
+private enum NoteScope: Hashable { case series, occurrence } // recurring: shared note vs this-occurrence note
 private let DOW = ["Su", "M", "Tu", "W", "Th", "F", "Sa"]
 
 /// A wrapping flow layout: places subviews left→right, wrapping to a new row when the next one
@@ -238,7 +281,9 @@ private struct FlowLayout: SwiftUI.Layout {
         var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0, widest: CGFloat = 0
         for sv in subviews {
             let s = sv.sizeThatFits(.unspecified)
-            if x > 0, x + s.width > maxW { widest = max(widest, x - spacing); x = 0; y += rowH + lineSpacing; rowH = 0 }
+            if x > 0, x + s.width > maxW {
+                widest = max(widest, x - spacing); x = 0; y += rowH + lineSpacing; rowH = 0
+            }
             x += s.width + spacing
             rowH = max(rowH, s.height)
         }
@@ -250,7 +295,9 @@ private struct FlowLayout: SwiftUI.Layout {
         var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
         for sv in subviews {
             let s = sv.sizeThatFits(.unspecified)
-            if x > bounds.minX, x + s.width > bounds.maxX { x = bounds.minX; y += rowH + lineSpacing; rowH = 0 }
+            if x > bounds.minX, x + s.width > bounds.maxX {
+                x = bounds.minX; y += rowH + lineSpacing; rowH = 0
+            }
             sv.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(s))
             x += s.width + spacing
             rowH = max(rowH, s.height)
@@ -263,33 +310,36 @@ struct EventDrawer: View {
     let id: String
     /// Read-only external event (Apple Calendar): title/time/color are vendor-owned — only local
     /// overlays (tags, notes, promote-to-band) are editable here; edit the rest in Calendar.app.
-    private var imported: Bool { engine.isImported(id) }
+    private var imported: Bool {
+        engine.isImported(id)
+    }
+
     @Binding var width: CGFloat
-    let containerWidth: CGFloat   // window width — the drawer may not grow past it
+    let containerWidth: CGFloat // window width — the drawer may not grow past it
     let theme: Theme
     let onClose: () -> Void
-    var ui: CalendarUIState                 // keyboard focus target (ui.drawerFocus) — kept in 2-way sync
-    var refocus: () -> Void = {}            // return first-responder to the calendar canvas on field blur
+    var ui: CalendarUIState // keyboard focus target (ui.drawerFocus) — kept in 2-way sync
+    var refocus: () -> Void = {} // return first-responder to the calendar canvas on field blur
     // GIF-recording only: the DemoController streams note text here (typed live into the editor) and drives
     // the edit/preview toggle, so the markdown-notes scene shows real typing + render. No-op otherwise.
     var demoNoteFeed: String = ""
     var demoNotePreview: Bool = false
 
-    @FocusState private var fieldFocus: DrawerField?   // the keyboard-focused drawer control (mirrors ui.drawerFocus)
+    @FocusState private var fieldFocus: DrawerField? // the keyboard-focused drawer control (mirrors ui.drawerFocus)
     @State private var kind: ItemKind2 = .timed
     @State private var title = ""
-    @State private var titleOriginal = ""   // title at edit-start — restored if left blank
+    @State private var titleOriginal = "" // title at edit-start — restored if left blank
     @State private var color = "blue"
     @State private var resizeStart: CGFloat?
     @State private var resizeHover = false
-    @State private var whenEditing: WhenField?      // which "when" part currently shows its editor
-    @FocusState private var whenFocus: WhenField?   // focuses the shown editor
-    @State private var repDayCursor = 0             // keyboard cursor across the 7 weekday buttons (repDays)
-    @FocusState private var untilFocused: Bool      // the "until" date field is keyboard-editing
-    @State private var notesFocusPulse = 0          // bump → focus the notes editor (keyboard)
-    // Fixed native date-field height (the text parts reserve it so activating a field doesn't reflow).
-    // A live measurement churns @State mid-entrance-transition, which makes the "when" row snap to its
-    // destination instead of sliding with the drawer — so it's a constant, tunable if a field clips.
+    @State private var whenEditing: WhenField? // which "when" part currently shows its editor
+    @FocusState private var whenFocus: WhenField? // focuses the shown editor
+    @State private var repDayCursor = 0 // keyboard cursor across the 7 weekday buttons (repDays)
+    @FocusState private var untilFocused: Bool // the "until" date field is keyboard-editing
+    @State private var notesFocusPulse = 0 // bump → focus the notes editor (keyboard)
+    /// Fixed native date-field height (the text parts reserve it so activating a field doesn't reflow).
+    /// A live measurement churns @State mid-entrance-transition, which makes the "when" row snap to its
+    /// destination instead of sliding with the drawer — so it's a constant, tunable if a field clips.
     private let whenRowH: CGFloat = 22
     // when (mirrors the item; re-synced from the engine after each edit)
     @State private var itemYear = 2026
@@ -306,15 +356,15 @@ struct EventDrawer: View {
     @State private var rep = Repeat(kind: "none")
     @State private var promote: Int?
     @State private var addingTag = false
-    @State private var tagDraft = ""   // TagInputField self-manages first-responder focus (no @FocusState)
-    @State private var hoveredTag: String?           // tag chip under the cursor (hover highlight)
-    @State private var configOpen = false           // the Configuration disclosure (collapsed by default)
-    @State private var notes = ""            // series note (all events)
-    @State private var occNote = ""          // this-occurrence note (recurring)
-    @State private var occKey = ""           // focused occurrence box id (key for occNote)
+    @State private var tagDraft = "" // TagInputField self-manages first-responder focus (no @FocusState)
+    @State private var hoveredTag: String? // tag chip under the cursor (hover highlight)
+    @State private var configOpen = false // the Configuration disclosure (collapsed by default)
+    @State private var notes = "" // series note (all events)
+    @State private var occNote = "" // this-occurrence note (recurring)
+    @State private var occKey = "" // focused occurrence box id (key for occNote)
     @State private var noteScope: NoteScope = .series
     @State private var notesMode: NotesMode = .edit
-    @State private var settled = false   // true once the slide-in finishes → fade in native controls
+    @State private var settled = false // true once the slide-in finishes → fade in native controls
     // Recurring band: the CURRENT occurrence's date range (read-only) + the base/first occurrence's start
     // date (the "Started …" jump target). `onBaseOccurrence` = the drawer is already on the first one.
     @State private var occStart: YMD?
@@ -322,42 +372,71 @@ struct EventDrawer: View {
     @State private var baseStart: YMD?
     @State private var onBaseOccurrence = false
 
-    private var recurring: Bool { rep.kind != "none" }
+    private var recurring: Bool {
+        rep.kind != "none"
+    }
+
     /// A recurring band shows its occurrence dates read-only (no Tab stop) + a jump-to-first button.
-    private var recurringBand: Bool { kind == .band && recurring }
+    private var recurringBand: Bool {
+        kind == .band && recurring
+    }
+
     /// The drawer is showing a revealed hidden imported event → the footer button becomes "Unhide".
-    private var isRevealedHidden: Bool { imported && engine.isUserHidden(id) }
+    private var isRevealedHidden: Bool {
+        imported && engine.isUserHidden(id)
+    }
+
     /// Raise the delete/hide confirm dialog for the open item (the Delete key / delete-ring Enter path).
     /// Imported events aren't recurring in our model (rep is empty) — their "recurring" is whether the
     /// series has >1 occurrence. An already-hidden imported event gets the info-only "can't delete" dialog.
     private func requestDeleteFromDrawer() {
         let rec = imported ? engine.isImportedSeries(id) : recurring
-        ui.requestDelete(id: id, occKey: occKey, recurring: rec, imported: imported, alreadyHidden: isRevealedHidden, kind: engine.kind(of: id) ?? .timed)
+        ui.requestDelete(
+            id: id,
+            occKey: occKey,
+            recurring: rec,
+            imported: imported,
+            alreadyHidden: isRevealedHidden,
+            kind: engine.kind(of: id) ?? .timed
+        )
     }
+
     /// Activating the footer BUTTON (click, or Enter on its focus ring): a revealed hidden event un-hides
     /// directly; otherwise it's the delete/hide dialog. (Distinct from the raw Delete key, which always
     /// routes to the dialog — showing the info-only "already hidden" variant for a hidden event.)
     private func footerButtonAction() {
-        if isRevealedHidden { engine.unhideImportedSeries(id); onClose() } else { requestDeleteFromDrawer() }
+        if isRevealedHidden {
+            engine.unhideImportedSeries(id); onClose()
+        } else {
+            requestDeleteFromDrawer()
+        }
     }
-    /// The note the editor is bound to right now: the occurrence note only when recurring + selected.
-    private var activeNote: Binding<String> { (recurring && noteScope == .occurrence) ? $occNote : $notes }
 
-    private let minWidth: CGFloat = 410   // wide enough that expanding Configuration doesn't force a resize
-    private var maxWidth: CGFloat { min(760, max(minWidth, containerWidth - margin)) }
+    /// The note the editor is bound to right now: the occurrence note only when recurring + selected.
+    private var activeNote: Binding<String> {
+        (recurring && noteScope == .occurrence) ? $occNote : $notes
+    }
+
+    private let minWidth: CGFloat = 410 // wide enough that expanding Configuration doesn't force a resize
+    private var maxWidth: CGFloat {
+        min(760, max(minWidth, containerWidth - margin))
+    }
+
     private let topInset: CGFloat = 52
     private let margin: CGFloat = 10
     private let cornerRadius: CGFloat = 16
     // ── Tunable layout spacing ────────────────────────────────────────────────────
-    private let contentPad: CGFloat = 18        // left/right/top inset for the top group + notes editor
-    private let configBottomGap: CGFloat = 0   // gap under the Configuration box (before the editor)
-    private let editorVPad: CGFloat = 8         // vertical inset around the notes editor
-    private let footHPad: CGFloat = 16          // foot row horizontal inset
-    private let footTopPad: CGFloat = 7         // space above the toggle / delete row
-    private let footBottomPad: CGFloat = 14     // space below it (raises it off the card's bottom edge)
+    private let contentPad: CGFloat = 18 // left/right/top inset for the top group + notes editor
+    private let configBottomGap: CGFloat = 0 // gap under the Configuration box (before the editor)
+    private let editorVPad: CGFloat = 8 // vertical inset around the notes editor
+    private let footHPad: CGFloat = 16 // foot row horizontal inset
+    private let footTopPad: CGFloat = 7 // space above the toggle / delete row
+    private let footBottomPad: CGFloat = 14 // space below it (raises it off the card's bottom edge)
     private let base = Calendar.current.startOfDay(for: Date())
 
-    private var cardShape: RoundedRectangle { RoundedRectangle(cornerRadius: cornerRadius, style: .continuous) }
+    private var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    }
 
     var body: some View {
         HStack(spacing: 0) { resizeHandle; card }
@@ -375,15 +454,14 @@ struct EventDrawer: View {
                     withAnimation(.easeOut(duration: 0.18)) { settled = true }
                 }
             }
-            .onDisappear { engine.clearColorPreview() }   // drop any lingering swatch preview
-            .onChange(of: id) { _, _ in load() }          // re-pointed (e.g. "make local copy") → reload fields
-
+            .onDisappear { engine.clearColorPreview() } // drop any lingering swatch preview
+            .onChange(of: id) { _, _ in load() } // re-pointed (e.g. "make local copy") → reload fields
             .onChange(of: notes) { _, v in engine.setNotes(id, v) }
             // GIF-recording demo: stream typed note text into the editor + flip edit/preview on cue.
             .onChange(of: demoNoteFeed) { _, v in notes = v; notesMode = .edit }
             .onChange(of: demoNotePreview) { _, p in notesMode = p ? .preview : .edit }
             .onChange(of: occNote) { _, v in engine.setOccNote(id, occKey, v) }
-            .onChange(of: noteScope) { _, s in   // open each note in the sensible view
+            .onChange(of: noteScope) { _, s in // open each note in the sensible view
                 let c = s == .occurrence ? occNote : notes
                 notesMode = c.isEmpty ? .edit : .preview
             }
@@ -392,15 +470,21 @@ struct EventDrawer: View {
             // the field; a native blur (Tab/click away) flips it back off. Ring focus on the other
             // fields is a pure highlight driven by ui.drawerFocus — no native control receives it.
             .onChange(of: ui.drawerTitleEditing) { _, editing in
-                if fieldFocus != (editing ? .title : nil) { fieldFocus = editing ? .title : nil }
-                if editing { titleOriginal = title }   // remember the pre-edit title
-                else {                                 // done → strip; a blank title reverts (no empty titles)
+                if fieldFocus != (editing ? .title : nil) {
+                    fieldFocus = editing ? .title : nil
+                }
+                if editing {
+                    titleOriginal = title
+                } // remember the pre-edit title
+                else { // done → strip; a blank title reverts (no empty titles)
                     let s = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                    title = s.isEmpty ? titleOriginal : s   // setting `title` re-fires commitTitle
+                    title = s.isEmpty ? titleOriginal : s // setting `title` re-fires commitTitle
                 }
             }
             .onChange(of: fieldFocus) { _, v in
-                if v == nil, ui.drawerTitleEditing { ui.drawerTitleEditing = false }   // native blur → stop editing
+                if v == nil, ui.drawerTitleEditing {
+                    ui.drawerTitleEditing = false
+                } // native blur → stop editing
             }
             // Keyboard actions posted by the KeyboardModel (Enter / ←/→ on the focused field).
             .onChange(of: ui.drawerPulse) { _, _ in handleDrawerAction(ui.drawerActionKind) }
@@ -414,8 +498,10 @@ struct EventDrawer: View {
             .onChange(of: configOpen) { _, open in
                 publishFieldOrder()
                 if !open {
-                    if ui.drawerFocus?.isConfigChild == true { ui.drawerFocus = .config }
-                    addingTag = false; tagDraft = ""   // don't leave the tag input up (it self-focuses on re-expand)
+                    if ui.drawerFocus?.isConfigChild == true {
+                        ui.drawerFocus = .config
+                    }
+                    addingTag = false; tagDraft = "" // don't leave the tag input up (it self-focuses on re-expand)
                 }
             }
             .onDisappear { ui.drawerFocus = nil; ui.drawerTitleEditing = false; ui.drawerFieldEditing = false }
@@ -424,7 +510,7 @@ struct EventDrawer: View {
                 // fully selected, so the first keystroke replaces "New Deadline".
                 guard ui.selectTitleOnOpen else { return }
                 ui.selectTitleOnOpen = false
-                ui.drawerTitleEditing = true   // focus the title field (drives fieldFocus = .title)
+                ui.drawerTitleEditing = true // focus the title field (drives fieldFocus = .title)
                 // The field editor becomes first responder a beat after @FocusState flips + the drawer
                 // finishes sliding in; select-all once it's up.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -438,13 +524,15 @@ struct EventDrawer: View {
         VStack(spacing: 0) {
             // Top: title / when / color / configuration (compact — Configuration collapses by default).
             VStack(alignment: .leading, spacing: 14) {
-                if imported { importedBanner }
+                if imported {
+                    importedBanner
+                }
                 VStack(alignment: .leading, spacing: 7) {
                     Group {
                         titleField
-                        whenControls   // each part carries its own focus ring (see whenPart)
+                        whenControls // each part carries its own focus ring (see whenPart)
                     }
-                    .disabled(imported)   // title / time are owned by the source calendar
+                    .disabled(imported) // title / time are owned by the source calendar
                     // Color IS editable on imported events — it's stored as a local overlay (colorOverride),
                     // not written back to Apple Calendar. Tags / notes / promote (in configBox) are too.
                     colorSwatches.drawerRingAnchor(.color)
@@ -462,8 +550,8 @@ struct EventDrawer: View {
             // matches the top content so the text left/right edges line up (internal CSS padding is 0).
             MarkdownWebEditor(text: activeNote, mode: $notesMode, theme: theme,
                               focusPulse: notesFocusPulse,
-                              onExit: { refocus() },          // Escape → back to the notes ring
-                              onSavePreview: { refocus() })   // ⌘S → preview → back to the notes ring
+                              onExit: { refocus() }, // Escape → back to the notes ring
+                              onSavePreview: { refocus() }) // ⌘S → preview → back to the notes ring
                 .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
                 .drawerRingAnchor(.notes)
                 .padding(.horizontal, contentPad).padding(.vertical, editorVPad)
@@ -491,55 +579,72 @@ struct EventDrawer: View {
         // the title/tag field) and nothing else re-focuses, drop back to text. Deferred so a
         // field-to-field switch (which briefly nils focus) isn't torn down.
         .onChange(of: whenFocus) { _, f in
-            if f == nil { DispatchQueue.main.async { if whenFocus == nil { whenEditing = nil } } }
+            if f == nil {
+                DispatchQueue.main.async {
+                    if whenFocus == nil {
+                        whenEditing = nil
+                    }
+                }
+            }
         }
     }
 
-    private func endWhenEdit() { whenEditing = nil; whenFocus = nil }
+    private func endWhenEdit() {
+        whenEditing = nil; whenFocus = nil
+    }
 
-    // ── Keyboard drive ────────────────────────────────────────────────────────────
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // FOCUS-RING SHAPES — TUNE HERE. This is the single place that controls the shape of
-    // every drawer focus ring. Each field maps to a RingSpec:
-    //   • inset  — padding applied to the ring rect. NEGATIVE grows it OUTWARD past the
-    //              control (looser); POSITIVE shrinks it INWARD (tighter). Per-edge, so you
-    //              can nudge just left/right or top/bottom (e.g. to clear an occluding edge).
-    //   • radius — corner radius of the rounded rectangle.
-    //   • width  — stroke thickness when focused.
-    // Every call site is just `.drawerRingAnchor(.someField)` — no geometry there.
-    // ═══════════════════════════════════════════════════════════════════════════════
+    /// ── Keyboard drive ────────────────────────────────────────────────────────────
+    /// ═══════════════════════════════════════════════════════════════════════════════
+    /// FOCUS-RING SHAPES — TUNE HERE. This is the single place that controls the shape of
+    /// every drawer focus ring. Each field maps to a RingSpec:
+    ///   • inset  — padding applied to the ring rect. NEGATIVE grows it OUTWARD past the
+    ///              control (looser); POSITIVE shrinks it INWARD (tighter). Per-edge, so you
+    ///              can nudge just left/right or top/bottom (e.g. to clear an occluding edge).
+    ///   • radius — corner radius of the rounded rectangle.
+    ///   • width  — stroke thickness when focused.
+    /// Every call site is just `.drawerRingAnchor(.someField)` — no geometry there.
+    /// ═══════════════════════════════════════════════════════════════════════════════
     private struct RingSpec { var inset: EdgeInsets; var radius: CGFloat; var width: CGFloat = 2 }
 
     private func ringSpec(for field: DrawerField) -> RingSpec {
         // helpers: `ins` = per-edge (top, leading, bottom, trailing); `all` = uniform.
-        func ins(_ t: CGFloat, _ l: CGFloat, _ b: CGFloat, _ r: CGFloat) -> EdgeInsets { EdgeInsets(top: t, leading: l, bottom: b, trailing: r) }
-        func all(_ v: CGFloat) -> EdgeInsets { ins(v, v, v, v) }
+        func ins(_ t: CGFloat, _ l: CGFloat, _ b: CGFloat, _ r: CGFloat) -> EdgeInsets {
+            EdgeInsets(
+                top: t,
+                leading: l,
+                bottom: b,
+                trailing: r
+            )
+        }
+        func all(_ v: CGFloat) -> EdgeInsets {
+            ins(v, v, v, v)
+        }
         switch field {
         // Top group
-        case .title:               return RingSpec(inset: ins(-3, -5, -3, -5), radius: 8)
-        case .date, .start, .end:  return RingSpec(inset: ins(-2, -4, -2, -4), radius: 8)
-        case .color:               return RingSpec(inset: all(-4), radius: 8)
-        case .config:              return RingSpec(inset: all(-2), radius: 10)
-        case .notes:               return RingSpec(inset: all(0),  radius: 6)
-        case .noteScope:           return RingSpec(inset: all(-3), radius: 7)
-        case .delete:              return RingSpec(inset: all(-4), radius: 7)
+        case .title: return RingSpec(inset: ins(-3, -5, -3, -5), radius: 8)
+        case .date, .start, .end: return RingSpec(inset: ins(-2, -4, -2, -4), radius: 8)
+        case .color: return RingSpec(inset: all(-4), radius: 8)
+        case .config: return RingSpec(inset: all(-2), radius: 10)
+        case .notes: return RingSpec(inset: all(0), radius: 6)
+        case .noteScope: return RingSpec(inset: all(-3), radius: 7)
+        case .delete: return RingSpec(inset: all(-4), radius: 7)
         // Configuration children (rings sit on the inner controls)
-        case .cfgTags:             return RingSpec(inset: all(-3), radius: 7)
-        case .cfgRepeat:           return RingSpec(inset: all(-3), radius: 7)
-        case .repEvery:            return RingSpec(inset: all(-3), radius: 7)
-        case .repDays:             return RingSpec(inset: all(-3), radius: 7)
-        case .repUntil:            return RingSpec(inset: all(-3), radius: 7)
-        case .repUntilDate:        return RingSpec(inset: all(-3), radius: 7)
-        case .cfgPromote:          return RingSpec(inset: all(-3), radius: 7)
-        case .promoteLane:         return RingSpec(inset: all(-3), radius: 7)
-        case .cfgTimezone:         return RingSpec(inset: all(-3), radius: 7)
+        case .cfgTags: return RingSpec(inset: all(-3), radius: 7)
+        case .cfgRepeat: return RingSpec(inset: all(-3), radius: 7)
+        case .repEvery: return RingSpec(inset: all(-3), radius: 7)
+        case .repDays: return RingSpec(inset: all(-3), radius: 7)
+        case .repUntil: return RingSpec(inset: all(-3), radius: 7)
+        case .repUntilDate: return RingSpec(inset: all(-3), radius: 7)
+        case .cfgPromote: return RingSpec(inset: all(-3), radius: 7)
+        case .promoteLane: return RingSpec(inset: all(-3), radius: 7)
+        case .cfgTimezone: return RingSpec(inset: all(-3), radius: 7)
         }
     }
 
     /// The ONE dashed focus ring that slides over the focused field. Positioned from the collected
     /// field anchors; springs to its new frame when `ui.drawerFocus` changes. Dashed + red = the same
     /// language as the calendar cursors.
-    @ViewBuilder private func drawerRingOverlay(_ anchors: [DrawerField: Anchor<CGRect>]) -> some View {
+    private func drawerRingOverlay(_ anchors: [DrawerField: Anchor<CGRect>]) -> some View {
         GeometryReader { proxy in
             if let f = ui.drawerFocus, let anchor = anchors[f] {
                 let spec = ringSpec(for: f)
@@ -565,42 +670,92 @@ struct EventDrawer: View {
 
     /// Run a keyboard action against the currently-focused field (posted via ui.postDrawer).
     private func handleDrawerAction(_ action: DrawerActionKind) {
-        if action == .confirmDelete { requestDeleteFromDrawer(); return }   // Delete key → confirm dialog
+        if action == .confirmDelete {
+            requestDeleteFromDrawer(); return
+        } // Delete key → confirm dialog
         switch ui.drawerFocus {
         case .title:
-            if action == .activate { ui.drawerTitleEditing = true }   // Enter → start editing the title
+            if action == .activate {
+                ui.drawerTitleEditing = true
+            } // Enter → start editing the title
         case .date, .start, .end:
-            if action == .activate, let wf = whenFieldFor(ui.drawerFocus!) { whenEditing = wf }
+            if action == .activate, let wf = whenFieldFor(ui.drawerFocus!) {
+                whenEditing = wf
+            }
         case .color:
-            if action == .left { cycleColor(-1) } else if action == .right { cycleColor(1) }
+            if action == .left {
+                cycleColor(-1)
+            } else if action == .right {
+                cycleColor(1)
+            }
         case .config:
-            if action == .activate { withAnimation(.easeInOut(duration: 0.2)) { configOpen.toggle() } }
+            if action == .activate {
+                withAnimation(.easeInOut(duration: 0.2)) { configOpen.toggle() }
+            }
         case .cfgTags:
-            if action == .activate { endWhenEdit(); addingTag = true }   // show the input (it self-focuses on appear)
+            if action == .activate {
+                endWhenEdit(); addingTag = true
+            } // show the input (it self-focuses on appear)
         case .cfgRepeat:
-            if action == .left { cycleRepeat(-1) } else if action == .right { cycleRepeat(1) }
+            if action == .left {
+                cycleRepeat(-1)
+            } else if action == .right {
+                cycleRepeat(1)
+            }
         case .repEvery:
-            if action == .left { stepEvery(-1) } else if action == .right { stepEvery(1) }
+            if action == .left {
+                stepEvery(-1)
+            } else if action == .right {
+                stepEvery(1)
+            }
         case .repDays:
-            if action == .left { repDayCursor = (repDayCursor + 6) % 7 }
-            else if action == .right { repDayCursor = (repDayCursor + 1) % 7 }
-            else if action == .activate { toggleDay(repDayCursor) }
+            if action == .left {
+                repDayCursor = (repDayCursor + 6) % 7
+            } else if action == .right {
+                repDayCursor = (repDayCursor + 1) % 7
+            } else if action == .activate {
+                toggleDay(repDayCursor)
+            }
         case .repUntil:
-            if action == .left || action == .right { untilOn.wrappedValue.toggle() }
+            if action == .left || action == .right {
+                untilOn.wrappedValue.toggle()
+            }
         case .repUntilDate:
-            if action == .activate { untilFocused = true }
+            if action == .activate {
+                untilFocused = true
+            }
         case .cfgPromote:
-            if action == .left { stepPromote(-1) } else if action == .right { stepPromote(1) }
+            if action == .left {
+                stepPromote(-1)
+            } else if action == .right {
+                stepPromote(1)
+            }
         case .cfgTimezone:
-            if action == .left { stepTimezone(-1) } else if action == .right { stepTimezone(1) }
+            if action == .left {
+                stepTimezone(-1)
+            } else if action == .right {
+                stepTimezone(1)
+            }
         case .promoteLane:
-            if action == .left { stepPromoteLane(-1) } else if action == .right { stepPromoteLane(1) }
+            if action == .left {
+                stepPromoteLane(-1)
+            } else if action == .right {
+                stepPromoteLane(1)
+            }
         case .notes:
-            if action == .activate { notesMode = .edit; notesFocusPulse += 1 }   // edit mode + focus CodeMirror
+            if action == .activate {
+                notesMode = .edit; notesFocusPulse += 1
+            } // edit mode + focus CodeMirror
         case .noteScope:
-            if action == .left { noteScope = .series } else if action == .right { noteScope = .occurrence }
+            if action == .left {
+                noteScope = .series
+            } else if action == .right {
+                noteScope = .occurrence
+            }
         case .delete:
-            if action == .activate { footerButtonAction() }   // Enter on the delete ring = clicking the button
+            if action == .activate {
+                footerButtonAction()
+            } // Enter on the delete ring = clicking the button
         case .none: break
         }
     }
@@ -612,13 +767,20 @@ struct EventDrawer: View {
         let n = repeatKinds.count
         setKind(repeatKinds[((i + delta) % n + n) % n])
     }
+
     /// Step the "every N weeks" count within 1…4.
     private func stepEvery(_ delta: Int) {
         let v = max(1, min(4, (rep.n ?? 1) + delta))
-        if v != (rep.n ?? 1) { rep.n = v; commitRep() }
+        if v != (rep.n ?? 1) {
+            rep.n = v; commitRep()
+        }
     }
+
     /// A native inline editor (a "when" part or the "until" date) owns the keyboard right now.
-    private func updateFieldEditing() { ui.drawerFieldEditing = (whenEditing != nil) || untilFocused }
+    private func updateFieldEditing() {
+        ui.drawerFieldEditing = (whenEditing != nil) || untilFocused
+    }
+
     /// Bands: step the lane T1…T4. Timed/deadline: toggle promote off/on (← and → both toggle).
     private func stepPromote(_ delta: Int) {
         if kind == .band {
@@ -627,9 +789,10 @@ struct EventDrawer: View {
         } else {
             promote = (promote == nil) ? 0 : nil
             engine.setPromoteTrack(id, promote)
-            refreshOrder(fallback: .cfgPromote)   // toggling on/off adds/removes the lane picker
+            refreshOrder(fallback: .cfgPromote) // toggling on/off adds/removes the lane picker
         }
     }
+
     /// Timed/deadline: step the promoted lane T1…T4.
     private func stepPromoteLane(_ delta: Int) {
         let v = max(0, min(3, (promote ?? 0) + delta))
@@ -644,7 +807,7 @@ struct EventDrawer: View {
         commitColor(color)
     }
 
-    // ── Configuration disclosure (macOS Settings-style grouped box) ────────────────
+    /// ── Configuration disclosure (macOS Settings-style grouped box) ────────────────
     /// A collapsed-by-default rounded box: native DisclosureGroup for the collapse, holding the
     /// advanced controls (tags / repeat / promote) split by full-margin dividers.
     private var configBox: some View {
@@ -652,10 +815,10 @@ struct EventDrawer: View {
             VStack(alignment: .leading, spacing: 0) {
                 configItem("Tags") { tagsControls.drawerRingAnchor(.cfgTags) }
                 configDivider
-                configItem("Repeat") { repeatControls }   // rings live on each repeat sub-control
+                configItem("Repeat") { repeatControls } // rings live on each repeat sub-control
                 configDivider
-                configItem(kind == .band ? "Lane" : "Promote") { laneOrPromoteControls }   // rings live on each control
-                if kind != .band {   // bands are all-day → timezone-irrelevant
+                configItem(kind == .band ? "Lane" : "Promote") { laneOrPromoteControls } // rings live on each control
+                if kind != .band { // bands are all-day → timezone-irrelevant
                     configDivider
                     configItem("Timezone") { tzControls.drawerRingAnchor(.cfgTimezone) }
                 }
@@ -681,7 +844,10 @@ struct EventDrawer: View {
         }
         .padding(.horizontal, 12)
         .background(theme.text.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(theme.text.opacity(0.08), lineWidth: 1) }
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(
+            theme.text.opacity(0.08),
+            lineWidth: 1
+        ) }
     }
 
     /// Row separator inside the config box — theme text colour so it stays light on dark, with
@@ -713,7 +879,11 @@ struct EventDrawer: View {
                 .help("Open this event in Calendar.app")
             }
             // Clone into our own calendar (editable); the read-only original is hidden. Re-point the drawer.
-            Button { if let newId = engine.makeLocalCopy(id) { ui.openEventId = newId } } label: {
+            Button {
+                if let newId = engine.makeLocalCopy(id) {
+                    ui.openEventId = newId
+                }
+            } label: {
                 Label("Make local copy", systemImage: "doc.on.doc")
             }
             .help("Duplicate into your calendar so you can edit it")
@@ -735,7 +905,7 @@ struct EventDrawer: View {
             .font(.custom("Comic Sans MS", size: 20).weight(.bold))
             .foregroundStyle(theme.text)
             .padding(.trailing, 26)
-            .focused($fieldFocus, equals: .title)   // keyboard: Enter on the title ring focuses this
+            .focused($fieldFocus, equals: .title) // keyboard: Enter on the title ring focuses this
             .onHover { $0 ? NSCursor.iBeam.set() : NSCursor.arrow.set() }
             .onChange(of: title) { _, v in commitTitle(v) }
             // Enter / Escape end editing but keep the title RING focused, so Tab flows on to date.
@@ -753,7 +923,11 @@ struct EventDrawer: View {
                     .overlay(Circle().strokeBorder(theme.text, lineWidth: key == color ? 2 : 0))
                     .contentShape(Circle())
                     .onHover { hovering in
-                        if hovering { engine.setColorPreview(id, key) } else { engine.clearColorPreview(key) }
+                        if hovering {
+                            engine.setColorPreview(id, key)
+                        } else {
+                            engine.clearColorPreview(key)
+                        }
                     }
                     .onTapGesture { endWhenEdit(); color = key; commitColor(key) }
             }
@@ -795,17 +969,26 @@ struct EventDrawer: View {
         switch f { case .date: return .date; case .start: return .start; case .end: return .end }
     }
 
-    private func dateStr(_ d: Int) -> String { "\(month + 1)/\(d)/\(itemYear)" }
-    private func dateStr(_ p: YMD) -> String { "\(p.month + 1)/\(p.day)/\(p.year)" }   // full date (may cross months)
-    private var dateText: String { dateStr(day) }
+    private func dateStr(_ d: Int) -> String {
+        "\(month + 1)/\(d)/\(itemYear)"
+    }
+
+    private func dateStr(_ p: YMD) -> String {
+        "\(p.month + 1)/\(p.day)/\(p.year)"
+    } // full date (may cross months)
+    private var dateText: String {
+        dateStr(day)
+    }
+
     /// "Started …" button: navigate to + select the base (first) occurrence, then close and reopen the
     /// drawer on it. `id` is already the source/base id (the drawer always opens on the source).
     private func goToFirstOccurrence() {
         let baseId = id
-        ui.openEventId = nil                    // close the drawer (slides out)
-        engine.revealAndSelect(id: baseId)      // highlight the first occurrence + fly to it
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { ui.openEventId = baseId }   // reopen on it
+        ui.openEventId = nil // close the drawer (slides out)
+        engine.revealAndSelect(id: baseId) // highlight the first occurrence + fly to it
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { ui.openEventId = baseId } // reopen on it
     }
+
     private func timeText(_ h: CGFloat) -> String {
         let hh = min(23, Int(h)); let mm = Int((h - floor(h)) * 60)
         return String(format: "%d:%02d", hh, mm)
@@ -819,9 +1002,17 @@ struct EventDrawer: View {
             HStack(spacing: 5) {
                 whenPart(.date, dateText) { DatePicker("", selection: dateBinding, displayedComponents: .date) }
                 Text(",").foregroundStyle(.secondary)
-                whenPart(.start, timeText(start)) { DatePicker("", selection: timeBinding({ start }, setStart), displayedComponents: .hourAndMinute) }
+                whenPart(.start, timeText(start)) { DatePicker(
+                    "",
+                    selection: timeBinding({ start }, setStart),
+                    displayedComponents: .hourAndMinute
+                ) }
                 Text("–").foregroundStyle(.secondary)
-                whenPart(.end, timeText(end)) { DatePicker("", selection: timeBinding({ end }, setEnd), displayedComponents: .hourAndMinute) }
+                whenPart(.end, timeText(end)) { DatePicker(
+                    "",
+                    selection: timeBinding({ end }, setEnd),
+                    displayedComponents: .hourAndMinute
+                ) }
                 Spacer(minLength: 0)
             }
             .font(.callout)
@@ -844,9 +1035,19 @@ struct EventDrawer: View {
             .font(.callout).foregroundStyle(theme.text)
         case .band:
             HStack(spacing: 5) {
-                whenPart(.start, dateStr(startDay)) { DatePicker("", selection: bandDayBinding(true), in: monthRange, displayedComponents: .date) }
+                whenPart(.start, dateStr(startDay)) { DatePicker(
+                    "",
+                    selection: bandDayBinding(true),
+                    in: monthRange,
+                    displayedComponents: .date
+                ) }
                 Text("–").foregroundStyle(.secondary)
-                whenPart(.end, dateStr(endDay)) { DatePicker("", selection: bandDayBinding(false), in: monthRange, displayedComponents: .date) }
+                whenPart(.end, dateStr(endDay)) { DatePicker(
+                    "",
+                    selection: bandDayBinding(false),
+                    in: monthRange,
+                    displayedComponents: .date
+                ) }
                 Spacer(minLength: 0)
             }
             .font(.callout)
@@ -854,14 +1055,18 @@ struct EventDrawer: View {
             HStack(spacing: 5) {
                 whenPart(.date, dateText) { DatePicker("", selection: ddlDateBinding, displayedComponents: .date) }
                 Text(",").foregroundStyle(.secondary)
-                whenPart(.start, timeText(hour)) { DatePicker("", selection: timeBinding({ hour }, setDdlHour), displayedComponents: .hourAndMinute) }
+                whenPart(.start, timeText(hour)) { DatePicker(
+                    "",
+                    selection: timeBinding({ hour }, setDdlHour),
+                    displayedComponents: .hourAndMinute
+                ) }
                 Spacer(minLength: 0)
             }
             .font(.callout)
         }
     }
 
-    // ── Tags ──────────────────────────────────────────────────────────────────────
+    /// ── Tags ──────────────────────────────────────────────────────────────────────
     private var tagsControls: some View {
         FlowLayout(spacing: 6, lineSpacing: 6) {
             ForEach(tags, id: \.self) { t in tagChip(t) }
@@ -871,12 +1076,16 @@ struct EventDrawer: View {
                 TagInputField(
                     text: $tagDraft,
                     onSubmit: addTag,
-                    onCancel: { addingTag = false; tagDraft = ""; refocus() },   // Esc → back to the cfgTags ring
-                    onDeleteWhenEmpty: { if let last = tags.last { removeTag(last) } }   // Delete on empty → drop last tag
+                    onCancel: { addingTag = false; tagDraft = ""; refocus() }, // Esc → back to the cfgTags ring
+                    onDeleteWhenEmpty: {
+                        if let last = tags.last {
+                            removeTag(last)
+                        }
+                    } // Delete on empty → drop last tag
                 )
-                    .font(.caption).frame(width: 56)
-                    .padding(.horizontal, 9).padding(.vertical, 3)
-                    .overlay(dashedPill)
+                .font(.caption).frame(width: 56)
+                .padding(.horizontal, 9).padding(.vertical, 3)
+                .overlay(dashedPill)
             } else {
                 Button { endWhenEdit(); addingTag = true } label: {
                     Text("+ Tag").font(.caption)
@@ -900,16 +1109,22 @@ struct EventDrawer: View {
             Text("#\(t)").font(.caption)
             Button { removeTag(t) } label: { Image(systemName: "xmark").font(.system(size: 8, weight: .bold)) }
                 .buttonStyle(.plain)
-                .opacity(hovered ? 0.9 : 0.4)   // the × steps forward on hover
+                .opacity(hovered ? 0.9 : 0.4) // the × steps forward on hover
         }
         .padding(.horizontal, 7).padding(.vertical, 3)
         .background(theme.text.opacity(hovered ? 0.16 : 0.08), in: Capsule())
         .foregroundStyle(theme.text)
-        .onHover { h in if h { hoveredTag = t } else if hoveredTag == t { hoveredTag = nil } }
+        .onHover {
+            h in if h {
+                hoveredTag = t
+            } else if hoveredTag == t {
+                hoveredTag = nil
+            }
+        }
         .animation(.easeOut(duration: 0.12), value: hovered)
     }
 
-    // ── Repeat ────────────────────────────────────────────────────────────────────
+    /// ── Repeat ────────────────────────────────────────────────────────────────────
     private var repeatControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             // The kind picker itself is the `.cfgRepeat` stop (its ring lives here, not on the whole section).
@@ -923,21 +1138,21 @@ struct EventDrawer: View {
             if rep.kind == "weekly" || rep.kind == "weekdays" {
                 HStack(spacing: 6) {
                     Text("every").font(.caption).foregroundStyle(.secondary)
-                    Picker("", selection: repN) { ForEach(1...4, id: \.self) { Text("\($0)").tag($0) } }
+                    Picker("", selection: repN) { ForEach(1 ... 4, id: \.self) { Text("\($0)").tag($0) } }
                         .labelsHidden().frame(width: 58)
                     Text((rep.n ?? 1) > 1 ? "weeks" : "week").font(.caption).foregroundStyle(.secondary)
                 }
                 .drawerRingAnchor(.repEvery)
             }
             if rep.kind == "weekdays" {
-                HStack(spacing: 4) { ForEach(0..<7, id: \.self) { weekdayButton($0) } }
+                HStack(spacing: 4) { ForEach(0 ..< 7, id: \.self) { weekdayButton($0) } }
                     .drawerRingAnchor(.repDays)
             }
             if rep.kind != "none" {
                 HStack(spacing: 8) {
                     Text("until").font(.caption).foregroundStyle(.secondary)
                     Picker("", selection: untilOn) { Text("None").tag(false); Text("Date").tag(true) }
-                        .pickerStyle(.segmented).labelsHidden().fixedSize()   // hug content, flush left
+                        .pickerStyle(.segmented).labelsHidden().fixedSize() // hug content, flush left
                         .drawerRingAnchor(.repUntil)
                     if rep.until != nil {
                         DatePicker("", selection: untilDate, displayedComponents: .date)
@@ -956,31 +1171,35 @@ struct EventDrawer: View {
     private func weekdayButton(_ i: Int) -> some View {
         let sel = (rep.days ?? [anchorDow]).contains(i)
         let locked = i == anchorDow
-        let cursor = ui.drawerFocus == .repDays && repDayCursor == i   // keyboard cursor is on this day
+        let cursor = ui.drawerFocus == .repDays && repDayCursor == i // keyboard cursor is on this day
         return Button { toggleDay(i) } label: {
             Text(DOW[i]).font(.caption2)
                 .frame(width: 27, height: 24)
                 .background(sel ? theme.eventBorder(color).opacity(locked ? 0.5 : 0.9) : theme.text.opacity(0.06),
-                           in: RoundedRectangle(cornerRadius: 5))
+                            in: RoundedRectangle(cornerRadius: 5))
                 .foregroundStyle(sel ? .white : theme.text)
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(theme.eventBorder("red"), lineWidth: cursor ? 2 : 0))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(
+                    theme.eventBorder("red"),
+                    lineWidth: cursor ? 2 : 0
+                ))
         }
         .buttonStyle(.plain).disabled(locked)
     }
 
-    // ── Promote / Lane ──────────────────────────────────────────────────────────────
+    /// ── Promote / Lane ──────────────────────────────────────────────────────────────
     @ViewBuilder private var laneOrPromoteControls: some View {
         if kind == .band {
-            Picker("", selection: lane) { ForEach(0..<4, id: \.self) { Text("T\($0 + 1)").tag($0) } }
+            Picker("", selection: lane) { ForEach(0 ..< 4, id: \.self) { Text("T\($0 + 1)").tag($0) } }
                 .pickerStyle(.segmented).labelsHidden()
                 .drawerRingAnchor(.cfgPromote)
         } else {
             HStack(spacing: 8) {
                 Picker("", selection: promoteOn) { Text("No").tag(false); Text("Yes").tag(true) }
-                    .pickerStyle(.segmented).labelsHidden().fixedSize()   // hug content → flush left (not centered in a fixed frame)
+                    .pickerStyle(.segmented).labelsHidden()
+                    .fixedSize() // hug content → flush left (not centered in a fixed frame)
                     .drawerRingAnchor(.cfgPromote)
                 if promote != nil {
-                    Picker("", selection: promoteLane) { ForEach(0..<4, id: \.self) { Text("T\($0 + 1)").tag($0) } }
+                    Picker("", selection: promoteLane) { ForEach(0 ..< 4, id: \.self) { Text("T\($0 + 1)").tag($0) } }
                         .pickerStyle(.segmented).labelsHidden()
                         .drawerRingAnchor(.promoteLane)
                 }
@@ -988,14 +1207,15 @@ struct EventDrawer: View {
         }
     }
 
-    // ── Timezone (the event's anchor zone) ───────────────────────────────────────────
+    /// ── Timezone (the event's anchor zone) ───────────────────────────────────────────
     /// The zone the event's own date/time are expressed in. Changing it REINTERPRETS the shown wall-clock
     /// in the new zone (keeps the numbers, moves the instant) — "this meeting is at 14:00 London time".
     /// The calendar grid then re-converts it into the current view zone; the hint shows where it lands.
-    @ViewBuilder private var tzControls: some View {
+    private var tzControls: some View {
         VStack(alignment: .leading, spacing: 4) {
             Picker("", selection: tzBinding) {
-                ForEach(CalendarTimezones.all.filter { $0.id != CalendarTimezones.autoId }) { Text($0.label).tag($0.id) }
+                ForEach(CalendarTimezones.all.filter { $0.id != CalendarTimezones.autoId }) { Text($0.label).tag($0.id)
+                }
             }
             .labelsHidden().fixedSize()
             if let hint = gridTimeHint {
@@ -1004,28 +1224,38 @@ struct EventDrawer: View {
         }
         .disabled(imported)
     }
+
     /// The event's stored anchor zone, read STRAIGHT from the engine — never a mirror @State that could
     /// drift to (and then be committed as) the current view zone. Falls back to the view zone only for a
     /// legacy item with no anchor yet.
     private var eventAnchorTz: String {
         (engine.event(id)?.anchorTz ?? engine.deadline(id)?.anchorTz) ?? engine.mainTz
     }
+
     private var tzBinding: Binding<String> {
         Binding(get: { eventAnchorTz }, set: { newTz in
             let anchor = DeadlineTZ.concrete(newTz)
-            guard anchor != eventAnchorTz else { return }   // ignore SwiftUI echo / no-op writes → never clobber the anchor
+            guard anchor != eventAnchorTz
+            else { return } // ignore SwiftUI echo / no-op writes → never clobber the anchor
             switch kind {
-            case .timed:    engine.update(id) { $0.anchorTz = anchor }
+            case .timed: engine.update(id) { $0.anchorTz = anchor }
             case .deadline: engine.updateDeadline(id) { $0.anchorTz = anchor }
-            case .band:     break
+            case .band: break
             }
             syncFromEngine()
         })
     }
+
     /// "= HH:MM TZ on your calendar" — the event's time in the current view zone, shown only when the
     /// event's own zone differs from the view (so it moved on the grid).
     private var gridTimeHint: String? {
-        func hhmm(_ h: CGFloat) -> String { let t = Int((h * 60).rounded()); return String(format: "%02d:%02d", (t / 60) % 24, t % 60) }
+        func hhmm(_ h: CGFloat) -> String {
+            let t = Int((h * 60).rounded()); return String(
+                format: "%02d:%02d",
+                (t / 60) % 24,
+                t % 60
+            )
+        }
         let tz = eventAnchorTz
         let mainTz = engine.mainTz
         let base = DeadlineTZ.instant(itemYear, month, day, kind == .deadline ? hour : start)
@@ -1039,6 +1269,7 @@ struct EventDrawer: View {
             return "= \(fmtHourRange(w.hour, w.hour + (end - start))) \(abbr) on your calendar"
         }
     }
+
     private func stepTimezone(_ delta: Int) {
         let zones = CalendarTimezones.all.filter { $0.id != CalendarTimezones.autoId }.map(\.id)
         guard !zones.isEmpty else { return }
@@ -1079,7 +1310,7 @@ struct EventDrawer: View {
         .padding(.horizontal, footHPad).padding(.top, footTopPad).padding(.bottom, footBottomPad)
     }
 
-    // ── Resize handle ─────────────────────────────────────────────────────────────
+    /// ── Resize handle ─────────────────────────────────────────────────────────────
     private var resizeHandle: some View {
         Capsule()
             .fill(theme.text.opacity(resizeHover ? 0.55 : 0.3))
@@ -1088,48 +1319,90 @@ struct EventDrawer: View {
             .frame(width: 18, alignment: .trailing)
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
-            .onHover { h in resizeHover = h; if h { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() } }
+            .onHover {
+                h in resizeHover = h; if h {
+                    NSCursor.resizeLeftRight.set()
+                } else {
+                    NSCursor.arrow.set()
+                }
+            }
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { v in
                         let s = resizeStart ?? width
-                        if resizeStart == nil { resizeStart = width }
+                        if resizeStart == nil {
+                            resizeStart = width
+                        }
                         width = min(maxWidth, max(minWidth, s - v.translation.width))
                     }
                     .onEnded { _ in resizeStart = nil }
             )
     }
 
-    // ── Date/time bindings ──────────────────────────────────────────────────────────
+    /// ── Date/time bindings ──────────────────────────────────────────────────────────
     private var dateBinding: Binding<Date> {
         Binding(get: { makeDate(itemYear, month, day) },
                 set: { d in let x = ymd(d); engine.update(id) { $0.month = x.m; $0.day = x.day }; syncFromEngine() })
     }
+
     private var ddlDateBinding: Binding<Date> {
         Binding(get: { makeDate(itemYear, month, day) },
-                set: { d in let x = ymd(d); engine.updateDeadline(id) { $0.year = x.y; $0.month = x.m; $0.day = x.day }; syncFromEngine() })
+                set: { d in
+                    let x = ymd(d); engine
+                        .updateDeadline(id) { $0.year = x.y; $0.month = x.m; $0.day = x.day }; syncFromEngine()
+                })
     }
+
     private func bandDayBinding(_ isStart: Bool) -> Binding<Date> {
         Binding(
             get: { makeDate(itemYear, month, isStart ? startDay : endDay) },
             set: { d in
                 let day = max(1, min(daysInMonth(itemYear, month), ymd(d).day))
-                engine.updateBand(id) { if isStart { $0.startDay = min(day, $0.endDay) } else { $0.endDay = max(day, $0.startDay) } }
+                engine.updateBand(id) {
+                    if isStart {
+                        $0.startDay = min(day, $0.endDay)
+                    } else {
+                        $0.endDay = max(
+                            day,
+                            $0.startDay
+                        )
+                    }
+                }
                 syncFromEngine()
-            })
+            }
+        )
     }
+
     private var monthRange: ClosedRange<Date> {
-        makeDate(itemYear, month, 1)...makeDate(itemYear, month, daysInMonth(itemYear, month))
+        makeDate(itemYear, month, 1) ... makeDate(itemYear, month, daysInMonth(itemYear, month))
     }
+
     private func timeBinding(_ get: @escaping () -> CGFloat, _ set: @escaping (CGFloat) -> Void) -> Binding<Date> {
         Binding(
             get: {
-                let h = get(); let hh = Int(h) % 24; let mm = Int((h - floor(h)) * 60)   // %24 so a next-day end (h>24) shows its wall time
-                return Calendar.current.date(bySettingHour: max(0, min(23, hh)), minute: mm, second: 0, of: base) ?? base
+                let h = get(); let hh = Int(h) %
+                    24; let mm = Int((h - floor(h)) * 60) // %24 so a next-day end (h>24) shows its wall time
+                return Calendar.current
+                    .date(bySettingHour: max(0, min(23, hh)), minute: mm, second: 0, of: base) ?? base
             },
-            set: { d in let c = Calendar.current.dateComponents([.hour, .minute], from: d); set(CGFloat(c.hour ?? 0) + CGFloat(c.minute ?? 0) / 60) })
+            set: { d in
+                let c = Calendar.current
+                    .dateComponents([.hour, .minute], from: d); set(CGFloat(c.hour ?? 0) + CGFloat(c.minute ?? 0) / 60)
+            }
+        )
     }
-    private func setStart(_ h: CGFloat) { engine.update(id) { $0.startHour = h; if $0.endHour < h + 0.25 { $0.endHour = min(24, h + 0.5) } }; syncFromEngine() }
+
+    private func setStart(_ h: CGFloat) {
+        engine.update(id) {
+            $0.startHour = h; if $0.endHour < h + 0.25 {
+                $0.endHour = min(
+                    24,
+                    h + 0.5
+                )
+            }
+        }; syncFromEngine()
+    }
+
     private func setEnd(_ h: CGFloat) {
         engine.update(id) {
             // Picking an end at or before the start means the event runs past midnight (a red-eye): store
@@ -1139,21 +1412,45 @@ struct EventDrawer: View {
         }
         syncFromEngine()
     }
-    private func setDdlHour(_ h: CGFloat) { engine.updateDeadline(id) { $0.hour = h }; syncFromEngine() }
 
-    // ── Repeat bindings + logic ───────────────────────────────────────────────────
-    private var anchorDate: Date { makeDate(itemYear, month, kind == .band ? startDay : day) }
-    private var anchorDow: Int { (Calendar.current.dateComponents([.weekday], from: anchorDate).weekday ?? 1) - 1 }
+    private func setDdlHour(_ h: CGFloat) {
+        engine.updateDeadline(id) { $0.hour = h }; syncFromEngine()
+    }
 
-    private var repKind: Binding<String> { Binding(get: { rep.kind }, set: { setKind($0) }) }
-    private var repN: Binding<Int> { Binding(get: { rep.n ?? 1 }, set: { rep.n = $0; commitRep() }) }
+    /// ── Repeat bindings + logic ───────────────────────────────────────────────────
+    private var anchorDate: Date {
+        makeDate(itemYear, month, kind == .band ? startDay : day)
+    }
+
+    private var anchorDow: Int {
+        (Calendar.current.dateComponents([.weekday], from: anchorDate).weekday ?? 1) - 1
+    }
+
+    private var repKind: Binding<String> {
+        Binding(get: { rep.kind }, set: { setKind($0) })
+    }
+
+    private var repN: Binding<Int> {
+        Binding(get: { rep.n ?? 1 }, set: { rep.n = $0; commitRep() })
+    }
+
     private var untilOn: Binding<Bool> {
         Binding(get: { rep.until != nil },
-                set: { on in if on { if rep.until == nil { rep.until = iso(anchorDate) } } else { rep.until = nil }; commitRep() })
+                set: { on in
+                    if on {
+                        if rep.until == nil {
+                            rep.until = iso(anchorDate)
+                        }
+                    } else {
+                        rep.until = nil
+                    }; commitRep()
+                })
     }
+
     private var untilDate: Binding<Date> {
         Binding(get: { parseIso(rep.until) ?? anchorDate }, set: { rep.until = iso($0); commitRep() })
     }
+
     private func setKind(_ k: String) {
         switch k {
         case "daily": rep = Repeat(kind: "daily", until: rep.until)
@@ -1164,44 +1461,84 @@ struct EventDrawer: View {
         }
         commitRep()
     }
+
     private func toggleDay(_ i: Int) {
-        if i == anchorDow { return }
+        if i == anchorDow {
+            return
+        }
         var set = Set(rep.days ?? [anchorDow])
-        if set.contains(i) { set.remove(i) } else { set.insert(i) }
+        if set.contains(i) {
+            set.remove(i)
+        } else {
+            set.insert(i)
+        }
         set.insert(anchorDow)
         rep.days = set.sorted(); commitRep()
     }
-    private func withAnchor(_ days: [Int]?) -> [Int] { (Set(days ?? []).union([anchorDow])).sorted() }
+
+    private func withAnchor(_ days: [Int]?) -> [Int] {
+        (Set(days ?? []).union([anchorDow])).sorted()
+    }
+
     private func commitRep() {
         endWhenEdit(); engine.setRepeat(id, rep.kind == "none" ? nil : rep)
-        refreshOrder(fallback: .cfgRepeat)   // kind change adds/removes sub-controls in the Tab cycle
+        refreshOrder(fallback: .cfgRepeat) // kind change adds/removes sub-controls in the Tab cycle
     }
 
-    // ── Promote / lane bindings ─────────────────────────────────────────────────────
-    private var lane: Binding<Int> { Binding(get: { track }, set: { endWhenEdit(); track = $0; engine.updateBand(id) { $0.track = track } }) }
+    /// ── Promote / lane bindings ─────────────────────────────────────────────────────
+    private var lane: Binding<Int> {
+        Binding(
+            get: { track },
+            set: { endWhenEdit(); track = $0; engine.updateBand(id) { $0.track = track } }
+        )
+    }
+
     private var promoteOn: Binding<Bool> {
-        Binding(get: { promote != nil }, set: { on in endWhenEdit(); promote = on ? (promote ?? 0) : nil; engine.setPromoteTrack(id, promote); refreshOrder(fallback: .cfgPromote) })
+        Binding(
+            get: { promote != nil },
+            set: { on in endWhenEdit(); promote = on ? (promote ?? 0) : nil; engine.setPromoteTrack(
+                id,
+                promote
+            ); refreshOrder(fallback: .cfgPromote) }
+        )
     }
-    private var promoteLane: Binding<Int> { Binding(get: { promote ?? 0 }, set: { endWhenEdit(); promote = $0; engine.setPromoteTrack(id, promote) }) }
 
-    // ── Tags logic ────────────────────────────────────────────────────────────────
+    private var promoteLane: Binding<Int> {
+        Binding(
+            get: { promote ?? 0 },
+            set: { endWhenEdit(); promote = $0; engine.setPromoteTrack(id, promote) }
+        )
+    }
+
+    /// ── Tags logic ────────────────────────────────────────────────────────────────
     private func addTag() {
         let t = tagDraft.trimmingCharacters(in: .whitespaces).drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
-        if !t.isEmpty, !tags.contains(t) { tags.append(t); engine.setTags(id, tags) }
-        tagDraft = ""   // keep adding — the input stays up and holds focus
+        if !t.isEmpty, !tags.contains(t) {
+            tags.append(t); engine.setTags(id, tags)
+        }
+        tagDraft = "" // keep adding — the input stays up and holds focus
     }
-    private func removeTag(_ t: String) { endWhenEdit(); tags.removeAll { $0 == t }; engine.setTags(id, tags) }
 
-    // ── Date helpers ────────────────────────────────────────────────────────────────
+    private func removeTag(_ t: String) {
+        endWhenEdit(); tags.removeAll { $0 == t }; engine.setTags(id, tags)
+    }
+
+    /// ── Date helpers ────────────────────────────────────────────────────────────────
     private func makeDate(_ year: Int, _ month0: Int, _ d: Int) -> Date {
         var c = DateComponents(); c.year = year; c.month = month0 + 1; c.day = d; c.hour = 12
         return Calendar.current.date(from: c) ?? base
     }
+
     private func ymd(_ d: Date) -> (y: Int, m: Int, day: Int) {
         let c = Calendar.current.dateComponents([.year, .month, .day], from: d)
         return (c.year ?? itemYear, (c.month ?? 1) - 1, c.day ?? 1)
     }
-    private func iso(_ d: Date) -> String { let x = ymd(d); return String(format: "%04d-%02d-%02d", x.y, x.m + 1, x.day) }
+
+    private func iso(_ d: Date)
+        -> String {
+        let x = ymd(d); return String(format: "%04d-%02d-%02d", x.y, x.m + 1, x.day)
+    }
+
     private func parseIso(_ s: String?) -> Date? {
         guard let s else { return nil }
         let p = s.split(separator: "-")
@@ -1209,18 +1546,31 @@ struct EventDrawer: View {
         return makeDate(y, m - 1, d)
     }
 
-    // ── Load / commit / sync ─────────────────────────────────────────────────────
+    /// ── Load / commit / sync ─────────────────────────────────────────────────────
     private func load() {
         width = min(max(minWidth, width), maxWidth)
-        if let e = engine.event(id) { kind = .timed; title = e.title; color = engine.colorOverride(id) ?? e.color; itemYear = engine.year; month = e.month; day = e.day; start = e.startHour; end = e.endHour }
-        else if let b = engine.band(id) { kind = .band; title = b.title; color = b.color; itemYear = b.year; month = b.month; startDay = b.startDay; endDay = b.endDay; track = b.track }
-        else if let d = engine.deadline(id) { kind = .deadline; title = d.title; color = d.color; itemYear = d.year; month = d.month; day = d.day; hour = d.hour }
-        else { onClose(); return }
+        if let e = engine
+            .event(id) {
+            kind = .timed; title = e.title; color = engine.colorOverride(id) ?? e.color; itemYear = engine
+                .year; month = e.month; day = e.day; start = e.startHour; end = e.endHour
+        } else if let b = engine
+            .band(id) {
+            kind = .band; title = b.title; color = b.color; itemYear = b.year; month = b.month; startDay = b
+                .startDay; endDay = b.endDay; track = b.track
+        } else if let d = engine
+            .deadline(id) {
+            kind = .deadline; title = d.title; color = d.color; itemYear = d.year; month = d.month; day = d
+                .day; hour = d.hour
+        } else {
+            onClose(); return
+        }
         tags = engine.richTags(id)
         rep = engine.repeatConfig(id) ?? Repeat(kind: "none")
         promote = engine.promoteTrack(id)
         // Context menu's "Repeat…": arrive with Configuration already expanded.
-        if ui.openRepeatOnOpen { configOpen = true; ui.openRepeatOnOpen = false }
+        if ui.openRepeatOnOpen {
+            configOpen = true; ui.openRepeatOnOpen = false
+        }
         // Focused occurrence box id (the clicked ghost if it belongs to this series, else the base).
         // Strip the promoted-band marker so a promoted bar and its timeline occurrence share one note.
         occKey = occurrenceKey(of: (engine.selectedId.flatMap { sourceId(of: $0) == id ? $0 : nil }) ?? id)
@@ -1229,44 +1579,55 @@ struct EventDrawer: View {
             let range = engine.bandOccurrenceRange(occKey)
             occStart = range?.start; occEnd = range?.end
             baseStart = engine.bandBaseStart(id)
-            onBaseOccurrence = !occKey.contains("@")   // no "@Y-M-D" → the base/first occurrence itself
+            onBaseOccurrence = !occKey.contains("@") // no "@Y-M-D" → the base/first occurrence itself
         } else {
             occStart = nil; occEnd = nil; baseStart = nil; onBaseOccurrence = false
         }
         notes = engine.notes(id)
         occNote = engine.occNote(id, occKey)
         noteScope = .series
-        notesMode = notes.isEmpty ? .edit : .preview   // land on preview when there's something to show
+        notesMode = notes.isEmpty ? .edit : .preview // land on preview when there's something to show
         publishFieldOrder()
     }
 
     /// Publish the Tab cycle for the current kind. Configuration's children (tags / repeat / promote)
     /// are spliced in before delete only while the box is open, so Tab descends into them and back out.
     private func publishFieldOrder() {
-        var order: [DrawerField]
-        switch kind {
-        case .timed:    order = [.title, .date, .start, .end, .color, .config]
+        var order: [DrawerField] = switch kind {
+        case .timed: [.title, .date, .start, .end, .color, .config]
         // A recurring band shows its occurrence dates read-only → no .start/.end Tab stops.
-        case .band:     order = recurring ? [.title, .color, .config] : [.title, .start, .end, .color, .config]
-        case .deadline: order = [.title, .date, .start, .color, .config]  // start = the time
+        case .band: recurring ? [.title, .color, .config] : [.title, .start, .end, .color, .config]
+        case .deadline: [.title, .date, .start, .color, .config] // start = the time
         }
         if configOpen {
             order.append(.cfgTags)
             order.append(.cfgRepeat)
             // The repeat sub-controls appear conditionally — mirror repeatControls exactly so Tab
             // visits every input that's actually on screen.
-            if rep.kind == "weekly" || rep.kind == "weekdays" { order.append(.repEvery) }
-            if rep.kind == "weekdays" { order.append(.repDays) }
+            if rep.kind == "weekly" || rep.kind == "weekdays" {
+                order.append(.repEvery)
+            }
+            if rep.kind == "weekdays" {
+                order.append(.repDays)
+            }
             if rep.kind != "none" {
                 order.append(.repUntil)
-                if rep.until != nil { order.append(.repUntilDate) }
+                if rep.until != nil {
+                    order.append(.repUntilDate)
+                }
             }
             order.append(.cfgPromote)
-            if kind != .band, promote != nil { order.append(.promoteLane) }   // lane picker appears when promoted
-            if kind != .band { order.append(.cfgTimezone) }   // bands are all-day → no timezone
+            if kind != .band, promote != nil {
+                order.append(.promoteLane)
+            } // lane picker appears when promoted
+            if kind != .band {
+                order.append(.cfgTimezone)
+            } // bands are all-day → no timezone
         }
-        order.append(.notes)    // the markdown editor (always present, below Configuration)
-        if recurring { order.append(.noteScope) }   // All Events / This Event toggle (recurring only)
+        order.append(.notes) // the markdown editor (always present, below Configuration)
+        if recurring {
+            order.append(.noteScope)
+        } // All Events / This Event toggle (recurring only)
         order.append(.delete)
         ui.drawerFieldOrder = order
     }
@@ -1275,14 +1636,22 @@ struct EventDrawer: View {
     /// if the field it was on just left the cycle.
     private func refreshOrder(fallback: DrawerField) {
         publishFieldOrder()
-        if let f = ui.drawerFocus, !ui.drawerFieldOrder.contains(f) { ui.drawerFocus = fallback }
+        if let f = ui.drawerFocus, !ui.drawerFieldOrder.contains(f) {
+            ui.drawerFocus = fallback
+        }
     }
 
     private func syncFromEngine() {
-        if let e = engine.event(id) { month = e.month; day = e.day; start = e.startHour; end = e.endHour }
-        else if let b = engine.band(id) { itemYear = b.year; month = b.month; startDay = b.startDay; endDay = b.endDay; track = b.track }
-        else if let d = engine.deadline(id) { itemYear = d.year; month = d.month; day = d.day; hour = d.hour }
+        if let e = engine.event(id) {
+            month = e.month; day = e.day; start = e.startHour; end = e.endHour
+        } else if let b = engine
+            .band(id) {
+            itemYear = b.year; month = b.month; startDay = b.startDay; endDay = b.endDay; track = b.track
+        } else if let d = engine.deadline(id) {
+            itemYear = d.year; month = d.month; day = d.day; hour = d.hour
+        }
     }
+
     private func commitTitle(_ v: String) {
         switch kind {
         case .timed: engine.update(id) { $0.title = v }
@@ -1290,9 +1659,12 @@ struct EventDrawer: View {
         case .deadline: engine.updateDeadline(id) { $0.title = v }
         }
     }
+
     private func commitColor(_ v: String) {
         // Imported events have no editable body — their color is a local overlay keyed by series.
-        if imported { engine.setColorOverride(id, v); return }
+        if imported {
+            engine.setColorOverride(id, v); return
+        }
         switch kind {
         case .timed: engine.update(id) { $0.color = v }
         case .band: engine.updateBand(id) { $0.color = v }
@@ -1301,7 +1673,7 @@ struct EventDrawer: View {
     }
 }
 
-// ── Tag input (raw NSTextField) ──────────────────────────────────────────────────
+/// ── Tag input (raw NSTextField) ──────────────────────────────────────────────────
 /// A single-line text field for entering a tag. It behaves like a plain SwiftUI TextField but also
 /// reports three commands the field editor would otherwise eat silently:
 ///   • Return                      → onSubmit (add the tag)
@@ -1315,7 +1687,9 @@ private struct TagInputField: NSViewRepresentable {
     var onCancel: () -> Void
     var onDeleteWhenEmpty: () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
 
     func makeNSView(context: Context) -> NSTextField {
         let tf = FocusOnAppearField()
@@ -1331,25 +1705,36 @@ private struct TagInputField: NSViewRepresentable {
         tf.stringValue = text
         return tf
     }
+
     func updateNSView(_ nsView: NSTextField, context: Context) {
         context.coordinator.parent = self
-        if nsView.stringValue != text { nsView.stringValue = text }
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: TagInputField
-        init(_ p: TagInputField) { parent = p }
-        func controlTextDidChange(_ obj: Notification) {
-            if let tf = obj.object as? NSTextField { parent.text = tf.stringValue }
+        init(_ p: TagInputField) {
+            parent = p
         }
-        // The field editor routes special keys here as commands — intercept the three we care about.
+
+        func controlTextDidChange(_ obj: Notification) {
+            if let tf = obj.object as? NSTextField {
+                parent.text = tf.stringValue
+            }
+        }
+
+        /// The field editor routes special keys here as commands — intercept the three we care about.
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             switch selector {
-            case #selector(NSResponder.insertNewline(_:)):   parent.onSubmit(); return true
-            case #selector(NSResponder.cancelOperation(_:)):  parent.onCancel(); return true
+            case #selector(NSResponder.insertNewline(_:)): parent.onSubmit(); return true
+            case #selector(NSResponder.cancelOperation(_:)): parent.onCancel(); return true
             case #selector(NSResponder.deleteBackward(_:)):
-                if textView.string.isEmpty { parent.onDeleteWhenEmpty(); return true }   // empty → drop last tag
-                return false   // otherwise let it delete a character normally
+                if textView.string.isEmpty {
+                    parent.onDeleteWhenEmpty(); return true
+                } // empty → drop last tag
+                return false // otherwise let it delete a character normally
             default: return false
             }
         }

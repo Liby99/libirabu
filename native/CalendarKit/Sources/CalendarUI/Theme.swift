@@ -4,16 +4,16 @@
 // lines in dark mode, and the mirror in light mode. Only two things are colored: the
 // event stickers (their own palette) and the red now/today accent.
 
-import SwiftUI
 import AppKit
 import CalendarGeometry
+import SwiftUI
 
 struct Theme {
     /// The app-wide red accent (now-line, selection pills, send button, …).
     /// SINGLE source of truth — never hardcode 0xff3b6b elsewhere.
-    static let accent = Color(hex: 0xff3b6b)
+    static let accent = Color(hex: 0xFF3B6B)
 
-    let dark: Bool   // only affects the event palette; structural colors are system-native
+    let dark: Bool // only affects the event palette; structural colors are system-native
 
     // Structural colors — resolved ONCE per render from the macOS system palette
     // against the correct appearance. (SwiftUI.Canvas resolves dynamic system colors
@@ -52,36 +52,48 @@ struct Theme {
             }
             return out
         }
-        let label = sys(.labelColor)          // white in dark, near-black in light
-        bg = sys(.textBackgroundColor)         // content background (near-black / white)
+        let label = sys(.labelColor) // white in dark, near-black in light
+        bg = sys(.textBackgroundColor) // content background (near-black / white)
         // Text: keep the bright system label in dark mode; in light mode the system label is
         // effectively pure black, which reads harsh — soften to a modest dark gray. Structural
         // lines/borders below still derive from `label`, so only the text itself changes.
-        text = dark ? label : Color(.sRGB, red: 58/255, green: 58/255, blue: 63/255, opacity: 1)
+        text = dark ? label : Color(.sRGB, red: 58 / 255, green: 58 / 255, blue: 63 / 255, opacity: 1)
         eventTintScale = dark ? 1.0 : 1.5
         textMuted = sys(.secondaryLabelColor)
         accentDark = label
         accentGrey = label.opacity(0.28)
         sep = label.opacity(0.28)
-        gridLine = label.opacity(0.35)         // solid gridlines
-        cellGrid = label.opacity(0.16)         // dotted day-cell verticals + lane separators
+        gridLine = label.opacity(0.35) // solid gridlines
+        cellGrid = label.opacity(0.16) // dotted day-cell verticals + lane separators
         dimFill = label.opacity(0.09)
         weekendWash = label.opacity(CalendarGeometry.Layout.weekendWashOpacity)
-        highlight = label                      // hover wash (item opacity is tiny)
+        highlight = label // hover wash (item opacity is tiny)
         cursor = label.opacity(0.6)
-        nowLine = Self.accent                   // red accent (kept)
+        nowLine = Self.accent // red accent (kept)
         todayTint = Self.accent.opacity(0.07)
-        todayMonthWash = Color(hex: 0xc77e8b, opacity: 0.05)  // current-month wash: faint red-pink gray
+        todayMonthWash = Color(hex: 0xC77E8B, opacity: 0.05) // current-month wash: faint red-pink gray
     }
 
-    // Event stickers are the ONLY color: a translucent tint fill + an opaque
-    // border/accent, exact values from globals.css (--event-*).
-    func eventFill(_ key: String?) -> Color { ev(key).fill }
-    func eventBorder(_ key: String?) -> Color { ev(key).border }
+    /// Event stickers are the ONLY color: a translucent tint fill + an opaque
+    /// border/accent, exact values from globals.css (--event-*).
+    func eventFill(_ key: String?) -> Color {
+        ev(key).fill
+    }
+
+    func eventBorder(_ key: String?) -> Color {
+        ev(key).border
+    }
+
     /// The saturated fill hue at full opacity, so callers can set their own alpha.
     func eventColor(_ key: String?) -> Color {
         guard let c = NSColor(ev(key).fill).usingColorSpace(.sRGB) else { return ev(key).fill }
-        return Color(.sRGB, red: Double(c.redComponent), green: Double(c.greenComponent), blue: Double(c.blueComponent), opacity: 1)
+        return Color(
+            .sRGB,
+            red: Double(c.redComponent),
+            green: Double(c.greenComponent),
+            blue: Double(c.blueComponent),
+            opacity: 1
+        )
     }
 
     private func ev(_ key: String?) -> (fill: Color, border: Color) {
@@ -125,9 +137,9 @@ struct Theme {
 extension Color {
     init(hex: UInt32, opacity: Double = 1) {
         self.init(.sRGB,
-                  red: Double((hex >> 16) & 0xff) / 255,
-                  green: Double((hex >> 8) & 0xff) / 255,
-                  blue: Double(hex & 0xff) / 255,
+                  red: Double((hex >> 16) & 0xFF) / 255,
+                  green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255,
                   opacity: opacity)
     }
 }
