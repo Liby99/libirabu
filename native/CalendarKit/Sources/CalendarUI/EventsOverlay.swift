@@ -146,6 +146,9 @@ struct EventsOverlay: View {
         VStack(alignment: spec.pointsRight ? .trailing : .leading, spacing: -1) {
             Text("CURRENT TIME").font(.system(size: 7.5, weight: .semibold)).foregroundStyle(labelColor)
             Text(spec.text).font(.system(size: 13, weight: .bold)).foregroundStyle(red)   // time in the accent color
+            if let alt = spec.altText {   // alt-tz wall clock, e.g. "13:45 (PST)"
+                Text(alt).font(.system(size: 9.5, weight: .semibold)).foregroundStyle(labelColor).padding(.top, 1.5)
+            }
         }
         .padding(.horizontal, 7).padding(.vertical, 3)          // match the deadline pill's padding
         .frame(width: spec.rect.width, height: spec.rect.height, alignment: spec.pointsRight ? .trailing : .leading)

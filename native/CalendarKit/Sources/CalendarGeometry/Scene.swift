@@ -25,13 +25,23 @@ public struct NowLabelSpec: Sendable, Identifiable {
     public var id: String
     public var rect: CGRect
     public var text: String
+    public var altText: String?    // second line when the alt-tz column is on: "13:45 (PST)"
     public var pointsRight: Bool   // caret side: true → label sits left of the column, points right
     public var opacity: CGFloat
 }
 public func nowLabelSpecs(_ g: SceneInput) -> [NowLabelSpec] {
-    buildScene(g).items.compactMap { it in
+    // With the alternative-timezone column on, the label gains a second line: the same instant
+    // as an alt-tz wall clock, tagged with the zone's short label.
+    let altText: String? = g.altDeltaHours.map { d in
+        let c = clockOf(g.now)
+        let mins = ((Int(((CGFloat(c.hour) + CGFloat(c.minute) / 60 + d) * 60).rounded()) % 1440) + 1440) % 1440
+        let t = String(format: "%02d:%02d", mins / 60, mins % 60)
+        return g.altLabel.map { "\(t) (\($0))" } ?? t
+    }
+    return buildScene(g).items.compactMap { it in
         guard it.kind == .nowLabel, it.opacity > 0.01 else { return nil }
-        return NowLabelSpec(id: it.key, rect: it.rect, text: it.text ?? "", pointsRight: it.align == .right, opacity: it.opacity)
+        return NowLabelSpec(id: it.key, rect: it.rect, text: it.text ?? "", altText: altText,
+                            pointsRight: it.align == .right, opacity: it.opacity)
     }
 }
 
@@ -99,7 +109,9 @@ private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, fo: I
     let relDom = relDomOf(g.year, g.focus, clock.year, tMonth, tDom)
 
     func nowLabel(_ key: String, _ x: CGFloat, _ colW: CGFloat, _ lineY: CGFloat, _ active: Bool, gate: CGFloat = 1) -> Item {
-        let W: CGFloat = 88, GAP: CGFloat = 10, H: CGFloat = 36   // match the deadline label pill's size
+        // With the alt-tz column on the pill grows a second time line (see nowLabelSpecs).
+        let alt = g.altDeltaHours != nil
+        let W: CGFloat = alt ? 96 : 88, GAP: CGFloat = 10, H: CGFloat = alt ? 47 : 36   // match the deadline label pill's size
         let onLeft = g.z > 2 || x + colW / 2 >= (Layout.labelW + g.vp.w) / 2
         return Item(key: key, kind: .nowLabel, x: onLeft ? x - GAP - W : x + colW + GAP, y: lineY - H / 2, w: W, h: H,
                     opacity: active ? mul * gate : 0, text: timeStr,
