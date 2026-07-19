@@ -105,6 +105,29 @@ extension CalendarEngine {
         onHover(at: demoViewToGeometry(p))
     }
 
+    /// The deadline quick-add "+" spot (appears while hovering a day column), in VIEW coordinates — the
+    /// deadline-add recording scene hovers, reads this, and clicks it through the real pointer path.
+    public func demoDeadlineSpotView() -> CGPoint? {
+        deadlineAddSpot(snapshotInput()).map { CGPoint(x: $0.x + Layout.padLeft - drawerShift, y: $0.y) }
+    }
+
+    /// Scroll the timeline so the SELECTED event is on screen (the week view's scroll follows the clock,
+    /// so a scene can't assume where any hour sits — reveal first, then read the rect).
+    public func demoRevealSelected() { scrollToSelected() }
+    /// A timed event's box rect in VIEW coordinates, straight from the display geometry — scenes aim the
+    /// synthetic cursor with this instead of hardcoded fractions (which break as the time-of-day scroll
+    /// shifts the grid). Independent of selection/keyboard state.
+    public func demoEventRectView(_ id: String) -> CGRect? {
+        let g = snapshot()
+        let tl = timelineInfo(g)
+        guard tl.hourH > 0, let disp = viewEvents().first(where: { $0.id == id }),
+              let seg = timedSegments(disp).first else { return nil }
+        let sameDay = eventsOn(seg.event.year, seg.event.month, seg.event.day)
+        guard let r = eventRect(seg.event, year, focus, tl, g.vp, layoutDay(sameDay)[seg.event.id]) else { return nil }
+        return CGRect(x: r.minX + Layout.padLeft - drawerShift, y: tl.tlTop - tl.scroll + r.minY,
+                      width: r.width, height: r.height)
+    }
+
     /// Dev (env CC_DUMP_DISPLAY=<path>, real mode): once imports settle, write this year's fully-EXPANDED
     /// display set — recurrence occurrences, promoted ghost bands, Apple-Calendar imports, exactly what
     /// renders — as a plain store payload. Benchmarks load it as data.json so a demo-mode (no-EventKit,

@@ -324,6 +324,10 @@ struct EventDrawer: View {
     // the edit/preview toggle, so the markdown-notes scene shows real typing + render. No-op otherwise.
     var demoNoteFeed: String = ""
     var demoNotePreview: Bool = false
+    // …and the recurring scene's cues: expand the Configuration section, and apply a repeat rule through
+    // the drawer (updates the pickers AND commits, exactly like the user choosing it).
+    var demoConfigOpen: Int = 0
+    var demoRepeatFeed: Repeat? = nil
 
     @FocusState private var fieldFocus: DrawerField? // the keyboard-focused drawer control (mirrors ui.drawerFocus)
     @State private var kind: ItemKind2 = .timed
@@ -460,6 +464,9 @@ struct EventDrawer: View {
             // GIF-recording demo: stream typed note text into the editor + flip edit/preview on cue.
             .onChange(of: demoNoteFeed) { _, v in notes = v; notesMode = .edit }
             .onChange(of: demoNotePreview) { _, p in notesMode = p ? .preview : .edit }
+            .modifier(DemoDrawerCues(configPulse: demoConfigOpen, repeatFeed: demoRepeatFeed,
+                                     configOpen: $configOpen, rep: $rep,
+                                     commit: { r in engine.setRepeat(id, r.kind == "none" ? nil : r) }))
             .onChange(of: occNote) { _, v in engine.setOccNote(id, occKey, v) }
             .onChange(of: noteScope) { _, s in // open each note in the sensible view
                 let c = s == .occurrence ? occNote : notes
@@ -505,19 +512,22 @@ struct EventDrawer: View {
                 }
             }
             .onDisappear { ui.drawerFocus = nil; ui.drawerTitleEditing = false; ui.drawerFieldEditing = false }
-            .onAppear {
-                // A freshly-created item (e.g. the deadline "+") opens with its default title focused and
-                // fully selected, so the first keystroke replaces "New Deadline".
-                guard ui.selectTitleOnOpen else { return }
-                ui.selectTitleOnOpen = false
-                ui.drawerTitleEditing = true // focus the title field (drives fieldFocus = .title)
-                // The field editor becomes first responder a beat after @FocusState flips + the drawer
-                // finishes sliding in; select-all once it's up.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    (NSApp.keyWindow?.firstResponder as? NSText)?.selectAll(nil)
-                }
-            }
+            .onAppear { selectTitleIfRequested() } // body hoisted: keeps this chain under the
+            // type-checker's budget (see the 2026-07-18 bisection)
             .id(id)
+    }
+
+    /// A freshly-created item (e.g. the deadline "+") opens with its default title focused and
+    /// fully selected, so the first keystroke replaces "New Deadline".
+    private func selectTitleIfRequested() {
+        guard ui.selectTitleOnOpen else { return }
+        ui.selectTitleOnOpen = false
+        ui.drawerTitleEditing = true // focus the title field (drives fieldFocus = .title)
+        // The field editor becomes first responder a beat after @FocusState flips + the drawer
+        // finishes sliding in; select-all once it's up.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            (NSApp.keyWindow?.firstResponder as? NSText)?.selectAll(nil)
+        }
     }
 
     private var card: some View {
@@ -1750,5 +1760,27 @@ private final class FocusOnAppearField: NSTextField {
         guard !didFocus, let w = window else { return }
         didFocus = true
         DispatchQueue.main.async { [weak self] in guard let self else { return }; w.makeFirstResponder(self) }
+    }
+}
+
+
+/// GIF-recording cues for the drawer (bundled into ONE modifier link — inline onChanges tipped the
+/// type-checker budget): expand the Configuration section, and apply a repeat rule as if chosen in the
+/// pickers (updates the drawer's own state AND commits through the engine).
+private struct DemoDrawerCues: ViewModifier {
+    let configPulse: Int
+    let repeatFeed: Repeat?
+    @Binding var configOpen: Bool
+    @Binding var rep: Repeat
+    var commit: (Repeat) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: configPulse) { _, _ in withAnimation(.easeInOut(duration: 0.2)) { configOpen = true } }
+            .onChange(of: repeatFeed) { _, r in
+                guard let r else { return }
+                rep = r
+                commit(r)
+            }
     }
 }

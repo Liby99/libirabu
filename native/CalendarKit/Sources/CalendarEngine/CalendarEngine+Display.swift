@@ -8,6 +8,10 @@ import CoreGraphics
 import Foundation
 
 extension CalendarEngine {
+    /// The display-invalidation generation (bumped on every data edit) — lets the UI key its own
+    /// derived caches (e.g. the events overlay's per-month packing) without observing internals.
+    public var displayGen: UInt64 { UInt64(caches.editGen) }
+
     /// ── Derived bands for the year / band view ──────────────────────────────────────────
     /// What the band lane actually draws, expanded from the lean data + rich fields:
     ///   • base bands (a base individually deleted via exdate / past `until` is dropped)
@@ -163,6 +167,9 @@ extension CalendarEngine {
     /// (first-seen original casing), and the count of items carrying it (distinct per item — a tag repeated
     /// on one item counts once). Sorted by count desc, then label. `untagged` = items with no tags.
     public func tagUniverse() -> (rows: [(key: String, label: String, count: Int)], untagged: Int) {
+        // Served from the cache until the next edit (editGen bump) invalidates it — so opening the filter,
+        // typing in its search field, and re-rendering never re-scan every event.
+        if let c = caches.tag, c.gen == caches.editGen { return (c.rows, c.untagged) }
         var counts: [String: (label: String, count: Int)] = [:]
         var untagged = 0
         func tally(_ id: String) {
@@ -206,6 +213,7 @@ extension CalendarEngine {
             }
             return a.label < b.label
         }
+        caches.tag = (caches.editGen, rows, untagged)
         return (rows, untagged)
     }
 

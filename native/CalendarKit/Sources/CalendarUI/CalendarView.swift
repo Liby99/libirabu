@@ -301,7 +301,7 @@ public struct CalendarView: View {
                           drawerOpen: ui.openEventId != nil, editingId: ui.editingBand?.id ?? ui.editingTimed?.id,
                           editingRect: ui.editingTimed?.rect, // hide the title only on the segment being edited
                           draggingId: engine.activeTimedDragId,
-                          perfMode: perfMode,
+                          perfMode: perfMode, monthLive: engine.monthGestureActive, editGen: engine.displayGen,
                           hideBox: ui.openEventId != nil ? engine.selectedId : nil, // lifted sharp above
                           theme: theme)
                 .offset(x: Layout.padLeft)
@@ -590,7 +590,9 @@ public struct CalendarView: View {
                                 ui: ui,
                                 refocus: { refocusCatcher() },
                                 demoNoteFeed: demo.noteFeed,
-                                demoNotePreview: demo.notePreview
+                                demoNotePreview: demo.notePreview,
+                                demoConfigOpen: demo.configPulse,
+                                demoRepeatFeed: demo.repeatFeed
                             )
                             .transition(.move(edge: .trailing))
                         }

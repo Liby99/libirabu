@@ -3,6 +3,12 @@
 Drop animated GIFs here with these exact names (see `TutorialView.swift` → `TutorialView.slides`).
 Each slide falls back to a placeholder if its GIF is missing, so the carousel works without them.
 
+Each tutorial demo ships in TWO theme variants — `<name>-light.gif` and `<name>-dark.gif` — and the
+carousel/Help browser shows the one matching the viewer's appearance (plain `<name>.gif` is the fallback
+for single-variant assets like the extra Help demos). Record a variant with `THEME=light|dark
+./scripts/record-tutorial.sh <scene> [seconds]` (demo mode pins "now" to 4 pm so recordings are
+time-of-day independent).
+
 The carousel order (TutorialView.slides) is: pinch-zoom, band-year, timed-week, ai-assistant, markdown-notes.
 
 | filename            | scene (record-tutorial.sh) | caption |

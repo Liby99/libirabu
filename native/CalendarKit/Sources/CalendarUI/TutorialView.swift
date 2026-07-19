@@ -156,12 +156,20 @@ private struct WelcomeStage: View {
 }
 
 /// The GIF display area: an animating NSImageView loaded from the bundle, or a placeholder when the GIF
-/// isn't present yet (so the carousel is fully usable before the assets are added).
+/// isn't present yet (so the carousel is fully usable before the assets are added). Each demo ships in
+/// LIGHT and DARK variants ("<name>-light.gif"/"-dark.gif"); the one matching the viewer's theme is shown
+/// (plain "<name>.gif" is the single-variant fallback).
 private struct GIFStage: View {
     let name: String
     let theme: Theme
+
+    private var url: URL? {
+        Bundle.module.url(forResource: "\(name)-\(theme.dark ? "dark" : "light")", withExtension: "gif", subdirectory: "tutorial")
+            ?? Bundle.module.url(forResource: name, withExtension: "gif", subdirectory: "tutorial")
+    }
+
     var body: some View {
-        if let url = Bundle.module.url(forResource: name, withExtension: "gif", subdirectory: "tutorial"),
+        if let url,
            let img = NSImage(contentsOf: url), img.size.width > 0, img.size.height > 0 {
             // Fit to the GIF's OWN aspect ratio within the stage, centered — the rounded border wraps the
             // image itself (no letterbox bars), so nothing is cropped whatever the clip's dimensions are.

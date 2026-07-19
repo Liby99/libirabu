@@ -12,7 +12,8 @@ cd "$(dirname "$0")/.."
 
 SCENE="${1:-drag-create}"
 DUR="${2:-8}"
-OUT="Sources/CalendarUI/Resources/tutorial/${SCENE}.gif"
+# THEME=light|dark → records that appearance and suffixes the filename (tutorial dual-theme sets).
+OUT="Sources/CalendarUI/Resources/tutorial/${SCENE}${THEME:+-$THEME}.gif"
 TMP="$(mktemp -d /tmp/cc-demo.XXXXXX)"
 BIN=".build/debug/CalendarMac"
 
@@ -22,7 +23,8 @@ echo "Building CalendarMac (debug)…"
 swift build -c debug >/dev/null
 
 echo "Launching demo scene '$SCENE' (throwaway data at $TMP)…"
-CC_DEMO="$SCENE" CC_DEMO_DATADIR="$TMP" "$BIN" &
+# `env` so the optional ${…:+VAR=val} expansion still parses as an environment assignment.
+env CC_DEMO="$SCENE" CC_DEMO_DATADIR="$TMP" ${THEME:+CC_APPEARANCE="$THEME"} "$BIN" &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 

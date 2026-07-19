@@ -176,13 +176,31 @@ public enum DeadlineLabel {
 }
 
 /// Typographic width of a string in a font (CoreText, so it works on macOS + iOS without AppKit).
+/// Memoized: CTLine creation + measurement is expensive and this runs per label per FRAME
+/// (deadline labels re-measure while anything animates — hot in the month-swipe profile).
+/// Key = string + font point size (all callers use the same font family per size).
+private nonisolated(unsafe) var ctWidthCache: [WidthKey: CGFloat] = [:]
+private struct WidthKey: Hashable {
+    let s: String
+    let size: CGFloat
+}
+
 private func ctTextWidth(_ s: String, _ font: CTFont) -> CGFloat {
     if s.isEmpty {
         return 0
     }
+    let key = WidthKey(s: s, size: CTFontGetSize(font))
+    if let hit = ctWidthCache[key] {
+        return hit
+    }
     let attr = NSAttributedString(string: s, attributes: [NSAttributedString.Key(kCTFontAttributeName as String): font])
     let line = CTLineCreateWithAttributedString(attr as CFAttributedString)
-    return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+    let w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+    if ctWidthCache.count > 4096 {
+        ctWidthCache.removeAll(keepingCapacity: true)
+    }
+    ctWidthCache[key] = w
+    return w
 }
 
 /// A deadline's label content + placement: the two text rows, its content-flexed size, the line it

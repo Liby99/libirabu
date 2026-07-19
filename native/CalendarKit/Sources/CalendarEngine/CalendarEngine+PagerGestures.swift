@@ -12,6 +12,10 @@ extension CalendarEngine {
     /// the real work: native velocity-aware paging + the settle animation. We just observe its
     /// absolute content offset (via `.onScrollGeometryChange`) and convert it to (focus, anim.monthAnim).
     /// No snap anim.tween / recentre here — SwiftUI owns the physics; this is a pure projection.
+    /// A month-view scroll gesture or page-turn is in progress (fingers down OR the turn/settle
+    /// animating). The events overlay pre-mounts the neighbor months' stickers while this is true.
+    public var monthGestureActive: Bool { isMonthLevel && (scroll.liveMonthScrolling || anim.monthAnim != nil) }
+
     public var isMonthLevel: Bool {
         level(z) == 1
     }

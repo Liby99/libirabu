@@ -394,8 +394,14 @@ public final class CalendarEngine {
         for i in items.events.indices where !seenIds.insert(items.events[i].id).inserted {
             createCounter += 1; items.events[i].id = "new-\(createCounter)"
         }
-        nowTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.now = Date(); self?.wake() } // refresh the now-line (a render must run)
+        if Self.isDemoMode {
+            // Deterministic recordings: pin "now" to 4 pm so the CURRENT TIME pill, the now-line, and every
+            // time-anchored scroll (jumpToDay centers around now) look identical whenever a scene runs.
+            now = Calendar.current.date(bySettingHour: 16, minute: 0, second: 0, of: Date()) ?? now
+        } else {
+            nowTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.now = Date(); self?.wake() } // refresh the now-line (a render must run)
+            }
         }
         pushChrome()
         enableCloudSyncIfEntitled()

@@ -22,6 +22,8 @@ struct EventsOverlay: View {
     var draggingId: String? // event being moved/resized → floats full-width above the day,
     // and is excluded from the others' overlap packing (no reflow)
     var perfMode: Bool = false // flat tinted fills instead of Liquid Glass (global toggle)
+    var monthLive = false // month gesture/turn in progress → pre-mount the neighbor months' stickers
+    var editGen: UInt64 = 0 // data-edit generation (keys the cached per-month packing)
     var onlyBox: String? // when set, PACK everything as usual but DRAW only this box (the
     // sharp "lifted" copy above the drawer's blur scrim — see CalendarView)
     var hideBox: String? // …and the inverse: the blurred main render SKIPS this box (it's drawn
@@ -72,13 +74,25 @@ struct EventsOverlay: View {
                 stickers(timedItems(tlOut, focus: input.focus, fadeMul: outMul))
                     .clipShape(RectClip(rect: tlClip(tlOut, clipRight)))
             }
-            // Incoming month during a page-turn: its timeline slides in from the opposite edge,
-            // and its timed events fade in alongside it (matching the incoming grid's reveal).
-            if let anim, let to, to >= 0, to <= 11 {
-                let tlIn = timelineInfo(input, focus: to, anim: anim)
-                if tlIn.reveal > 0.05 && tlIn.hourH > 0 {
-                    stickers(timedItems(tlIn, focus: to, fadeMul: incomingDetailReveal(anim.p), keyTag: "~in"))
-                        .clipShape(RectClip(rect: tlClip(tlIn, clipRight)))
+            // Neighbor months' stickers, mounted the whole time month view is AT REST (plus any
+            // in-flight turn): creating a dense month's sticker views is a measured ~50ms hitch,
+            // and doing it lazily put that hitch INSIDE the page-turn animation (bench-month-swipe:
+            // p95 16.7ms, 6-8 hitches; with pre-mounted neighbors p95 8.3ms). Mounted at arrival,
+            // the churn lands on the settled frame — where a slow frame is invisible — and every
+            // swipe finds both neighbors ready. The z-window keeps the mount off the animated
+            // zoom-in (it lands once the zoom settles); non-matching neighbors sit at progress 0
+            // (one page off-screen) with fade 0.
+            if abs(input.z - 1) < 0.01 || anim != nil || monthLive {
+                ForEach([input.focus - 1, input.focus + 1].filter { $0 >= 0 && $0 <= 11 }, id: \.self) { m in
+                    let dir = m > input.focus ? 1 : -1
+                    let matching = anim?.dir == dir
+                    let p: CGFloat = matching ? (anim?.p ?? 0) : 0
+                    let tlIn = timelineInfo(input, focus: m, anim: PageAnim(dir: dir, p: p))
+                    if tlIn.reveal > 0.05 && tlIn.hourH > 0 {
+                        stickers(timedItems(tlIn, focus: m, fadeMul: matching ? incomingDetailReveal(p) : 0,
+                                            keyTag: "~n\(m)"))
+                            .clipShape(RectClip(rect: tlClip(tlIn, clipRight)))
+                    }
                 }
             }
             // Year-view weekday marker ("Thu") floating above the hovered day — a small
@@ -342,31 +356,63 @@ struct EventsOverlay: View {
     /// the whole layer (a page-turn fades the outgoing set out / incoming set in); `keyTag` keeps
     /// the incoming set's ForEach ids distinct from the outgoing set's during the cross-fade.
     private func timedItems(_ tl: TimelineInfo, focus: Int, fadeMul: CGFloat = 1, keyTag: String = "") -> [Item2] {
-        var byDay: [Int: [TimedSegment]] = [:]
-        // `relDomOf` gates adjacency (returns nil for non-neighbor months), so iterating all years lets
-        // Dec↔Jan spillover events cross the year boundary while far-off months are still excluded.
-        // A cross-midnight event splits into per-day segments; each segment lands in its own day column
-        // (clipped on the border it continues over). A same-day event yields exactly one segment.
         // `subLabels` carries the anchor-zone time (e.g. "12:00 – 14:00 (PST)") for events whose anchor
-        // differs from the view zone — the same on every segment, so it's computed once per event.
+        // differs from the view zone. Cached: anchorRangeLabel does real timezone math, and it ran for
+        // EVERY event on EVERY frame (×3 with neighbor months mounted) — hot in the swipe profile.
         var subLabels: [String: String] = [:]
         for e in events {
-            if let lbl = anchorRangeLabel(e, mainTz: input.mainTz) {
+            let key = SubLabelKey(id: e.id, start: e.startHour, end: e.endHour,
+                                  anchorTz: e.anchorTz ?? "", mainTz: input.mainTz)
+            let lbl: String?
+            if let hit = subLabelCache[key] {
+                lbl = hit
+            } else {
+                lbl = anchorRangeLabel(e, mainTz: input.mainTz)
+                if subLabelCache.count > 2048 {
+                    subLabelCache.removeAll(keepingCapacity: true)
+                }
+                subLabelCache[key] = lbl
+            }
+            if let lbl {
                 subLabels[e.id] = lbl
             }
-            for s in timedSegments(e) {
-                if let rd = relDomOf(input.year, focus, s.event.year, s.event.month, s.event.day) {
-                    byDay[
-                        rd,
-                        default: []
-                    ].append(s)
+        }
+        // Segment grouping + per-day overlap packing, cached per (year, focus, editGen, dragging):
+        // none of it depends on the per-frame timeline geometry (see timedLayoutCache).
+        let layoutKey = TimedLayoutKey(year: input.year, focus: focus, editGen: editGen, dragging: draggingId)
+        let days: [TimedDayLayout]
+        if let hit = timedLayoutCache[layoutKey] {
+            days = hit
+        } else {
+            // `relDomOf` gates adjacency (returns nil for non-neighbor months), so iterating all years
+            // lets Dec↔Jan spillover events cross the year boundary while far-off months are excluded.
+            // A cross-midnight event splits into per-day segments; each lands in its own day column.
+            var byDay: [Int: [TimedSegment]] = [:]
+            for e in events {
+                for s in timedSegments(e) {
+                    if let rd = relDomOf(input.year, focus, s.event.year, s.event.month, s.event.day) {
+                        byDay[rd, default: []].append(s)
+                    }
                 }
             }
+            // Pack the OTHER events as if the dragged one weren't in this day, so they don't shrink/
+            // reflow mid-edit; the dragged event then gets no layout slot → eventRect renders it
+            // full-width, and it draws on top (selected → frontmost z). Committed on drop.
+            days = byDay.map { rd, segs in
+                let evs = segs.map(\.event)
+                return TimedDayLayout(rd: rd, segs: segs,
+                                      layout: layoutDay(draggingId != nil ? evs.filter { $0.id != draggingId } : evs))
+            }
+            if timedLayoutCache.count > 64 {
+                timedLayoutCache.removeAll(keepingCapacity: true)
+            }
+            timedLayoutCache[layoutKey] = days
         }
         var gf = input; gf.focus = focus
         let dim = daysInMonth(input.year, focus)
         var placed: [(seg: TimedSegment, rect: CGRect, fade: Double)] = []
-        for (rd, segs) in byDay {
+        for day in days {
+            let rd = day.rd
             // Spillover day (belongs to the previous/next month) → drawn dimmed but fully interactive;
             // a month-edge flip cross-fades the dim/bright swap. (rd<1 → prev month, rd>dim → next.)
             let evMonth = rd < 1 ? focus - 1 : (rd > dim ? focus + 1 : focus)
@@ -375,13 +421,8 @@ struct EventsOverlay: View {
             if fade <= 0.02 {
                 continue
             }
-            // Pack the OTHER events as if the dragged one weren't in this day, so they don't shrink/
-            // reflow mid-edit; the dragged event then gets no layout slot → eventRect renders it
-            // full-width, and it draws on top (selected → frontmost z). Committed on drop.
-            let evs = segs.map(\.event)
-            let layout = layoutDay(draggingId != nil ? evs.filter { $0.id != draggingId } : evs)
-            for s in segs {
-                guard let r = eventRect(s.event, input.year, focus, tl, input.vp, layout[s.event.id]) else { continue }
+            for s in day.segs {
+                guard let r = eventRect(s.event, input.year, focus, tl, input.vp, day.layout[s.event.id]) else { continue }
                 let rect = CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
                 if rect.maxY < tl.tlTop || rect.minY > tl.tlBottom {
                     continue
@@ -1084,4 +1125,33 @@ struct RectClip: Shape {
     func path(in _: CGRect) -> Path {
         Path(rect)
     }
+}
+
+/// Frame-to-frame cache of the anchor-timezone sublabels (see timedItems). The key carries
+/// everything the label depends on; a nil value ("no label") is cached too.
+@MainActor private var subLabelCache: [SubLabelKey: String?] = [:]
+private struct SubLabelKey: Hashable {
+    let id: String
+    let start: CGFloat
+    let end: CGFloat
+    let anchorTz: String
+    let mainTz: String
+}
+
+/// Frame-to-frame cache of a month's segment grouping + per-day overlap packing — the parts of
+/// timedItems that DON'T depend on the per-frame timeline geometry. With the neighbor months
+/// mounted, timedItems runs 3× per frame and full re-packing was the hottest app symbol in the
+/// swipe profile; positions (eventRect) stay per-frame, so nothing visual changes.
+@MainActor private var timedLayoutCache: [TimedLayoutKey: [TimedDayLayout]] = [:]
+struct TimedLayoutKey: Hashable {
+    let year: Int
+    let focus: Int
+    let editGen: UInt64
+    let dragging: String?
+}
+
+struct TimedDayLayout {
+    let rd: Int
+    let segs: [TimedSegment]
+    let layout: [String: EventLayout]
 }

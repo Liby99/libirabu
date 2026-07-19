@@ -12,7 +12,7 @@
 import CalendarGeometry
 import SwiftUI
 
-enum SceneRenderer {
+@MainActor enum SceneRenderer {
     // The renderer draws three Canvas passes; the frosted gutter/dashboard masks are
     // SwiftUI material views layered BETWEEN drawMid and drawAbove (see CalendarView).
     //
@@ -660,7 +660,7 @@ enum SceneRenderer {
             return
         }
         let f = font ?? .system(size: size, weight: weight)
-        let resolved = ctx.resolve(Text(s).font(f).tracking(tracking).foregroundStyle(color))
+        let resolved = resolvedText(s, f, tracking, color, &ctx)
         let pt: CGPoint
         let anchor: UnitPoint
         switch align {
@@ -676,4 +676,33 @@ enum SceneRenderer {
             ctx.draw(resolved, at: pt, anchor: anchor)
         }
     }
+}
+
+/// Frame-to-frame cache of Canvas-resolved text. `ctx.resolve(Text(…))` does style resolution +
+/// typesetting on EVERY call, and the scene draws 100+ labels per frame (double during a month
+/// page-turn) — it was the hottest symbol in the swipe profile (drawDayLabel via drawBelow).
+/// The canvas environment (display scale, scheme) is constant between frames, and theme colors
+/// are part of the key, so reuse is sound; the cap bounds memory across theme/data churn.
+@MainActor private var textCache: [TextKey: GraphicsContext.ResolvedText] = [:]
+private struct TextKey: Hashable {
+    let s: String
+    let size: CGFloat
+    let font: Font
+    let tracking: CGFloat
+    let color: Color
+}
+
+@MainActor
+func resolvedText(_ s: String, _ f: Font, _ tracking: CGFloat, _ color: Color,
+                  _ ctx: inout GraphicsContext) -> GraphicsContext.ResolvedText {
+    let key = TextKey(s: s, size: 0, font: f, tracking: tracking, color: color)
+    if let hit = textCache[key] {
+        return hit
+    }
+    if textCache.count > 4096 {
+        textCache.removeAll(keepingCapacity: true)
+    } // simple cap; refills in a frame
+    let r = ctx.resolve(Text(s).font(f).tracking(tracking).foregroundStyle(color))
+    textCache[key] = r
+    return r
 }

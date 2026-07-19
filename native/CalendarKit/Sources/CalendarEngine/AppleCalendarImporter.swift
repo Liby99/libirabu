@@ -21,6 +21,9 @@ public extension Notification.Name {
     static let showTutorial = Notification.Name("cc.help.showTutorial")
     /// File ▸ Print… (⌘P) — CalendarView routes it: year view prints, other levels show a notice.
     static let requestPrint = Notification.Name("cc.print.request")
+    /// View ▸ Filter by Tags — toggles the tag-filter popover (anchored to its toolbar button in
+    /// CalendarView). Posted by the menu item in both shells (a menu can't host a stay-open checklist).
+    static let toggleTagFilter = Notification.Name("cc.view.toggleTagFilter")
 }
 
 /// One selectable Apple calendar (an `EKCalendar`) — for the Settings picker.

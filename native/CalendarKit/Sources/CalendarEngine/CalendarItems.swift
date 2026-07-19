@@ -36,6 +36,9 @@ struct DisplayCaches {
     var ddlSides: [String: Bool] = [:]
     var ddlSidesKey: (focus: Int, incoming: Int, year: Int, gen: Int, detail: Bool, dayView: Bool)?
     var search: (gen: Int, docs: [CalendarEngine.SearchDoc])?
+    /// The tag universe (View ▸ Filter by Tags), indexed once per edit generation. Rebuilt lazily on the
+    /// next read after any mutation (editGen bump), then reused across every popover render / search keystroke.
+    var tag: (gen: Int, rows: [(key: String, label: String, count: Int)], untagged: Int)?
 }
 
 /// Read-only items imported from Apple Calendar (EventKit). Kept SEPARATE from `items` so they

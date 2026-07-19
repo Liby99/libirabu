@@ -91,4 +91,26 @@ final class TagFilterTests: XCTestCase {
         XCTAssertEqual(uni.rows.first?.key, "work", "count-ordered: 'work'(3) first")
         XCTAssertEqual(uni.untagged, 1)
     }
+
+    /// The tag universe is cached per edit generation (indexed once, reused across popover renders /
+    /// search keystrokes) and invalidated by any edit — so the filter never shows a stale tag set.
+    func testTagUniverseCachedAndInvalidatedOnEdit() {
+        let (e, _, _, _, _) = makeEngine()
+        _ = e.tagUniverse()
+        XCTAssertNotNil(e.caches.tag, "first call populates the cache")
+        XCTAssertEqual(e.caches.tag?.gen, e.caches.editGen, "cache stamped with the current edit generation")
+
+        // A read with no intervening edit doesn't recompute or bump the generation.
+        let genBefore = e.caches.editGen
+        _ = e.tagUniverse()
+        XCTAssertEqual(e.caches.editGen, genBefore, "reading the universe is side-effect free")
+
+        // A tag edit leaves the cache stale until the next read, which recomputes + re-stamps it.
+        let n = e.createTimedEvent(year: e.year, month: 6, day: 1, startHour: 9, endHour: 10, title: "N", color: "blue")
+        e.setTags(n, ["work"])
+        XCTAssertNotEqual(e.caches.tag?.gen, e.caches.editGen, "edit invalidates the cache (gen no longer matches)")
+        let uni = e.tagUniverse()
+        XCTAssertEqual(uni.rows.first { $0.key == "work" }?.count, 4, "recomputed to include the new tagged event")
+        XCTAssertEqual(e.caches.tag?.gen, e.caches.editGen, "recompute re-stamps the cache to the new generation")
+    }
 }

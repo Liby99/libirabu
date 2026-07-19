@@ -30,6 +30,10 @@ public final class DemoController {
     public var noteFeed = ""
     public var notePreview = false
 
+    // recurring scene: expand the drawer's Configuration section + apply a repeat rule through the drawer.
+    public var configPulse = 0
+    public var repeatFeed: Repeat?
+
     // search-demo scene hooks (wired by CalendarView.setupOnAppear): open the toolbar search bar, and the
     // live SearchState the field binds to — the scene types into it and reads the results.
     @ObservationIgnored var openSearchHook: (() -> Void)?
@@ -43,6 +47,8 @@ public final class DemoController {
     // @ObservationIgnored: these mutate EVERY FRAME from the render closure — they must not churn the
     // observation machinery or invalidate any view.
     @ObservationIgnored private var benchActive = false
+    @ObservationIgnored private var benchMoves: [(Double, Double)] = [] // moving-phase windows (start, end)
+    @ObservationIgnored private var moveStart: Double = 0
     @ObservationIgnored private var benchFrames: [Double] = []
 
     public init() {}
@@ -251,7 +257,9 @@ public final class DemoController {
 
         // ON CAMERA — double-click the event on Thursday (right half of the week; 14:00–16:00, well below
         // the day's other seeds so the double-click lands on it cleanly).
-        let evPt = CGPoint(x: size.width * 0.72, y: size.height * 0.60)
+        // Aim by the event's LIVE rect (the week's scroll follows the pinned clock — fixed fractions miss).
+        guard let evRect = engine.demoEventRectView(id) else { return }
+        let evPt = CGPoint(x: evRect.midX, y: evRect.midY)
         cursor = CGPoint(x: evPt.x - 44, y: evPt.y - 34)
         await move(to: evPt, over: 0.7)
         await doubleClickPulse() // two press rings
@@ -471,7 +479,6 @@ public final class DemoController {
     /// (cursor over the swatches; the change applies through the engine, so the event recolors live).
     private func sceneEditDrawer() async {
         guard let engine else { return }
-        writeCrop(x: 0.30, y: 0.0, w: 0.70, h: 1.0)
         engine.demoClearEvents()
         seedWeek()
         let id = engine.demoAddTimed(month: 6, day: 16, startHour: 14, endHour: 16,
@@ -484,28 +491,38 @@ public final class DemoController {
         await waitForGo()
         try? await pause(0.5)
 
-        let evPt = CGPoint(x: size.width * 0.72, y: size.height * 0.60)
+        // Aim by the event's LIVE rect (the week's scroll follows the pinned clock — fixed fractions miss).
+        guard let evRect = engine.demoEventRectView(id) else { return }
+        let evPt = CGPoint(x: evRect.midX, y: evRect.midY)
         cursor = CGPoint(x: evPt.x - 44, y: evPt.y - 34)
         await move(to: evPt, over: 0.7)
         await doubleClickPulse()
         engine.demoDoubleClick(atView: evPt)
         try? await pause(1.5)
 
-        // The color swatch row sits near the drawer's top; click the orange swatch.
-        let swatch = CGPoint(x: size.width * 0.785, y: size.height * 0.168)
-        await move(to: swatch, over: 0.8)
+        // Glide across the swatch row with LIVE hover previews, then click ORANGE. Swatch geometry from
+        // the drawer's layout: card right margin 10 + width 410 → content left = W−420+18; 17pt circles at
+        // 8pt spacing → center x = left + 8.5 + i·25 (EVENT_COLORS order; orange = 7). Row y ≈ 142/840.
+        let rowY = size.height * 0.169
+        func swatchX(_ i: Int) -> CGFloat { size.width - 420 + 18 + 8.5 + CGFloat(i) * 25 }
+        await move(to: CGPoint(x: swatchX(4), y: rowY), over: 0.8)
+        engine.setColorPreview(id, "green")           // the drawer's real hover preview
+        try? await pause(0.55)
+        await move(to: CGPoint(x: swatchX(7), y: rowY), over: 0.5)
+        engine.setColorPreview(id, "orange")
+        try? await pause(0.55)
         pressed = true
-        engine.update(id) { $0.color = "orange" }
+        engine.clearColorPreview()
+        engine.update(id) { $0.color = "orange" }     // commit (what the swatch tap does)
         try? await pause(0.18)
         pressed = false
-        try? await pause(2.2)
+        try? await pause(2.0)
     }
 
     /// ADD a DEADLINE via the hover "+": glide along a day column until the quick-add spot appears,
     /// click it (real pointer path → deadline created, drawer opens with the title selected).
     private func sceneDeadlineAdd() async {
         guard let engine else { return }
-        writeCrop(x: 0.30, y: 0.0, w: 0.70, h: 1.0)
         engine.demoClearEvents()
         seedWeek()
         engine.jumpToDay(engine.year, 6, 15)
@@ -516,46 +533,83 @@ public final class DemoController {
         await waitForGo()
         try? await pause(0.4)
 
-        // Drift toward Thursday's left edge around 11:00 — the "+" reveals near day-edge hour lines.
+        // The "+" appears only while hovering NEAR A DAY COLUMN'S LEFT EDGE on an hour line — sweep
+        // hover probes (invisible) around Thursday ~afternoon until the engine offers the spot, then
+        // glide the visible cursor straight onto it and click through the real pointer path.
         let target = CGPoint(x: size.width * 0.665, y: size.height * 0.47)
         cursor = CGPoint(x: target.x - 70, y: target.y - 50)
-        await move(to: target, over: 0.9)
-        engine.demoHover(atView: target)
-        try? await pause(0.6)
-        // Snap to the actual "+" spot the engine computed, then click it.
-        if let spot = engine.demoDeadlineSpotView() {
-            await move(to: spot, over: 0.5)
-            engine.demoHover(atView: spot)
-            try? await pause(0.5)
-            pressed = true
-            engine.demoPointerDown(atView: spot)
-            engine.demoPointerUp(atView: spot)
-            try? await pause(0.18)
-            pressed = false
+        await move(to: target, over: 0.8)
+        var plus: CGPoint?
+        sweep: for dx in stride(from: -34.0, through: 44.0, by: 3.0) {
+            for dy in stride(from: -24.0, through: 24.0, by: 6.0) {
+                engine.demoHover(atView: CGPoint(x: target.x + dx, y: target.y + dy))
+                if let s = engine.demoDeadlineSpotView() { plus = s; break sweep }
+            }
         }
-        try? await pause(2.6)
+        guard let plus else { return }
+        // Press a few px RIGHT of the spot: the "+" sits exactly on the day's left boundary, and a
+        // fraction left of it resolves to the PREVIOUS day (a plain click there navigates instead).
+        // Still well inside the click's 12px tolerance.
+        let press = CGPoint(x: plus.x + 5, y: plus.y)
+        await move(to: press, over: 0.6)
+        engine.demoHover(atView: press)    // over the "+" → it brightens
+        try? await pause(0.6)
+        pressed = true
+        engine.demoPointerDown(atView: press)
+        engine.demoPointerUp(atView: press)
+        try? await pause(0.18)
+        pressed = false
+        try? await pause(1.0)
     }
 
-    /// RECURRING: a lone event gets a weekly repeat — ghost occurrences populate the month.
+    /// RECURRING: drag-create a BAND in year view, open its drawer, expand Configuration, and set a
+    /// weekly repeat — ghost bars populate across the following weeks/months, which the year view makes
+    /// instantly visible (a timed event's ghosts would hide inside single weeks).
     private func sceneRecurring() async {
         guard let engine else { return }
-        writeCrop(x: 0.0, y: 0.10, w: 1.0, h: 0.80)
         engine.demoClearEvents()
-        let id = engine.demoAddTimed(month: 6, day: 6, startHour: 9, endHour: 10,
-                                     title: "Standup", color: "blue")
-        engine.setView(zoom: "month", focusedMonth: 6)
-        try? await pause(1.8)
+        seedYear()
+        engine.demoGoToYear(centerMonth: 6)   // July centered
+        try? await pause(0.5)
         signalReady()
         await waitForGo()
-        try? await pause(0.8)
+        try? await pause(0.5)
 
-        engine.demoSelect(id)
-        cursor = CGPoint(x: size.width * 0.16, y: size.height * 0.52)
-        try? await pause(0.8)
-        pressed = true; try? await pause(0.16); pressed = false
-        try? await pause(0.4)
-        engine.setRepeat(id, Repeat(kind: "weekly"))   // ghosts appear on every following week
-        try? await pause(2.8)
+        // Drag-create a short band on July's Travel lane (same mechanics as the band-year scene).
+        let (x0, x1) = (size.width * 0.30, size.width * 0.37)
+        let y = size.height * 0.52
+        cursor = CGPoint(x: x0 - 40, y: y)
+        await move(to: CGPoint(x: x0, y: y), over: 0.6)
+        pressed = true
+        engine.demoPointerDown(atView: CGPoint(x: x0, y: y))
+        await drag(from: CGPoint(x: x0, y: y), to: CGPoint(x: x1, y: y), over: 0.9) { p in
+            engine.demoPointerDrag(atView: p)
+        }
+        engine.demoPointerUp(atView: CGPoint(x: x1, y: y))
+        engine.demoRenameSelectedBand("Sprint")
+        pressed = false
+        try? await pause(0.9)
+
+        // Double-click the band → its drawer opens.
+        let mid = CGPoint(x: (x0 + x1) / 2, y: y)
+        await doubleClickPulse()
+        engine.demoDoubleClick(atView: mid)
+        try? await pause(1.4)
+
+        // Expand Configuration, then choose a weekly repeat with an end date — ghost bars appear across
+        // the year view's months as the rule lands (driven through the drawer's own state + commit).
+        await move(to: CGPoint(x: size.width * 0.79, y: size.height * 0.205), over: 0.8)
+        pressed = true; try? await pause(0.15); pressed = false
+        configPulse += 1
+        try? await pause(1.0)
+        await move(to: CGPoint(x: size.width * 0.80, y: size.height * 0.30), over: 0.6)
+        pressed = true; try? await pause(0.15); pressed = false
+        repeatFeed = Repeat(kind: "weekly")
+        try? await pause(1.3)
+        await move(to: CGPoint(x: size.width * 0.79, y: size.height * 0.36), over: 0.5)
+        pressed = true; try? await pause(0.15); pressed = false
+        repeatFeed = Repeat(kind: "weekly", until: String(format: "%04d-09-30", engine.year))
+        try? await pause(2.0)
     }
 
     /// SEARCH: open the toolbar search, type a fuzzy/date query, and fly to the top hit.
@@ -597,7 +651,6 @@ public final class DemoController {
     /// PROMOTE: a deadline mirrors onto a month track lane as a ghost bar.
     private func scenePromote() async {
         guard let engine else { return }
-        writeCrop(x: 0.0, y: 0.06, w: 1.0, h: 0.55)
         engine.demoClearEvents()
         let id = engine.createDeadline(year: engine.year, month: 6, day: 21, hour: 23.5,
                                        title: "CFP deadline", color: "red")
@@ -620,7 +673,6 @@ public final class DemoController {
     /// DAILY DASHBOARD: day view's TODO list — a click checks an item off (the note updates live).
     private func sceneDailyDashboard() async {
         guard let engine else { return }
-        writeCrop(x: 0.52, y: 0.0, w: 0.48, h: 1.0)
         engine.demoClearEvents()
         seedWeek()
         let iso = String(format: "%04d-07-15", engine.year)
@@ -750,9 +802,14 @@ public final class DemoController {
         benchFrames.removeAll()
         benchActive = true
         let pageH = size.height
-        for (from, to) in [(5, 6), (6, 7), (7, 8), (8, 7), (7, 6)] {
+        let dwell = ProcessInfo.processInfo.environment["CC_BENCH_DWELL"] != nil
+        for (from, to) in [(5, 6), (6, 7), (7, 8), (8, 7), (7, 6), (6, 7), (7, 8), (8, 7), (7, 6)] {
             engine.beginMonthGesture()
+            if dwell { // A/B: let the neighbor pre-mount land on STATIC frames before moving
+                for _ in 0 ..< 30 { engine.wake(); try? await pause(0.016) }
+            }
             let steps = 40
+            moveStart = Date.timeIntervalSinceReferenceDate
             for i in 0 ... steps {
                 let t = easeOutQuad(CGFloat(i) / CGFloat(steps))
                 let y = (CGFloat(from) + (CGFloat(to - from)) * t) * pageH
@@ -760,6 +817,7 @@ public final class DemoController {
                 engine.wake()
                 try? await pause(0.008)
             }
+            benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
             engine.endMonthGesture()
             try? await pause(0.15)
         }
@@ -775,6 +833,16 @@ public final class DemoController {
               benchFrames.count > 2 else { return }
         let deltas = zip(benchFrames.dropFirst(), benchFrames).map { $0 - $1 }.filter { $0 > 0 }
         guard !deltas.isEmpty else { return }
+        // Moving-phase-only stats (frames inside recorded gesture windows): the number that
+        // matches what the EYE sees — a slow frame on a static screen is invisible.
+        var movingDeltas: [Double] = []
+        if !benchMoves.isEmpty {
+            for (t2, t1) in zip(benchFrames.dropFirst(), benchFrames) {
+                if benchMoves.contains(where: { t2 > $0.0 && t2 <= $0.1 + 0.02 }) {
+                    movingDeltas.append(t2 - t1)
+                }
+            }
+        }
         let sorted = deltas.sorted()
         func pctMs(_ p: Double) -> Double {
             sorted[min(sorted.count - 1, Int(Double(sorted.count) * p))] * 1000
@@ -783,7 +851,7 @@ public final class DemoController {
             (x * 100).rounded() / 100
         }
         let seconds = benchFrames.last! - benchFrames.first!
-        let out: [String: Any] = [
+        let base: [String: Any] = [
             "frames": deltas.count + 1,
             "seconds": r2(seconds),
             "avg_fps": r2(Double(deltas.count) / seconds),
@@ -792,6 +860,15 @@ public final class DemoController {
             "frame_ms_max": r2(sorted.last! * 1000),
             "hitches_over_33ms": deltas.filter { $0 > 1.0 / 30.0 }.count,
         ]
+        var out2 = base
+        if !movingDeltas.isEmpty {
+            let ms = movingDeltas.sorted()
+            out2["moving_avg_fps"] = r2(Double(movingDeltas.count) / movingDeltas.reduce(0, +))
+            out2["moving_p95_ms"] = r2(ms[min(ms.count - 1, Int(Double(ms.count) * 0.95))] * 1000)
+            out2["moving_max_ms"] = r2(ms.last! * 1000)
+            out2["moving_hitches"] = movingDeltas.filter { $0 > 1.0 / 30.0 }.count
+        }
+        let out = out2
         if let data = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: dir).appendingPathComponent("bench.json"))
         }

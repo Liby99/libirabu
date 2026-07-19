@@ -11,3 +11,14 @@
 2026-07-18 23:48 [bench-year-fling/release/full/3400x2000/hover=0] avg 114.4 fps | p50 8.33 ms | p95 8.33 ms | max 16.7 ms | hitches(>33ms) 0 | 672 frames / 5.87 s
 2026-07-18 23:49 [bench-month-swipe/debug/full/1440x840/hover=0] avg 95.0 fps | p50 8.33 ms | p95 16.67 ms | max 50.0 ms | hitches(>33ms) 6 | 490 frames / 5.15 s
 2026-07-18 23:49 [bench-year-fling/debug/full/1440x840/hover=0] avg 114.0 fps | p50 8.33 ms | p95 8.33 ms | max 208.3 ms | hitches(>33ms) 1 | 513 frames / 4.49 s
+2026-07-19 00:01 [bench-month-swipe/release/empty/1440x840/hover=0] avg 120.0 fps | p50 8.33 ms | p95 8.33 ms | max 8.3 ms | hitches(>33ms) 0 | 325 frames / 2.70 s
+2026-07-19 00:01 [bench-month-swipe/release/bands/1440x840/hover=0] avg 120.0 fps | p50 8.33 ms | p95 8.33 ms | max 8.3 ms | hitches(>33ms) 0 | 332 frames / 2.76 s
+2026-07-19 00:05 [bench-month-swipe/release/full/1440x840/hover=0] avg 96.2 fps | p50 8.33 ms | p95 16.67 ms | max 58.3 ms | hitches(>33ms) 6 | 505 frames / 5.24 s
+2026-07-19 00:09 [bench-month-swipe/release/full/1440x840/hover=0] avg 92.9 fps | p50 8.33 ms | p95 16.67 ms | max 50.0 ms | hitches(>33ms) 8 | 378 frames / 4.06 s
+2026-07-19 00:11 [bench-month-swipe/release/full/1440x840/hover=0/dwell=1] avg 112.5 fps | p50 8.33 ms | p95 8.33 ms | max 50.0 ms | hitches(>33ms) 4 | 763 frames / 6.77 s
+2026-07-19 00:12 [bench-month-swipe/release/full/1440x840/hover=0/dwell=0] avg 99.2 fps | p50 8.33 ms | p95 16.67 ms | max 50.0 ms | hitches(>33ms) 5 | 431 frames / 4.33 s
+2026-07-19 00:15 [bench-month-swipe/release/full/1440x840/hover=0/dwell=0] avg 94.7 fps | p50 8.33 ms | p95 16.67 ms | max 50.0 ms | hitches(>33ms) 5 | MOVING: 91.0 fps p95 16.7 ms hitches 4 | 387 frames / 4.07 s
+2026-07-19 00:16 [bench-month-swipe/release/full/1440x840/hover=0/dwell=0] avg 106.2 fps | p50 8.33 ms | p95 16.67 ms | max 50.0 ms | hitches(>33ms) 6 | MOVING: 104.7 fps p95 16.7 ms hitches 5 | 854 frames / 8.03 s
+2026-07-19 00:21 [bench-month-swipe/release/full/1440x840/hover=0/dwell=0] avg 106.2 fps | p50 8.33 ms | p95 16.67 ms | max 41.7 ms | hitches(>33ms) 6 | MOVING: 104.3 fps p95 16.7 ms hitches 5 | 852 frames / 8.02 s
+2026-07-19 00:21 [bench-year-fling/release/full/1440x840/hover=0/dwell=0] avg 117.1 fps | p50 8.33 ms | p95 8.33 ms | max 16.7 ms | hitches(>33ms) 0 | 400 frames / 3.41 s
+2026-07-19 00:22 [bench-month-swipe/release/full/3400x2000/hover=0/dwell=0] avg 105.2 fps | p50 8.33 ms | p95 16.67 ms | max 208.3 ms | hitches(>33ms) 7 | MOVING: 102.4 fps p95 16.7 ms hitches 7 | 824 frames / 7.82 s

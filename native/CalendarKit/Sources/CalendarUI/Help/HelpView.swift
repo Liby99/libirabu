@@ -185,10 +185,15 @@ public struct HelpView: View {
 }
 
 /// ── Animated GIF (SwiftUI.Image shows only the first frame) ──────────────────────────────
+/// Prefers the theme variant ("<name>-light/-dark.gif") matching the viewer, falling back to the plain name
+/// (single-variant assets — most help GIFs ship in one theme).
 private struct HelpGIF: View {
     let name: String
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
-        if let url = Bundle.module.url(forResource: name, withExtension: "gif", subdirectory: "tutorial"),
+        let variant = "\(name)-\(scheme == .dark ? "dark" : "light")"
+        if let url = Bundle.module.url(forResource: variant, withExtension: "gif", subdirectory: "tutorial")
+            ?? Bundle.module.url(forResource: name, withExtension: "gif", subdirectory: "tutorial"),
            let img = NSImage(contentsOf: url) {
             GIFImageView(image: img)
                 .aspectRatio(img.size.width / max(1, img.size.height), contentMode: .fit)
