@@ -17,6 +17,7 @@ struct InputCatcher: NSViewRepresentable {
     let dayBridge: DayPagerBridge
     var forwarder: GestureForwarder? = nil
     var onOpenEvent: (String) -> Void = { _ in }
+    var onEventMenu: (String, CGRect) -> Void = { _, _ in }   // right-click event → context callout
     var onEditTrack: (TrackEdit) -> Void = { _ in }
     var onKey: (KeyToken) -> Bool = { _ in false }   // dispatch a key; returns whether it was consumed
     var onKeyGuide: (Bool) -> Void = { _ in }        // Cmd+K held → show/hide the shortcut guide
@@ -35,6 +36,7 @@ struct InputCatcher: NSViewRepresentable {
         v.weekBridge = weekBridge
         v.dayBridge = dayBridge
         v.onOpenEvent = onOpenEvent
+        v.onEventMenu = onEventMenu
         v.onEditTrack = onEditTrack
         v.onKey = onKey
         v.onKeyGuide = onKeyGuide
@@ -53,7 +55,7 @@ struct InputCatcher: NSViewRepresentable {
     }
     func updateNSView(_ v: CatcherView, context: Context) {
         v.engine = engine; v.monthBridge = monthBridge; v.weekBridge = weekBridge; v.dayBridge = dayBridge
-        v.onOpenEvent = onOpenEvent; v.onEditTrack = onEditTrack
+        v.onOpenEvent = onOpenEvent; v.onEventMenu = onEventMenu; v.onEditTrack = onEditTrack
         v.onKey = onKey; v.onKeyGuide = onKeyGuide; v.isEditingText = isEditingText; v.onSearch = onSearch
         v.isModalDelete = isModalDelete; v.onDeleteDialogKey = onDeleteDialogKey; v.onRequestDelete = onRequestDelete
         v.isTutorialUp = isTutorialUp; v.onTutorialKey = onTutorialKey
@@ -89,6 +91,7 @@ enum DeleteDialogKey { case left, right, confirm, cancel }
 final class CatcherView: NSView, NSMenuItemValidation {
     weak var engine: CalendarEngine?
     var onOpenEvent: ((String) -> Void)?
+    var onEventMenu: ((String, CGRect) -> Void)?   // right-click on an event → context callout (id, view-space box rect)
     var onEditTrack: ((TrackEdit) -> Void)?
     var onKey: ((KeyToken) -> Bool)?
     var onKeyGuide: ((Bool) -> Void)?
@@ -417,8 +420,30 @@ final class CatcherView: NSView, NSMenuItemValidation {
         let ended = e.phase.contains(.ended) || e.phase.contains(.cancelled)
         engine?.onMagnify(delta: e.magnification, at: point(e), began: began, ended: ended)
     }
+    // ── Right-click (or ctrl-click) on an event → the context callout ──
+    override func rightMouseDown(with e: NSEvent) {
+        if !openEventMenu(with: e) { super.rightMouseDown(with: e) }
+    }
+    /// Hit-test the click, select the item, and hand its VIEW-space box rect to the SwiftUI layer
+    /// (which presents the popover). Returns whether an event was actually under the pointer.
+    @discardableResult private func openEventMenu(with e: NSEvent) -> Bool {
+        guard !modalActive, let engine, let onEventMenu else { return false }
+        let p = point(e)
+        guard !engine.inDayDashboard(p), let id = engine.itemId(at: p) else { return false }
+        engine.select(id)
+        // Anchor at the box when we can resolve it (scene → view = +padLeft − drawerShift);
+        // fall back to a spot rect at the pointer.
+        let view = convert(e.locationInWindow, from: nil)
+        let dx = Layout.padLeft - engine.drawerShift
+        let anchor = engine.selectionRingRect().map { $0.offsetBy(dx: dx, dy: 0) }
+            ?? CGRect(x: view.x - 2, y: view.y - 2, width: 4, height: 4)
+        onEventMenu(id, anchor)
+        return true
+    }
+
     override func mouseDown(with e: NSEvent) {
         if modalActive { return }   // blocking modal up → canvas is inert
+        if e.modifierFlags.contains(.control), openEventMenu(with: e) { return }   // ctrl-click = right-click
         engine?.enterMouseMode()   // mouse activity hides the keyboard cursor visual
         let p = point(e)
         // Day view: the daily-dashboard panel (and the band strip hidden behind it) owns its own clicks —
@@ -440,13 +465,15 @@ final class CatcherView: NSView, NSMenuItemValidation {
             return
         }
         window?.makeFirstResponder(self)
-        if e.clickCount == 2 {   // double-click any item → open its drawer
+        let shift = e.modifierFlags.contains(.shift)
+        let command = e.modifierFlags.contains(.command)
+        if e.clickCount == 2, !shift {   // double-click any item → open its drawer (Shift = a multi-select gesture)
             // Open the SOURCE event (a ghost/promoted box maps back to its real item); the clicked
             // box stays selected → it gets the focused thick border while the series stays active.
             if let id = engine?.itemId(at: p) { onOpenEvent?(sourceId(of: id)) }
             return
         }
-        engine?.onPointerDown(at: p)
+        engine?.onPointerDown(at: p, shift: shift, command: command)
     }
     override func mouseDragged(with e: NSEvent) {
         if modalActive { return }
@@ -572,6 +599,12 @@ final class CatcherView: NSView, NSMenuItemValidation {
                let ch = e.charactersIgnoringModifiers?.lowercased(), ch == "c" || ch == "x" || ch == "v" {
                 return e
             }
+            // ⌘A select-all-in-viewport / ⌘D deselect-all — calendar-owned (a focused text field kept ⌘A above).
+            if e.modifierFlags.contains(.command), !e.modifierFlags.contains(.option), !e.modifierFlags.contains(.control), !e.isARepeat,
+               let ch = e.charactersIgnoringModifiers?.lowercased() {
+                if ch == "a" { engine?.selectAllInViewport(); return nil }
+                if ch == "d" { engine?.deselectAll(); return nil }
+            }
             engine?.wake()                          // calendar-owned key → drive a render (keyboard cursor/nav)
             if let token = Self.token(for: e) {
                 // ⌘T → "go to today" from ANY navigation state (not just ones whose bindings include it).
@@ -693,6 +726,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
                 case "s": return .cmdS
                 case "n": return .cmdN
                 case "t": return .cmdT           // ⌘T → go to today (any view)
+                case "u": return .cmdU           // ⌘U → toggle promote on the selected timed event
                 case "=", "+": return .cmdEqual   // ⌘= / ⌘+ → zoom in
                 case "-", "_": return .cmdMinus   // ⌘− → zoom out
                 default:  return nil               // other ⌘-combos → menu/native
@@ -725,6 +759,9 @@ final class CatcherView: NSView, NSMenuItemValidation {
     // ── Clipboard: Copy / Cut / Paste / Delete (Edit menu + ⌘C/⌘X/⌘V, targeting the first responder) ──
     private static let clipType = NSPasteboard.PasteboardType("com.libirabu.calendarkit.clip")
 
+    /// Unambiguous entry point for programmatic copy (the context menu): `copy(nil)` from outside
+    /// collides with NSObject's `copy()`/`copy(with:)` overloads, this name can't.
+    func copySelection() { copy(nil as Any?) }
     @objc func copy(_ sender: Any?) {
         guard let engine, let id = engine.selectedId, let clip = engine.clipPayload(of: id, full: false) else { NSSound.beep(); return }
         writeClip(clip)
@@ -745,6 +782,8 @@ final class CatcherView: NSView, NSMenuItemValidation {
         guard engine?.selectedId != nil else { NSSound.beep(); return }
         onRequestDelete?()   // raise the confirm dialog (imported → "make invisible", recurring → scope)
     }
+    @objc override func selectAll(_ sender: Any?) { engine?.selectAllInViewport() }
+    @objc func deselectAll(_ sender: Any?) { engine?.deselectAll() }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
@@ -754,6 +793,8 @@ final class CatcherView: NSView, NSMenuItemValidation {
         case #selector(delete(_:)):return engine?.selectedId != nil
         case #selector(cut(_:)):   if let e = engine, let id = e.selectedId { return e.cutEligible(id) }; return false
         case #selector(paste(_:)): return pasteboardHasPasteable()
+        case #selector(selectAll(_:)):   return engine.map { !($0.viewEvents().isEmpty && $0.viewBands().isEmpty && $0.viewDeadlines().isEmpty) } ?? false
+        case #selector(deselectAll(_:)): return !(engine?.selectedIds.isEmpty ?? true)
         default: return true
         }
     }

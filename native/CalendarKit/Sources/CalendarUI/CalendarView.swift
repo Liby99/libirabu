@@ -59,6 +59,58 @@ public struct CalendarView: View {
         }
     }
 
+    /// Context menu's "Rename": the same inline editor each kind's hotkey uses; deadlines have no
+    /// inline editor, so their title is edited in the drawer (opened with the title pre-selected).
+    private func renameInline(_ id: String) {
+        switch engine.kind(of: id) {
+        case .timed: engine.editTimed(id)
+        case .band: engine.editBand(id)
+        case .deadline: ui.selectTitleOnOpen = true; ui.openEventId = sourceId(of: id)
+        default: break
+        }
+    }
+
+    /// The blocking-modal bundle, built OUTSIDE the body chain: the chain is ONE expression to
+    /// the type checker, and adding closure arguments to a call inside it is what pushed solves
+    /// into the minutes (bisected 2026-07-18). Constructed here, the closures never enter it.
+    private func modalOverlays(theme: Theme) -> ModalOverlays {
+        ModalOverlays(ui: ui, engine: engine, theme: theme,
+                      onDelete: { performDelete($0) },
+                      onRename: { renameInline($0) },
+                      onCopy: { (gestureForwarder.catcher as? CatcherView)?.copySelection() })
+    }
+
+    /// The AppKit input bridge, built OUTSIDE the body chain and assignment-style: the chain is
+    /// ONE expression to the type checker, and a many-closure call inside it (or anywhere — the
+    /// cost is exponential in argument count) is what pushed solves into the minutes (bisected
+    /// 2026-07-18). One tiny statement per hook keeps this trivially cheap forever.
+    private func inputCatcher() -> InputCatcher {
+        var ic = InputCatcher(engine: engine, monthBridge: monthBridge,
+                              weekBridge: weekBridge, dayBridge: dayBridge)
+        ic.forwarder = gestureForwarder
+        ic.onOpenEvent = { ui.openEventId = $0 }
+        ic.onEventMenu = { (id: String, anchor: CGRect) in
+            ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: anchor)
+        }
+        ic.onEditTrack = { te in engine.trackEditing = true; ui.editingTrack = te }
+        // The keyboard state machine + the Cmd+K guide toggle. `onKey` reads
+        // live engine/ui state each press; returns whether it consumed the key.
+        ic.onKey = { KeyboardModel(engine: engine, ui: ui).handle($0) }
+        ic.onKeyGuide = { ui.showKeyGuide = $0 }
+        ic.isEditingText = { ui.drawerFieldEditing }
+        ic.onSearch = { openSearch() }
+        ic.isModalDelete = { ui.pendingDelete != nil || ui.pendingBatchDelete != nil || ui.notice != nil }
+        ic.onDeleteDialogKey = { handleDeleteDialogKey($0) }
+        ic.onRequestDelete = {
+            if let t = engine.deleteTargetForSelection() {
+                ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring, imported: t.imported, alreadyHidden: t.alreadyHidden, kind: engine.kind(of: t.id) ?? .timed)
+            }
+        }
+        ic.isTutorialUp = { ui.showTutorial }
+        ic.onTutorialKey = { handleTutorialKey($0) }
+        return ic
+    }
+
     // ── Delete-confirm dialog ─────────────────────────────────────────────────────
     /// Carry out a chosen scope, then dismiss the dialog (and the drawer, on an actual delete).
     private func performDelete(_ choice: DeleteChoice) {
@@ -77,6 +129,20 @@ public struct CalendarView: View {
     }
     /// The key monitor's ←/→/Enter/Esc while the dialog is up.
     private func handleDeleteDialogKey(_ key: DeleteDialogKey) {
+        // Informational notice: any Enter/Esc dismisses.
+        if ui.notice != nil {
+            if key == .confirm || key == .cancel { ui.notice = nil; engine.wake() }
+            return
+        }
+        // Batch-delete confirm (multi-selection): Enter deletes, Esc cancels.
+        if ui.pendingBatchDelete != nil {
+            switch key {
+            case .confirm: engine.performBatchDelete(); ui.pendingBatchDelete = nil
+            case .cancel:  ui.pendingBatchDelete = nil
+            case .left, .right: break
+            }
+            engine.wake(); return
+        }
         guard let pd = ui.pendingDelete else { return }
         switch key {
         case .left:    ui.moveDeleteFocus(-1)
@@ -178,7 +244,7 @@ public struct CalendarView: View {
             // 2. events (bands + timed), Liquid Glass stickers
             EventsOverlay(input: input, events: engine.viewEvents(), bands: engine.viewBands(),
                           bandBadges: engine.viewBandBadges(), eventBadges: engine.viewEventBadges(),
-                          selected: engine.selectedId, hovered: engine.hoveredEventId,
+                          selected: engine.selectedId, selectedIds: engine.selectedIds, hovered: engine.hoveredEventId,
                           drawerOpen: ui.openEventId != nil, editingId: ui.editingBand?.id ?? ui.editingTimed?.id,
                           editingRect: ui.editingTimed?.rect,   // hide the title only on the segment being edited
                           draggingId: engine.activeTimedDragId,
@@ -197,7 +263,7 @@ public struct CalendarView: View {
             // …and the labels are SwiftUI glass pills (activation styling), above the line.
             DeadlinesOverlay(input: input, deadlines: engine.viewDeadlines(),
                              sides: engine.deadlineSides(),
-                             selected: engine.selectedId, hovered: engine.hoveredEventId,
+                             selected: engine.selectedId, selectedIds: engine.selectedIds, hovered: engine.hoveredEventId,
                              drawerOpen: ui.openEventId != nil, hide: liftDdl, theme: theme)
                 .offset(x: Layout.padLeft)
             // 4. chrome on top of the glass: gutter labels/borders, track names, now-line/cursor, dashboard title
@@ -223,6 +289,17 @@ public struct CalendarView: View {
             CursorRing(rect: engine.selectionRingRect().map { $0.insetBy(dx: -2, dy: -2) },
                        theme: theme, cornerRadius: 8, geometryAnimating: engine.isAnimating)
                 .offset(x: Layout.padLeft)
+            // Marquee selection box: dashed border + shaded fill. Positive select = red; negative = gray.
+            if let m = engine.marqueeRect {
+                let c = engine.marqueeNegative ? Color.secondary : theme.eventBorder("red")
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(c.opacity(0.12))
+                    .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(c, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                    .frame(width: m.width, height: m.height)
+                    .position(x: m.midX, y: m.midY)
+                    .offset(x: Layout.padLeft)
+                    .allowsHitTesting(false)
+            }
             // Deadline quick-add "+" — a small circle on the hovered day column's left edge at the nearest
             // hour line (week/day view). Visual only (the whole scene is non-hit-testing); the click is
             // caught by the InputCatcher → onPointerDown → deadlineAddSpot. Hidden while the drawer is open.
@@ -284,6 +361,9 @@ public struct CalendarView: View {
     @ViewBuilder
     private func calendarSurface(awake: Bool, vp: Viewport, theme: Theme) -> some View {
         TimelineView(.animation(paused: !awake)) { tl in
+            // One evaluation = one rendered frame → the benchmark's frame counter (no-op outside CC_DEMO
+            // bench scenes; reads only @ObservationIgnored state, so it can't invalidate the view).
+            let _ = demo.benchTick(tl.date)
             calendarScene(engine.sceneInput(at: tl.date, viewport: vp), vp: vp, theme: theme)
         }
     }
@@ -312,25 +392,7 @@ public struct CalendarView: View {
             .background { MonthPager(engine: engine, bridge: monthBridge) }
             .background { WeekPager(engine: engine, bridge: weekBridge) }
             .background { DayPager(engine: engine, bridge: dayBridge) }
-            .overlay(InputCatcher(engine: engine, monthBridge: monthBridge, weekBridge: weekBridge, dayBridge: dayBridge,
-                                  forwarder: gestureForwarder,
-                                  onOpenEvent: { ui.openEventId = $0 },
-                                  onEditTrack: { te in engine.trackEditing = true; ui.editingTrack = te },
-                                  // The keyboard state machine + the Cmd+K guide toggle. `onKey` reads
-                                  // live engine/ui state each press; returns whether it consumed the key.
-                                  onKey: { KeyboardModel(engine: engine, ui: ui).handle($0) },
-                                  onKeyGuide: { ui.showKeyGuide = $0 },
-                                  isEditingText: { ui.drawerFieldEditing },
-                                  onSearch: { openSearch() },
-                                  isModalDelete: { ui.pendingDelete != nil },
-                                  onDeleteDialogKey: { handleDeleteDialogKey($0) },
-                                  onRequestDelete: {
-                                      if let t = engine.deleteTargetForSelection() {
-                                          ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring, imported: t.imported, alreadyHidden: t.alreadyHidden, kind: engine.kind(of: t.id) ?? .timed)
-                                      }
-                                  },
-                                  isTutorialUp: { ui.showTutorial },
-                                  onTutorialKey: { handleTutorialKey($0) }))
+            .overlay(inputCatcher())
             // Day-view daily dashboard: the TODO list + upcoming deadlines, in a transparent
             // WebView (reuses the web's tokenizer + sectioning). Sits in the dashboard content
             // region; shown at day level with the drawer closed (it snaps in — WKWebView doesn't
@@ -472,7 +534,7 @@ public struct CalendarView: View {
             }
             // Blocking-modal overlays (delete-confirm dialog + onboarding tutorial) bundled into one
             // modifier so the body's modifier chain stays within the type-checker's budget.
-            .modifier(ModalOverlays(ui: ui, engine: engine, theme: theme, onDelete: { performDelete($0) }))
+            .modifier(modalOverlays(theme: theme))
             // ai-assistant recording scene: a staged, offline chat panel in the main window (the real
             // assistant is a separate window the recorder can't frame). No-op outside that scene.
             .overlay(alignment: .topTrailing) {
@@ -488,6 +550,9 @@ public struct CalendarView: View {
                 }
             }
             .overlay { DemoCursorOverlay(demo: demo) }   // synthetic pointer during a GIF recording (no-op otherwise)
+            // Live frame-rate HUD (CC_FPS_HUD=1 / defaults cc.fpsHUD) — measures THIS run, whatever it is:
+            // Xcode-attached, standalone, or the signed app. Reads the render loop's own tick.
+            .overlay(alignment: .bottomLeading) { if DemoController.hudEnabled { FPSHUD(demo: demo) } }
             .onAppear { setupOnAppear(size: geo.size) }
             .onChange(of: geo.size) { _, s in engine.setViewport(s) }
             .onChange(of: ui.openEventId) { _, v in
