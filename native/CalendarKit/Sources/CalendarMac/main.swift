@@ -62,6 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
         if ProcessInfo.processInfo.environment["CC_OPEN_TUTORIAL"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { NotificationCenter.default.post(name: .showTutorial, object: nil) }
         }
+        // Dev: fire File ▸ Print… a few seconds in (pair with CC_PRINT_PDF to verify the pipeline headless).
+        if ProcessInfo.processInfo.environment["CC_PRINT_ON_LAUNCH"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { NotificationCenter.default.post(name: .requestPrint, object: nil) }
+        }
     }
 
     /// Write the window's CONTENT area as a top-left-origin screen rect (points) so the recording script can

@@ -77,7 +77,9 @@ public struct CalendarView: View {
         ModalOverlays(ui: ui, engine: engine, theme: theme,
                       onDelete: { performDelete($0) },
                       onRename: { renameInline($0) },
-                      onCopy: { (gestureForwarder.catcher as? CatcherView)?.copySelection() })
+                      onCopy: { (gestureForwarder.catcher as? CatcherView)?.copySelection() },
+                      onPaste: { (gestureForwarder.catcher as? CatcherView)?.performPaste() },
+                      clipKind: { (gestureForwarder.catcher as? CatcherView)?.readClip()?.kind })
     }
 
     /// The AppKit input bridge, built OUTSIDE the body chain and assignment-style: the chain is
@@ -91,6 +93,9 @@ public struct CalendarView: View {
         ic.onOpenEvent = { ui.openEventId = $0 }
         ic.onEventMenu = { (id: String, anchor: CGRect) in
             ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: anchor)
+        }
+        ic.onSpaceMenu = { (spot: CalendarEngine.EmptySpot, anchor: CGRect) in
+            ui.spaceMenu = CalendarUIState.SpaceMenuTarget(spot: spot, anchor: anchor)
         }
         ic.onEditTrack = { te in engine.trackEditing = true; ui.editingTrack = te }
         // The keyboard state machine + the Cmd+K guide toggle. `onKey` reads

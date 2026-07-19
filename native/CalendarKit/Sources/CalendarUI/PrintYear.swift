@@ -112,28 +112,35 @@ struct PrintYearPage: View {
             .frame(width: gutterW, alignment: .leading)
 
             // Day grid + lanes + bands.
+            // Grid strokes are SOLID opaque grays with WHOLE-POINT positions: `dayW` and the row origins
+            // are fractional, so unrounded hairlines land on a different sub-pixel phase per column/month
+            // and rasterize inconsistently (visible in one month, gone in the next). Rounding every line
+            // coordinate keeps the whole grid on the same phase everywhere.
+            let gridTop = dayNumH + 2
+            let gridH = laneH * 4
+            let monthBands = bands.filter { $0.month == m }
             ZStack(alignment: .topLeading) {
-                // Weekend wash + day-number strip.
+                // Day-number strip (no weekend shading — plain white paper).
                 ForEach(1...dim, id: \.self) { d in
-                    let wd = dayOfWeek(year, m, d)
-                    if wd == 0 || wd == 6 {
-                        Rectangle().fill(theme.text.opacity(0.045))
-                            .frame(width: dayW, height: dayNumH + 2 + laneH * 4)
-                            .offset(x: CGFloat(d - 1) * dayW)
-                    }
                     Text("\(d)")
                         .font(.system(size: 5.5)).foregroundStyle(theme.textMuted)
                         .frame(width: dayW, height: dayNumH)
                         .offset(x: CGFloat(d - 1) * dayW)
                 }
-                // Lane separators + outer border of the month's active day span.
+                // Vertical day-column gridlines across the lane area (0…dim so the span is fully framed).
+                ForEach(0...dim, id: \.self) { d in
+                    Rectangle().fill(Color(white: d == 0 || d == dim ? 0.55 : 0.85))
+                        .frame(width: 0.8, height: (gridH).rounded())
+                        .offset(x: (CGFloat(d) * dayW).rounded() - (d == dim ? 0.8 : 0), y: gridTop.rounded())
+                }
+                // Horizontal lane separators (top + bottom edges darker, inner lane rules lighter).
                 ForEach(0...4, id: \.self) { t in
-                    Rectangle().fill(theme.sep.opacity(t == 0 || t == 4 ? 0.6 : 0.35))
-                        .frame(width: dayW * CGFloat(dim), height: 0.5)
-                        .offset(y: dayNumH + 2 + laneH * CGFloat(t))
+                    Rectangle().fill(Color(white: t == 0 || t == 4 ? 0.55 : 0.85))
+                        .frame(width: (dayW * CGFloat(dim)).rounded(), height: 0.8)
+                        .offset(y: (gridTop + laneH * CGFloat(t)).rounded() - (t == 4 ? 0.8 : 0))
                 }
                 // Bands: flat light-theme fills (the app's Performance-Mode look; glass doesn't print).
-                ForEach(bands.filter { $0.month == m }, id: \.id) { b in
+                ForEach(monthBands, id: \.id) { b in
                     let x = CGFloat(b.startDay - 1) * dayW
                     let w = max(dayW, CGFloat(b.endDay - b.startDay + 1) * dayW)
                     let y = dayNumH + 2 + laneH * CGFloat(max(0, min(3, b.track))) + 1.5
@@ -141,17 +148,30 @@ struct PrintYearPage: View {
                         RoundedRectangle(cornerRadius: 2.5)
                             .fill(theme.eventFill(b.color))
                         RoundedRectangle(cornerRadius: 2.5)
-                            .strokeBorder(theme.eventBorder(b.color), lineWidth: 0.6)
+                            .strokeBorder(theme.eventBorder(b.color), lineWidth: 0.8)
                         Rectangle().fill(theme.eventBorder(b.color))
                             .frame(width: 1.6).padding(.vertical, 1.5)
-                        Text(b.title)
-                            .font(.custom("Comic Sans MS", size: 6.5))
-                            .foregroundStyle(theme.text)
-                            .lineLimit(1)
-                            .padding(.leading, 4)
                     }
                     .frame(width: w, height: laneH - 3)
                     .offset(x: x, y: y)
+                }
+                // Band titles, drawn ABOVE all bars: like the on-screen year view, a title is NOT clipped
+                // to its bar — it runs past the right edge and clips only before the nearest LATER-STARTING
+                // bar on the same lane (else to the month's end).
+                ForEach(monthBands, id: \.id) { b in
+                    let x = CGFloat(b.startDay - 1) * dayW
+                    let y = dayNumH + 2 + laneH * CGFloat(max(0, min(3, b.track))) + 1.5
+                    let nextStart = monthBands
+                        .filter { $0.track == b.track && $0.startDay > b.startDay }
+                        .map(\.startDay).min()
+                    let clipX = nextStart.map { CGFloat($0 - 1) * dayW } ?? CGFloat(dim) * dayW
+                    let titleW = max(0, clipX - x - 6)
+                    Text(b.title)
+                        .font(.custom("Comic Sans MS", size: 6.5))
+                        .foregroundStyle(theme.text)
+                        .lineLimit(1)
+                        .frame(width: titleW, height: laneH - 3, alignment: .leading)
+                        .offset(x: x + 4, y: y)
                 }
             }
             .frame(width: bandAreaW, height: height, alignment: .topLeading)

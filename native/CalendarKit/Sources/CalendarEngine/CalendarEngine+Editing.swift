@@ -90,6 +90,40 @@ extension CalendarEngine {
         return (r.year, r.month, r.day, snap(hf, 30))
     }
 
+    /// Classify an empty-space point for the right-click menu: a week/day timeline slot
+    /// (create timed events / deadlines there) or a band-lane cell (create bands there).
+    public enum EmptySpot: Equatable {
+        case timeline(year: Int, month: Int, day: Int, hour: CGFloat)
+        case bandLane(year: Int, month: Int, track: Int, day: Int)
+    }
+    public func emptySpot(at p: CGPoint) -> EmptySpot? {
+        let g = snapshot()
+        if z >= 1.5, let s = createSpot(at: p, g) {
+            return .timeline(year: s.year, month: s.month, day: s.day, hour: s.anchor)
+        }
+        if let slot = bandSlotAtPoint(p.x, p.y, g) {
+            return .bandLane(year: year, month: slot.month, track: slot.track, day: slot.day)
+        }
+        return nil
+    }
+
+    /// ⌘L — create a deadline at the block cursor's timeline slot (keyboard mode, week/day) or at
+    /// the mouse pointer's slot, then open its drawer with the title selected. No-op off the timeline.
+    public func createDeadlineViaShortcut() {
+        guard !drawerOpen else { return }
+        var target: (year: Int, month: Int, day: Int, hour: CGFloat)?
+        if cursor.keyboardActive, level(z) >= 2 {
+            let d = level(z) == 2 ? cursor.blockDay : daily.dom   // mirrors createEventAtBlock
+            target = (year, focus, d, cursor.blockHour)
+        } else if let pp = pointerPos, let s = createSpot(at: pp, snapshot()) {
+            target = (s.year, s.month, s.day, s.anchor)
+        }
+        guard let t = target else { return }
+        let id = createDeadline(year: t.year, month: t.month, day: t.day, hour: min(t.hour, 23.75),
+                                title: "New Deadline", color: "default")
+        onRequestOpenDrawer?(id, true)
+    }
+
     /// The quick-add "+" affordance for a deadline: when the cursor hovers near a day column's LEFT edge
     /// (hover.nearLeft, within ADD_EDGE_THRESHOLD) in week/day view, offer to create a deadline snapped to
     /// the nearest hour line. Returns its screen point + the target date/hour, or nil when it shouldn't

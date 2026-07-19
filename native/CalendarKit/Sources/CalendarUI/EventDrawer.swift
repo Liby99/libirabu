@@ -51,6 +51,13 @@ public final class CalendarUIState {
         public init(id: String, anchor: CGRect) { self.id = id; self.anchor = anchor }
     }
     public var eventMenu: EventMenuTarget?
+    /// Right-click on EMPTY space: the classified spot + pointer anchor (view coords).
+    public struct SpaceMenuTarget: Equatable {
+        public var spot: CalendarEngine.EmptySpot
+        public var anchor: CGRect
+        public init(spot: CalendarEngine.EmptySpot, anchor: CGRect) { self.spot = spot; self.anchor = anchor }
+    }
+    public var spaceMenu: SpaceMenuTarget?
     /// One-shot: the next drawer open expands Configuration (the menu's "Repeat…" row).
     public var openRepeatOnOpen = false
     public init() {}

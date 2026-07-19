@@ -66,18 +66,22 @@ struct BatchDeleteDialog: View {
             Color.black.opacity(0.1).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { onCancel() }
             VStack(spacing: 14) {
                 Text(summary.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.text)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 Text(summary.note).font(.system(size: 12)).foregroundStyle(theme.textMuted)
-                    .multilineTextAlignment(.center).frame(maxWidth: 360).fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 12) {
                     DeleteDialogButton(label: "Cancel", destructive: false, focused: false, theme: theme) { onCancel() }
                     DeleteDialogButton(label: "Delete", destructive: true, focused: true, theme: theme) { onDelete() }
                 }
             }
+            // Fixed CONTENT width, intrinsic (grow-to-fit) height: the note wraps at this width and the
+            // card grows downward for however many lines the summary needs — no overflow. (A bare
+            // `.fixedSize()` here would force the ideal width too, measuring the note as one long line.)
+            .frame(width: 340)
             .padding(.horizontal, 40).padding(.vertical, 26)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
             .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
-            .fixedSize()
         }
     }
 }
@@ -153,6 +157,8 @@ struct ModalOverlays: ViewModifier {
     // body chain gains no new links — see EventMenuOverlay).
     var onRename: (String) -> Void = { _ in }
     var onCopy: () -> Void = {}
+    var onPaste: () -> Void = {}
+    var clipKind: () -> String? = { nil }
 
     /// The canvas input gate reflects EVERY blocking dialog this modifier hosts.
     private func syncModalGate() { engine.inputModalUp = ui.pendingDelete != nil || ui.notice != nil }
@@ -218,7 +224,8 @@ struct ModalOverlays: ViewModifier {
             }
             // Right-click event callout (kept in this bundle for the type-checker's budget).
             .modifier(EventMenuOverlay(ui: ui, engine: engine, theme: theme,
-                                       onRename: onRename, onCopy: onCopy))
+                                       onRename: onRename, onCopy: onCopy,
+                                       onPaste: onPaste, clipKind: clipKind))
     }
 }
 

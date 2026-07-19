@@ -23,7 +23,7 @@ import CalendarGeometry
 
 // ── A normalized key, independent of view/state (mapped from the raw NSEvent by the catcher) ──
 enum KeyToken: Equatable {
-    case enter, space, escape, tab, backTab, left, right, up, down, delete, cmdS, cmdN, cmdT, cmdU
+    case enter, space, escape, tab, backTab, left, right, up, down, delete, cmdS, cmdN, cmdT, cmdU, cmdL
     case cmdEqual, cmdMinus                        // ⌘= / ⌘− → zoom in / out (keeps the current focus)
     case cmdUp, cmdDown, cmdLeft, cmdRight         // ⌘+arrows → move the selected event
     case shiftUp, shiftDown, shiftLeft, shiftRight // ⇧+arrows → resize the selected event
@@ -57,6 +57,7 @@ enum KeyToken: Equatable {
         case .cmdN:    return "⌘N"
         case .cmdT:    return "⌘T"
         case .cmdU:    return "⌘U"
+        case .cmdL:    return "⌘L"
         case .cmdEqual:return "⌘+"
         case .cmdMinus:return "⌘−"
         case .cmdUp:   return "⌘↑"
@@ -350,6 +351,7 @@ enum AppKeyState: Equatable {
                 KeyBinding(.space, "Zoom in") { engine.blockZoomIn() },
                 KeyBinding(.escape, "Zoom out") { engine.onEscape() },
                 KeyBinding(.cmdN, "New event") { engine.createEventAtBlock() },
+                KeyBinding(.cmdL, "New deadline") { engine.createDeadlineViaShortcut() },
                 KeyBinding(.tab, "Band cursor") { engine.tabCursor(true) },
                 KeyBinding(.backTab, "Event cursor") { engine.tabCursor(false) },
             ] + selectBinding + zoomBindings

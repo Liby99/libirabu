@@ -18,6 +18,7 @@ struct InputCatcher: NSViewRepresentable {
     var forwarder: GestureForwarder? = nil
     var onOpenEvent: (String) -> Void = { _ in }
     var onEventMenu: (String, CGRect) -> Void = { _, _ in }   // right-click event → context callout
+    var onSpaceMenu: (CalendarEngine.EmptySpot, CGRect) -> Void = { _, _ in }   // right-click empty space → create/paste callout
     var onEditTrack: (TrackEdit) -> Void = { _ in }
     var onKey: (KeyToken) -> Bool = { _ in false }   // dispatch a key; returns whether it was consumed
     var onKeyGuide: (Bool) -> Void = { _ in }        // Cmd+K held → show/hide the shortcut guide
@@ -37,6 +38,7 @@ struct InputCatcher: NSViewRepresentable {
         v.dayBridge = dayBridge
         v.onOpenEvent = onOpenEvent
         v.onEventMenu = onEventMenu
+        v.onSpaceMenu = onSpaceMenu
         v.onEditTrack = onEditTrack
         v.onKey = onKey
         v.onKeyGuide = onKeyGuide
@@ -55,7 +57,7 @@ struct InputCatcher: NSViewRepresentable {
     }
     func updateNSView(_ v: CatcherView, context: Context) {
         v.engine = engine; v.monthBridge = monthBridge; v.weekBridge = weekBridge; v.dayBridge = dayBridge
-        v.onOpenEvent = onOpenEvent; v.onEventMenu = onEventMenu; v.onEditTrack = onEditTrack
+        v.onOpenEvent = onOpenEvent; v.onEventMenu = onEventMenu; v.onSpaceMenu = onSpaceMenu; v.onEditTrack = onEditTrack
         v.onKey = onKey; v.onKeyGuide = onKeyGuide; v.isEditingText = isEditingText; v.onSearch = onSearch
         v.isModalDelete = isModalDelete; v.onDeleteDialogKey = onDeleteDialogKey; v.onRequestDelete = onRequestDelete
         v.isTutorialUp = isTutorialUp; v.onTutorialKey = onTutorialKey
@@ -92,6 +94,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
     weak var engine: CalendarEngine?
     var onOpenEvent: ((String) -> Void)?
     var onEventMenu: ((String, CGRect) -> Void)?   // right-click on an event → context callout (id, view-space box rect)
+    var onSpaceMenu: ((CalendarEngine.EmptySpot, CGRect) -> Void)?   // right-click on empty space → create/paste callout
     var onEditTrack: ((TrackEdit) -> Void)?
     var onKey: ((KeyToken) -> Bool)?
     var onKeyGuide: ((Bool) -> Void)?
@@ -422,7 +425,18 @@ final class CatcherView: NSView, NSMenuItemValidation {
     }
     // ── Right-click (or ctrl-click) on an event → the context callout ──
     override func rightMouseDown(with e: NSEvent) {
-        if !openEventMenu(with: e) { super.rightMouseDown(with: e) }
+        if !openEventMenu(with: e), !openSpaceMenu(with: e) { super.rightMouseDown(with: e) }
+    }
+    /// Right-click on EMPTY space: a create/paste callout anchored at the pointer — a timeline
+    /// slot offers New Event / New Deadline, a band lane offers New Event (band); paste follows.
+    @discardableResult private func openSpaceMenu(with e: NSEvent) -> Bool {
+        guard !modalActive, let engine, let onSpaceMenu else { return false }
+        let p = point(e)
+        guard !engine.inDayDashboard(p), engine.itemId(at: p) == nil,
+              let spot = engine.emptySpot(at: p) else { return false }
+        let view = convert(e.locationInWindow, from: nil)
+        onSpaceMenu(spot, CGRect(x: view.x + 4, y: view.y - 1, width: 1, height: 2))
+        return true
     }
     /// Hit-test the click, select the item, and hand its VIEW-space box rect to the SwiftUI layer
     /// (which presents the popover). Returns whether an event was actually under the pointer.
@@ -431,11 +445,18 @@ final class CatcherView: NSView, NSMenuItemValidation {
         let p = point(e)
         guard !engine.inDayDashboard(p), let id = engine.itemId(at: p) else { return false }
         engine.select(id)
-        // Anchor at the box when we can resolve it (scene → view = +padLeft − drawerShift);
-        // fall back to a spot rect at the pointer.
+        // Anchor: a sliver just off the CENTER of the box's right edge — clamped to the VISIBLE
+        // content region (a 10-day band right-clicked in day view anchors at the timeline's edge,
+        // not 9 days off-screen). Content right edge = dashboardLeftAnimated (vp.w outside day
+        // view). Scene → view = +padLeft − drawerShift. Fall back to a pointer spot rect.
         let view = convert(e.locationInWindow, from: nil)
         let dx = Layout.padLeft - engine.drawerShift
-        let anchor = engine.selectionRingRect().map { $0.offsetBy(dx: dx, dy: 0) }
+        let g = engine.snapshotInput()
+        let anchor = engine.selectedBoxRect()
+            .map { (r: CGRect) -> CGRect in
+                let visMaxX = min(r.maxX, dashboardLeftAnimated(g))
+                return CGRect(x: visMaxX + dx + 5, y: r.midY - 1, width: 1, height: 2)
+            }
             ?? CGRect(x: view.x - 2, y: view.y - 2, width: 4, height: 4)
         onEventMenu(id, anchor)
         return true
@@ -443,7 +464,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
 
     override func mouseDown(with e: NSEvent) {
         if modalActive { return }   // blocking modal up → canvas is inert
-        if e.modifierFlags.contains(.control), openEventMenu(with: e) { return }   // ctrl-click = right-click
+        if e.modifierFlags.contains(.control), openEventMenu(with: e) || openSpaceMenu(with: e) { return }   // ctrl-click = right-click
         engine?.enterMouseMode()   // mouse activity hides the keyboard cursor visual
         let p = point(e)
         // Day view: the daily-dashboard panel (and the band strip hidden behind it) owns its own clicks —
@@ -596,8 +617,8 @@ final class CatcherView: NSView, NSMenuItemValidation {
             // copy(_:)/cut(_:)/paste(_:). Like ⌘Z, pass them through so the menu key equivalents fire
             // (the catch-all `return nil` below would otherwise swallow them before the menu sees them).
             if e.modifierFlags.contains(.command), !e.modifierFlags.contains(.option), !e.modifierFlags.contains(.control),
-               let ch = e.charactersIgnoringModifiers?.lowercased(), ch == "c" || ch == "x" || ch == "v" {
-                return e
+               let ch = e.charactersIgnoringModifiers?.lowercased(), ch == "c" || ch == "x" || ch == "v" || ch == "p" {
+                return e   // ⌘P → File ▸ Print… (the menu key equivalent must see the event)
             }
             // ⌘A select-all-in-viewport / ⌘D deselect-all — calendar-owned (a focused text field kept ⌘A above).
             if e.modifierFlags.contains(.command), !e.modifierFlags.contains(.option), !e.modifierFlags.contains(.control), !e.isARepeat,
@@ -611,6 +632,12 @@ final class CatcherView: NSView, NSMenuItemValidation {
                 // Handled here so it's truly global; ignore OS auto-repeat so a held ⌘T flies once.
                 if token == .cmdT {
                     if !e.isARepeat { engine?.enterKeyboardMode(); engine?.goToToday() }
+                    return nil
+                }
+                // ⌘L → new deadline, also global: at the block cursor in keyboard mode, else at the
+                // mouse pointer's timeline slot (the engine picks; no mode switch here).
+                if token == .cmdL {
+                    if !e.isARepeat { engine?.createDeadlineViaShortcut() }
                     return nil
                 }
                 // Repeatable keys (arrows, ⌘/⇧-arrows): we drive the auto-repeat OURSELVES (see the held-key
@@ -727,6 +754,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
                 case "n": return .cmdN
                 case "t": return .cmdT           // ⌘T → go to today (any view)
                 case "u": return .cmdU           // ⌘U → toggle promote on the selected timed event
+                case "l": return .cmdL           // ⌘L → new deadline at pointer / block cursor
                 case "=", "+": return .cmdEqual   // ⌘= / ⌘+ → zoom in
                 case "-", "_": return .cmdMinus   // ⌘− → zoom out
                 default:  return nil               // other ⌘-combos → menu/native
@@ -772,7 +800,9 @@ final class CatcherView: NSView, NSMenuItemValidation {
         writeClip(clip)
         engine.remove(id)   // undoable (beginTxn/commitTxn)
     }
-    @objc func paste(_ sender: Any?) {
+    @objc func paste(_ sender: Any?) { performPaste() }
+    /// Unambiguous entry point for programmatic paste (the empty-space context menu).
+    func performPaste() {
         guard let engine else { return }
         if importICSFromPasteboard(engine) { return }        // a system .ics file / VCALENDAR text → import
         guard let clip = readClip() else { NSSound.beep(); return }
@@ -807,7 +837,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         pb.setData(data, forType: Self.clipType)
         pb.setString(clip.title, forType: .string)   // a plain-text flavor so the title can paste elsewhere
     }
-    private func readClip() -> CalendarEngine.ClipPayload? {
+    func readClip() -> CalendarEngine.ClipPayload? {   // internal: the context menu checks the kind
         NSPasteboard.general.data(forType: Self.clipType).flatMap { try? JSONDecoder().decode(CalendarEngine.ClipPayload.self, from: $0) }
     }
     /// If the system clipboard holds a `.ics` file (Finder copy) or raw VCALENDAR text, import it and

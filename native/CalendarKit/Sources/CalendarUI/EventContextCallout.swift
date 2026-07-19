@@ -18,36 +18,110 @@ struct EventMenuOverlay: ViewModifier {
     let theme: Theme
     let onRename: (String) -> Void
     let onCopy: () -> Void
+    var onPaste: () -> Void = {}
+    var clipKind: () -> String? = { nil }   // "timed" | "band" | "deadline" on the pasteboard, else nil
 
     private var shown: Binding<Bool> {
         Binding<Bool>(get: { ui.eventMenu != nil }, set: { (v: Bool) in if !v { ui.eventMenu = nil } })
     }
+    private var spaceShown: Binding<Bool> {
+        Binding<Bool>(get: { ui.spaceMenu != nil }, set: { (v: Bool) in if !v { ui.spaceMenu = nil } })
+    }
+
+    /// New Event from the empty-space menu: a 1-hour timed event on a timeline slot, a 1-day
+    /// band on a lane cell. Opens the drawer with the title selected, like the deadline "+".
+    private func createAtSpot(_ spot: CalendarEngine.EmptySpot) {
+        let id: String
+        switch spot {
+        case .timeline(let y, let m, let d, let h):
+            let start = min(h, 23)
+            id = engine.createTimedEvent(year: y, month: m, day: d, startHour: start,
+                                         endHour: min(start + 1, 24), title: "New event", color: "blue")
+        case .bandLane(let y, let m, let t, let d):
+            id = engine.createBand(year: y, month: m, track: t, startDay: d, endDay: d,
+                                   title: "New event", color: "blue")
+        }
+        ui.selectTitleOnOpen = true; ui.openEventId = id
+    }
+    private func createDeadlineAtSpot(_ spot: CalendarEngine.EmptySpot) {
+        guard case .timeline(let y, let m, let d, let h) = spot else { return }
+        let id = engine.createDeadline(year: y, month: m, day: d, hour: min(h, 23.75),
+                                       title: "New Deadline", color: "default")
+        ui.selectTitleOnOpen = true; ui.openEventId = id
+    }
 
     func body(content: Content) -> some View {
-        content.overlay(alignment: .topLeading) {
+        // Attach to the content itself with an explicit anchor RECT (the event's box, view coords).
+        // (An invisible proxy view moved with .offset does NOT work: offset is a render transform,
+        // and popover anchoring uses the layout frame — the callout appeared at the top-left.)
+        content.popover(isPresented: shown,
+                        attachmentAnchor: .rect(.rect(ui.eventMenu?.anchor ?? .zero)),
+                        arrowEdge: .trailing) {
             if let menu = ui.eventMenu {
-                Color.clear
-                    .frame(width: max(4.0, menu.anchor.width), height: max(4.0, menu.anchor.height))
-                    .offset(x: menu.anchor.minX, y: menu.anchor.minY)
-                    .popover(isPresented: shown, arrowEdge: .trailing) {
-                        EventContextCallout(
-                            engine: engine, id: menu.id, theme: theme,
-                            onDetails: { ui.openEventId = sourceId(of: menu.id) },
-                            onRename: { onRename(menu.id) },
-                            onCopy: { onCopy() },
-                            onRepeat: { ui.openRepeatOnOpen = true; ui.openEventId = sourceId(of: menu.id) },
-                            onPromote: { engine.togglePromote(menu.id) },
-                            onDelete: {
-                                if let t = engine.deleteTargetForSelection() {
-                                    ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring,
-                                                     imported: t.imported, alreadyHidden: t.alreadyHidden,
-                                                     kind: engine.kind(of: t.id) ?? .timed)
-                                }
-                            },
-                            onClose: { ui.eventMenu = nil })
-                    }
+                EventContextCallout(
+                    engine: engine, id: menu.id, theme: theme,
+                    onDetails: { ui.openEventId = sourceId(of: menu.id) },
+                    onRename: { onRename(menu.id) },
+                    onCopy: { onCopy() },
+                    onRepeat: { ui.openRepeatOnOpen = true; ui.openEventId = sourceId(of: menu.id) },
+                    onPromote: { engine.togglePromote(menu.id) },
+                    onDelete: {
+                        if let t = engine.deleteTargetForSelection() {
+                            ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring,
+                                             imported: t.imported, alreadyHidden: t.alreadyHidden,
+                                             kind: engine.kind(of: t.id) ?? .timed)
+                        }
+                    },
+                    onClose: { ui.eventMenu = nil })
             }
         }
+        .popover(isPresented: spaceShown,
+                 attachmentAnchor: .rect(.rect(ui.spaceMenu?.anchor ?? .zero)),
+                 arrowEdge: .trailing) {
+            if let menu = ui.spaceMenu {
+                SpaceContextCallout(
+                    spot: menu.spot, theme: theme, clipKind: clipKind(),
+                    onNewEvent: { createAtSpot(menu.spot) },
+                    onNewDeadline: { createDeadlineAtSpot(menu.spot) },
+                    onPaste: { onPaste() },
+                    onClose: { ui.spaceMenu = nil })
+            }
+        }
+    }
+}
+
+/// The empty-space right-click callout: create actions for the clicked spot + Paste. Timeline
+/// slots (week/day) offer New Event + New Deadline and accept timed/deadline pastes; band-lane
+/// cells offer New Event (a band) and accept band pastes.
+struct SpaceContextCallout: View {
+    let spot: CalendarEngine.EmptySpot
+    let theme: Theme
+    let clipKind: String?
+    let onNewEvent: () -> Void
+    let onNewDeadline: () -> Void
+    let onPaste: () -> Void
+    let onClose: () -> Void
+
+    private var isTimeline: Bool { if case .timeline = spot { return true }; return false }
+    private var canPaste: Bool {
+        guard let clipKind else { return false }
+        return isTimeline ? (clipKind == "timed" || clipKind == "deadline") : clipKind == "band"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            MenuRow(label: "New Event", icon: "plus.square", key: isTimeline ? "⌘N" : nil,
+                    destructive: false, theme: theme) { onNewEvent(); onClose() }
+            if isTimeline {
+                MenuRow(label: "New Deadline", icon: "flag", key: "⌘L",
+                        destructive: false, theme: theme) { onNewDeadline(); onClose() }
+            }
+            Divider().padding(.vertical, 3)
+            MenuRow(label: "Paste", icon: "doc.on.clipboard", key: "⌘V",
+                    destructive: false, disabled: !canPaste, theme: theme) { onPaste(); onClose() }
+        }
+        .padding(6)
+        .frame(width: 172)
     }
 }
 
@@ -142,6 +216,7 @@ private struct MenuRow: View {
     let icon: String
     let key: String?
     let destructive: Bool
+    var disabled: Bool = false
     let theme: Theme
     let action: () -> Void
     @State private var hovering = false
@@ -158,13 +233,14 @@ private struct MenuRow: View {
                     Text(key).font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
             }
-            .foregroundStyle(destructive ? Color.red : theme.text)
+            .foregroundStyle(disabled ? theme.text.opacity(0.35) : (destructive ? Color.red : theme.text))
             .padding(.horizontal, 7).padding(.vertical, 4.5)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 6).fill(hovering ? theme.text.opacity(0.09) : .clear))
+            .background(RoundedRectangle(cornerRadius: 6).fill(hovering && !disabled ? theme.text.opacity(0.09) : .clear))
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
+        .disabled(disabled)
         .onHover { hovering = $0 }
     }
 }

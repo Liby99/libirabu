@@ -797,7 +797,13 @@ extension CalendarEngine {
     /// visual, shown in keyboard mode. Looks up the exact box in the DISPLAY arrays (so a promoted band /
     /// occurrence ghost rings its own box, not the whole series).
     public func selectionRingRect() -> CGRect? {
-        guard cursor.keyboardActive, let sel = selectedId, !drawerOpen else { return nil }
+        guard cursor.keyboardActive, !drawerOpen else { return nil }
+        return selectedBoxRect()
+    }
+    /// The selected box's rect (scene coords), independent of input mode — the keyboard ring
+    /// above and the right-click callout anchor both derive from this.
+    public func selectedBoxRect() -> CGRect? {
+        guard let sel = selectedId else { return nil }
         let g = snapshot()
         if let b = displayBands(for: year).first(where: { $0.id == sel }), let r = bandEventRect(b, g, anim: g.monthAnim) {
             return CGRect(x: r.x, y: r.y, width: r.w, height: r.h)
