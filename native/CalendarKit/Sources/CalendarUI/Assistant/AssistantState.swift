@@ -44,6 +44,7 @@ public final class AssistantState {
         var wire: [ChatMessage]
         var calls: [ToolCall]
         var index: Int
+        var reason: String = ""
     }
 
     @ObservationIgnored private var blockedState: BlockedState?
@@ -63,6 +64,22 @@ public final class AssistantState {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !busy else { return }
         draft = ""
+        // "Tell it what to do" after a block: CONTINUE the blocked run's scratchpad — the model
+        // keeps every action/tool result and the denial context, instead of restarting from the
+        // text-only history (which silently redacted everything since the last user message).
+        // Every not-yet-executed call in the batch gets a synthetic tool result first: the API
+        // requires one response per tool_call before the next user message.
+        var continuation: [ChatMessage]? = nil
+        if let bs = blockedState {
+            var wire = bs.wire
+            for (j, call) in bs.calls.enumerated() where j >= bs.index {
+                let note = j == bs.index
+                    ? "BLOCKED by the safety check: \(bs.reason) — NOT executed. The user has seen this and replies next; follow their instruction."
+                    : "not executed (an earlier call in this batch was blocked)"
+                wire.append(ChatMessage(role: "tool", content: note, toolCallId: call.id))
+            }
+            continuation = wire
+        }
         // A new instruction supersedes any blocked proposal — retire pending blocked cards.
         blockedState = nil
         for i in messages.indices where messages[i].blockedReq?.status == .pending {
@@ -73,8 +90,10 @@ public final class AssistantState {
         busy = true
         persistCurrent() // the conversation appears in the sidebar as soon as it starts
 
+        continuation?.append(ChatMessage(role: "user", content: text))
         let model = self.model
-        task = Task { [weak self] in await self?.runAgent(model: model) }
+        let resume = continuation
+        task = Task { [weak self] in await self?.runAgent(model: model, resuming: resume) }
     }
 
     /// The ReAct tool-calling loop, ported from src/lib/assistant/agent.ts `runAgent`. Resends the
@@ -150,7 +169,7 @@ public final class AssistantState {
                     return .halted
                 }
                 if verdict.decision == .deny {
-                    blockedState = BlockedState(wire: wire, calls: calls, index: i)
+                    blockedState = BlockedState(wire: wire, calls: calls, index: i, reason: verdict.reason)
                     insertBeforeTyping(ChatTurn(role: .blocked, text: "",
                                                 blockedReq: BlockedRequest(
                                                     toolName: call.function.name,
