@@ -74,6 +74,14 @@ public struct EventsOverlay: View {
     static let glassZoomFloor: CGFloat = 0.6
     private var plainEff: Bool { perfMode || input.z < Self.glassZoomFloor }
 
+    /// Canvas fast path (see CanvasStickers.swift): at year/month zoom, PLAIN flat stickers draw in one
+    /// Canvas instead of being SwiftUI views — the flamegraph put ~66% of swipe frame time in the view
+    /// graph's per-sticker layout/diffing. Views remain for: active stickers (hover/selection/editing —
+    /// glass, borders, animations), week/day zoom (rich text, few boxes), and the lifted-copy overlay
+    /// (onlyBox). CC_CANVAS_OFF=1 disables the fast path for A/B benchmarking.
+    private static let canvasKill = ProcessInfo.processInfo.environment["CC_CANVAS_OFF"] != nil
+    private var canvasFastOn: Bool { plainEff && input.z < 1.5 && onlyBox == nil && !Self.canvasKill }
+
     /// A box belongs to the clicked event's series (same source: recurrence occurrence / promoted
     /// bar / original), so it shares the accompanied style.
     /// The activation level for a box (see EventActivation). Only the EXACT selected box is focused
@@ -101,41 +109,79 @@ public struct EventsOverlay: View {
         return abs(boxRect.minX - e.minX) < 2 && abs(boxRect.minY - e.minY) < 2
     }
 
+    /// One mounted timed-sticker layer: its items + clip rect, with a stable ForEach key.
+    private struct TimedLayer: Identifiable {
+        let id: String; let items: [Item2]; let clip: CGRect
+    }
+
+    /// The mounted timed layers this frame: the focus month, plus (at month rest / mid-turn) the
+    /// pre-mounted neighbor months. Extracted from `body` so the Canvas fast path and the view
+    /// stickers iterate the SAME layer list (identical clips, fades, and pre-mount policy).
+    //
+    // Neighbor months' stickers are mounted the whole time month view is AT REST (plus any
+    // in-flight turn): creating a dense month's sticker views is a measured ~50ms hitch,
+    // and doing it lazily put that hitch INSIDE the page-turn animation (bench-month-swipe:
+    // p95 16.7ms, 6-8 hitches; with pre-mounted neighbors p95 8.3ms). Mounted at arrival,
+    // the churn lands on the settled frame — where a slow frame is invisible — and every
+    // swipe finds both neighbors ready. The z-window keeps the mount off the animated
+    // zoom-in (it lands once the zoom settles); non-matching neighbors sit at progress 0
+    // (one page off-screen) with fade 0.
+    private func timedLayers(_ anim: PageAnim?, _ tlOut: TimelineInfo, _ outMul: CGFloat,
+                             _ clipRight: CGFloat) -> [TimedLayer] {
+        var layers: [TimedLayer] = []
+        if tlOut.reveal > 0.05 && tlOut.hourH > 0 {
+            layers.append(TimedLayer(id: "out",
+                                     items: timedItems(tlOut, focus: input.focus, fadeMul: outMul),
+                                     clip: tlClip(tlOut, clipRight)))
+        }
+        if abs(input.z - 1) < 0.01 || anim != nil || monthLive {
+            for m in [input.focus - 1, input.focus + 1] where m >= 0 && m <= 11 {
+                let dir = m > input.focus ? 1 : -1
+                let matching = anim?.dir == dir
+                let p: CGFloat = matching ? (anim?.p ?? 0) : 0
+                let tlIn = timelineInfo(input, focus: m, anim: PageAnim(dir: dir, p: p))
+                if tlIn.reveal > 0.05 && tlIn.hourH > 0 {
+                    layers.append(TimedLayer(
+                        id: "n\(m)",
+                        items: timedItems(tlIn, focus: m, fadeMul: matching ? incomingDetailReveal(p) : 0,
+                                          keyTag: "~n\(m)"),
+                        clip: tlClip(tlIn, clipRight)
+                    ))
+                }
+            }
+        }
+        return layers
+    }
+
     public var body: some View {
         let anim = input.monthAnim
-        let to = anim.map { input.focus + $0.dir }
         // Outgoing (current) month — slides + fades out during a page-turn (anim==nil → resting, mul 1).
         let tlOut = timelineInfo(input, anim: anim)
         let outMul = anim.map { outgoingDetailReveal($0.p) } ?? 1
         let clipRight = dashboardLeftAnimated(input) // day-view dashboard mask (slides in from the right)
         let bandClip = CGRect(x: Layout.labelW, y: 0, width: max(0, clipRight - Layout.labelW), height: input.vp.h)
+        let bandAll = bandItems()
+        let layers = timedLayers(anim, tlOut, outMul, clipRight)
 
         ZStack(alignment: .topLeading) {
-            stickers(bandItems()).clipShape(RectClip(rect: bandClip))
-            if tlOut.reveal > 0.05 && tlOut.hourH > 0 {
-                stickers(timedItems(tlOut, focus: input.focus, fadeMul: outMul))
-                    .clipShape(RectClip(rect: tlClip(tlOut, clipRight)))
-            }
-            // Neighbor months' stickers, mounted the whole time month view is AT REST (plus any
-            // in-flight turn): creating a dense month's sticker views is a measured ~50ms hitch,
-            // and doing it lazily put that hitch INSIDE the page-turn animation (bench-month-swipe:
-            // p95 16.7ms, 6-8 hitches; with pre-mounted neighbors p95 8.3ms). Mounted at arrival,
-            // the churn lands on the settled frame — where a slow frame is invisible — and every
-            // swipe finds both neighbors ready. The z-window keeps the mount off the animated
-            // zoom-in (it lands once the zoom settles); non-matching neighbors sit at progress 0
-            // (one page off-screen) with fade 0.
-            if abs(input.z - 1) < 0.01 || anim != nil || monthLive {
-                ForEach([input.focus - 1, input.focus + 1].filter { $0 >= 0 && $0 <= 11 }, id: \.self) { m in
-                    let dir = m > input.focus ? 1 : -1
-                    let matching = anim?.dir == dir
-                    let p: CGFloat = matching ? (anim?.p ?? 0) : 0
-                    let tlIn = timelineInfo(input, focus: m, anim: PageAnim(dir: dir, p: p))
-                    if tlIn.reveal > 0.05 && tlIn.hourH > 0 {
-                        stickers(timedItems(tlIn, focus: m, fadeMul: matching ? incomingDetailReveal(p) : 0,
-                                            keyTag: "~n\(m)"))
-                            .clipShape(RectClip(rect: tlClip(tlIn, clipRight)))
+            // Canvas fast path: ALL plain flat stickers in ONE canvas (bands, then each timed layer,
+            // each clipped to its own region — same clips as the view layers below). Sits under the
+            // view stickers; active stickers (z ≥ 950) always render above plain ones anyway.
+            Canvas { ctx, _ in
+                RenderProf.measure("stickerCanvas", "2b_stickerCanvas") {
+                    var b = ctx
+                    b.clip(to: Path(bandClip))
+                    StickerCanvas.draw(canvasList(bandAll), in: &b, theme: theme)
+                    for l in layers {
+                        var t = ctx
+                        t.clip(to: Path(l.clip))
+                        StickerCanvas.draw(canvasList(l.items), in: &t, theme: theme)
                     }
                 }
+            }
+            stickers(bandAll).clipShape(RectClip(rect: bandClip))
+            ForEach(layers) { l in
+                stickers(l.items).clipShape(RectClip(rect: l.clip))
             }
             // Year-view weekday marker ("Thu") floating above the hovered day — a small
             // Liquid Glass capsule, centered on the day column.
@@ -265,7 +311,20 @@ public struct EventsOverlay: View {
     }
 
     private struct Item2: Identifiable {
-        let id: String; let rect: CGRect; let fade: Double; let z: Double; let view: AnyView
+        let id: String; let rect: CGRect; let fade: Double; let z: Double
+        /// Lazily-built view sticker — only called for items the Canvas fast path doesn't take
+        /// (so canvased items never pay AnyView construction).
+        let makeView: () -> AnyView
+        /// Non-nil → this item is flat/plain and the Canvas fast path draws it instead of `makeView`.
+        var canvas: StickerDraw?
+    }
+
+    /// The Canvas fast path's draw list for one clip group (bands, or one timed layer): the items that
+    /// carry a flat payload, minus the hideBox filter the view path also applies.
+    private func canvasList(_ items: [Item2]) -> [CanvasSticker] {
+        drawn(items).compactMap { it in
+            it.canvas.map { CanvasSticker(rect: it.rect, fade: it.fade, z: it.z, draw: $0) }
+        }
     }
 
     /// Does an item belong to the selected/hidden event `box`? Bands use the plain event id; a TIMED event
@@ -292,8 +351,9 @@ public struct EventsOverlay: View {
             // Stable identity (event id) so a z-order re-sort keeps the view alive and its
             // hover/select transitions can animate rather than snapping. Draw order is the
             // explicit per-item z (band: 10+startDay baseline, raised on hover/select).
-            ForEach(drawn(items)) { it in
-                it.view
+            // Items with a canvas payload are drawn by the Canvas fast path — only the rest mount views.
+            ForEach(drawn(items).filter { $0.canvas == nil }) { it in
+                it.makeView()
                     .frame(width: it.rect.width, height: it.rect.height)
                     .position(x: it.rect.midX, y: it.rect.midY)
                     .opacity(it.fade)
@@ -394,15 +454,25 @@ public struct EventsOverlay: View {
             }
             let a = activation(id)
             let z: Double = a.isActive ? a.z : (zBy[id] ?? Double(10 + p.ev.startDay))
-            return Item2(id: id, rect: p.rect, fade: p.fade, z: z, view: AnyView(
-                BandSticker(ev: p.ev, activation: a, editing: id == editingId,
-                            gap: gapBy[id], clipBox: clipBox.contains(id),
-                            clipStart: p.clipStart, clipEnd: p.clipEnd,
-                            warn: warn.contains(id), box: p.rect.size,
-                            badges: bandBadges[id] ?? [],
-                            plain: plainEff,
-                            theme: theme)
-            ))
+            let isEditing = id == editingId
+            // Plain + not-editing at year/month zoom → the Canvas fast path draws it (flat payload);
+            // active/editing bands stay views (glass, borders, spill scrim, inline editor).
+            let fast: StickerDraw? = (canvasFastOn && a == .plain && !isEditing)
+                ? .band(BandDraw(ev: p.ev, gap: gapBy[id], clipBox: clipBox.contains(id),
+                                 clipStart: p.clipStart, clipEnd: p.clipEnd,
+                                 warn: warn.contains(id), badges: bandBadges[id] ?? []))
+                : nil
+            let (gap, cb, warned, badges, plain) =
+                (gapBy[id], clipBox.contains(id), warn.contains(id), bandBadges[id] ?? [], plainEff)
+            return Item2(id: id, rect: p.rect, fade: p.fade, z: z, makeView: {
+                AnyView(BandSticker(ev: p.ev, activation: a, editing: isEditing,
+                                    gap: gap, clipBox: cb,
+                                    clipStart: p.clipStart, clipEnd: p.clipEnd,
+                                    warn: warned, box: p.rect.size,
+                                    badges: badges,
+                                    plain: plain,
+                                    theme: theme))
+            }, canvas: fast)
         }
     }
 
@@ -504,21 +574,32 @@ public struct EventsOverlay: View {
             // The Item2 id must be unique per SEGMENT (a split event draws twice), but activation/badges
             // stay keyed by the shared event id → selecting highlights every segment at once.
             let segKey = "\(id)#\(p.seg.event.month * 100 + p.seg.event.day)"
-            return Item2(id: segKey + keyTag, rect: p.rect, fade: p.fade, z: z, view: AnyView(
-                EventSticker(ev: ev, height: p.rect.height, showText: input.z >= 1.5,
-                             clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
-                             timeText: fmtHourRange(p.seg.fullStart, p.seg.fullEnd),
-                             subTimeText: subLabels[id],
-                             plain: plainEff, activation: a, badges: eventBadges[id] ?? [],
-                             // Hide the title ONLY on the segment the editor is over (rect match) — the other
-                             // segments of a cross-midnight event keep showing the title (which updates live as
-                             // you type), instead of going blank.
-                             editing: editingId != nil && sourceId(of: id) == editingId && Self.editingThisBox(
-                                 p.rect,
-                                 editingRect
-                             ),
-                             theme: theme)
-            ))
+            let showText = input.z >= 1.5
+            // Hide the title ONLY on the segment the editor is over (rect match) — the other
+            // segments of a cross-midnight event keep showing the title (which updates live as
+            // you type), instead of going blank.
+            let isEditing = editingId != nil && sourceId(of: id) == editingId && Self.editingThisBox(
+                p.rect,
+                editingRect
+            )
+            let badges = eventBadges[id] ?? []
+            // Month zoom (no text) + plain + not-editing/dragging → the Canvas fast path draws it.
+            // The !showText gate keeps the rich week/day text rendering on the view path for good.
+            let fast: StickerDraw? = (canvasFastOn && a == .plain && !showText && !isEditing && id != draggingId)
+                ? .timed(TimedDraw(ev: ev, clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
+                                   badges: badges))
+                : nil
+            let (timeText, subText, plain) =
+                (fmtHourRange(p.seg.fullStart, p.seg.fullEnd), subLabels[id], plainEff)
+            return Item2(id: segKey + keyTag, rect: p.rect, fade: p.fade, z: z, makeView: {
+                AnyView(EventSticker(ev: ev, height: p.rect.height, showText: showText,
+                                     clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
+                                     timeText: timeText,
+                                     subTimeText: subText,
+                                     plain: plain, activation: a, badges: badges,
+                                     editing: isEditing,
+                                     theme: theme))
+            }, canvas: fast)
         }
     }
 
@@ -1032,7 +1113,7 @@ private func badgeRow(_ badges: EventBadges, _ color: Color) -> some View {
 }
 
 /// SF Symbol glyphs for an event's provenance/kind markers, in a stable left→right order.
-private func badgeSymbols(_ b: EventBadges) -> [String] {
+func badgeSymbols(_ b: EventBadges) -> [String] {
     var s: [String] = []
     if b.contains(.recurrent) {
         s.append("repeat")
