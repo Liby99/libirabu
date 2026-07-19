@@ -107,6 +107,7 @@ public final class DemoController {
         case "bench-year-scroll": await sceneBenchYearScroll()
         case "bench-year-fling": await sceneBenchYearFling()
         case "bench-month-swipe": await sceneBenchMonthSwipe()
+        case "bench-pinch-zoom": await sceneBenchPinchZoom()
         default:
             NSLog("DemoController: UNKNOWN scene '%@' — falling back to timed-week (check the CC_DEMO value)", scene)
             await sceneTimedWeek()
@@ -970,6 +971,43 @@ public final class DemoController {
     }
 
     private func easeOutQuad(_ t: CGFloat) -> CGFloat { 1 - (1 - t) * (1 - t) }
+
+    /// Continuous pinch-zoom benchmark: year → day → year (z 0→3→0) driven through the REAL magnify
+    /// path (`demoMagnify` → onMagnify), ×3 cycles. Crosses every zoom seam — including z=1.5, where
+    /// the sticker Canvas fast path hands plain stickers back to SwiftUI views (month→week) — so a
+    /// promotion hitch there shows up as a mid-gesture stall. Pinch is anchored mid-window over July.
+    private func sceneBenchPinchZoom() async {
+        guard let engine else { return }
+        try? await pause(1.2)
+        engine.demoGoToYear(centerMonth: 6) // July centered — the dense month under the pinch anchor
+        try? await pause(0.8)
+        benchFrames.removeAll()
+        RenderProf.reset()
+        benchActive = true
+        RenderProf.mark("benchBegin")
+        let pt = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
+        // A full single-level pinch accumulates ≈0.7 of magnification (see demoMagnify); three levels
+        // over `steps` frames ≈ a brisk ~1s continuous gesture at 120Hz.
+        let steps = 90
+        for _ in 0 ..< 3 {
+            for zoomIn in [true, false] {
+                engine.demoMagnify(delta: 0, atView: pt, began: true, ended: false)
+                moveStart = Date.timeIntervalSinceReferenceDate
+                for _ in 1 ... steps {
+                    let d: CGFloat = (zoomIn ? 1 : -1) * (0.7 * 3 / CGFloat(steps))
+                    engine.demoMagnify(delta: d, atView: pt, began: false, ended: false)
+                    engine.wake()
+                    try? await pause(0.008)
+                }
+                benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
+                engine.demoMagnify(delta: 0, atView: pt, began: false, ended: true)
+                try? await pause(0.35) // let the level-snap settle before reversing
+            }
+        }
+        RenderProf.mark("benchEnd")
+        benchActive = false
+        writeBenchResults()
+    }
 
     /// Frame-time stats over the recorded ticks → $CC_DEMO_DATADIR/bench.json.
     private func writeBenchResults() {
