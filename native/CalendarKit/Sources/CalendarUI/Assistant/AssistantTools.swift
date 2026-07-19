@@ -152,7 +152,7 @@ struct ListEventsTool: AssistantTool {
                     let s = key(b.year, b.month, b.startDay), t = key(b.year, b.month, b.endDay)
                     guard s <= toKey, t >= fromKey, matches(b.title, b.id) else { continue }
                     items.append((s, .obj([
-                        "id": .str(b.id), "kind": .str("band"), "track": .num(b.track),
+                        "id": .str(b.id), "kind": .str("band"), "track": .num(laneOut(b.track)),
                         "start": .str(iso(b.year, b.month, b.startDay)),
                         "end": .str(iso(b.year, b.month, b.endDay)),
                         "title": .str(b.title), "color": .str(b.color),
@@ -229,7 +229,7 @@ struct GetEventTool: AssistantTool {
             } // the event's own zone (times above are in the view zone)
         case .band:
             guard let b = e.band(id) else { break }
-            out["title"] = .str(b.title); out["color"] = .str(b.color); out["track"] = .num(b.track)
+            out["title"] = .str(b.title); out["color"] = .str(b.color); out["track"] = .num(laneOut(b.track))
             out["start"] = .str(iso(b.year, b.month, b.startDay))
             out["end"] = .str(iso(b.year, b.month, b.endDay))
         case .deadline:
@@ -253,7 +253,7 @@ struct GetEventTool: AssistantTool {
             out["notes"] = .str(String(notes.prefix(2000)))
         }
         if let lane = e.promoteTrack(id) {
-            out["promoteTrack"] = .num(lane)
+            out["promoteTrack"] = .num(laneOut(lane))
         }
         if let r = e.repeatConfig(id) {
             out["repeats"] = .str(r.kind)
@@ -320,6 +320,11 @@ struct SetDailyNoteTool: AssistantTool {
     }
 }
 
+/// AI-facing track numbers are 1-BASED (1–4, top to bottom — how users speak: "the 3rd track"
+/// is track 3). The engine stores 0-based lanes; convert at THIS boundary only.
+private func laneIn(_ n: Int?) -> Int? { n.map { max(0, min(3, $0 - 1)) } }
+private func laneOut(_ n: Int) -> Double { Double(n + 1) }
+
 /// ── get_tracks ────────────────────────────────────────────────────────────────────────
 struct GetTracksTool: AssistantTool {
     let def = ToolDef(
@@ -335,9 +340,15 @@ struct GetTracksTool: AssistantTool {
 
     func run(_ args: JSONValue, _ ctx: ToolContext) async throws -> JSONValue {
         guard let e = ctx.engine else { return .obj(["error": .str("calendar unavailable")]) }
-        // trackNames is [[String]] — one 4-element lane-name array per month (0–11).
-        let byMonth = e.items.trackNames.map { JSONValue.arr($0.map(JSONValue.str)) }
-        return .obj(["trackNamesByMonth": .arr(byMonth)])
+        // trackNames is [[String]] — one 4-element lane-name array per month (0–11). Emit
+        // explicit 1-based track numbers so the model never guesses at array indexing.
+        let byMonth = e.items.trackNames.map { names in
+            JSONValue.arr(names.enumerated().map { i, n in
+                JSONValue.obj(["track": .num(Double(i + 1)), "name": .str(n)])
+            })
+        }
+        return .obj(["note": .str("Tracks are numbered 1–4, top to bottom."),
+                     "trackNamesByMonth": .arr(byMonth)])
     }
 }
 
@@ -394,7 +405,7 @@ struct CreateEventTool: AssistantTool {
     let def = ToolDef(
         name: "create_event",
         description: "Create a calendar item. kind='timed' needs date + start/end times; "
-            + "kind='band' is an all-day bar (date = start day, optional endDate, track 0–3); "
+            + "kind='band' is an all-day bar (date = start day, optional endDate, track 1–4); "
             + "kind='deadline' is a due moment (date + time via 'start'). Times are 'HH:MM' (24h).",
         parameters: .parse(#"""
         {"type":"object","properties":{
@@ -404,9 +415,9 @@ struct CreateEventTool: AssistantTool {
           "endDate":{"type":"string","description":"YYYY-MM-DD — band end day (same month). Optional."},
           "start":{"type":"string","description":"HH:MM — timed start, or the deadline's time."},
           "end":{"type":"string","description":"HH:MM — timed end."},
-          "track":{"type":"integer","minimum":0,"maximum":3,"description":"Band lane."},
+          "track":{"type":"integer","minimum":1,"maximum":4,"description":"Band lane 1–4, top to bottom (users say \\"the 3rd track\\" for track 3)."},
           "color":{"type":"string","description":"Named color, e.g. blue/green/red/orange/purple."},
-          "promoteTrack":{"type":"integer","minimum":0,"maximum":3,"description":"Mirror a timed/deadline onto this monthly track lane as a ghost band."},
+          "promoteTrack":{"type":"integer","minimum":1,"maximum":4,"description":"Mirror a timed/deadline onto this monthly track lane (1–4, top to bottom) as a ghost band."},
           "originTz":{"type":"string","description":"Deadline origin timezone: \"AOE\" or an IANA id. When given, 'date'+'start' are interpreted IN that timezone (e.g. 23:59 AOE) and converted to local time, keeping the origin label."},
           "repeat":{"type":"object","description":"Recurrence.","properties":{
             "kind":{"type":"string","enum":["daily","weekly","weekdays","yearly"]},
@@ -444,7 +455,7 @@ struct CreateEventTool: AssistantTool {
         let notes = args["notes"]?.stringValue
         let tags = (args["tags"]?.arrayValue ?? []).compactMap(\.stringValue)
 
-        let promote = args["promoteTrack"]?.intValue
+        let promote = laneIn(args["promoteTrack"]?.intValue)
         let repeatCfg = repeatConfig(from: args["repeat"])
 
         switch kind {
@@ -463,7 +474,7 @@ struct CreateEventTool: AssistantTool {
             // A band may span months; the engine splits a cross-month range into one segment per
             // month. Default the end to the start day (a one-day band) when no endDate is given.
             let end = args["endDate"]?.stringValue.flatMap(parseDate) ?? (y, m, d)
-            let track = args["track"]?.intValue ?? 0
+            let track = laneIn(args["track"]?.intValue) ?? 0
             let ids = e.createBandSpan(startYear: y, startMonth: m, startDay: d,
                                        endYear: end.0, endMonth: end.1, endDay: end.2, track: track,
                                        title: title, color: color, notes: notes, tags: tags, byAI: true)
@@ -515,8 +526,8 @@ struct UpdateEventTool: AssistantTool {
             "endDate":{"type":"string","description":"YYYY-MM-DD — band end day (may be a different month)."},
             "start":{"type":"string","description":"HH:MM (timed start / deadline time)."},
             "end":{"type":"string","description":"HH:MM (timed end)."},
-            "track":{"type":"integer","minimum":0,"maximum":3},
-            "promoteTrack":{"type":["integer","null"],"minimum":0,"maximum":3,"description":"Lane 0–3 to mirror onto; null clears the promotion."},
+            "track":{"type":"integer","minimum":1,"maximum":4},
+            "promoteTrack":{"type":["integer","null"],"minimum":1,"maximum":4,"description":"Lane 1–4 (top to bottom) to mirror onto; null clears the promotion."},
             "repeat":{"type":["object","null"],"description":"Recurrence {kind,n,until,days,exdates} — same shape as create_event; null or kind 'none' clears it. To skip single dates, set/extend exdates."},
             "notes":{"type":"string","description":"REPLACES the notes."},
             "appendNotes":{"type":"string","description":"Appends to the existing notes (e.g. add a TODO line) without touching what's there."},
@@ -568,7 +579,7 @@ struct UpdateEventTool: AssistantTool {
             if case .null = pv {
                 clearPromote = true
             } else {
-                promote = pv.intValue
+                promote = laneIn(pv.intValue)
             }
         }
 
@@ -586,7 +597,7 @@ struct UpdateEventTool: AssistantTool {
             }
             // Apply the non-geometry fields first so the re-span carries them over.
             e.updateItem(id: id, title: patch["title"]?.stringValue, color: patch["color"]?.stringValue,
-                         track: patch["track"]?.intValue, notes: notes,
+                         track: laneIn(patch["track"]?.intValue), notes: notes,
                          tags: patch["tags"]?.arrayValue?.compactMap(\.stringValue), byAI: true)
             let ids = e.reshapeBand(id: id, startYear: start.0, startMonth: start.1, startDay: start.2,
                                     endYear: end.0, endMonth: end.1, endDay: end.2)
@@ -613,7 +624,7 @@ struct UpdateEventTool: AssistantTool {
         let ok = e.updateItem(
             id: id, title: patch["title"]?.stringValue, color: patch["color"]?.stringValue,
             year: year, month: month, day: day, startHour: startHour, endHour: endHour,
-            track: patch["track"]?.intValue, hour: hour,
+            track: laneIn(patch["track"]?.intValue), hour: hour,
             notes: notes,
             tags: patch["tags"]?.arrayValue?.compactMap(\.stringValue),
             promoteTrack: promote, clearPromote: clearPromote, byAI: true
@@ -794,7 +805,7 @@ struct SetTrackNameTool: AssistantTool {
         parameters: .parse(#"""
         {"type":"object","properties":{
           "month":{"type":"integer","minimum":0,"maximum":11,"description":"0 = January."},
-          "track":{"type":"integer","minimum":0,"maximum":3},
+          "track":{"type":"integer","minimum":1,"maximum":4},
           "name":{"type":"string"}
         },"required":["month","track","name"],"additionalProperties":false}
         """#)
@@ -806,18 +817,18 @@ struct SetTrackNameTool: AssistantTool {
             return "Rename failed: \(err)"
         }
         let m = args["month"]?.intValue.map(monthName) ?? "?"
-        return "Renamed lane \(args["track"]?.intValue ?? 0) (\(m)): \(args["name"]?.stringValue ?? "")"
+        return "Renamed lane \(args["track"]?.intValue ?? 1) (\(m)): \(args["name"]?.stringValue ?? "")"
     }
 
     func run(_ args: JSONValue, _ ctx: ToolContext) async throws -> JSONValue {
         guard let e = ctx.engine else { return .obj(["error": .str("calendar unavailable")]) }
         guard let m = args["month"]?.intValue, (0 ... 11).contains(m),
-              let t = args["track"]?.intValue, (0 ... 3).contains(t),
+              let t = args["track"]?.intValue, (1 ... 4).contains(t),
               let name = args["name"]?.stringValue else {
-            return .obj(["error": .str("need month (0–11), track (0–3), and name")])
+            return .obj(["error": .str("need month (0–11), track (1–4), and name")])
         }
-        e.setTrackName(m, t, name)
-        return .obj(["ok": .bool(true), "month": .num(m), "track": .num(t), "name": .str(name)])
+        e.setTrackName(m, t - 1, name)
+        return .obj(["ok": .bool(true), "month": .num(m), "track": .num(Double(t)), "name": .str(name)])
     }
 }
 
