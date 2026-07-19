@@ -130,6 +130,9 @@ public final class CalendarEngine {
     // Imported id → EKEvent.eventIdentifier, rebuilt each merge. Transient (not persisted): only used to
     // build the `ical://ekevent/…` deep-link for "Edit original", which is only offered on a live import.
     let appleImporter = AppleCalendarImporter() // internal: +AppleImport (stored props can't move to extensions)
+    /// UI-provided: the subscribed ICS feed URLs (stored in the UI-side Keychain). Lets engine-
+    /// initiated refreshes (Sync Now) re-import feeds without the engine touching secrets.
+    public var icsFeedURLs: (() -> [String])?
     public var trackEditing = false // an inline track-name field is open (freezes scroll)
     public let chrome = CalendarChrome() // breadcrumb state for the toolbar
 
@@ -283,7 +286,11 @@ public final class CalendarEngine {
     var redoStack: [EditState] = []
     var pendingUndo: EditState?
     private var undoWork: DispatchWorkItem?
-    let store = ItemStore()
+    /// The set of calendars ("documents"); guarantees a "Main" exists + migrates a legacy install.
+    let registry = CalendarRegistry()
+    /// The ACTIVE calendar's on-disk store. Set in init() from `registry.activeId`; repointed by
+    /// `switchCalendar`. Implicitly-unwrapped so property init needn't reference `registry`.
+    var store: ItemStore!
     private var persistWork: DispatchWorkItem?
     /// Full-fidelity fields (notes/tags/recurrence/…) the lean seed arrays don't carry, keyed by
     /// item id. Loaded from / saved to the store and mapped to CloudKit by CloudSync; the renderer
@@ -302,7 +309,10 @@ public final class CalendarEngine {
     /// pending changes. A change to the lane labels upserts `trackNamesRecordID`.
     public var onLocalChange: (([String], [String]) -> Void)?
     public static let trackNamesRecordID = "trackNames"
+    /// Per-calendar item sync (repointed on switch). `registrySync` is always-on (the calendar LIST,
+    /// synced independently of which calendar is open) — see RegistrySync.
     var cloud: CloudSync?
+    var registrySync: RegistrySync?
     /// Observable "last synced" state for the Connectivity menu. Always present (shows "local only" in
     /// the unentitled dev build); CloudSync writes `markSynced()` on each successful round-trip.
     public let syncMonitor = SyncMonitor(cloudEnabled: CloudSync.isEntitled)
@@ -350,49 +360,16 @@ public final class CalendarEngine {
         daily = DailyState(dom: c.day ?? 1, frac: 0.45)
         // No placeholder seed events (regular OR recording mode) — a fresh install starts with an empty
         // calendar; the recording scenes seed their own ambient data. Existing users load from the store below.
-        items.events = []; items.bands = []; items.deadlines = []
-        // self is now fully initialized — restore persisted edits over the seeds.
-        if let s = store.load() {
-            items.events = s.events; items.bands = s.bands; items.deadlines = s.deadlines
-            items.richById = s.rich ?? [:]
-            items.dailyNotes = s.dailyNotes ?? [:]
-            // Backfill deadline origin tz from the rich side-map for stores written before Deadline
-            // carried its own originTz (migrated data keeps it in rich); the field is canonical once set.
-            for i in items.deadlines.indices where items.deadlines[i].originTz == nil {
-                if let tz = items.richById[items.deadlines[i].id]?.originTz {
-                    items.deadlines[i].originTz = tz
-                }
-            }
-            if let names = s.monthTrackNames, names.count == 12,
-               names.allSatisfy({ $0.count == 4 }) {
-                items.trackNames = names
-            }
-        } else {
-            persistNow() // seed the store on first launch
-        }
+        // Point the store at the ACTIVE calendar (registry already migrated a legacy install into "Main")
+        // and restore its persisted content into `items`.
+        store = ItemStore(calendarId: registry.activeId)
+        restoreItemsFromStore()
         mainTz = UserDefaults.standard.string(forKey: PrefKeys.mainTz) ?? "auto" // View ▸ Current Timezone
         altTz = UserDefaults.standard.string(forKey: PrefKeys.altTz) ?? "none" // View ▸ Alternative Timezone
         migrateAnchors() // stamp anchorTz on legacy items (needs mainTz resolved above)
         // The timeline scale-bar's chosen hour height survives restarts.
         if UserDefaults.standard.object(forKey: PrefKeys.weekHourH) != nil {
             weekHourH = clampHourH(CGFloat(UserDefaults.standard.double(forKey: PrefKeys.weekHourH)))
-        }
-        // Resume the create-counter past any persisted new-/newb- ids so fresh items don't
-        // collide with reloaded ones (which produced duplicate SwiftUI ForEach ids).
-        for id in items.events.map(\.id) + items.bands.map(\.id) {
-            for pre in ["newb-", "new-"] where id.hasPrefix(pre) {
-                if let n = Int(id.dropFirst(pre.count)) {
-                    createCounter = max(createCounter, n)
-                }
-            }
-        }
-        // Repair any duplicate ids already on disk (from the earlier collision bug).
-        var seenIds = Set<String>()
-        for i in items.bands.indices where !seenIds.insert(items.bands[i].id).inserted {
-            createCounter += 1; items.bands[i].id = "newb-\(createCounter)"
-        }
-        for i in items.events.indices where !seenIds.insert(items.events[i].id).inserted {
-            createCounter += 1; items.events[i].id = "new-\(createCounter)"
         }
         if Self.isDemoMode {
             // Deterministic recordings: pin "now" to 4 pm so the CURRENT TIME pill, the now-line, and every
@@ -408,6 +385,48 @@ public final class CalendarEngine {
         scheduleDisplayDumpIfRequested() // dev: CC_DUMP_DISPLAY=<path> → write the expanded display set
         armSleep() // an untouched app settles to a paused (idle) render after the initial frame
         Self.mainInstance = self
+        NotificationScheduler.shared.start(engine: self) // local-notification schedule (no-op in demo/tests)
+    }
+
+    /// Reset `items` and load the ACTIVE calendar's store into it: restore the persisted content (or seed
+    /// an empty store on first open), backfill legacy deadline origin-tz, resume the create-counter past
+    /// the calendar's ids, and repair any duplicate ids. Shared by init() and switchCalendar() — each
+    /// calendar's ids are independent, so the counter is reset per calendar.
+    func restoreItemsFromStore() {
+        items = CalendarItems()
+        createCounter = 0
+        if let s = store.load() {
+            items.events = s.events; items.bands = s.bands; items.deadlines = s.deadlines
+            items.richById = s.rich ?? [:]
+            items.dailyNotes = s.dailyNotes ?? [:]
+            // Backfill deadline origin tz from the rich side-map for stores written before Deadline carried
+            // its own originTz (migrated data keeps it in rich); the field is canonical once set.
+            for i in items.deadlines.indices where items.deadlines[i].originTz == nil {
+                if let tz = items.richById[items.deadlines[i].id]?.originTz {
+                    items.deadlines[i].originTz = tz
+                }
+            }
+            if let names = s.monthTrackNames, names.count == 12, names.allSatisfy({ $0.count == 4 }) {
+                items.trackNames = names
+            }
+        } else {
+            persistNow() // seed the store on first open of this calendar
+        }
+        // Resume the create-counter past any persisted new-/newb- ids so fresh items don't collide with
+        // reloaded ones (which produced duplicate SwiftUI ForEach ids).
+        for id in items.events.map(\.id) + items.bands.map(\.id) {
+            for pre in ["newb-", "new-"] where id.hasPrefix(pre) {
+                if let n = Int(id.dropFirst(pre.count)) { createCounter = max(createCounter, n) }
+            }
+        }
+        // Repair any duplicate ids already on disk (from the earlier collision bug).
+        var seenIds = Set<String>()
+        for i in items.bands.indices where !seenIds.insert(items.bands[i].id).inserted {
+            createCounter += 1; items.bands[i].id = "newb-\(createCounter)"
+        }
+        for i in items.events.indices where !seenIds.insert(items.events[i].id).inserted {
+            createCounter += 1; items.events[i].id = "new-\(createCounter)"
+        }
     }
 
     /// The most recently created engine — the AppKit menu bar (which has no engine reference) reads this to

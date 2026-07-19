@@ -14,20 +14,29 @@ extension CalendarEngine {
         // throwaway store (a privacy leak into GIFs), defeating the isolation. Mirrors importAppleCalendar's
         // demo guard.
         guard CloudSync.isEntitled, !Self.isDemoMode else { return }
-        let c = CloudSync(engine: self)
+        let c = CloudSync(engine: self, calendarId: registry.activeId)   // sync the ACTIVE calendar's zone
         cloud = c
         Task { await c.startIfAccountAvailable() }
+        // The calendar LIST syncs independently of which calendar is open — started once, kept across
+        // switches (stopCloudSync leaves it alone).
+        if registrySync == nil {
+            let rs = RegistrySync(engine: self)
+            registrySync = rs
+            Task { await rs.start() }
+        }
     }
 
     /// Nudge a cloud fetch/push (foreground, periodic, or the Connectivity menu's "Sync Now").
     public func syncNow() {
         cloud?.syncNow()
+        registrySync?.syncNow()
     }
 
     /// "Sync Now" from the Connectivity menu: refresh BOTH external sources — re-import Apple Calendar and
     /// fetch/push iCloud — and reflect progress in the monitor. No-op cloud in the local-only dev build.
     public func refreshConnectivity() {
         importAppleCalendar()
+        importICSFeeds(urls: icsFeedURLs?() ?? [])
         guard cloud != nil else { return }
         syncMonitor.isSyncing = true
         cloud?.syncNow()
@@ -89,6 +98,7 @@ extension CalendarEngine {
         )
         store.save(state)
         emitDelta(to: state)
+        NotificationScheduler.shared.requestResync() // data changed → re-plan the pending window
     }
 
     /// Diff the freshly-persisted state against what the sync layer last saw and emit the
@@ -284,6 +294,7 @@ extension CalendarEngine {
         )
         store.save(state)
         syncedState = state // adopt as baseline so the merge doesn't re-emit as a local delta
+        NotificationScheduler.shared.requestResync() // remote merge bypasses persistNow → hook here too
         if !deletedIDs.isEmpty {
             onExternalDataChange?()
         } // a remote delete may have removed an open item

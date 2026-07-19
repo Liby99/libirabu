@@ -91,7 +91,12 @@ extension CalendarEngine {
     /// True for a box that came from an external calendar (Apple, …). Imported ids are minted with an
     /// `apple-` prefix; `sourceId` strips occurrence/promoted suffixes so promoted imported bars match too.
     public func isImported(_ id: String) -> Bool {
-        sourceId(of: id).hasPrefix("apple-")
+        Self.hasImportedPrefix(sourceId(of: id))
+    }
+
+    /// Read-only imported id namespaces: "apple-" (EventKit) and "gcal-" (ICS feed subscriptions).
+    static func hasImportedPrefix(_ id: String) -> Bool {
+        id.hasPrefix("apple-") || id.hasPrefix("gcal-")
     }
 
     /// ── Overlay keying for imported events ─────────────────────────────────────────────────────
@@ -106,19 +111,19 @@ extension CalendarEngine {
 
     /// A full per-occurrence imported id → its series key; any other id unchanged.
     static func appleSeriesKey(_ id: String) -> String {
-        guard id.hasPrefix("apple-"), let r = applePerOccurrenceSuffix(id) else { return id }
+        guard Self.hasImportedPrefix(id), let r = applePerOccurrenceSuffix(id) else { return id }
         return String(id[..<r.lowerBound])
     }
 
     /// True for an imported SERIES key (`apple-<uid>`, no datestamp) — the id user overlays sync under.
     static func isAppleSeriesKey(_ id: String) -> Bool {
-        id.hasPrefix("apple-") && applePerOccurrenceSuffix(id) == nil
+        Self.hasImportedPrefix(id) && applePerOccurrenceSuffix(id) == nil
     }
 
     /// True for an imported PER-OCCURRENCE key (`apple-<uid>-<datestamp>`) — the local-only `hidden` flag.
     static func isApplePerOccurrenceKey(_ id: String) -> Bool {
         id
-            .hasPrefix("apple-") && applePerOccurrenceSuffix(id) != nil
+            .hasPrefix("apple-") && applePerOccurrenceSuffix(id) != nil // apple-only: the dedup hidden flag
     }
 
     /// The rich-fields storage key for an item's user overlays: an imported box → its series key; else itself.

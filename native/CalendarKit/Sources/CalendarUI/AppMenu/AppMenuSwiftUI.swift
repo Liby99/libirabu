@@ -44,6 +44,29 @@ public struct MenuActionButton: View {
     }
 }
 
+// ── File menu: multiple-calendars payload (shared) ──────────────────────────────────────────────
+/// The calendar ("document") controls at the top of the File menu: the open-calendar row, New/Remove,
+/// the Recently-Opened submenu, and Rename. New/Remove/Rename post notifications → CalendarView shows a
+/// dialog; the recents switch directly. Mirrors AppMenu.sections(...)'s File `currentCalendar`/`recentCalendars`.
+public struct CalendarMenuContent: View {
+    let engine: CalendarEngine
+    public init(engine: CalendarEngine) { self.engine = engine }
+    public var body: some View {
+        Text("Calendar: \(engine.activeCalendarName)")   // disabled info row (plain Text isn't actionable)
+        MenuActionButton(.newCalendar, engine: engine)
+        MenuActionButton(.removeCalendar, engine: engine).disabled(!engine.canRemoveCalendar)
+        Menu {
+            let recents = engine.recentCalendars
+            if recents.isEmpty {
+                Text("No other calendars")
+            } else {
+                ForEach(recents) { c in Button(c.name) { engine.switchCalendar(to: c.id) } }
+            }
+        } label: { Label("Recently Opened Calendars", systemImage: "clock.arrow.circlepath") }
+        MenuActionButton(.renameCalendar, engine: engine)
+    }
+}
+
 // ── View menu payload (shared) ──────────────────────────────────────────────────────────────────
 /// The full contents of the View menu, minus the system-provided Enter/Exit Full Screen (SwiftUI adds
 /// that itself). Ordering mirrors AppMenu.sections(...)'s `.view` section.

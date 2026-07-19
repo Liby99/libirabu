@@ -34,6 +34,7 @@ public struct MenuShortcut: Sendable {
 // ── The plain (button) items. Each carries its own title / shortcut / SF Symbol. ────────────────
 public enum MenuItemID: Sendable {
     case about, openAssistant, settings, hide, quit
+    case newCalendar, removeCalendar, renameCalendar
     case importICS, importMDC, exportMDC, printCalendar
     case deselectAll
     case goToYear, goToMonth, goToWeek, goToDay
@@ -51,6 +52,9 @@ public enum MenuItemID: Sendable {
         case .settings:            return "Settings…"
         case .hide:                return "Hide \(Self.appName)"
         case .quit:                return "Quit \(Self.appName)"
+        case .newCalendar:         return "New \(Self.appName)"
+        case .removeCalendar:      return "Remove Current \(Self.appName)"
+        case .renameCalendar:      return "Rename…"
         case .importICS:           return "Import .ics…"
         case .importMDC:           return "Import Backup (.mdc)…"
         case .exportMDC:           return "Export Backup (.mdc)…"
@@ -91,6 +95,9 @@ public enum MenuItemID: Sendable {
     public var icon: String? {
         switch self {
         case .openAssistant:       return "sparkles"
+        case .newCalendar:         return "plus.rectangle.on.rectangle"
+        case .removeCalendar:      return "trash"
+        case .renameCalendar:      return "pencil"
         case .importICS:           return "calendar.badge.plus"
         case .importMDC:           return "square.and.arrow.down"
         case .exportMDC:           return "square.and.arrow.up"
@@ -137,6 +144,8 @@ public enum StandardItem: Sendable {
 
 // ── Rich controls that each adapter renders in its own idiom (pickers, dynamic submenus, toggles). ──
 public enum MenuWidget: Sendable {
+    case currentCalendar       // File ▸ "Calendar: [Name]" (disabled info row, dynamic)
+    case recentCalendars       // File ▸ Recently Opened Calendars ▸ (dynamic submenu, switch on click)
     case showHiddenToggle      // View ▸ Show Hidden Imported Events (checkmark)
     case currentTimezone       // View ▸ Current Timezone ▸ (picker)
     case altTimezone           // View ▸ Alternative Timezone ▸ (picker)
@@ -184,11 +193,17 @@ public enum AppMenu {
         app += [.item(.settings), .separator, .item(.hide), .item(.quit)]
         out.append(MenuSection(.app, AppName.app, app))
 
-        // File — import/export + print.
+        // File — the open calendar ("document") controls, then import/export + print, and Close at the
+        // very bottom (kept out of the way of the calendar/document actions).
         out.append(MenuSection(.file, "File", [
+            .widget(.currentCalendar),
+            .item(.newCalendar), .item(.removeCalendar),
+            .widget(.recentCalendars),
+            .item(.renameCalendar), .separator,
             .item(.importICS), .separator,
             .item(.importMDC), .item(.exportMDC), .separator,
-            .item(.printCalendar),
+            .item(.printCalendar), .separator,
+            .item(.closeWindow),
         ]))
 
         // Edit — undo/redo, clipboard, (de)select. SwiftUI provides the clipboard + select-all itself;
@@ -222,9 +237,9 @@ public enum AppMenu {
             .widget(.syncStatus), .item(.syncNow),
         ]))
 
-        // Window — Close / Minimize (AppKit builds it; SwiftUI manages its own Window menu).
+        // Window — Minimize (Close lives at the bottom of File; AppKit builds this, SwiftUI manages its own).
         out.append(MenuSection(.window, "Window", [
-            .item(.closeWindow), .item(.minimize),
+            .item(.minimize),
         ]))
 
         // Help — help window, tutorial, shortcut guide.

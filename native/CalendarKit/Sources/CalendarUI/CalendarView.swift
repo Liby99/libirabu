@@ -106,7 +106,10 @@ public struct CalendarView: View {
         ic.onKeyGuide = { ui.showKeyGuide = $0 }
         ic.isEditingText = { ui.drawerFieldEditing }
         ic.onSearch = { openSearch() }
-        ic.isModalDelete = { ui.pendingDelete != nil || ui.pendingBatchDelete != nil || ui.notice != nil }
+        ic.isModalDelete = {
+            ui.pendingDelete != nil || ui.pendingBatchDelete != nil || ui.notice != nil
+                || ui.calendarPrompt != nil || ui.pendingCalendarRemove
+        }
         ic.onDeleteDialogKey = { handleDeleteDialogKey($0) }
         ic.onRequestDelete = {
             if let t = engine.deleteTargetForSelection() {
@@ -158,6 +161,16 @@ public struct CalendarView: View {
             switch key {
             case .confirm: engine.performBatchDelete(); ui.pendingBatchDelete = nil
             case .cancel: ui.pendingBatchDelete = nil
+            case .left, .right: break
+            }
+            engine.wake(); return
+        }
+        // Remove-calendar confirm: Enter removes, Esc cancels. (The New/Rename prompt owns its own text
+        // field, so its keys never reach here.)
+        if ui.pendingCalendarRemove {
+            switch key {
+            case .confirm: engine.removeCurrentCalendar(); ui.pendingCalendarRemove = false
+            case .cancel: ui.pendingCalendarRemove = false
             case .left, .right: break
             }
             engine.wake(); return
@@ -691,11 +704,20 @@ public struct CalendarView: View {
                     .onChange(of: noteMode) { _, _ in engine.wake() }
                     // Apple Calendar import: pull on first appearance, whenever the app returns to the foreground
                     // (auto-refresh), and when the Settings window changes the connection.
-                    .onAppear { engine.importAppleCalendar() }
+                    .onAppear {
+                        engine.icsFeedURLs = { ICSFeeds.list() } // engine-triggered refreshes (Sync Now)
+                        engine.importAppleCalendar()
+                        engine.importICSFeeds(urls: ICSFeeds.list())
+                    }
                     .onReceive(NotificationCenter.default
                         .publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                             engine.importAppleCalendar()
+                            engine.importICSFeeds(urls: ICSFeeds.list())
                             engine.syncNow() // also pull/push iCloud on foreground (was never wired before)
+                    }
+                    // Settings changed the ICS feed list (add/remove) → re-import right away.
+                    .onReceive(NotificationCenter.default.publisher(for: .icsFeedsChanged)) { _ in
+                        engine.importICSFeeds(urls: ICSFeeds.list())
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .appleCalendarSettingsChanged)) { _ in
                         engine.importAppleCalendar()

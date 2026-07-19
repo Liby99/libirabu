@@ -5,6 +5,8 @@
 //                 macOS Apple Calendar connection (EventKit) with a per-calendar checklist; and a
 //                 Google Calendar row that's a visual mockup for now.
 //  • Appearance — Light / Dark / Automatic, applied live and persisted (see AppSettings.swift).
+//  • Notifications — per-kind local-notification schedules (see NotifyPlan.swift +
+//                 NotificationScheduler.swift in CalendarEngine); authorization status + defaults.
 //  • API Keys   — the assistant's credentials (JHU Gateway for chat, Tavily for web search),
 //                 stored in the macOS Keychain (see Keychain.swift); local to this device.
 //
@@ -24,6 +26,8 @@ public struct SettingsView: View {
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
             AppearanceTab()
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
+            NotificationsTab()
+                .tabItem { Label("Notifications", systemImage: "bell.badge") }
             APIKeysTab()
                 .tabItem { Label("API Keys", systemImage: "key") }
             DeveloperTab()
@@ -48,13 +52,7 @@ private struct AccountTab: View {
                 AppleCalendarRows()
             }
             Section("Google Calendar") {
-                HStack(spacing: 10) {
-                    Text("Sign in with Google to sync your Google calendars.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Connect…") {} // visual mockup — not wired up yet
-                }
-                .padding(.vertical, 2)
+                GoogleCalendarRows()
             }
         }
         .formStyle(.grouped)
@@ -217,6 +215,75 @@ private struct AppleCalendarRows: View {
     private func dot(_ hex: String) -> Color {
         let s = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
         return UInt32(s, radix: 16).map { Color(hex: $0) } ?? .secondary
+    }
+}
+
+/// ── Google Calendar (read-only, no OAuth) ──────────────────────────────────────────
+/// Two routes: the macOS account bridge (zero-config, uses the Apple Calendar import above), and
+/// secret-ICS-URL subscriptions fetched directly by the app. Both are fully local + user-chosen.
+private struct GoogleCalendarRows: View {
+    @State private var newURL = ""
+    @State private var feeds = ICSFeeds.list()
+
+    var body: some View {
+        // Route A — the easiest: let macOS do the OAuth.
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Easiest: add your Google account to macOS").font(.callout).fontWeight(.medium)
+            Text("System Settings ▸ Internet Accounts ▸ Google, with Calendars enabled — your Google events then appear through the Apple Calendar connection above, kept fresh by macOS.")
+                .font(.caption).foregroundStyle(.secondary)
+            Button("Open Internet Accounts…") {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!)
+            }
+            .font(.caption)
+        }
+        .padding(.vertical, 2)
+
+        // Route B — subscribe to a calendar's secret iCal address (read-only, refreshed by the app).
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Or: subscribe with a secret calendar address").font(.callout).fontWeight(.medium)
+            Text("""
+            1. Open Google Calendar settings (button below) and pick the calendar under “Settings for my calendars”.
+            2. Scroll to “Integrate calendar” and copy the **Secret address in iCal format** (starts with https://calendar.google.com/…/private-…/basic.ics).
+            3. Paste it here and press Add. Events appear read-only with an “imported” badge; Google refreshes this feed with a few minutes’ delay.
+            """)
+            .font(.caption).foregroundStyle(.secondary)
+            Button("Open Google Calendar Settings…") {
+                NSWorkspace.shared.open(URL(string: "https://calendar.google.com/calendar/r/settings")!)
+            }
+            .font(.caption)
+            Text("The secret address grants read access to that calendar — it's stored only in your macOS Keychain.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+
+        HStack(spacing: 8) {
+            TextField("https://calendar.google.com/…/basic.ics", text: $newURL)
+                .textFieldStyle(.roundedBorder)
+            Button("Add") {
+                ICSFeeds.add(newURL)
+                newURL = ""
+                feeds = ICSFeeds.list()
+            }
+            .disabled(!newURL.contains("://"))
+        }
+        ForEach(feeds, id: \.self) { url in
+            HStack {
+                Image(systemName: "link").font(.caption).foregroundStyle(.secondary)
+                Text(ICSFeeds.displayName(url)).font(.caption)
+                Spacer()
+                Button("Remove") {
+                    ICSFeeds.remove(url)
+                    feeds = ICSFeeds.list()
+                }
+                .font(.caption)
+            }
+        }
+        if !feeds.isEmpty {
+            Button("Refresh Feeds Now") {
+                NotificationCenter.default.post(name: .icsFeedsChanged, object: nil)
+            }
+            .font(.caption)
+        }
     }
 }
 
@@ -503,6 +570,156 @@ private struct APIKeyRow<Extra: View>: View {
 
 // ── Developer ─────────────────────────────────────────────────────────────────────
 
+// ── Notifications ─────────────────────────────────────────────────────────────────
+
+/// Per-kind local-notification schedules. Prefs live in UserDefaults (PrefKeys.notify*); every
+/// change posts .notifyPrefsChanged so NotificationScheduler resyncs the pending window live.
+private struct NotificationsTab: View {
+    @AppStorage(PrefKeys.notifyEnabled) private var enabled = false
+    @AppStorage(PrefKeys.notifyMorningHour) private var morningHour = 9
+    @State private var auth: NotifyAuthStatus?
+
+    var body: some View {
+        Form {
+            Section("Notifications") {
+                Toggle("Enable notifications", isOn: $enabled)
+                    .toggleStyle(.switch)
+                    .onChange(of: enabled) { _, on in
+                        if on {
+                            Task { // first enable → the one-time system permission prompt
+                                _ = await NotificationScheduler.shared.requestAuthorization()
+                                auth = await NotificationScheduler.shared.authStatus()
+                            }
+                        }
+                        postPrefsChanged()
+                    }
+                authRow
+                Picker("Morning notification time", selection: $morningHour) {
+                    ForEach(5 ..< 13, id: \.self) { Text(Self.hourLabel($0)).tag($0) }
+                }
+                .onChange(of: morningHour) { _, _ in postPrefsChanged() }
+                Text("\"Day before\" and \"morning of\" notifications arrive at this time.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            KindSection(.band, "Band Events", morningHour, [.dayBefore, .dayOf])
+                .disabled(!enabled)
+            KindSection(.deadline, "Deadlines", morningHour, [.dayBefore, .dayOf, .h1, .m15, .atTime])
+                .disabled(!enabled)
+            KindSection(.timed, "Timed Events", morningHour, [.dayBefore, .dayOf, .h1, .m15, .atTime])
+                .disabled(!enabled)
+            KindSection(.todo, "TODOs", morningHour, [.dayBefore, .dayOf, .h1, .m15, .atTime])
+                .disabled(!enabled)
+            Section("Overrides & scope") {
+                Text("Tag any event, band, or deadline `silent` (in its drawer) to mute it, or `notify` " +
+                    "to opt it in even when its kind is off above. Todo lines use inline #silent / #notify. " +
+                    "A todo needs a due date (due:2026-08-01T17:00, due:5pm, due:3d) or a parent event's " +
+                    "note to inherit a date from; time-less dates ring at the morning hour. Notifications " +
+                    "are scheduled by this Mac for the currently open calendar. Apple Calendar imports are " +
+                    "never notified — Apple Calendar sends its own alerts.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .task { auth = await NotificationScheduler.shared.authStatus() }
+    }
+
+    @ViewBuilder private var authRow: some View {
+        switch auth {
+        case .denied:
+            HStack(spacing: 10) {
+                Circle().fill(.orange).frame(width: 9, height: 9)
+                Text("Notifications are turned off for MagiCal in System Settings.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Open System Settings…") {
+                    if let u = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+                        NSWorkspace.shared.open(u)
+                    }
+                }
+            }
+        case .authorized where enabled:
+            HStack(spacing: 10) {
+                Circle().fill(.green).frame(width: 9, height: 9)
+                Text("Allowed — the next two weeks are scheduled with macOS.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        case .unsupported:
+            Text("Unavailable in this build (the process isn't an app bundle).")
+                .font(.caption).foregroundStyle(.secondary)
+        default:
+            EmptyView() // not-determined: the prompt appears on first enable
+        }
+    }
+
+    static func hourLabel(_ h: Int) -> String {
+        let f = DateFormatter()
+        f.timeStyle = .short; f.dateStyle = .none
+        let d = Calendar.current.date(bySettingHour: h, minute: 0, second: 0, of: Date()) ?? Date()
+        return f.string(from: d)
+    }
+}
+
+private func postPrefsChanged() {
+    NotificationCenter.default.post(name: .notifyPrefsChanged, object: nil)
+}
+
+/// One item kind's schedule: an enable toggle + the kind's applicable delivery offsets.
+private struct KindSection: View {
+    private let title: String
+    private let morningHour: Int
+    private let available: [NotifyOffset]
+    @AppStorage private var on: Bool
+    @AppStorage private var offsets: String
+
+    init(_ kind: NotifyKind, _ title: String, _ morningHour: Int, _ available: [NotifyOffset]) {
+        self.title = title
+        self.morningHour = morningHour
+        self.available = available
+        _on = AppStorage(wrappedValue: NotifyPrefs.defaultKindEnabled[kind] ?? false,
+                         PrefKeys.notifyKindEnabled(kind.rawValue))
+        _offsets = AppStorage(wrappedValue: (NotifyPrefs.defaultOffsets[kind] ?? [])
+            .map(\.rawValue).sorted().joined(separator: ","),
+            PrefKeys.notifyKindOffsets(kind.rawValue))
+    }
+
+    var body: some View {
+        Section(title) {
+            Toggle("Notify for \(title.lowercased())", isOn: $on)
+                .toggleStyle(.switch)
+                .onChange(of: on) { _, _ in postPrefsChanged() }
+            if on {
+                ForEach(available, id: \.rawValue) { off in
+                    Toggle(label(off), isOn: bind(off))
+                        .toggleStyle(.checkbox)
+                        .padding(.leading, 8)
+                }
+            }
+        }
+    }
+
+    private func label(_ o: NotifyOffset) -> String {
+        switch o {
+        case .atTime: "At the time"
+        case .m15: "15 minutes before"
+        case .h1: "1 hour before"
+        case .dayOf: "Morning of (\(NotificationsTab.hourLabel(morningHour)))"
+        case .dayBefore: "Day before (\(NotificationsTab.hourLabel(morningHour)))"
+        }
+    }
+
+    private func bind(_ o: NotifyOffset) -> Binding<Bool> {
+        Binding(
+            get: { Set(offsets.split(separator: ",").map(String.init)).contains(o.rawValue) },
+            set: { v in
+                var s = Set(offsets.split(separator: ",").map(String.init))
+                if v { s.insert(o.rawValue) } else { s.remove(o.rawValue) }
+                offsets = s.sorted().joined(separator: ",")
+                postPrefsChanged()
+            }
+        )
+    }
+}
+
 private struct DeveloperTab: View {
     @AppStorage("cc.fpsHUD") private var fpsHUD = false
 
@@ -515,6 +732,18 @@ private struct DeveloperTab: View {
                     "The render loop pauses when the calendar is idle, so read it while scrolling or animating.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            Section("Notifications") {
+                Button("Log pending notifications") {
+                    NotificationScheduler.shared.dumpPending()
+                }
+                Text("Writes the notifications currently scheduled with macOS (the ground truth of what " +
+                    "will ring) to the unified log — subsystem dev.libirabu.calendar, category notify. " +
+                    "Watch it in Xcode's console, Console.app, or:\n" +
+                    "log stream --predicate 'subsystem == \"dev.libirabu.calendar\" AND category == \"notify\"'")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
         }
         .formStyle(.grouped)

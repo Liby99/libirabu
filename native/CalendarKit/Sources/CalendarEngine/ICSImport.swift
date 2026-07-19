@@ -53,7 +53,7 @@ public enum ICSImport {
                 // Single-day timed event.
                 let e = ve.end ?? s
                 let id = "ics-\(UUID().uuidString)"
-                events.append(TimedEvent(id: id, year: s.year, month: s.month, day: s.day,
+                events.append(TimedEvent(id: id, year: s.year, month: s.month - 1, day: s.day, // WC month is 1-based
                                          startHour: hourOf(s), endHour: max(hourOf(s), hourOf(e)),
                                          title: title, color: color,
                                          anchorTz: DeadlineTZ.concrete("auto"))) // parsed into device-local wall-clock
@@ -99,6 +99,11 @@ public enum ICSImport {
             description: String? = nil
         var start: WC?, end: WC? = nil
         var attendees: [(name: String, status: String?)] = []
+        // Feed-subscription extras (see feedItems): stable identity + recurrence.
+        var uid: String? = nil
+        var rrule: String? = nil
+        var exdates: [WC] = []
+        var recurrenceId: WC? = nil
     }
 
     private static func vevents(in text: String) -> [VEvent] {
@@ -129,6 +134,13 @@ public enum ICSImport {
                 }
             case "DTSTART": event.start = parseDT(value: value, params: params)
             case "DTEND": event.end = parseDT(value: value, params: params)
+            case "UID": event.uid = value.isEmpty ? nil : value
+            case "RRULE": event.rrule = value
+            case "RECURRENCE-ID": event.recurrenceId = parseDT(value: value, params: params)
+            case "EXDATE": // may carry several comma-separated date-times
+                for v in value.split(separator: ",") {
+                    if let d = parseDT(value: String(v), params: params) { event.exdates.append(d) }
+                }
             default: break
             }
             cur = event
@@ -253,5 +265,163 @@ public enum ICSImport {
             }
         }
         return out
+    }
+
+    // ── Feed subscriptions (Google Calendar secret ICS URLs etc.) ─────────────────────
+    /// Parse feed text into READ-ONLY imported items with STABLE ids that survive refetches:
+    ///   series key  "gcal-<feedKey>-<uid>"          (user overlays — color/hide/notes — key here)
+    ///   occurrence  "<series>-YYYYMMDD-HHMM"        (same suffix shape as the Apple import, so the
+    ///                                                whole imported-series machinery applies)
+    /// Recurring VEVENTs expand a subset of RRULE (DAILY/WEEKLY/BYDAY/YEARLY + INTERVAL + UNTIL +
+    /// COUNT, minus EXDATEs) across `years`; overridden instances (RECURRENCE-ID) replace their slot.
+    /// MONTHLY and fancier rules fall back to the base occurrence only.
+    public static func feedItems(from text: String, feedKey: String, years: ClosedRange<Int>)
+        -> (events: [TimedEvent], bands: [BandEvent], rich: [String: RichFields]) {
+        var events: [TimedEvent] = [], bands: [BandEvent] = []
+        var rich: [String: RichFields] = [:]
+        let parsed = vevents(in: text)
+        // Overridden instances claim their original slot so the base expansion skips it.
+        var overridden: Set<String> = []
+        for ve in parsed {
+            if let rid = ve.recurrenceId, let uid = ve.uid {
+                overridden.insert("\(uid)|\(rid.year)-\(rid.month)-\(rid.day)")
+            }
+        }
+
+        func sanitize(_ u: String) -> String {
+            String(u.map { $0.isLetter || $0.isNumber || "._@".contains($0) ? $0 : "_" }.prefix(64))
+        }
+
+        for ve in parsed {
+            guard let s = ve.start else { continue }
+            let title = ve.summary.isEmpty ? "(untitled)" : ve.summary
+            let uid = ve.uid ?? "\(title)-\(s.year)\(s.month)\(s.day)"
+            let series = "gcal-\(feedKey)-\(sanitize(uid))"
+            let block = ManagedNote.render(provenance: "Google Calendar feed",
+                                           meetingUrl: ve.url, location: ve.location, organizer: ve.organizer,
+                                           attendees: ve.attendees.map { ($0.name, $0.status ?? "") },
+                                           description: ve.description)
+            if rich[series] == nil { rich[series] = importedRich(block.isEmpty ? nil : block) }
+
+            // Occurrence start dates: the base date + RRULE expansion (skipping EXDATEs and slots
+            // claimed by an overridden instance). An overridden instance is its own single event.
+            var starts: [WC]
+            if ve.recurrenceId != nil {
+                starts = [s]
+            } else if let rule = ve.rrule {
+                starts = expandRRule(base: s, rule: rule, years: years)
+            } else {
+                starts = [s]
+            }
+            let ex = Set(ve.exdates.map { "\($0.year)-\($0.month)-\($0.day)" })
+            starts = starts.filter { w in
+                !ex.contains("\(w.year)-\(w.month)-\(w.day)")
+                    && (ve.recurrenceId != nil || !overridden.contains("\(uid)|\(w.year)-\(w.month)-\(w.day)"))
+            }
+
+            for w in starts {
+                guard years.contains(w.year) else { continue }
+                let suffix = String(format: "-%04d%02d%02d-%02d%02d", w.year, w.month, w.day, w.hour, w.minute)
+                if s.allDay {
+                    let endEx = ve.end
+                    let span = endEx.map { max(0, daysBetween(s, addDays($0, -1))) } ?? 0
+                    for (i, seg) in bandSegments(from: w, to: addDays(w, span)).enumerated() {
+                        bands.append(BandEvent(id: series + suffix + (i == 0 ? "" : "s\(i)"),
+                                               year: seg.year, month: seg.month, track: 0,
+                                               startDay: seg.startDay, endDay: seg.endDay,
+                                               title: title, color: "default"))
+                    }
+                } else {
+                    let dur = ve.end.map { max(0.25, wcHourSpan(from: s, to: $0)) } ?? 1
+                    events.append(TimedEvent(id: series + suffix, year: w.year, month: w.month - 1, day: w.day,
+                                             startHour: hourOf(w), endHour: min(24, hourOf(w) + dur),
+                                             title: title, color: "default",
+                                             anchorTz: DeadlineTZ.concrete("auto")))
+                }
+            }
+        }
+        return (events, bands, rich)
+    }
+
+    private static func daysBetween(_ a: WC, _ b: WC) -> Int {
+        let cal = utcCalendar
+        var ca = DateComponents(); ca.year = a.year; ca.month = a.month; ca.day = a.day
+        var cb = DateComponents(); cb.year = b.year; cb.month = b.month; cb.day = b.day
+        guard let da = cal.date(from: ca), let db = cal.date(from: cb) else { return 0 }
+        return cal.dateComponents([.day], from: da, to: db).day ?? 0
+    }
+
+    private static func wcHourSpan(from a: WC, to b: WC) -> CGFloat {
+        let days = CGFloat(daysBetween(a, b))
+        return days * 24 + (hourOf(b) - hourOf(a))
+    }
+
+    /// RRULE subset expansion in the device wall clock. Caps at 1000 occurrences.
+    private static func expandRRule(base: WC, rule: String, years: ClosedRange<Int>) -> [WC] {
+        var freq = "", interval = 1, count = Int.max
+        var until: (Int, Int, Int)? = nil
+        var byday: [Int] = [] // 0=Sun … 6=Sat
+        let dayMap = ["SU": 0, "MO": 1, "TU": 2, "WE": 3, "TH": 4, "FR": 5, "SA": 6]
+        for part in rule.split(separator: ";") {
+            let kv = part.split(separator: "=", maxSplits: 1).map(String.init)
+            guard kv.count == 2 else { continue }
+            switch kv[0].uppercased() {
+            case "FREQ": freq = kv[1].uppercased()
+            case "INTERVAL": interval = max(1, Int(kv[1]) ?? 1)
+            case "COUNT": count = max(1, Int(kv[1]) ?? 1)
+            case "UNTIL":
+                let v = kv[1]
+                if v.count >= 8, let y = Int(v.prefix(4)), let m = Int(v.dropFirst(4).prefix(2)),
+                   let d = Int(v.dropFirst(6).prefix(2)) { until = (y, m, d) }
+            case "BYDAY": byday = kv[1].split(separator: ",").compactMap { dayMap[String($0.suffix(2))] }
+            default: break
+            }
+        }
+        guard ["DAILY", "WEEKLY", "YEARLY"].contains(freq) else { return [base] } // MONTHLY etc. → base only
+
+        let cal = utcCalendar
+        var c = DateComponents(); c.year = base.year; c.month = base.month; c.day = base.day
+        guard var cursor = cal.date(from: c) else { return [base] }
+        var out: [WC] = []
+        var made = 0, guardN = 0
+        func wc(_ d: Date) -> WC {
+            let x = cal.dateComponents([.year, .month, .day], from: d)
+            return WC(year: x.year ?? base.year, month: x.month ?? base.month, day: x.day ?? base.day,
+                      hour: base.hour, minute: base.minute, allDay: base.allDay)
+        }
+        func pastEnd(_ d: Date) -> Bool {
+            let x = cal.dateComponents([.year, .month, .day], from: d)
+            if (x.year ?? 0) > years.upperBound { return true }
+            if let u = until, ((x.year ?? 0), (x.month ?? 0), (x.day ?? 0)) > u { return true }
+            return false
+        }
+        while made < min(count, 1000), guardN < 20000, !pastEnd(cursor) {
+            guardN += 1
+            let dow = (cal.dateComponents([.weekday], from: cursor).weekday ?? 1) - 1
+            let emit: Bool
+            switch freq {
+            case "WEEKLY" where !byday.isEmpty:
+                emit = byday.contains(dow)
+            default:
+                emit = true
+            }
+            if emit {
+                out.append(wc(cursor)); made += 1
+            }
+            let step: DateComponents
+            switch freq {
+            case "DAILY": step = DateComponents(day: interval)
+            case "YEARLY": step = DateComponents(year: interval)
+            case "WEEKLY" where !byday.isEmpty:
+                // walk day-by-day within the week; jump (interval-1) extra weeks at each week boundary
+                let next = cal.date(byAdding: .day, value: 1, to: cursor)!
+                let nextDow = (cal.dateComponents([.weekday], from: next).weekday ?? 1) - 1
+                step = nextDow == 0 && interval > 1 ? DateComponents(day: 1 + 7 * (interval - 1)) : DateComponents(day: 1)
+            default: step = DateComponents(day: 7 * interval) // plain WEEKLY
+            }
+            guard let n = cal.date(byAdding: step, to: cursor) else { break }
+            cursor = n
+        }
+        return out.isEmpty ? [base] : out
     }
 }

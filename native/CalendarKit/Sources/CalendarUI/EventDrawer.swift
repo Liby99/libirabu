@@ -45,6 +45,11 @@ public final class CalendarUIState {
     public var pendingBatchDelete: CalendarEngine.BatchDeleteSummary?
     public var batchRenaming = false
     public var batchRenameText = ""
+    // Multiple calendars (File menu): a name prompt (New / Rename) + a remove confirm.
+    public enum CalendarPrompt: Equatable { case new, rename }
+    public var calendarPrompt: CalendarPrompt?
+    public var calendarPromptText = ""
+    public var pendingCalendarRemove = false
     /// Right-click event menu: the target box + its anchor rect (view coords). Non-nil = callout up.
     public struct EventMenuTarget: Equatable {
         public var id: String

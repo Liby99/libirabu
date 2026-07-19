@@ -74,22 +74,31 @@ public struct RichFields: Codable, Sendable, Equatable {
     }
 }
 
+/// The CalendarKit data root: a throwaway dir in demo/recording mode (so a recording NEVER touches the
+/// user's real calendar), else Application Support/CalendarKit. Shared by the store, the registry, and
+/// the cloud record cache so they all agree on where data lives.
+func calendarKitBaseDir() -> URL {
+    if let demo = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !demo.isEmpty {
+        return URL(fileURLWithPath: demo, isDirectory: true)
+    }
+    let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        ?? URL(fileURLWithPath: NSTemporaryDirectory())
+    return base.appendingPathComponent("CalendarKit", isDirectory: true)
+}
+
+/// The directory holding one calendar's files (data.json / syncState.bin / records.plist).
+func calendarDir(_ calendarId: String) -> URL {
+    calendarKitBaseDir().appendingPathComponent("calendars/\(calendarId)", isDirectory: true)
+}
+
 struct ItemStore {
     private let url: URL
     private let syncStateURL: URL
 
-    init() {
-        // Demo/recording mode (see DemoController): redirect the whole store to a throwaway directory so a
-        // recording session NEVER reads or writes the user's real calendar. The script points this at a
-        // fresh temp dir per run, so each session starts from an empty, personal-data-free calendar.
-        let dir: URL
-        if let demo = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !demo.isEmpty {
-            dir = URL(fileURLWithPath: demo, isDirectory: true)
-        } else {
-            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-                ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            dir = base.appendingPathComponent("CalendarKit", isDirectory: true)
-        }
+    /// One calendar's on-disk store, under `calendars/<calendarId>/`. Each calendar is a separate document
+    /// (disjoint data + its own iCloud sync state); the engine repoints here when switching calendars.
+    init(calendarId: String) {
+        let dir = calendarDir(calendarId)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appendingPathComponent("data.json")
         syncStateURL = dir.appendingPathComponent("syncState.bin")

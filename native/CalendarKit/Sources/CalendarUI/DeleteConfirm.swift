@@ -112,6 +112,83 @@ struct BatchRenameField: View {
     }
 }
 
+/// New / Rename a calendar: a small name prompt. Enter commits, Esc / tap-outside cancels. Creating
+/// switches into the new empty calendar; renaming relabels the open one.
+struct CalendarNameDialog: View {
+    let ui: CalendarUIState
+    let engine: CalendarEngine
+    let theme: Theme
+    @FocusState private var focused: Bool
+    private var isRename: Bool { ui.calendarPrompt == .rename }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.1).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { cancel() }
+            VStack(spacing: 14) {
+                Text(isRename ? "Rename Calendar" : "New MagiCal")
+                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.text)
+                TextField("Name", text: Binding(get: { ui.calendarPromptText },
+                                                set: { ui.calendarPromptText = $0 }))
+                    .textFieldStyle(.roundedBorder).frame(width: 240).focused($focused)
+                    .onSubmit { commit() }.onExitCommand { cancel() }
+                HStack(spacing: 12) {
+                    DeleteDialogButton(label: "Cancel", destructive: false, focused: false, theme: theme) { cancel() }
+                    DeleteDialogButton(label: isRename ? "Rename" : "Create",
+                                       destructive: false, focused: true, theme: theme) { commit() }
+                }
+            }
+            .frame(width: 300)
+            .padding(.horizontal, 32).padding(.vertical, 22)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
+            .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
+        }
+        .onAppear { focused = true }
+    }
+    private func commit() {
+        let name = ui.calendarPromptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        if isRename { engine.renameCurrentCalendar(name) } else { engine.createCalendar(named: name) }
+        ui.calendarPrompt = nil; engine.wake()
+    }
+    private func cancel() { ui.calendarPrompt = nil }
+}
+
+/// Remove the current calendar — destructive confirm (deletes all its data). Switches to the most-recent
+/// other calendar. The menu item is disabled when it's the only calendar, so this always has a fallback.
+struct CalendarRemoveDialog: View {
+    let ui: CalendarUIState
+    let engine: CalendarEngine
+    let theme: Theme
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.1).ignoresSafeArea().contentShape(Rectangle())
+                .onTapGesture { ui.pendingCalendarRemove = false }
+            VStack(spacing: 14) {
+                Text("Remove “\(engine.activeCalendarName)”?")
+                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.text)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                Text("This permanently deletes this calendar and everything in it — events, deadlines, notes, and its calendar settings. This can’t be undone.")
+                    .font(.system(size: 12)).foregroundStyle(theme.textMuted)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
+                    DeleteDialogButton(label: "Cancel", destructive: false, focused: false, theme: theme) {
+                        ui.pendingCalendarRemove = false
+                    }
+                    DeleteDialogButton(label: "Remove", destructive: true, focused: true, theme: theme) {
+                        engine.removeCurrentCalendar(); ui.pendingCalendarRemove = false; engine.wake()
+                    }
+                }
+            }
+            .frame(width: 340)
+            .padding(.horizontal, 32).padding(.vertical, 22)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
+            .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
+        }
+    }
+}
+
 /// One button in the delete dialog: a rounded pill that shows a dashed ring (matching the app's keyboard
 /// focus style) when it's the focused choice, red text for destructive actions.
 private struct DeleteDialogButton: View {
@@ -172,6 +249,7 @@ struct ModalOverlays: ViewModifier {
     /// The canvas input gate reflects EVERY blocking dialog this modifier hosts.
     private func syncModalGate() {
         engine.inputModalUp = ui.pendingDelete != nil || ui.notice != nil
+            || ui.calendarPrompt != nil || ui.pendingCalendarRemove
     }
 
     func body(content: Content) -> some View {
@@ -215,6 +293,30 @@ struct ModalOverlays: ViewModifier {
                 }
             }
             .animation(.easeOut(duration: 0.12), value: ui.batchRenaming)
+            // Multiple calendars: New/Rename name prompt + Remove confirm.
+            .overlay {
+                if ui.calendarPrompt != nil {
+                    CalendarNameDialog(ui: ui, engine: engine, theme: theme).transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: ui.calendarPrompt)
+            .onChange(of: ui.calendarPrompt) { _, _ in syncModalGate() }
+            .overlay {
+                if ui.pendingCalendarRemove {
+                    CalendarRemoveDialog(ui: ui, engine: engine, theme: theme).transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: ui.pendingCalendarRemove)
+            .onChange(of: ui.pendingCalendarRemove) { _, _ in syncModalGate() }
+            .onReceive(NotificationCenter.default.publisher(for: .newCalendar)) { _ in
+                ui.calendarPromptText = ""; ui.calendarPrompt = .new
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .renameCalendar)) { _ in
+                ui.calendarPromptText = engine.activeCalendarName; ui.calendarPrompt = .rename
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .removeCalendar)) { _ in
+                if engine.canRemoveCalendar { ui.pendingCalendarRemove = true }
+            }
             .overlay { // tutorial carousel — topmost
                 if ui.showTutorial {
                     TutorialView(theme: theme, ui: ui, onClose: { ui.showTutorial = false })

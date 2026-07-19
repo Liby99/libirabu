@@ -35,6 +35,9 @@ public enum MenuWindow: Sendable { case assistant, help, settings }
     case .settings:            ctx.open(.settings)
     case .hide:                NSApp.hide(nil)
     case .quit:                NSApp.terminate(nil)
+    case .newCalendar:         NotificationCenter.default.post(name: .newCalendar, object: nil)
+    case .removeCalendar:      NotificationCenter.default.post(name: .removeCalendar, object: nil)
+    case .renameCalendar:      NotificationCenter.default.post(name: .renameCalendar, object: nil)
     case .importICS:           if let e = ctx.engine() { MenuFileActions.importICS(e) }
     case .importMDC:           if let e = ctx.engine() { MenuFileActions.importMDC(e) }
     case .exportMDC:           if let e = ctx.engine() { MenuFileActions.exportMDC(e) }

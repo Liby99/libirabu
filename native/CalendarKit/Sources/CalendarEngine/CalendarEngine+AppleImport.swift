@@ -13,14 +13,15 @@ extension CalendarEngine {
     // running engine share them without a direct reference; Settings posts `.appleCalendarSettingsChanged`
     // to nudge an immediate re-import. Imported events are read-only + kept out of persistence/iCloud.
 
+    // Keyed per ACTIVE calendar: each MagiCal calendar subscribes to its own external calendars.
     public var appleSyncEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: PrefKeys.appleEnabled) }
-        set { UserDefaults.standard.set(newValue, forKey: PrefKeys.appleEnabled) }
+        get { UserDefaults.standard.bool(forKey: PrefKeys.appleEnabled(registry.activeId)) }
+        set { UserDefaults.standard.set(newValue, forKey: PrefKeys.appleEnabled(registry.activeId)) }
     }
 
     public var appleCalendarIds: [String] {
-        get { (UserDefaults.standard.array(forKey: PrefKeys.appleCalendars) as? [String]) ?? [] }
-        set { UserDefaults.standard.set(newValue, forKey: PrefKeys.appleCalendars) }
+        get { (UserDefaults.standard.array(forKey: PrefKeys.appleCalendars(registry.activeId)) as? [String]) ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: PrefKeys.appleCalendars(registry.activeId)) }
     }
 
     /// Access probe + the calendar list + the TCC prompt — for the Settings picker. Access status is
@@ -50,7 +51,9 @@ extension CalendarEngine {
         // after connecting isn't lost.
         guard appleSyncEnabled, AppleCalendarImporter.access != .denied else {
             if !imported.events.isEmpty || !imported.bands.isEmpty {
-                imported.events = []; imported.bands = []; caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
+                imported.events.removeAll { !$0.id.hasPrefix("gcal-") }
+                imported.bands.removeAll { !$0.id.hasPrefix("gcal-") }
+                caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
             }
             return
         }
@@ -207,8 +210,9 @@ extension CalendarEngine {
                 items.richById[id] = nil; richChanged = true
             }
         }
-        imported.events = events
-        imported.bands = []
+        // Replace only the APPLE contribution — ICS feed items ("gcal-…") share this bucket.
+        imported.events = imported.events.filter { $0.id.hasPrefix("gcal-") } + events
+        imported.bands = imported.bands.filter { $0.id.hasPrefix("gcal-") }
         if richChanged {
             schedulePersist()
         } // the hidden flags are stored state (see setImportedHidden)

@@ -17,14 +17,16 @@ import Security
 @MainActor
 final class CloudSync: NSObject, CKSyncEngineDelegate {
     static let containerID = "iCloud.dev.libirabu.calendar"
-    private static let zoneName = "Calendar"
 
     // WEAK, not unowned: CKSyncEngine retains this delegate (and we retain it back), so CloudSync can
     // outlive the CalendarEngine that created it — a late callback (e.g. saveState) would then read a
     // dangling `unowned` and crash. Weak + guard makes those callbacks no-op once the engine is gone.
     private weak var engine: CalendarEngine?
     private let container: CKContainer
-    private let zoneID = CKRecordZone.ID(zoneName: CloudSync.zoneName, ownerName: CKCurrentUserDefaultName)
+    /// Each MagiCal calendar syncs to its OWN CloudKit zone (zoneName = the calendar id), so calendars are
+    /// disjoint on the server and deleting one = deleting its zone. The active calendar's CloudSync points
+    /// here; switching calendars tears this down and starts a new CloudSync for the new zone.
+    private let zoneID: CKRecordZone.ID
     private var syncEngine: CKSyncEngine!
 
     // System-fields cache: id → CKRecord carrying the server change-tag. Materialized
@@ -32,13 +34,23 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     private var knownRecords: [String: CKRecord] = [:]
     private let recordCacheURL: URL
 
-    init(engine: CalendarEngine) {
+    init(engine: CalendarEngine, calendarId: String) {
         self.engine = engine
         self.container = CKContainer(identifier: CloudSync.containerID)
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        self.recordCacheURL = base.appendingPathComponent("CalendarKit/records.plist")
+        self.zoneID = CKRecordZone.ID(zoneName: calendarId, ownerName: CKCurrentUserDefaultName)
+        // Per-calendar record cache, beside that calendar's data.json / syncState.bin.
+        self.recordCacheURL = calendarDir(calendarId).appendingPathComponent("records.plist")
         super.init()
+    }
+
+    /// Delete a calendar's CloudKit zone (and thus all its records) — called when the calendar is removed.
+    /// A direct database op (not via a CKSyncEngine) so it doesn't depend on a live sync for that calendar.
+    /// No-op / silent on the unentitled dev build or when signed out.
+    static func deleteZone(calendarId: String) {
+        guard isEntitled else { return }
+        let zoneID = CKRecordZone.ID(zoneName: calendarId, ownerName: CKCurrentUserDefaultName)
+        let db = CKContainer(identifier: containerID).privateCloudDatabase
+        db.delete(withRecordZoneID: zoneID) { _, _ in }   // best-effort; server prunes the records
     }
 
     /// True only when this binary is signed with the iCloud container entitlement.
@@ -118,6 +130,17 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             try? await syncEngine.sendChanges()
             self?.engine?.syncMonitor.isSyncing = false
         }
+    }
+
+    /// Detach from the engine and stop syncing — used when the engine switches to a different calendar
+    /// (a new CloudSync is started for the new calendar's zone). Late CKSyncEngine callbacks then no-op
+    /// because `engine` is nil. Note: the item ZONE is still the shared one until the zone-per-calendar
+    /// refactor (Phase 6); this lifecycle hook is where that will slot in.
+    func stop() {
+        periodicTimer?.invalidate(); periodicTimer = nil
+        engine?.onLocalChange = nil
+        engine = nil
+        syncEngine = nil
     }
 
     /// CKSyncEngine already syncs on push, but pushes aren't always delivered (no APNs, backgrounded,

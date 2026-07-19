@@ -24,6 +24,11 @@ public extension Notification.Name {
     /// View ▸ Filter by Tags — toggles the tag-filter popover (anchored to its toolbar button in
     /// CalendarView). Posted by the menu item in both shells (a menu can't host a stay-open checklist).
     static let toggleTagFilter = Notification.Name("cc.view.toggleTagFilter")
+    /// File ▸ multiple-calendars menu items → CalendarView presents the corresponding dialog (name
+    /// prompt / remove confirm). Posted by the menu in both shells.
+    static let newCalendar = Notification.Name("cc.cal.new")
+    static let removeCalendar = Notification.Name("cc.cal.remove")
+    static let renameCalendar = Notification.Name("cc.cal.rename")
 }
 
 /// One selectable Apple calendar (an `EKCalendar`) — for the Settings picker.

@@ -70,7 +70,24 @@ public enum PrefKeys {
     public static let altTz = "cc.view.altTz"
     /// The timeline scale-bar's per-hour height (week/day views). Persisted across launches.
     public static let weekHourH = "cc.view.weekHourH"
-    /// Apple Calendar import: enabled-state + selected calendar ids (see +AppleImport).
-    public static let appleEnabled = "cc.appleCal.enabled"
-    public static let appleCalendars = "cc.appleCal.ids"
+    /// Apple Calendar import (see +AppleImport). Each MagiCal calendar subscribes to its OWN external
+    /// calendars, so the enabled-state + selected ids are keyed per calendar id via these helpers.
+    public static func appleEnabled(_ calendarId: String) -> String { "cc.appleCal.enabled.\(calendarId)" }
+    public static func appleCalendars(_ calendarId: String) -> String { "cc.appleCal.ids.\(calendarId)" }
+    /// The PRE-multi-calendar global Apple keys — read only by the one-time migration into "Main".
+    public static let legacyAppleEnabled = "cc.appleCal.enabled"
+    public static let legacyAppleCalendars = "cc.appleCal.ids"
+    /// Multiple calendars ("documents"): the active calendar id + the per-device recently-opened list.
+    /// The calendar LIST itself lives in calendars.json (see CalendarRegistry), not UserDefaults.
+    public static let calActiveId = "cc.cal.activeId"
+    public static let calRecents = "cc.cal.recents"
+    /// The active calendar id as seen from UserDefaults — for the separate Settings window, which has no
+    /// engine reference. The engine itself uses `registry.activeId` (authoritative); both resolve equal.
+    public static var currentCalendarId: String { UserDefaults.standard.string(forKey: calActiveId) ?? "" }
+    /// Settings ▸ Notifications (see NotifyPlan.swift for semantics + defaults). Master switch, the
+    /// morning hour for day-granular pings, and per-kind enabled/offsets keyed by NotifyKind.rawValue.
+    public static let notifyEnabled = "cc.notify.enabled"
+    public static let notifyMorningHour = "cc.notify.morningHour"
+    public static func notifyKindEnabled(_ kind: String) -> String { "cc.notify.\(kind).enabled" }
+    public static func notifyKindOffsets(_ kind: String) -> String { "cc.notify.\(kind).offsets" }
 }
