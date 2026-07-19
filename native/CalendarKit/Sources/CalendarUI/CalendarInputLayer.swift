@@ -263,6 +263,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
                                                name: NSView.boundsDidChangeNotification, object: tlDriver.contentView)
         engine?.onSetTlScroll = { [weak self] y in self?.setTlDriverOffset(y) }
         engine?.onSetWeekScroll = { [weak self] x in self?.weekBridge?.scrollTo(x) }
+        engine?.onSetMonthPage = { [weak self] m in self?.monthBridge?.scrollToFocus(m) }
     }
 
     /// Size the driver's scrollable range to the current timeline maxScroll and sync it to the

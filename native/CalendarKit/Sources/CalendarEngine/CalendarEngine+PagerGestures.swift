@@ -310,6 +310,8 @@ extension CalendarEngine {
         if t >= 1 {
             year = mf.toYear; focus = mf.toFocus
             anim.monthFlipShift = 0; anim.flipFade = 1; anim.monthFlip = nil
+            onSetMonthPage?(focus) // final pin: the pager is at rest ON the new focus page, so the
+            // first unguarded mirror callback is a no-op (norm 0)
             scrollY = clamp(centerScroll(for: focus), 0, yearMaxScroll(viewport))
             onSetYearScroll?(scrollY) // new year → keep the year-view scroll in step
             pushChrome()
@@ -327,12 +329,17 @@ extension CalendarEngine {
             if year != mf.toYear || focus != mf.toFocus {
                 year = mf.toYear; focus = mf.toFocus
                 pushChrome()
-                chrome.monthResync += 1 // re-sync the (guarded) pager to the new focus
             }
             let enter = dir < 0 ? -OFF : OFF // prev → Dec from top; next → Jan from bottom
             anim.monthFlipShift = enter * (1 - easeOut(p))
             anim.flipFade = p
         }
+        // Pin the (invisible) pager to the current phase's page EVERY FRAME, like the week flip
+        // does. A one-shot midpoint teleport LOSES to a live paging settle: the paging behavior
+        // re-targets the 11-page jump to originalPage ± 1 — the "heavy fling at Dec lands on
+        // Nov / at Jan lands on Feb" bug. Overwritten 60×/s, its settle can't diverge, and the
+        // final pin (above) lands after the gesture closed, so it sticks.
+        onSetMonthPage?(focus)
     }
 
     /// Fingers lifted in week view. If a boundary pull passed the threshold, launch the month-edge

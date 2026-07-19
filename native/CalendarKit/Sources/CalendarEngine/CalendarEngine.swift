@@ -619,6 +619,9 @@ public final class CalendarEngine {
     /// `onSetWeekScroll` moves the (invisible) week pager to a given content-offset x — used to PIN it
     /// to the flip animation each frame so its own decelerate/snap animation can't diverge and twitch.
     public var onSetWeekScroll: ((CGFloat) -> Void)?
+    /// `onSetMonthPage` parks the (invisible) month pager on a month page — the boundary flip pins it
+    /// EVERY FRAME (a one-shot resync loses to a live paging settle; see advanceMonthFlip).
+    public var onSetMonthPage: ((Int) -> Void)?
 
     public func deleteSelected() {
         guard let id = selectedId else { return }
