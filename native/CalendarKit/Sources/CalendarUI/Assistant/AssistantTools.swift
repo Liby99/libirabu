@@ -329,7 +329,7 @@ private func laneOut(_ n: Int) -> Double { Double(n + 1) }
 struct GetTracksTool: AssistantTool {
     let def = ToolDef(
         name: "get_tracks",
-        description: "Return the four band-lane names (index 0–3) for each of the 12 months.",
+        description: "Return the four band-lane names (tracks 1–4, top to bottom) for each of the 12 months.",
         parameters: .parse(#"{"type":"object","properties":{"year":{"type":"integer"}},"additionalProperties":false}"#)
     )
     let readOnly = true
