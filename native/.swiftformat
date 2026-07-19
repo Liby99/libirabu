@@ -5,38 +5,37 @@
 # Check only:         swiftformat --lint .
 #
 # IMPORTANT: the first full run touches many files — do it as a single dedicated commit on a
-# quiet tree (no in-flight agent work), never mixed with logic changes. Tuned 2026-07-18 against
-# the real tree: the goal is mechanical consistency WITHOUT churning the house style below.
+# quiet tree (no in-flight agent work), never mixed with logic changes.
 #
-# House style this config deliberately preserves:
-#   • compact single-line bodies:  if x { y }   /   var p: Bool { q }
-#   • aligned trailing comments (aligned with consecutive spaces)
-#   • `//` comments everywhere (no auto-promotion to ///), long comment lines unwrapped
-#   • author-controlled line lengths and member ordering (documented `// ──` sections)
-#   • `case .x(let a)` pattern-let placement
+# The commented-out --disable lines below are rules that clash with pre-formatter idioms
+# (hit-counts from the 2026-07-18 dry run annotated). They are LEFT ACTIVE on purpose — the
+# formatter should actually enforce a style — but each is a one-line uncomment if its rewrite
+# proves unbearable in review.
 
 --swiftversion 5.10
 
 # ── Layout ─────────────────────────────────────────────────────────────────────
+--maxwidth 110
 --indent 4
 --tabwidth 4
 --trimwhitespace always
 --stripunusedargs closure-only
---maxwidth none                       # line length stays author-controlled (comment-dense code)
 
-# ── Disabled: rules that fight the established idioms (counts from the 2026-07-18 lint) ──
---disable wrapIfStatementBodies       # 1682 hits — single-line `if x { y }` is the house style
---disable wrapFunctionBodies          #  447 — same for one-line funcs
---disable wrapLoopBodies              #  162
---disable wrapPropertyBodies          #  156
---disable wrapIfExpressionBodies      #   52
---disable consecutiveSpaces           # 1499 — aligned trailing comments are deliberate
---disable docComments                 #  434 — `//` vs `///` is the author's call here
---disable blankLinesBetweenScopes     #  375 — compact accessor clusters stay compact
---disable wrapSingleLineComments      #   63 — long prose comments stay on one line
---disable hoistPatternLet             #   46 — `case .x(let a)` stays as written
---disable noForceUnwrapInTests        #   37 — tests force-unwrap deliberately
---disable conditionalAssignment       #   23 — no auto if/else-expression rewrites
+# ── Candidate opt-outs (ACTIVE unless uncommented; see header) ─────────────────
+# --disable wrapIfStatementBodies       # 1682 hits — single-line `if x { y }` bodies
+# --disable wrapFunctionBodies          #  447 — one-line funcs
+# --disable wrapLoopBodies              #  162
+# --disable wrapPropertyBodies          #  156
+# --disable wrapIfExpressionBodies      #   52
+# --disable consecutiveSpaces           # 1499 — aligned trailing comments
+# --disable docComments                 #  434 — `//` → `///` promotion
+# --disable blankLinesBetweenScopes     #  375 — compact accessor clusters
+# --disable wrapSingleLineComments      #   63 — long prose comments
+# --disable hoistPatternLet             #   46 — `case .x(let a)` placement
+# --disable noForceUnwrapInTests        #   37
+# --disable conditionalAssignment       #   23 — if/else-expression rewrites
+
+# ── Kept opt-outs: semantic/ordering choices the formatter must not make ───────
 --disable blankLinesAtStartOfScope    # some types intentionally open with a comment block
 --disable wrapMultilineStatementBraces
 --disable andOperator                 # `&&` vs `,` in guards left to the author
