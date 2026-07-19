@@ -30,6 +30,9 @@ public struct CalendarView: View {
     // profiler can measure the GPU-heavy path the throwaway store's default (perfMode on) never hits.
     private static let forcePerfOff = ProcessInfo.processInfo.environment["CC_PERF_OFF"] != nil
     private var effPerfMode: Bool { perfMode && !Self.forcePerfOff }
+    // CC_DASH_UNMOUNT=1 → the OLD lazy dashboard mount (WebView created at each month→week crossing),
+    // for same-binary A/B against the persistent mount (see the dashboard overlay below).
+    private static let dashUnmountKill = ProcessInfo.processInfo.environment["CC_DASH_UNMOUNT"] != nil
     // The View-menu prefs (show-hidden, current/alt timezone) → repaint observers live in ViewPrefObservers
     // (bundled into one modifier to keep the body's modifier chain within the Swift type-checker's budget).
     @AppStorage("cc.tutorial.seen") private var tutorialSeen = false // auto-show the onboarding carousel once
@@ -495,12 +498,18 @@ public struct CalendarView: View {
                     // WebView (reuses the web's tokenizer + sectioning). Sits in the dashboard content
                     // region; shown at day level with the drawer closed (it snaps in — WKWebView doesn't
                     // animate with SwiftUI transitions — so it's gated on level like the split handle).
-                    // Mounted from week level up (level ≥ 2) so the zoom reveal (slide-in-from-right + fade,
-                    // driven per-frame) animates the whole way; at week level it's fully slid out + faded. It
-                    // stays mounted while the drawer is open too — instead of popping out, it fades aside in CSS
-                    // (the driver keeps ticking `drawer`). Interactive only at day level with the drawer closed.
+                    // ALWAYS MOUNTED: the level-≥2 mount gate made every month↔week zoom crossing create
+                    // (and destroy) the WKWebView — the pinch-zoom trace attributed ~55ms of each ~90ms
+                    // mid-gesture hitch to WebPageProxy creation, right as the week arrival storm lands.
+                    // Persistent, the WebView is created ONCE at launch (off any gesture) and just stays
+                    // slid out + faded below week level (its CSS slide is already 1 when the driver stops
+                    // ticking at z≤1.5, so nothing shows). Hit-testing was already day-level-only.
+                    // CC_DASH_UNMOUNT=1 restores the old lazy mount for same-binary A/B benchmarking.
+                    // It stays mounted while the drawer is open too — instead of popping out, it fades
+                    // aside in CSS (the driver keeps ticking `drawer`). Interactive only at day level
+                    // with the drawer closed.
                     .overlay {
-                        if engine.chrome.level >= 2 {
+                        if !Self.dashUnmountKill || engine.chrome.level >= 2 {
                             DailyDashboardOverlay(engine: engine, carousel: dashCarousel,
                                                   forwarder: gestureForwarder,
                                                   tab: $dashTab, noteMode: $noteMode,
