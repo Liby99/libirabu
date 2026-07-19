@@ -22,15 +22,14 @@ public struct CalendarView: View {
     @State private var search = SearchState() // toolbar event search (⌘F / magnifyingglass)
     @State private var searchAnchor: CGPoint = .zero // content stack's window-space origin (for dropdown alignment)
     @State private var searchCloseWork: DispatchWorkItem? // pending "unmount the bar after it collapses"
+    @State private var showTagFilter = false               // View ▸ Filter by Tags popover (toolbar-anchored)
     /// Global Performance Mode: render events as flat tinted fills instead of Liquid Glass
     /// (glass is one GPU pass per sticker). Persisted; defaults on for now.
     @AppStorage("cc.performanceMode") private var perfMode = true
-    // View ▸ Show Hidden Imported Events. @AppStorage tracks the same UserDefaults key the menu toggles;
-    // the onChange below repaints the calendar when it flips (from either app target's menu).
-    @AppStorage(PrefKeys.showHiddenImported) private var showHiddenImported = false
-    @AppStorage(PrefKeys.mainTz) private var mainTzPref = "auto" // View ▸ Current Timezone
-    @AppStorage(PrefKeys.altTz) private var altTzPref = "none" // View ▸ Alternative Timezone
+    // The View-menu prefs (show-hidden, current/alt timezone) → repaint observers live in ViewPrefObservers
+    // (bundled into one modifier to keep the body's modifier chain within the Swift type-checker's budget).
     @AppStorage("cc.tutorial.seen") private var tutorialSeen = false // auto-show the onboarding carousel once
+    @AppStorage("cc.fpsHUD") private var fpsHUDPref = false // Settings ▸ Developer ▸ frame-rate HUD
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openWindow) private var openWindow // opens the standalone Calendar AI window
     // The quick-ask callout's OWN assistant session (app-level; independent of the standalone
@@ -178,6 +177,8 @@ public struct CalendarView: View {
     private func setupOnAppear(size: CGSize) {
         WindowBeepSilencer.installOnce() // stop the window beeping on keys the calendar leaves unhandled
         if CalendarEngine.isDemoMode {
+            demo.openSearchHook = { openSearch() }   // search-demo scene drives the real toolbar search
+            demo.searchState = search
             demo.startIfDemo(engine: engine, size: size)
         } // GIF recording session
         else if !tutorialSeen {
@@ -637,10 +638,11 @@ public struct CalendarView: View {
                     .overlay {
                         DemoCursorOverlay(demo: demo)
                     } // synthetic pointer during a GIF recording (no-op otherwise)
-                    // Live frame-rate HUD (CC_FPS_HUD=1 / defaults cc.fpsHUD) — measures THIS run, whatever it is:
-                    // Xcode-attached, standalone, or the signed app. Reads the render loop's own tick.
+                    // Live frame-rate HUD (Settings ▸ Developer, or CC_FPS_HUD=1) — measures THIS run,
+                    // whatever it is: Xcode-attached, standalone, or the signed app. Reads the render
+                    // loop's own tick. @AppStorage so the Settings toggle applies live.
                     .overlay(alignment: .bottomLeading) {
-                        if DemoController.hudEnabled {
+                        if fpsHUDPref || DemoController.hudEnabled {
                             FPSHUD(demo: demo)
                         }
                     }
@@ -692,16 +694,9 @@ public struct CalendarView: View {
                     .onReceive(NotificationCenter.default.publisher(for: .appleCalendarSettingsChanged)) { _ in
                         engine.importAppleCalendar()
                     }
-                    // "Show Hidden Imported Events" flipped → repaint. onChange catches the SwiftUI menu's @AppStorage
-                    // write; the notification catches the AppKit (dev-build) menu's direct UserDefaults write.
-                    .onChange(of: showHiddenImported) { _, _ in engine.viewPrefsChanged() }
-                    .onChange(of: mainTzPref) { _, _ in engine.viewPrefsChanged() } // Current Timezone picker → repaint
-                    .onChange(of: altTzPref) { _, _ in
-                        engine.viewPrefsChanged()
-                    } // Alternative Timezone picker → repaint
-                    .onReceive(NotificationCenter.default.publisher(for: .calendarViewPrefsChanged)) { _ in
-                        engine.viewPrefsChanged()
-                    }
+                    // View-menu prefs (show-hidden / timezone pickers), the prefs-changed notification, and
+                    // the tag-filter toggle — bundled into one modifier (see the type-check note above).
+                    .modifier(ViewPrefObservers(engine: engine, showTagFilter: $showTagFilter))
             }
             .ignoresSafeArea()
             // Search overlays — siblings inside the ZStack, so they respect the toolbar safe-area inset
@@ -788,9 +783,42 @@ public struct CalendarView: View {
         }
         ToolbarSpacer(.fixed)
         ToolbarItem(placement: .primaryAction) {
+            // View ▸ Filter by Tags lives here as a stay-open checklist popover (a menu can't stay open
+            // while multi-toggling). The View-menu item in both shells toggles it via .toggleTagFilter.
+            Button { showTagFilter.toggle() } label: { Image(systemName: "tag") }
+                .buttonStyle(.glass).buttonBorderShape(.circle).help("Filter by Tags")
+                .popover(isPresented: $showTagFilter, arrowEdge: .bottom) {
+                    TagFilterPopover(engine: engine)
+                }
+        }
+        ToolbarSpacer(.fixed)
+        ToolbarItem(placement: .primaryAction) {
             Button { engine.goToToday() } label: { Text("Today") }
                 .buttonStyle(.glass).buttonBorderShape(.capsule)
                 .help("Go to today (⌘T)")
         }
+    }
+}
+
+/// The View-menu preference observers, bundled so CalendarView's body modifier chain stays within the
+/// Swift type-checker's budget (see swift-typecheck-cliff). Each @AppStorage mirrors the UserDefaults key
+/// its menu control writes; the notifications catch the AppKit dev-shell menu's direct writes.
+private struct ViewPrefObservers: ViewModifier {
+    let engine: CalendarEngine
+    @Binding var showTagFilter: Bool
+    @AppStorage(PrefKeys.showHiddenImported) private var showHidden = false
+    @AppStorage(PrefKeys.mainTz) private var mainTz = "auto"
+    @AppStorage(PrefKeys.altTz) private var altTz = "none"
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: showHidden) { _, _ in engine.viewPrefsChanged() }   // Show Hidden Imported Events
+            .onChange(of: mainTz) { _, _ in engine.viewPrefsChanged() }        // Current Timezone picker
+            .onChange(of: altTz) { _, _ in engine.viewPrefsChanged() }         // Alternative Timezone picker
+            .onReceive(NotificationCenter.default.publisher(for: .calendarViewPrefsChanged)) { _ in
+                engine.viewPrefsChanged()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleTagFilter)) { _ in
+                showTagFilter.toggle()   // View ▸ Filter by Tags (menu item, either shell)
+            }
     }
 }

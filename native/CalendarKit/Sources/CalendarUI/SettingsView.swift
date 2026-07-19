@@ -26,6 +26,8 @@ public struct SettingsView: View {
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
             APIKeysTab()
                 .tabItem { Label("API Keys", systemImage: "key") }
+            DeveloperTab()
+                .tabItem { Label("Developer", systemImage: "hammer") }
         }
         .tint(accent)
         .frame(width: 560, height: 480)
@@ -379,5 +381,25 @@ private struct BedrockRegionPicker: View {
         Picker("Region", selection: $region) {
             ForEach(Self.regions, id: \.self) { Text($0).tag($0) }
         }
+    }
+}
+
+// ── Developer ─────────────────────────────────────────────────────────────────────
+
+private struct DeveloperTab: View {
+    @AppStorage("cc.fpsHUD") private var fpsHUD = false
+
+    var body: some View {
+        Form {
+            Section("Performance") {
+                Toggle("Show frame rate HUD", isOn: $fpsHUD)
+                    .toggleStyle(.switch)
+                Text("Overlays live render-loop frame timing in the calendar window's corner. " +
+                    "The render loop pauses when the calendar is idle, so read it while scrolling or animating.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }

@@ -10,6 +10,7 @@
 
 import AppKit
 import CalendarEngine
+import CalendarGeometry
 import SwiftUI
 
 @MainActor @Observable
@@ -28,6 +29,11 @@ public final class DemoController {
     // markdown-notes scene: text streamed into the open drawer's editor (typed live) + the edit/preview cue.
     public var noteFeed = ""
     public var notePreview = false
+
+    // search-demo scene hooks (wired by CalendarView.setupOnAppear): open the toolbar search bar, and the
+    // live SearchState the field binds to — the scene types into it and reads the results.
+    @ObservationIgnored var openSearchHook: (() -> Void)?
+    @ObservationIgnored var searchState: SearchState?
 
     private weak var engine: CalendarEngine?
     private var size: CGSize = .zero
@@ -57,6 +63,13 @@ public final class DemoController {
         case "pinch-zoom": await scenePinchZoom()
         case "markdown-notes": await sceneMarkdownNotes()
         case "ai-assistant": await sceneAIAssistant()
+        case "move-resize": await sceneMoveResize()
+        case "edit-drawer": await sceneEditDrawer()
+        case "deadline-add": await sceneDeadlineAdd()
+        case "recurring": await sceneRecurring()
+        case "search-demo": await sceneSearchDemo()
+        case "promote": await scenePromote()
+        case "daily-dashboard": await sceneDailyDashboard()
         case "bench-year-scroll": await sceneBenchYearScroll()
         default: await sceneTimedWeek()
         }
@@ -399,11 +412,224 @@ public final class DemoController {
         }
     }
 
+    // ── Help-GIF scenes (docs/help-gif-suggestions.md) ──────────────────────────────────────────
+    /// MOVE then RESIZE a timed event in week view: drag its body to a later slot, then drag its bottom
+    /// edge to lengthen it — both through the real pointer paths, so previews track live.
+    private func sceneMoveResize() async {
+        guard let engine else { return }
+        writeCrop(x: 0.09, y: 0.24, w: 0.56, h: 0.42)
+        engine.demoClearEvents()
+        seedWeek()
+        engine.jumpToDay(engine.year, 6, 15)
+        try? await pause(2.2)
+        engine.cmdZoomOut()
+        try? await pause(1.6)
+        signalReady()
+        await waitForGo()
+        try? await pause(0.4)
+
+        // MOVE: grab "Design review" (Tue 12:30–14:00) and drag it ~1.5h later.
+        let x = size.width * 0.47                     // Tuesday column
+        let perHour = size.height * 0.0615            // ≈ one hour of timeline in view fractions
+        let grab = CGPoint(x: x, y: size.height * 0.40 + perHour * 1.75)   // mid-event (≈13:15)
+        cursor = CGPoint(x: grab.x - 50, y: grab.y - 40)
+        await move(to: grab, over: 0.7)
+        pressed = true
+        engine.demoPointerDown(atView: grab)
+        await drag(from: grab, to: CGPoint(x: x, y: grab.y + perHour * 1.5), over: 1.1) { p in engine.demoPointerDrag(atView: p) }
+        engine.demoPointerUp(atView: CGPoint(x: x, y: grab.y + perHour * 1.5))
+        pressed = false
+        try? await pause(0.9)
+
+        // RESIZE: grab the moved event's bottom edge (now ≈15:30) and pull it down an hour.
+        let edge = CGPoint(x: x, y: size.height * 0.40 + perHour * 4.0)
+        await move(to: edge, over: 0.7)
+        pressed = true
+        engine.demoPointerDown(atView: edge)
+        await drag(from: edge, to: CGPoint(x: x, y: edge.y + perHour), over: 1.0) { p in engine.demoPointerDrag(atView: p) }
+        engine.demoPointerUp(atView: CGPoint(x: x, y: edge.y + perHour))
+        pressed = false
+        try? await pause(1.4)
+    }
+
+    /// EDIT in the drawer: double-click an event → drawer opens (event highlighted) → pick a new color
+    /// (cursor over the swatches; the change applies through the engine, so the event recolors live).
+    private func sceneEditDrawer() async {
+        guard let engine else { return }
+        writeCrop(x: 0.30, y: 0.0, w: 0.70, h: 1.0)
+        engine.demoClearEvents()
+        seedWeek()
+        let id = engine.demoAddTimed(month: 6, day: 16, startHour: 14, endHour: 16,
+                                     title: "Paper draft review", color: "purple")
+        engine.jumpToDay(engine.year, 6, 15)
+        try? await pause(2.2)
+        engine.cmdZoomOut()
+        try? await pause(1.6)
+        signalReady()
+        await waitForGo()
+        try? await pause(0.5)
+
+        let evPt = CGPoint(x: size.width * 0.72, y: size.height * 0.60)
+        cursor = CGPoint(x: evPt.x - 44, y: evPt.y - 34)
+        await move(to: evPt, over: 0.7)
+        await doubleClickPulse()
+        engine.demoDoubleClick(atView: evPt)
+        try? await pause(1.5)
+
+        // The color swatch row sits near the drawer's top; click the orange swatch.
+        let swatch = CGPoint(x: size.width * 0.785, y: size.height * 0.168)
+        await move(to: swatch, over: 0.8)
+        pressed = true
+        engine.update(id) { $0.color = "orange" }
+        try? await pause(0.18)
+        pressed = false
+        try? await pause(2.2)
+    }
+
+    /// ADD a DEADLINE via the hover "+": glide along a day column until the quick-add spot appears,
+    /// click it (real pointer path → deadline created, drawer opens with the title selected).
+    private func sceneDeadlineAdd() async {
+        guard let engine else { return }
+        writeCrop(x: 0.30, y: 0.0, w: 0.70, h: 1.0)
+        engine.demoClearEvents()
+        seedWeek()
+        engine.jumpToDay(engine.year, 6, 15)
+        try? await pause(2.2)
+        engine.cmdZoomOut()
+        try? await pause(1.6)
+        signalReady()
+        await waitForGo()
+        try? await pause(0.4)
+
+        // Drift toward Thursday's left edge around 11:00 — the "+" reveals near day-edge hour lines.
+        let target = CGPoint(x: size.width * 0.665, y: size.height * 0.47)
+        cursor = CGPoint(x: target.x - 70, y: target.y - 50)
+        await move(to: target, over: 0.9)
+        engine.demoHover(atView: target)
+        try? await pause(0.6)
+        // Snap to the actual "+" spot the engine computed, then click it.
+        if let spot = engine.demoDeadlineSpotView() {
+            await move(to: spot, over: 0.5)
+            engine.demoHover(atView: spot)
+            try? await pause(0.5)
+            pressed = true
+            engine.demoPointerDown(atView: spot)
+            engine.demoPointerUp(atView: spot)
+            try? await pause(0.18)
+            pressed = false
+        }
+        try? await pause(2.6)
+    }
+
+    /// RECURRING: a lone event gets a weekly repeat — ghost occurrences populate the month.
+    private func sceneRecurring() async {
+        guard let engine else { return }
+        writeCrop(x: 0.0, y: 0.10, w: 1.0, h: 0.80)
+        engine.demoClearEvents()
+        let id = engine.demoAddTimed(month: 6, day: 6, startHour: 9, endHour: 10,
+                                     title: "Standup", color: "blue")
+        engine.setView(zoom: "month", focusedMonth: 6)
+        try? await pause(1.8)
+        signalReady()
+        await waitForGo()
+        try? await pause(0.8)
+
+        engine.demoSelect(id)
+        cursor = CGPoint(x: size.width * 0.16, y: size.height * 0.52)
+        try? await pause(0.8)
+        pressed = true; try? await pause(0.16); pressed = false
+        try? await pause(0.4)
+        engine.setRepeat(id, Repeat(kind: "weekly"))   // ghosts appear on every following week
+        try? await pause(2.8)
+    }
+
+    /// SEARCH: open the toolbar search, type a fuzzy/date query, and fly to the top hit.
+    private func sceneSearchDemo() async {
+        guard let engine, let search = searchState else { return }
+        // Full window: toolbar field + dropdown + the fly-to.
+        engine.demoClearEvents()
+        seedWeek()
+        engine.demoGoToYear(centerMonth: 6)
+        try? await pause(1.2)
+        signalReady()
+        await waitForGo()
+        try? await pause(0.6)
+
+        // Cursor → the toolbar search button, click, bar expands.
+        let btn = CGPoint(x: size.width * 0.885, y: size.height * 0.035)
+        cursor = CGPoint(x: btn.x - 60, y: btn.y + 40)
+        await move(to: btn, over: 0.7)
+        pressed = true; try? await pause(0.15); pressed = false
+        openSearchHook?()
+        try? await pause(0.7)
+
+        // Type the query (drives the bound SearchState; the async matcher fills the dropdown).
+        let query = "coffee wed"
+        for i in 1...query.count {
+            search.query = String(query.prefix(i))
+            try? await pause(0.07)
+        }
+        try? await pause(1.4)
+        // Fly to the top hit (what Enter does), then close the bar.
+        if let hit = search.results.first {
+            engine.revealAndSelect(id: hit.id)
+        }
+        try? await pause(2.2)
+        search.reset()
+        try? await pause(0.5)
+    }
+
+    /// PROMOTE: a deadline mirrors onto a month track lane as a ghost bar.
+    private func scenePromote() async {
+        guard let engine else { return }
+        writeCrop(x: 0.0, y: 0.06, w: 1.0, h: 0.55)
+        engine.demoClearEvents()
+        let id = engine.createDeadline(year: engine.year, month: 6, day: 21, hour: 23.5,
+                                       title: "CFP deadline", color: "red")
+        engine.demoSelect(nil)
+        engine.setView(zoom: "month", focusedMonth: 6)
+        try? await pause(1.8)
+        signalReady()
+        await waitForGo()
+        try? await pause(0.9)
+
+        // Pulse over the Travel lane around day 21, then promote the deadline there.
+        cursor = CGPoint(x: size.width * 0.62, y: size.height * 0.245)
+        try? await pause(0.7)
+        pressed = true; try? await pause(0.16); pressed = false
+        try? await pause(0.4)
+        engine.setPromoteTrack(id, 3)   // ghost bar appears on the lane
+        try? await pause(2.6)
+    }
+
+    /// DAILY DASHBOARD: day view's TODO list — a click checks an item off (the note updates live).
+    private func sceneDailyDashboard() async {
+        guard let engine else { return }
+        writeCrop(x: 0.52, y: 0.0, w: 0.48, h: 1.0)
+        engine.demoClearEvents()
+        seedWeek()
+        let iso = String(format: "%04d-07-15", engine.year)
+        engine.setDailyNote(iso, "## Today\n- [ ] Review the draft\n- [ ] Email Alex\n- [x] Standup notes\n")
+        engine.jumpToDay(engine.year, 6, 15)
+        try? await pause(2.6)
+        signalReady()
+        await waitForGo()
+        try? await pause(0.8)
+
+        // Cursor over the first TODO row, click, and the checkbox flips (note rewritten through the engine).
+        let row = CGPoint(x: size.width * 0.70, y: size.height * 0.325)
+        cursor = CGPoint(x: row.x - 60, y: row.y + 50)
+        await move(to: row, over: 0.9)
+        pressed = true; try? await pause(0.16); pressed = false
+        engine.setDailyNote(iso, "## Today\n- [x] Review the draft\n- [ ] Email Alex\n- [x] Standup notes\n")
+        try? await pause(2.4)
+    }
+
     /// ── Benchmarks (CC_DEMO=bench-*: measure, don't record) ───────────────────────────────────
     /// Live FPS HUD toggle (works in ANY run: Xcode-attached, standalone, the signed app). Enable with the
     /// env var CC_FPS_HUD=1 (add it to the Xcode scheme) or `defaults write … cc.fpsHUD -bool YES`.
-    public static let hudEnabled = ProcessInfo.processInfo.environment["CC_FPS_HUD"] != nil
-        || UserDefaults.standard.bool(forKey: "cc.fpsHUD")
+    private static let envHUD = ProcessInfo.processInfo.environment["CC_FPS_HUD"] != nil
+    public static var hudEnabled: Bool { envHUD || UserDefaults.standard.bool(forKey: "cc.fpsHUD") }
     @ObservationIgnored private var hudRing: [Double] = [] // recent frame timestamps (HUD window)
 
     /// Per-frame hook from the render TimelineView (one evaluation = one rendered frame). A cheap no-op
