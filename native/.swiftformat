@@ -1,23 +1,42 @@
-# SwiftFormat config for the native Madocal codebase (CalendarKit + CalendarApp).
+# SwiftFormat config for the native MagiCal codebase (CalendarKit + CalendarApp).
+# Tool: swiftformat 0.62.x (brew install swiftformat)
 #
-# Run from native/:   swiftformat .        (brew install swiftformat)
+# Run from native/:   swiftformat .
 # Check only:         swiftformat --lint .
 #
-# IMPORTANT: the first full run touches nearly every file — do it as a single dedicated
-# commit on a quiet tree (no in-flight feature branches), never mixed with logic changes.
+# IMPORTANT: the first full run touches many files — do it as a single dedicated commit on a
+# quiet tree (no in-flight agent work), never mixed with logic changes. Tuned 2026-07-18 against
+# the real tree: the goal is mechanical consistency WITHOUT churning the house style below.
+#
+# House style this config deliberately preserves:
+#   • compact single-line bodies:  if x { y }   /   var p: Bool { q }
+#   • aligned trailing comments (aligned with consecutive spaces)
+#   • `//` comments everywhere (no auto-promotion to ///), long comment lines unwrapped
+#   • author-controlled line lengths and member ordering (documented `// ──` sections)
+#   • `case .x(let a)` pattern-let placement
 
 --swiftversion 5.10
 
 # ── Layout ─────────────────────────────────────────────────────────────────────
---maxwidth 110
 --indent 4
 --tabwidth 4
 --trimwhitespace always
 --stripunusedargs closure-only
+--maxwidth none                       # line length stays author-controlled (comment-dense code)
 
-# ── Keep the codebase's established idioms ─────────────────────────────────────
-# Heavily-commented single-line members and `// ──` section banners are load-bearing here;
-# disable rules that would churn them or fight the existing style.
+# ── Disabled: rules that fight the established idioms (counts from the 2026-07-18 lint) ──
+--disable wrapIfStatementBodies       # 1682 hits — single-line `if x { y }` is the house style
+--disable wrapFunctionBodies          #  447 — same for one-line funcs
+--disable wrapLoopBodies              #  162
+--disable wrapPropertyBodies          #  156
+--disable wrapIfExpressionBodies      #   52
+--disable consecutiveSpaces           # 1499 — aligned trailing comments are deliberate
+--disable docComments                 #  434 — `//` vs `///` is the author's call here
+--disable blankLinesBetweenScopes     #  375 — compact accessor clusters stay compact
+--disable wrapSingleLineComments      #   63 — long prose comments stay on one line
+--disable hoistPatternLet             #   46 — `case .x(let a)` stays as written
+--disable noForceUnwrapInTests        #   37 — tests force-unwrap deliberately
+--disable conditionalAssignment       #   23 — no auto if/else-expression rewrites
 --disable blankLinesAtStartOfScope    # some types intentionally open with a comment block
 --disable wrapMultilineStatementBraces
 --disable andOperator                 # `&&` vs `,` in guards left to the author
