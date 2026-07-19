@@ -15,7 +15,7 @@
 --swiftversion 5.10
 
 # ── Layout ─────────────────────────────────────────────────────────────────────
---maxwidth 110
+--maxwidth 120
 --indent 4
 --tabwidth 4
 --trimwhitespace always
