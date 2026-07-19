@@ -17,6 +17,55 @@
 
 import CalendarGeometry
 import SwiftUI
+#if canImport(AppKit)
+    import AppKit
+#else
+    import UIKit
+#endif
+
+/// Frame-to-frame cache of tail-truncated band titles (see drawBand): key = title + 1px width
+/// bucket → the "…"-suffixed string that fits. Measurement matches the render font exactly.
+@MainActor private var truncCache: [TruncKey: String] = [:]
+private struct TruncKey: Hashable {
+    let s: String
+    let w: Int
+}
+
+@MainActor private func truncatedTitle(_ s: String, width: CGFloat) -> String {
+    let key = TruncKey(s: s, w: Int(width))
+    if let hit = truncCache[key] {
+        return hit
+    }
+    if truncCache.count > 4096 {
+        truncCache.removeAll(keepingCapacity: true)
+    }
+    let out: String
+    if bandTitleWidth(s) <= width {
+        out = s
+    } else {
+        // Longest prefix whose "…"-suffixed width still fits (character-level tail truncation).
+        var lo = 0, hi = s.count
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if bandTitleWidth(String(s.prefix(mid)) + "…") <= width { lo = mid } else { hi = mid - 1 }
+        }
+        out = lo > 0 ? String(s.prefix(lo)) + "…" : "…"
+    }
+    truncCache[key] = out
+    return out
+}
+
+/// Width of a band-title string in the actual render font (mirrors BandSticker.titleWidth).
+private func bandTitleWidth(_ s: String) -> CGFloat {
+    #if canImport(AppKit)
+        let f = NSFont(name: BandStyle.titleFontName, size: BandStyle.titleSize)
+            ?? NSFont.systemFont(ofSize: BandStyle.titleSize)
+    #else
+        let f = UIFont(name: BandStyle.titleFontName, size: BandStyle.titleSize)
+            ?? UIFont.systemFont(ofSize: BandStyle.titleSize)
+    #endif
+    return (s as NSString).size(withAttributes: [.font: f]).width
+}
 
 /// Flat-rendering payload for a plain BAND sticker (mirrors BandSticker's Performance-Mode path).
 struct BandDraw {
@@ -100,12 +149,12 @@ struct CanvasSticker {
         }
         let titleMidY = y0 + (b.badges.isEmpty ? 0 : badgeH - 3) + tSize.height / 2
         if let clipW {
-            // Tail-truncated inside the width limit: the single-line-height rect leaves no room for a
-            // wrap, so layout truncates with the ellipsis (default .tail) exactly like the view's
-            // truncationMode(.tail).frame(width:).
-            layer.draw(Text(b.ev.title).font(font).foregroundStyle(theme.text),
-                       in: CGRect(x: rect.minX + lead, y: titleMidY - tSize.height / 2,
-                                  width: clipW, height: tSize.height))
+            // Tail-truncated inside the width limit. draw(Text, in:) would re-resolve the string
+            // EVERY frame (it bypasses the resolved-text cache) — ~0.4ms/f of text resolution in
+            // the swipe/fling profiles — so truncate once (cached) and draw the cached resolution.
+            let t = truncatedTitle(b.ev.title, width: clipW)
+            let rt = resolvedText(t, font, 0, theme.text, &layer)
+            layer.draw(rt, at: CGPoint(x: rect.minX + lead, y: titleMidY), anchor: .leading)
         } else {
             layer.draw(resolved, at: CGPoint(x: rect.minX + lead, y: titleMidY), anchor: .leading)
         }

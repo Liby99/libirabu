@@ -40,12 +40,30 @@ import SwiftUI
         CGRect(x: -Layout.padLeft, y: 0, width: Layout.labelW + Layout.padLeft, height: input.vp.h)
     }
 
+    /// Which slice of the below-events items to draw — the year-scroll layer cache splits the
+    /// scroll-RIGID content (recorded once, translated per frame) from the per-frame DYNAMIC
+    /// hover highlights (which move relative to the content as the pointer rests on it).
+    public enum BelowFilter {
+        case all // the classic single-pass path (non-year levels)
+        case rigid // everything except hover highlights — cacheable against a scroll-free input
+        case hoverOnly // just the hover highlights, drawn per frame from the live input
+    }
+
+    private static func inFilter(_ it: Item, _ f: BelowFilter) -> Bool {
+        switch f {
+        case .all: true
+        case .rigid: it.kind != .hl
+        case .hoverOnly: it.kind == .hl
+        }
+    }
+
     /// Below the events: content-region scene items (grid, washes, today, grid hover,
     /// day labels), clipped to the content area.
-    public static func drawBelow(input: SceneInput, in ctx: inout GraphicsContext, theme: Theme) {
+    public static func drawBelow(input: SceneInput, filter: BelowFilter = .all,
+                                 in ctx: inout GraphicsContext, theme: Theme) {
         var clipped = ctx; clipped.clip(to: Path(contentRect(input)))
         for it in buildScene(input).items.sorted(by: { $0.z < $1.z })
-            where it.opacity > 0.001 && !it.gutter && !isForeground(it.kind) {
+            where it.opacity > 0.001 && !it.gutter && !isForeground(it.kind) && inFilter(it, filter) {
             var layer = clipped; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
     }
@@ -72,16 +90,24 @@ import SwiftUI
         input: SceneInput,
         tracks: [[String]],
         hideTrack: (Int, Int)? = nil,
+        filter: BelowFilter = .all,
         in ctx: inout GraphicsContext,
         theme: Theme
     ) {
         let items = buildScene(input).items.sorted { $0.z < $1.z }
-        // gutter region: month name, hour labels, gutter borders, gutter hover + tracks
+        // gutter region: month name, hour labels, gutter borders, gutter hover + tracks.
+        // Under the year layer cache the RIGID slice (names, tracks, borders) records once against
+        // the scroll-free input; the hover strip stays in the per-frame dynamic pass.
         var gut = ctx; gut.clip(to: Path(gutterRect(input)))
-        for it in items where it.gutter && it.opacity > 0.001 {
+        for it in items where it.gutter && it.opacity > 0.001 && inFilter(it, filter) {
             var layer = gut; layer.opacity = Double(it.opacity); drawItem(it, into: &layer, theme: theme)
         }
-        drawTrackNames(input, tracks, hideTrack, &gut, theme)
+        if filter != .hoverOnly {
+            drawTrackNames(input, tracks, hideTrack, &gut, theme)
+        }
+        if filter == .rigid {
+            return // foreground (now/cursor), pulls, dashboard chrome + debug are per-frame
+        }
         // content region: now-line + mouse cursor. Widen a few px past the content edges so the
         // end-dots (r=4), centered exactly on the left/right boundaries, draw whole instead of halved.
         // (The cursor time tag is NOT here — it's a SwiftUI overlay, so it isn't clipped at the gutter.)
