@@ -1,4 +1,4 @@
-// The `.mdc` backup codec (MagiCal Calendar). A `.mdc` file is a DEFLATE zip whose layout mirrors the
+// The MagiCal backup codec (`.mgc`; legacy `.mdc` files are identical). A DEFLATE zip whose layout mirrors the
 // web app's data export (src/lib/backup.ts): a `manifest.json` + a `database.json` whose value is an
 // object keyed by table name, each an array of rows, with `Date` columns tagged `{"__bk":"date","v":ISO}`.
 // The web dumps all 32 Prisma tables; the native app owns only three — `calendarItem` (events/bands/

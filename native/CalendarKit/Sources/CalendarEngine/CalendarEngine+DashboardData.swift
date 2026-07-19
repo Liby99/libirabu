@@ -309,19 +309,22 @@ extension CalendarEngine {
         items.richById[overlayKey(id)]?.promoteTrack
     }
 
-    /// ⌘U / context-menu toggle: promote the timed event to `defaultPromoteLane` (topmost free lane
-    /// on its day), or clear an existing promotion. No-op for bands/deadlines-only ids.
+    /// ⌘U / context-menu toggle: promote the timed event OR deadline to `defaultPromoteLane` (topmost
+    /// free lane on its day), or clear an existing promotion. No-op for band ids (already on a lane).
     public func togglePromote(_ boxId: String) {
         let sid = sourceId(of: boxId)
-        guard event(sid) != nil else { return }
+        guard event(sid) != nil || deadline(sid) != nil else { return }
         setPromoteTrack(sid, promoteTrack(sid) == nil ? defaultPromoteLane(for: sid) : nil)
     }
 
-    /// The topmost band lane with nothing on the event's day; every lane taken → lane 0.
+    /// The topmost band lane with nothing on the item's day; every lane taken → lane 0.
     public func defaultPromoteLane(for boxId: String) -> Int {
-        guard let e = event(sourceId(of: boxId)) else { return 0 }
+        let sid = sourceId(of: boxId)
+        let ymd: (y: Int, m: Int, d: Int)? = event(sid).map { ($0.year, $0.month, $0.day) }
+            ?? deadline(sid).map { ($0.year, $0.month, $0.day) }
+        guard let (y, m, d) = ymd else { return 0 }
         var used = Set<Int>()
-        for b in bandsInMonth(e.year, e.month) where b.startDay <= e.day && b.endDay >= e.day {
+        for b in bandsInMonth(y, m) where b.startDay <= d && b.endDay >= d {
             used.insert(b.track)
         }
         return (0 ..< TRACKS.count).first { !used.contains($0) } ?? 0

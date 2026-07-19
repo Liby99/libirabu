@@ -68,8 +68,10 @@ public enum MenuWindow: Sendable { case assistant, help, settings }
     }
 
     public static func importMDC(_ engine: CalendarEngine) {
+        // .mgc = MaGiCal backup (current); .mdc = the legacy MaDoCal name; .zip = the web export.
+        let mgc = UTType(filenameExtension: "mgc") ?? .data
         let mdc = UTType(filenameExtension: "mdc") ?? .data
-        guard let url = openPanel([mdc, .zip]) else { return }
+        guard let url = openPanel([mgc, mdc, .zip]) else { return }
         let a = NSAlert()
         a.messageText = "Replace all calendar data?"
         a.informativeText = "Importing “\(url.lastPathComponent)” replaces your current events, deadlines, notes, and track names with the backup’s contents. You can undo this with ⌘Z."
@@ -83,8 +85,8 @@ public enum MenuWindow: Sendable { case assistant, help, settings }
 
     public static func exportMDC(_ engine: CalendarEngine) {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "mdc") ?? .data]
-        panel.nameFieldStringValue = "MagiCal-\(isoDayString()).mdc"
+        panel.allowedContentTypes = [UTType(filenameExtension: "mgc") ?? .data]
+        panel.nameFieldStringValue = "MagiCal-\(isoDayString()).mgc"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do { try engine.exportMDC(to: url) }

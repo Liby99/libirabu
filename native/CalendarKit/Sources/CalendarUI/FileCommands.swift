@@ -1,5 +1,5 @@
 // Contents of the macOS "File" menu (hosted by the app via `CommandGroup(replacing: .importExport)`):
-// import an `.ics` calendar file, and import/export a `.mdc` backup (a zip mirroring the web app's data
+// import an `.ics` calendar file, and import/export a `.mgc` backup (a zip mirroring the web app's data
 // export — see MDCBackup). Panels + alerts are AppKit; the actual work lives on the engine.
 
 import SwiftUI

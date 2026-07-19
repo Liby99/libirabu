@@ -555,11 +555,11 @@ public enum HelpContent {
             ),
             HelpTopic(
                 id: "backup", title: "Back up & restore",
-                summary: "Save everything to a .mdc file, or restore from one.",
-                keywords: ["backup", "restore", "export", "mdc", "archive", "save"],
+                summary: "Save everything to a .mgc file, or restore from one.",
+                keywords: ["backup", "restore", "export", "mgc", "mdc", "archive", "save"],
                 blocks: [
                     .paragraph(
-                        "Export a complete backup of your calendar — events, deadlines, notes, and track names — to a single .mdc file, and restore from it later or on another Mac."
+                        "Export a complete backup of your calendar — events, deadlines, notes, and track names — to a single .mgc file, and restore from it later or on another Mac (legacy .mdc and web .zip backups import too)."
                     ),
                     .paragraph(
                         "Restoring replaces your current data with the backup's contents; MagiCal warns you first, and ⌘Z can undo it."
