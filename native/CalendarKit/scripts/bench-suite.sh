@@ -26,3 +26,12 @@ CONFIG=release SCENE=bench-year-fling PAYLOAD=dump PROF=1 HOVER=1 ./scripts/benc
 echo ""
 echo "=== last suite lines for '$BRANCH' (bench/results.log) ==="
 grep -F "[$BRANCH|" bench/results.log | tail -8
+# Environment sanity gate: p50 should be 8.33 ms (120 Hz cadence). A run at p50 16.67 means the
+# display cadence was halved (machine busy / window occluded / power state) — numbers from that
+# run are NOT comparable to a clean baseline. Warn loudly rather than silently logging junk.
+BAD=$(grep -F "[$BRANCH|" bench/results.log | tail -$((REPS + 1)) | grep -cv "p50 8.33" || true)
+if [ "$BAD" -gt 0 ]; then
+  echo ""
+  echo "⚠️  $BAD of the last $((REPS + 1)) runs have p50 ≠ 8.33 ms — degraded environment (60 Hz cadence?)."
+  echo "    Close heavy apps / keep the bench window frontmost and RERUN before comparing branches."
+fi
