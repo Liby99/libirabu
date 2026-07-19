@@ -92,6 +92,7 @@ public struct TagFilterPopover: View {
         }
         .padding(12)
         .frame(width: 280)
+        .tint(Theme.accent) // app accent on the checkboxes + buttons (default was system blue)
         .onAppear { searchFocused = true }
     }
 
