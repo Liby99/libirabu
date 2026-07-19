@@ -222,7 +222,7 @@ struct EventContextCallout: View {
             if !imported {
                 row("Repeat…", icon: "repeat", key: nil, action: actions.repeatCfg)
             }
-            if kind == .timed { // promote is an overlay, so imported timed events can too
+            if kind == .timed || kind == .deadline { // promote is an overlay (imported timed events too)
                 row(promoted ? "Unpromote" : "Promote", icon: promoted ? "arrow.uturn.down" : "arrow.up.to.line",
                     key: "⌘U", action: actions.promote)
             }

@@ -13,7 +13,7 @@
 import CalendarEngine
 import SwiftUI
 
-private let accent = Theme.accent
+private var accent: Color { Theme.accent }
 
 public struct SettingsView: View {
     public init() {}
@@ -237,8 +237,50 @@ private struct AppearanceTab: View {
                 Text("“Automatic” follows your macOS system setting. Light and Dark override it for this app only.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Accent Color") {
+                AccentColorRows()
+            }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// The accent picker: the default on its own row, the alternatives on a second row.
+private struct AccentColorRows: View {
+    @State private var selected: UInt32 = AccentPref.hex
+
+    var body: some View {
+        HStack(spacing: 10) {
+            swatch(AccentPref.defaultHex)
+            Text("MagiCal Red")
+            Text("default").font(.caption).foregroundStyle(.secondary)
+            Spacer()
+        }
+        HStack(spacing: 12) {
+            ForEach(AccentPref.alternatives, id: \.hex) { opt in
+                swatch(opt.hex).help(opt.name)
+            }
+            Spacer()
+        }
+        Text("Colors the now-line, today pill, selection, and controls across the app.")
+            .font(.caption).foregroundStyle(.secondary)
+    }
+
+    private func swatch(_ hex: UInt32) -> some View {
+        Button {
+            selected = hex
+            AccentPref.set(hex)
+        } label: {
+            ZStack {
+                Circle().fill(Color(hex: hex)).frame(width: 22, height: 22)
+                if selected == hex {
+                    Circle().strokeBorder(Color.primary.opacity(0.85), lineWidth: 2)
+                        .frame(width: 28, height: 28)
+                }
+            }
+            .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
     }
 }
 

@@ -48,6 +48,12 @@ struct ConversationView: View {
             .scrollContentBackground(.hidden)
             .onChange(of: state.messages.count) { _, _ in scrollDown(proxy) }
             .onChange(of: state.messages.last?.text) { _, _ in scrollDown(proxy) }
+            // Opening the popover/window always lands on the LATEST message. Deferred a tick so the
+            // list has laid out (an onAppear scroll on unmeasured content is a no-op), and unanimated —
+            // it should simply open at the bottom, not visibly scroll there.
+            .onAppear {
+                DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
         }
     }
 
@@ -298,8 +304,11 @@ struct ConversationView: View {
     // internally beyond that. Enter sends; Shift+Enter inserts a newline.
     @State private var editorHeight: CGFloat = 20
     private var maxEditorHeight: CGFloat {
-        6 * 18
-    } // ~6 lines before the inner scroll takes over
+        3.5 * 18
+    } // ~3.5 lines before the inner scroll takes over
+    /// Half the RESTING (single-line) pill height: editor 20 + 9pt vertical padding × 2 = 38. The corner
+    /// radius stays at this constant as the box grows — a Capsule would re-round to half the LIVE height.
+    private let pillRadius: CGFloat = 19
 
     private var composer: some View {
         HStack(alignment: .center, spacing: 6) { // center → send stays inside the pill's rounded cap
@@ -327,10 +336,13 @@ struct ConversationView: View {
         }
         .padding(.trailing, 6) // inset so the send circle sits comfortably inside the pill's edge
         .animation(.easeOut(duration: 0.12), value: editorHeight)
-        // Frosted-glass pill (radius = half the height, so it stays a pill as it grows) + soft shadow.
-        // Translucent material lets the surface behind blur through, rather than a solid fill.
+        // Sending clears the draft → snap the editor back to its single-line resting height (the height
+        // report from the emptied text view isn't reliable enough on its own).
+        .onChange(of: state.draft) { _, v in if v.isEmpty { editorHeight = 20 } }
+        // Frosted glass with a FIXED radius (half the resting height): the box keeps its resting curvature
+        // as it grows into multiple lines instead of re-rounding like a capsule would.
         .background {
-            Capsule(style: .continuous)
+            RoundedRectangle(cornerRadius: pillRadius, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 1.5)
         }

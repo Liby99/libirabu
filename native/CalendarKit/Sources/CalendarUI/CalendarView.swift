@@ -178,6 +178,10 @@ public struct CalendarView: View {
         WindowBeepSilencer.installOnce() // stop the window beeping on keys the calendar leaves unhandled
         if CalendarEngine.isDemoMode {
             demo.openSearchHook = { openSearch() }   // search-demo scene drives the real toolbar search
+            demo.eventMenuHook = { id, r in ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: r) }
+            demo.dashTodoFocusHook = { dashCarousel.navFocus(.todo) }
+            demo.dashTodoToggleHook = { dashCarousel.navActivate() }
+            demo.closeEventMenuHook = { ui.eventMenu = nil }
             demo.searchState = search
             demo.startIfDemo(engine: engine, size: size)
         } // GIF recording session
@@ -638,8 +642,8 @@ public struct CalendarView: View {
                         }
                     }
                     .overlay {
-                        DemoCursorOverlay(demo: demo)
-                    } // synthetic pointer during a GIF recording (no-op otherwise)
+                        if !demo.cursorPanelUp { DemoCursorOverlay(demo: demo) }
+                    } // synthetic pointer during a GIF recording (panel-hosted when possible; no-op otherwise)
                     // Live frame-rate HUD (Settings ▸ Developer, or CC_FPS_HUD=1) — measures THIS run,
                     // whatever it is: Xcode-attached, standalone, or the signed app. Reads the render
                     // loop's own tick. @AppStorage so the Settings toggle applies live.

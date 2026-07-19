@@ -90,7 +90,7 @@ struct MarkdownWebEditor: NSViewRepresentable {
         [
             "--accent-dark": cssColor(theme.text),
             "--accent-grey": cssColor(theme.accentGrey),
-            "--highlight": "#ff3b6b",
+            "--highlight": String(format: "#%06x", AccentPref.hex), // follows Settings ▸ Accent Color
             "color-scheme": theme.dark ? "dark" : "light",
         ]
     }

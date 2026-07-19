@@ -230,7 +230,7 @@ public enum HelpContent {
                     .paragraph(
                         "Check items off directly in the To-Do tab; they stay in sync with the notes they came from."
                     ),
-                ]
+                ], gif: "daily-dashboard"
             ),
         ]
     )
@@ -280,7 +280,7 @@ public enum HelpContent {
                 .tip(
                     "A single click selects an event (and lets you type a new title); double-click opens the full drawer."
                 ),
-            ]
+            ], gif: "edit-drawer"
         ),
         HelpTopic(
             id: "move-resize", title: "Move or resize an event",
@@ -293,7 +293,7 @@ public enum HelpContent {
                     "Resize a band — drag its left or right end to change the day range.",
                 ]),
                 .tip("Made a mistake? ⌘Z undoes the last move or resize."),
-            ]
+            ], gif: "move-resize"
         ),
         HelpTopic(
             id: "delete-event", title: "Delete an event",
@@ -321,7 +321,7 @@ public enum HelpContent {
                     "Skip one date — delete that single occurrence; the rest of the series stays.",
                     "Change the series — edit the event and the change applies to every occurrence.",
                 ]),
-            ]
+            ], gif: "recurring"
         ),
     ])
 
@@ -343,7 +343,7 @@ public enum HelpContent {
                     "Click the “+” that appears near the day's edge to create a deadline there.",
                     "Give it a title and set the exact due time in its drawer.",
                 ]),
-            ]
+            ], gif: "deadline-add"
         ),
         HelpTopic(
             id: "aoe", title: "Anywhere-on-Earth & time zones",
@@ -418,7 +418,7 @@ public enum HelpContent {
                 .paragraph(
                     "A deadline or timed event can be “promoted” to a track so it also shows as a ghost bar on that lane — handy for seeing a submission date in the month overview without duplicating it. Set the promote lane in the event's drawer."
                 ),
-            ]
+            ], gif: "promote"
         ),
     ])
 
@@ -613,7 +613,7 @@ public enum HelpContent {
                 ]),
                 .paragraph("Use ↑ / ↓ to move through results and Return to jump to the selected event."),
             ],
-            shortcuts: [.init("⌘F", "Search")]
+            shortcuts: [.init("⌘F", "Search")], gif: "search-demo"
         ),
         HelpTopic(
             id: "undo", title: "Undo & redo",

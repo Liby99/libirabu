@@ -8,10 +8,39 @@ import AppKit
 import CalendarGeometry
 import SwiftUI
 
+/// The user-selectable accent (Settings ▸ Appearance). Cached so the per-render Theme builds
+/// never touch UserDefaults; `set` persists, updates the cache, and posts the view-prefs
+/// notification (→ engine.viewPrefsChanged → repaint).
+enum AccentPref {
+    static let key = "cc.accentHex"
+    static let defaultHex: UInt32 = 0xFF3B6B // MagiCal red
+    /// The alternatives row in Settings (name, hex).
+    static let alternatives: [(name: String, hex: UInt32)] = [
+        ("Blue", 0x007AFF),          // Apple system blue
+        ("Purple", 0xAF52DE),
+        ("Red", 0xD70015),           // big red
+        ("Pink", 0xFF2D55),
+        ("Orange", 0xFF9500),
+        ("Forest Green", 0x0E8A3E),  // saturated forest green
+        ("Cyan Blue", 0x32ADE6),     // cyan-leaning blue
+    ]
+    nonisolated(unsafe) private static var cached: UInt32 = {
+        let v = UserDefaults.standard.integer(forKey: key)
+        return v == 0 ? defaultHex : UInt32(truncatingIfNeeded: v)
+    }()
+
+    static var hex: UInt32 { cached }
+    static func set(_ h: UInt32) {
+        cached = h
+        UserDefaults.standard.set(Int(h), forKey: key)
+        NotificationCenter.default.post(name: .calendarViewPrefsChanged, object: nil)
+    }
+}
+
 struct Theme {
-    /// The app-wide red accent (now-line, selection pills, send button, …).
-    /// SINGLE source of truth — never hardcode 0xff3b6b elsewhere.
-    static let accent = Color(hex: 0xFF3B6B)
+    /// The app-wide accent (now-line, selection pills, send button, …). User-selectable in
+    /// Settings ▸ Appearance; SINGLE source of truth — never hardcode an accent hex elsewhere.
+    static var accent: Color { Color(hex: AccentPref.hex) }
 
     let dark: Bool // only affects the event palette; structural colors are system-native
 

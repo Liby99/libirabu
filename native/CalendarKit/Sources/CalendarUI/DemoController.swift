@@ -38,6 +38,11 @@ public final class DemoController {
     @ObservationIgnored var eventMenuHook: ((String, CGRect) -> Void)?
     @ObservationIgnored var closeEventMenuHook: (() -> Void)?
 
+    // daily-dashboard scene hooks (wired by CalendarView): drive the dashboard webview's REAL todo
+    // toggle — keyboard-focus the first row, then activate it (check animation + strike-through + persist).
+    @ObservationIgnored var dashTodoFocusHook: (() -> Void)?
+    @ObservationIgnored var dashTodoToggleHook: (() -> Void)?
+
     // search-demo scene hooks (wired by CalendarView.setupOnAppear): open the toolbar search bar, and the
     // live SearchState the field binds to — the scene types into it and reads the results.
     @ObservationIgnored var openSearchHook: (() -> Void)?
@@ -756,13 +761,16 @@ public final class DemoController {
         await waitForGo()
         try? await pause(1.0)
 
-        // Cursor over the first TODO row, click, and its checkbox flips (note rewritten via the engine).
-        let row = CGPoint(x: size.width * 0.70, y: size.height * 0.335)
-        cursor = CGPoint(x: row.x - 60, y: row.y + 50)
+        // Cursor onto the FIRST row's checkbox, then the webview's real toggle path — focus the row and
+        // activate it, so the genuine check animation + strike-through plays and the note persists.
+        _ = iso
+        let row = CGPoint(x: size.width * 0.452, y: size.height * 0.414 - 35)
+        cursor = CGPoint(x: row.x - 70, y: row.y + 60)
         await move(to: row, over: 0.9)
+        dashTodoFocusHook?()
+        try? await pause(0.6)
         pressed = true; try? await pause(0.16); pressed = false
-        engine.setDailyNote(iso, note.replacingOccurrences(
-            of: "- [ ] Review the draft", with: "- [x] Review the draft"))
+        dashTodoToggleHook?()
         try? await pause(2.2)
     }
 
