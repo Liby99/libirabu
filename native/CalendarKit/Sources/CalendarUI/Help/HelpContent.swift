@@ -381,12 +381,16 @@ public enum HelpContent {
         HelpTopic(
             id: "tags", title: "Tag your events",
             summary: "Add tags in the drawer to label and find events.",
-            keywords: ["tags", "labels", "categorize", "hashtag"],
+            keywords: ["tags", "labels", "categorize", "hashtag", "filter"],
             blocks: [
                 .paragraph(
                     "Add tags to an event under Configuration in its drawer. Tags are searchable — type a tag in the search bar (⌘F) to pull up everything you've labeled that way."
                 ),
-            ]
+                .paragraph(
+                    "To declutter the calendar by tag, open the tag filter (the tag button in the toolbar, View ▸ Filter by Tags…, or ⌘G) and un-check the tags you want hidden. An event stays visible while ANY of its tags is still on."
+                ),
+            ],
+            shortcuts: [.init("⌘G", "Toggle the tag filter")]
         ),
         HelpTopic(
             id: "notes-todos", title: "Notes & to-do lists",
@@ -514,8 +518,12 @@ public enum HelpContent {
                     .paragraph(
                         "When you're signed in to iCloud, MagiCal keeps your events, deadlines, notes, and track names in sync across your Macs automatically. You can see the current status in Settings ▸ Account."
                     ),
+                    .paragraph(
+                        "Sync runs on its own, but you can nudge it any time with Connectivity ▸ Sync Now (⌘R) — that also re-imports your Apple Calendar events."
+                    ),
                     .tip("Sync status and the time of the last sync also appear in the toolbar's status menu."),
-                ]
+                ],
+                shortcuts: [.init("⌘R", "Sync now")]
             ),
             HelpTopic(
                 id: "apple-calendar", title: "Show your Apple Calendar events",

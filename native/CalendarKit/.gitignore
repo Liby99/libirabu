@@ -6,3 +6,4 @@ DerivedData/
 
 # webeditor build tooling (bundle output IS committed under Sources/CalendarUI/Resources/editor)
 webeditor/node_modules/
+build/

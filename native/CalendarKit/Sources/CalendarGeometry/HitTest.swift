@@ -11,7 +11,7 @@ public func monthNameAtPoint(_ px: CGFloat, _ py: CGFloat, _ g: SceneInput) -> I
         return nil
     }
     for m in 0 ..< 12 {
-        let f = yearFrame(m, g.vp, g.scrollY)
+        let f = yearFrame(m, g.vp, g.scrollY, qx: g.qx(m))
         if py >= f.bandY && py <= f.bandY + 4 * f.trackH {
             return m
         }
@@ -22,7 +22,7 @@ public func monthNameAtPoint(_ px: CGFloat, _ py: CGFloat, _ g: SceneInput) -> I
 /// Year: which month is under the cursor (anywhere in its band).
 public func monthAtPoint(_ px: CGFloat, _ py: CGFloat, _ g: SceneInput) -> Int? {
     for m in 0 ..< 12 {
-        let f = yearFrame(m, g.vp, g.scrollY)
+        let f = yearFrame(m, g.vp, g.scrollY, qx: g.qx(m))
         let dim = daysInMonth(g.year, m)
         if py >= f.bandY && py <= f.bandY + 4 * f.trackH && px >= f.x0 && px <= f.x0 + CGFloat(dim) * f
             .dayW {
@@ -34,7 +34,7 @@ public func monthAtPoint(_ px: CGFloat, _ py: CGFloat, _ g: SceneInput) -> Int? 
 
 /// Month: which (Sunday-aligned) week of the focused month is under the cursor.
 public func weekAtPointInMonth(_ px: CGFloat, _ g: SceneInput) -> Int? {
-    let geo = focusGeom(g.vp)
+    let geo = focusGeom(g.vp, mx: g.monthQX)
     let dim = daysInMonth(g.year, g.focus)
     if px < geo.x0 || px > geo.x0 + CGFloat(dim) * geo.dayW {
         return nil
@@ -50,7 +50,7 @@ public func monthRowAtPoint(_ px: CGFloat, _ py: CGFloat, _ g: SceneInput) -> In
         return nil
     }
     for m in 0 ..< 12 {
-        let f = yearFrame(m, g.vp, g.scrollY)
+        let f = yearFrame(m, g.vp, g.scrollY, qx: g.qx(m))
         let dim = daysInMonth(g.year, m)
         if py >= f.bandY && py <= f.bandY + 4 * f.trackH && px <= f.x0 + CGFloat(dim) * f.dayW {
             return m
@@ -61,7 +61,7 @@ public func monthRowAtPoint(_ px: CGFloat, _ py: CGFloat, _ g: SceneInput) -> In
 
 /// Year (hover): day-of-month under the cursor within month m's band.
 public func domInMonthBand(_ px: CGFloat, _ m: Int, _ g: SceneInput) -> Int? {
-    let f = yearFrame(m, g.vp, g.scrollY)
+    let f = yearFrame(m, g.vp, g.scrollY, qx: g.qx(m))
     let dim = daysInMonth(g.year, m)
     if px < f.x0 || px > f.x0 + CGFloat(dim) * f.dayW {
         return nil
@@ -71,7 +71,7 @@ public func domInMonthBand(_ px: CGFloat, _ m: Int, _ g: SceneInput) -> Int? {
 
 /// Month (hover): day-of-month under the cursor in the focused month.
 public func domInFocus(_ px: CGFloat, _ g: SceneInput) -> Int? {
-    let geo = focusGeom(g.vp)
+    let geo = focusGeom(g.vp, mx: g.monthQX)
     let dim = daysInMonth(g.year, g.focus)
     if px < geo.x0 || px > geo.x0 + CGFloat(dim) * geo.dayW {
         return nil

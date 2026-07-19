@@ -48,6 +48,9 @@ public final class AssistantState {
     }
 
     @ObservationIgnored private var blockedState: BlockedState?
+    /// Calls the user explicitly approved via a blocked card's "Allow" this conversation — fed to
+    /// later audits (trusted: a real click) so near-identical follow-ups aren't re-blocked each.
+    @ObservationIgnored private var allowedOverrides: [String] = []
 
     /// The model configured for the ACTIVE provider (Settings ▸ API Keys ▸ Supported LLMs).
     private var model: String { ProviderStore.activeModel }
@@ -173,8 +176,8 @@ public final class AssistantState {
             let args = JSONValue.parse(call.function.arguments)
 
             if !tool.readOnly, !(bypassFirstAudit && i == startAt) {
-                let verdict = await Auditor.audit(userTurns: userTurns(), call: call,
-                                                  engine: engine, model: model)
+                let verdict = await Auditor.audit(userTurns: userTurns(), userAllowed: allowedOverrides,
+                                                  call: call, engine: engine, model: model)
                 if Task.isCancelled {
                     return .halted
                 }
@@ -224,6 +227,10 @@ public final class AssistantState {
     func allowBlocked(_ turnId: UUID) {
         guard let bs = blockedState, !busy else { return }
         blockedState = nil
+        // Remember the override: later audits see what the user already approved, so a batch of
+        // near-identical edits doesn't demand one "Allow" per item.
+        let call = bs.calls[bs.index]
+        allowedOverrides.append("\(call.function.name)(\(call.function.arguments))")
         if let i = messages.firstIndex(where: { $0.id == turnId }) {
             messages[i].blockedReq?.status = .allowed
         }
@@ -381,6 +388,7 @@ public final class AssistantState {
         guard id != currentId else { return }
         task?.cancel(); task = nil
         resumeWire = nil; blockedState = nil; busy = false
+        allowedOverrides = [] // approvals are per conversation
         persistCurrent()
         if let id, let convo = conversations.first(where: { $0.id == id }) {
             messages = Self.sanitized(convo.turns)
@@ -493,8 +501,12 @@ public final class AssistantState {
             "- Colors are personal. Before choosing one, read the user's existing similar events with list_events and reuse their color/tags; don't guess. Palette: default, red, orange, yellow, green, blue, purple.",
             "- Conference CFP deadlines are almost always Anywhere-on-Earth: create a 'deadline' with originTz:\"AOE\" due 23:59 on the date.",
             "- Finding an event: search across ALL kinds (omit `kind` in list_events). A 'deadline' the user names may actually be stored as a timed or all-day (band) event — don't conclude it doesn't exist just because it isn't a 'deadline'.",
-            "- Event kinds: a deadline (a due-moment) and a timed event (hourly) carry TIME; a band is an all-day, multi-day bar on a monthly track lane. Deadline/timed are the single source of truth — they have finer info. Do NOT create a separate all-day band just to make a deadline/timed event show on a monthly track: instead PROMOTE it — set promoteTrack to a lane 1–4 and it mirrors there as a ghost band. If you find a duplicate all-day band that just mirrors an existing deadline/timed event, delete the band and promote the deadline/timed instead (no duplicates).",
-            "- Choosing the promote lane: call get_tracks and match the lane NAME to the event's topic (e.g. a paper-submission deadline in a month whose lane 3 is 'research' → promoteTrack 3).",
+            "- Event kinds: a deadline (a due-moment) and a timed event (hourly) carry TIME; a band is an all-day, multi-day bar on a monthly track lane. Deadline/timed are the single source of truth — they have finer info. Do NOT create a separate all-day band that merely mirrors a deadline/timed event (no duplicates).",
+            "- Promotion (promoteTrack — mirroring a deadline/timed event onto a monthly track lane as a ghost band) is strictly OPT-IN: NEVER set promoteTrack unless the user explicitly asks to promote/pin items to a track or a saved memory says to. Creating events plain is the default. If the user asks to un-promote, clear promoteTrack.",
+            "- When the user DOES ask to promote: call get_tracks and match the lane NAME to the event's topic (e.g. a paper-submission deadline in a month whose lane 3 is 'research' → promoteTrack 3).",
+            "- Timezones: when a source states times in a specific zone (a Japanese broadcast at 24:00 JST, a conference CfP in AOE), pass `timezone` (IANA id like Asia/Tokyo, or AOE) with date/start/end AS THAT ZONE'S OWN WALL CLOCK. NEVER convert to the user's zone yourself — conversion is error-prone and destroys the original time; the calendar anchors the item to its zone and converts for display automatically. Japanese late-night notation ≥24:00 rolls into the next date (25:30 Sun → 01:30 Mon; 24:00 Sun → 00:00 Mon).",
+            "- The `notes` field is MARKDOWN, rendered in the event drawer. Write real multi-line Markdown (headings, lists, links); newlines are ordinary JSON string newlines — NEVER write a literal backslash-n sequence in the text.",
+            "- Tag every item you create: 2–3 short lowercase tags covering topic and life-area (e.g. anime, entertainment, life; research, deadline-work). Reuse the user's existing tag vocabulary when list_events/get_event shows tags on similar items, instead of inventing near-duplicates.",
             "- Track numbering is 1-BASED, top to bottom: track 1 is the topmost lane, track 4 the bottom. When the user says 'the 3rd track' or 'track 3' they mean track 3 in the tools — never shift by one. Lane NAMES vary per month (get_tracks), so match by name when the user gives a name, by number when they give a number.",
             "- Memory: when you learn a DURABLE, GENERAL fact (a color/tag convention, a contact's details, a default, a standing constraint), call remember so future sessions reuse it. Don't memorize one-off chatter, single events, or things already in the calendar. If a remembered fact is wrong or the user corrects it, call remember with the same key to update it, or forget to drop it.",
             "- To add a TODO, put a markdown checkbox in an event's notes with DSL tokens, e.g. `- [ ] submit abstract due:2026-07-01 p:!! #paper-submission @project:foo start:2026-06-15`. Priority MUST use the `p:` prefix with bang-count for the level — `p:!` (low) … `p:!!!` (high) … `p:!!!!!` (top); bare `!!!` is NOT a priority. Other tokens: `due:YYYY-MM-DD` (accepts `today`/`tomorrow`/`3d`/`5pm`), `start:` (defer until), `#tag`, `@person` / `@project:slug`, `followup:30d` (off the event's end). Use real markdown links [label](url).",

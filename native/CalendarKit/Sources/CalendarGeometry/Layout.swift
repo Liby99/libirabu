@@ -7,8 +7,13 @@ public enum Layout {
     // Month/week/day top padding: the band's resting Y (the date row sits at bandY-20).
     // The year→month accordion lands the band here, so this animates smoothly (no jump);
     // year view is unaffected (it uses yearTop). Raise to move month content clear of the toolbar.
-    public static let topPad: CGFloat = 78
-    public static let yearTop: CGFloat = 44 // year view top inset (no date row up there)
+    // Month/week/day content top inset. Write-once-at-launch like labelW: desktop keeps 78
+    // (clear of the transparent titlebar toolbar); the phone shrinks it — no top chrome there.
+    public static nonisolated(unsafe) var topPad: CGFloat = 78
+    // Year view top inset (no date row up there). Write-once-at-launch like labelW: the
+    // desktop keeps 44 (clear of the transparent titlebar); the phone shrinks it — its
+    // chrome floats at the BOTTOM, so the year grid starts right under the status bar.
+    public static nonisolated(unsafe) var yearTop: CGFloat = 44
     public static let yearFlipOver: CGFloat = 30 // on-screen overscroll (px) that arms a year flip
 
     // Emphasized band-edge borders — thicker + more solid than the internal dividers. Shared
@@ -26,9 +31,32 @@ public enum Layout {
     public static let hlStrong: CGFloat = 0.08 // fine: hovered day / hour cell
     public static let weekendWashOpacity: CGFloat = 0.03 // toned down to match the hover feel
     public static let barH: CGFloat = 32 // top nav bar height
-    public static let bottomPad: CGFloat = 28 // breathing room below year content
-    public static let labelW: CGFloat = 250 // left gutter width
-    public static let mnameW: CGFloat = 28 // rotated month-name zone within the gutter
+    // Breathing room below year content. Write-once-at-launch like labelW: desktop keeps 28;
+    // the phone raises it so the last quarter can scroll clear of the floating glass toolbar.
+    public static nonisolated(unsafe) var bottomPad: CGFloat = 28
+    /// Left gutter width (track names + month name). A `var` with a write-once-at-launch
+    /// contract: the desktop keeps 250; the iPhone app narrows it before the first render
+    /// (a 250pt gutter would eat most of a 402pt portrait screen). Never mutate after
+    /// startup — every cached geometry/scene assumes it is constant.
+    public static nonisolated(unsafe) var labelW: CGFloat = 250
+    /// Minimum year-view day-cell width. 0 on desktop (cells always fit the window); the
+    /// iPhone sets 26 so cells stay legible and each QUARTER overflows into its own
+    /// horizontal scroll (SceneInput.yearQX). Same write-once-at-launch contract as labelW.
+    public static nonisolated(unsafe) var yearMinDayW: CGFloat = 0
+
+    /// True when the gutter is collapsed to just the rotated month name (the phone).
+    /// Year-view chrome adapts: month-name cells get full-width top/bottom rules and the
+    /// quarter gutter rule spans the whole (tiny) gutter instead of stopping at rightPad.
+    public static var isCompactGutter: Bool { labelW <= mnameW + 0.5 }
+    // Rotated month-name zone within the gutter. Write-once-at-launch: the phone sets it
+    // equal to its (slightly wider) labelW so the compact gutter is all name zone — wide
+    // enough for the month timeline's in-gutter hour labels ("9AM").
+    public static nonisolated(unsafe) var mnameW: CGFloat = 28
+    /// Height reserved for the floating bottom toolbar (phone; 0 on desktop). The month/week
+    /// timeline bottoms out above it: tlBottom = vp.h − 8 − bottomBarH.
+    public static nonisolated(unsafe) var bottomBarH: CGFloat = 0
+    /// The timeline's bottom edge for a viewport — single source for scene + hit-testing.
+    public static func tlBottomY(_ vpH: CGFloat) -> CGFloat { vpH - 8 - bottomBarH }
     public static let rightPad: CGFloat = 24 // gap between gutter editor and day grid
     public static let trackH: CGFloat = 40 // fixed lane height (room for 13pt labels)
     public static let monthH: CGFloat = trackH * 4 // a month band = 4 lanes
@@ -39,7 +67,9 @@ public enum Layout {
     // Global insets for the whole calendar. The geometry works in a viewport shrunk
     // by padLeft+padRight; the render is translated right by padLeft (so x=0 in
     // geometry space lands padLeft px from the window's left edge).
-    public static let padLeft: CGFloat = 20
+    // padLeft shares labelW's write-once-at-launch contract: desktop keeps 20, the
+    // iPhone app zeroes it before the first render (month names flush to the edge).
+    public static nonisolated(unsafe) var padLeft: CGFloat = 20
     public static let padRight: CGFloat = 0
 }
 

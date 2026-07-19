@@ -12,7 +12,7 @@
 import CalendarGeometry
 import SwiftUI
 
-@MainActor enum SceneRenderer {
+@MainActor public enum SceneRenderer {
     // The renderer draws three Canvas passes; the frosted gutter/dashboard masks are
     // SwiftUI material views layered BETWEEN drawMid and drawAbove (see CalendarView).
     //
@@ -42,7 +42,7 @@ import SwiftUI
 
     /// Below the events: content-region scene items (grid, washes, today, grid hover,
     /// day labels), clipped to the content area.
-    static func drawBelow(input: SceneInput, in ctx: inout GraphicsContext, theme: Theme) {
+    public static func drawBelow(input: SceneInput, in ctx: inout GraphicsContext, theme: Theme) {
         var clipped = ctx; clipped.clip(to: Path(contentRect(input)))
         for it in buildScene(input).items.sorted(by: { $0.z < $1.z })
             where it.opacity > 0.001 && !it.gutter && !isForeground(it.kind) {
@@ -51,7 +51,7 @@ import SwiftUI
     }
 
     /// Above the events, below the chrome: deadlines (self-clip to the content area).
-    static func drawMid(
+    public static func drawMid(
         input: SceneInput,
         deadlines: [Deadline],
         selected: String?,
@@ -68,7 +68,7 @@ import SwiftUI
     /// Chrome, each clipped to its own region so it can't collide with content:
     /// gutter items + track names (gutter region), now-line/cursor (content region),
     /// then the dashboard title.
-    static func drawAbove(
+    public static func drawAbove(
         input: SceneInput,
         tracks: [[String]],
         hideTrack: (Int, Int)? = nil,
@@ -565,6 +565,9 @@ import SwiftUI
     ) {
         let left = Layout.mnameW
         let width = Layout.labelW - Layout.mnameW - Layout.rightPad
+        // Phone-compact gutter (labelW == mnameW) leaves no track-name zone — skip entirely,
+        // otherwise the lane separators would stroke a negative-width path.
+        guard width > 0 else { return }
         for m in 0 ..< 12 {
             let f = frameFor(m, input, anim: input.monthAnim)
             if f.opacity < 0.05 || f.bandY + 4 * f.trackH < -4 || f.bandY > input.vp.h + 4 {
@@ -587,7 +590,7 @@ import SwiftUI
                 // Match the event-name font (Comic Sans MS 13) for a consistent look; the
                 // left inset matches the inline editor's leading padding (no jump on edit).
                 drawText(name, CGRect(x: left + 10, y: y, width: width - 14, height: f.trackH),
-                         size: 13, align: .left, color: theme.text, font: .custom("Comic Sans MS", size: 13),
+                         size: 13, align: .left, color: theme.text, font: .custom(BandStyle.titleFontName, size: 13),
                          into: &layer, clipToRect: true)
             }
             // Gutter bottom border (the grid's month divider doesn't reach the gutter).
@@ -693,7 +696,7 @@ private struct TextKey: Hashable {
 }
 
 @MainActor
-func resolvedText(_ s: String, _ f: Font, _ tracking: CGFloat, _ color: Color,
+public func resolvedText(_ s: String, _ f: Font, _ tracking: CGFloat, _ color: Color,
                   _ ctx: inout GraphicsContext) -> GraphicsContext.ResolvedText {
     let key = TextKey(s: s, size: 0, font: f, tracking: tracking, color: color)
     if let hit = textCache[key] {

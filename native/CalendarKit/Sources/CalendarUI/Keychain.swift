@@ -34,6 +34,13 @@ enum Keychain {
 
     /// The stored secret for `account`, or nil if none.
     static func get(account: String) -> String? {
+        // Env override (CC_KEY_<ACCOUNT>, non-alphanumerics → "_"): headless processes — the
+        // assistant-eval trajectory runner — can't read the app's data-protection keychain items
+        // (they're scoped to the signed app's access group), so keys are passed via environment.
+        let envName = "CC_KEY_" + String(account.uppercased().map { $0.isLetter || $0.isNumber ? $0 : "_" })
+        if let v = ProcessInfo.processInfo.environment[envName], !v.isEmpty {
+            return v
+        }
         if let v = read(account: account, dataProtection: true) {
             return v
         }

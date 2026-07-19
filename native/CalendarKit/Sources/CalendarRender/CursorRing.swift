@@ -10,7 +10,7 @@
 import CalendarGeometry
 import SwiftUI
 
-struct CursorRing: View {
+public struct CursorRing: View {
     let rect: CGRect?
     var theme: Theme
     var cornerRadius: CGFloat = 8
@@ -19,7 +19,14 @@ struct CursorRing: View {
     /// cursor moves (at rest).
     var geometryAnimating: Bool = false
 
-    var body: some View {
+    public init(rect: CGRect?, theme: Theme, cornerRadius: CGFloat = 8, geometryAnimating: Bool = false) {
+        self.rect = rect
+        self.theme = theme
+        self.cornerRadius = cornerRadius
+        self.geometryAnimating = geometryAnimating
+    }
+
+    public var body: some View {
         ZStack {
             if let r = rect {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)

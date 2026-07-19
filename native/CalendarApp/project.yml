@@ -49,16 +49,25 @@ targets:
         CODE_SIGN_ENTITLEMENTS: CalendarApp.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         ENABLE_USER_SCRIPT_SANDBOXING: NO
+      configs:
+        # Release/Developer-ID builds talk to CloudKit PRODUCTION, so push tokens must be
+        # production too (see CalendarApp-Release.entitlements). Requires the App ID to have
+        # Push Notifications capability in the portal AND the schema deployed to Production;
+        # if the Developer ID export fails to provision, drop this override to fall back to
+        # the base (development) entitlements — push then degrades to sync-on-launch.
+        Release:
+          CODE_SIGN_ENTITLEMENTS: CalendarApp-Release.entitlements
 
-  # iPhone app. Shares the CalendarKit package + the CloudKit container with the macOS
-  # shell above. It depends on CalendarEngine ONLY (which carries the CloudKit sync layer);
+  # iPhone app: a READ-ONLY viewer over the same CloudKit container as the macOS shell
+  # above. It links CalendarEngine (CloudKit sync, constructed with cloudReadOnly: true)
+  # and CalendarRender (the portable scene renderer — Canvas passes + glass overlays);
   # the AppKit-bound CalendarUI is not linked here, so nothing AppKit compiles for iOS.
-  # UI is a sync harness (iOS/SyncHarnessView) until the UIKit renderer is ported.
   CalendarPhone:
     type: application
     platform: iOS
     sources:
       - path: iOS
+      - path: Assets.xcassets   # shared iconset (iOS uses the single-size 1024 entry)
     info:
       path: iOS/Info.plist
       properties:
@@ -68,6 +77,8 @@ targets:
     dependencies:
       - package: CalendarKit
         product: CalendarEngine
+      - package: CalendarKit
+        product: CalendarRender
     settings:
       base:
         PRODUCT_NAME: MagiCal
@@ -76,7 +87,72 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: X84ZG75WAM
         CODE_SIGN_ENTITLEMENTS: CalendarApp-iOS.entitlements
         ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+# Explicit SHARED schemes for the macOS app (CalendarApp target, product "MagiCal"). Declared here so
+# they live in xcshareddata (version-controlled + surviving `xcodegen generate`) instead of the
+# auto-generated per-user schemes that get wiped. MagiCalDebug for day-to-day dev; MagiCalRelease for
+# optimized (Release) runs — use it, with "Debug executable" unchecked, for on-device perf testing —
+# and for packaging (scripts/package.sh archives this scheme).
+schemes:
+  MagiCalDebug:
+    build:
+      targets:
+        CalendarApp: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Debug
+    analyze:
+      config: Debug
+    archive:
+      config: Debug
+  MagiCalRelease:
+    build:
+      targets:
+        CalendarApp: all
+    run:
+      config: Release
+    test:
+      config: Release
+    profile:
+      config: Release
+    analyze:
+      config: Release
+    archive:
+      config: Release
+  # iPhone read-only viewer (CalendarPhone target, also product "MagiCal").
+  MagiCalPhoneDebug:
+    build:
+      targets:
+        CalendarPhone: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Debug
+    analyze:
+      config: Debug
+    archive:
+      config: Debug
+  MagiCalPhoneRelease:
+    build:
+      targets:
+        CalendarPhone: all
+    run:
+      config: Release
+    test:
+      config: Release
+    profile:
+      config: Release
+    analyze:
+      config: Release
+    archive:
+      config: Release

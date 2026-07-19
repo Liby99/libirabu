@@ -1,21 +1,29 @@
 // Colors for the calendar. Structural colors (background, text, lines/borders) come
-// straight from the macOS system palette so the app matches the OS light/dark theme
+// straight from the system palette so the app matches the OS light/dark theme
 // automatically — a near-black/dark-gray content background with white-to-light-gray
 // lines in dark mode, and the mirror in light mode. Only two things are colored: the
 // event stickers (their own palette) and the red now/today accent.
+//
+// Lives in CalendarRender so the iPhone client shares it: AppKit resolves system colors
+// via NSAppearance, UIKit via UITraitCollection — same resolved sRGB values either way.
 
-import AppKit
+#if canImport(AppKit)
+    import AppKit
+#else
+    import UIKit
+#endif
+import CalendarEngine
 import CalendarGeometry
 import SwiftUI
 
 /// The user-selectable accent (Settings ▸ Appearance). Cached so the per-render Theme builds
 /// never touch UserDefaults; `set` persists, updates the cache, and posts the view-prefs
 /// notification (→ engine.viewPrefsChanged → repaint).
-enum AccentPref {
-    static let key = "cc.accentHex"
-    static let defaultHex: UInt32 = 0xFF3B6B // MagiCal red
+public enum AccentPref {
+    public static let key = "cc.accentHex"
+    public static let defaultHex: UInt32 = 0xFF3B6B // MagiCal red
     /// The alternatives row in Settings (name, hex).
-    static let alternatives: [(name: String, hex: UInt32)] = [
+    public static let alternatives: [(name: String, hex: UInt32)] = [
         ("Blue", 0x007AFF),          // Apple system blue
         ("Purple", 0xAF52DE),
         ("Red", 0xD70015),           // big red
@@ -29,66 +37,78 @@ enum AccentPref {
         return v == 0 ? defaultHex : UInt32(truncatingIfNeeded: v)
     }()
 
-    static var hex: UInt32 { cached }
-    static func set(_ h: UInt32) {
+    public static var hex: UInt32 { cached }
+    public static func set(_ h: UInt32) {
         cached = h
         UserDefaults.standard.set(Int(h), forKey: key)
         NotificationCenter.default.post(name: .calendarViewPrefsChanged, object: nil)
     }
 }
 
-struct Theme {
+public struct Theme {
     /// The app-wide accent (now-line, selection pills, send button, …). User-selectable in
     /// Settings ▸ Appearance; SINGLE source of truth — never hardcode an accent hex elsewhere.
-    static var accent: Color { Color(hex: AccentPref.hex) }
+    public static var accent: Color { Color(hex: AccentPref.hex) }
 
-    let dark: Bool // only affects the event palette; structural colors are system-native
+    public let dark: Bool // only affects the event palette; structural colors are system-native
 
-    // Structural colors — resolved ONCE per render from the macOS system palette
-    // against the correct appearance. (SwiftUI.Canvas resolves dynamic system colors
-    // against the light appearance regardless of the window, so we must resolve them
-    // to concrete colors ourselves; otherwise dark mode shows light-mode colors.)
-    let bg: Color
-    let text: Color
-    let textMuted: Color
-    let accentDark: Color
-    let accentGrey: Color
-    let sep: Color
-    let gridLine: Color
-    let cellGrid: Color
-    let dimFill: Color
-    let weekendWash: Color
-    let highlight: Color
-    let cursor: Color
-    let nowLine: Color
-    let todayTint: Color
-    let todayMonthWash: Color
+    // Structural colors — resolved ONCE per render from the system palette against the
+    // correct appearance. (SwiftUI.Canvas resolves dynamic system colors against the
+    // light appearance regardless of the window, so we must resolve them to concrete
+    // colors ourselves; otherwise dark mode shows light-mode colors.)
+    public let bg: Color
+    public let text: Color
+    public let textMuted: Color
+    public let accentDark: Color
+    public let accentGrey: Color
+    public let sep: Color
+    public let gridLine: Color
+    public let cellGrid: Color
+    public let dimFill: Color
+    public let weekendWash: Color
+    public let highlight: Color
+    public let cursor: Color
+    public let nowLine: Color
+    public let todayTint: Color
+    public let todayMonthWash: Color
     // Multiplier on the event-sticker tint opacity. Dark mode is already colorful at the
     // BandStyle base opacities; light mode washes out (a saturated hue at 20% over white
     // reads pale), so we boost it there only.
-    let eventTintScale: Double
+    public let eventTintScale: Double
 
-    init(dark: Bool) {
+    public init(dark: Bool) {
         self.dark = dark
-        let appearance = NSAppearance(named: dark ? .darkAqua : .aqua) ?? .currentDrawing()
-        func sys(_ ns: NSColor) -> Color {
-            var out = Color.clear
-            appearance.performAsCurrentDrawingAppearance {
-                if let c = ns.usingColorSpace(.sRGB) {
-                    out = Color(.sRGB, red: Double(c.redComponent), green: Double(c.greenComponent),
-                                blue: Double(c.blueComponent), opacity: Double(c.alphaComponent))
+        #if canImport(AppKit)
+            let appearance = NSAppearance(named: dark ? .darkAqua : .aqua) ?? .currentDrawing()
+            func sys(_ ns: NSColor) -> Color {
+                var out = Color.clear
+                appearance.performAsCurrentDrawingAppearance {
+                    if let c = ns.usingColorSpace(.sRGB) {
+                        out = Color(.sRGB, red: Double(c.redComponent), green: Double(c.greenComponent),
+                                    blue: Double(c.blueComponent), opacity: Double(c.alphaComponent))
+                    }
                 }
+                return out
             }
-            return out
-        }
-        let label = sys(.labelColor) // white in dark, near-black in light
-        bg = sys(.textBackgroundColor) // content background (near-black / white)
+            let label = sys(.labelColor) // white in dark, near-black in light
+            bg = sys(.textBackgroundColor) // content background (near-black / white)
+            textMuted = sys(.secondaryLabelColor)
+        #else
+            let trait = UITraitCollection(userInterfaceStyle: dark ? .dark : .light)
+            func sys(_ ui: UIColor) -> Color {
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                ui.resolvedColor(with: trait).getRed(&r, green: &g, blue: &b, alpha: &a)
+                return Color(.sRGB, red: Double(r), green: Double(g), blue: Double(b), opacity: Double(a))
+            }
+            let label = sys(.label) // white in dark, near-black in light
+            bg = sys(.systemBackground) // content background (near-black / white)
+            textMuted = sys(.secondaryLabel)
+        #endif
         // Text: keep the bright system label in dark mode; in light mode the system label is
         // effectively pure black, which reads harsh — soften to a modest dark gray. Structural
         // lines/borders below still derive from `label`, so only the text itself changes.
         text = dark ? label : Color(.sRGB, red: 58 / 255, green: 58 / 255, blue: 63 / 255, opacity: 1)
         eventTintScale = dark ? 1.0 : 1.5
-        textMuted = sys(.secondaryLabelColor)
         accentDark = label
         accentGrey = label.opacity(0.28)
         sep = label.opacity(0.28)
@@ -105,24 +125,30 @@ struct Theme {
 
     /// Event stickers are the ONLY color: a translucent tint fill + an opaque
     /// border/accent, exact values from globals.css (--event-*).
-    func eventFill(_ key: String?) -> Color {
+    public func eventFill(_ key: String?) -> Color {
         ev(key).fill
     }
 
-    func eventBorder(_ key: String?) -> Color {
+    public func eventBorder(_ key: String?) -> Color {
         ev(key).border
     }
 
     /// The saturated fill hue at full opacity, so callers can set their own alpha.
-    func eventColor(_ key: String?) -> Color {
-        guard let c = NSColor(ev(key).fill).usingColorSpace(.sRGB) else { return ev(key).fill }
-        return Color(
-            .sRGB,
-            red: Double(c.redComponent),
-            green: Double(c.greenComponent),
-            blue: Double(c.blueComponent),
-            opacity: 1
-        )
+    public func eventColor(_ key: String?) -> Color {
+        #if canImport(AppKit)
+            guard let c = NSColor(ev(key).fill).usingColorSpace(.sRGB) else { return ev(key).fill }
+            return Color(
+                .sRGB,
+                red: Double(c.redComponent),
+                green: Double(c.greenComponent),
+                blue: Double(c.blueComponent),
+                opacity: 1
+            )
+        #else
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            guard UIColor(ev(key).fill).getRed(&r, green: &g, blue: &b, alpha: &a) else { return ev(key).fill }
+            return Color(.sRGB, red: Double(r), green: Double(g), blue: Double(b), opacity: 1)
+        #endif
     }
 
     private func ev(_ key: String?) -> (fill: Color, border: Color) {
@@ -163,7 +189,7 @@ struct Theme {
     }
 }
 
-extension Color {
+public extension Color {
     init(hex: UInt32, opacity: Double = 1) {
         self.init(.sRGB,
                   red: Double((hex >> 16) & 0xFF) / 255,

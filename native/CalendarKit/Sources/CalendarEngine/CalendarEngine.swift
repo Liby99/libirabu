@@ -351,7 +351,13 @@ public final class CalendarEngine {
     public internal(set) var marqueeRect: CGRect?
     public internal(set) var marqueeNegative = false
 
-    public init() {
+    /// Read-only CLOUD mode (the iPhone viewer): sync fetches and applies remote changes but never
+    /// pushes — no initial full push, no onLocalChange wiring, and the send path is hard-blocked in
+    /// CloudSync/RegistrySync. Local engine mutations still work (they just stay on-device).
+    public let cloudReadOnly: Bool
+
+    public init(cloudReadOnly: Bool = false) {
+        self.cloudReadOnly = cloudReadOnly
         let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
         year = c.year ?? 2026
         systemYear = c.year ?? 2026
@@ -384,7 +390,13 @@ public final class CalendarEngine {
         enableCloudSyncIfEntitled()
         scheduleDisplayDumpIfRequested() // dev: CC_DUMP_DISPLAY=<path> → write the expanded display set
         armSleep() // an untouched app settles to a paused (idle) render after the initial frame
-        Self.mainInstance = self
+        // First LIVE engine wins. SwiftUI view-struct reconstruction spawns throwaway engines
+        // (@State default values, discarded immediately); letting them clobber this weak static
+        // left menus/notifications pointing at a dead engine. Weak → when the real engine dies,
+        // the slot self-clears and the next engine claims it.
+        if Self.mainInstance == nil {
+            Self.mainInstance = self
+        }
         NotificationScheduler.shared.start(engine: self) // local-notification schedule (no-op in demo/tests)
     }
 
@@ -517,7 +529,33 @@ public final class CalendarEngine {
                        .weekFlip != nil || anim.dayFlip != nil,
                    monthPull: scroll.monthPull, monthFlipShift: anim.monthFlipShift, weekPull: scroll.weekPull,
                    weekFlipDir: anim.weekFlip?.dir ?? 0, weekFlipFade: anim.weekFlipFade, dayPull: scroll.dayPull,
-                   mainTz: mainTz)
+                   mainTz: mainTz,
+                   yearQX: yearQX,
+                   monthQX: monthQX)
+    }
+
+    /// Per-quarter horizontal scroll offsets for the year view (phone overflow; zeros on
+    /// desktop). Mirrors the phone's per-quarter ScrollView drivers, like scrollY mirrors
+    /// the vertical one.
+    public internal(set) var yearQX: [CGFloat] = [0, 0, 0, 0]
+
+    /// Month-view horizontal scroll offset (phone overflow; 0 on desktop). Seeded from the
+    /// tapped month's quarter offset on drill-in and written back on zoom-out, so the
+    /// visible day columns carry across the year↔month transition (see navigate/zoomToYear).
+    public internal(set) var monthQX: CGFloat = 0
+
+    /// Mirror a quarter's horizontal driver offset. Unclamped, like setYearScroll/setTlScroll:
+    /// the elastic overscroll is exactly what renders the native bounce.
+    public func setYearQuarterScroll(_ quarter: Int, _ x: CGFloat) {
+        guard yearQX.indices.contains(quarter) else { return }
+        wake()
+        yearQX[quarter] = x
+    }
+
+    /// Mirror the month-view horizontal driver offset (same unclamped contract).
+    public func setMonthHScroll(_ x: CGFloat) {
+        wake()
+        monthQX = x
     }
 
     /// Read-only current scene input (does NOT advance tweens). For a second view that must render the

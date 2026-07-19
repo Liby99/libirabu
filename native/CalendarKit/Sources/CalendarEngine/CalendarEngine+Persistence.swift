@@ -14,13 +14,14 @@ extension CalendarEngine {
         // throwaway store (a privacy leak into GIFs), defeating the isolation. Mirrors importAppleCalendar's
         // demo guard.
         guard CloudSync.isEntitled, !Self.isDemoMode else { return }
-        let c = CloudSync(engine: self, calendarId: registry.activeId)   // sync the ACTIVE calendar's zone
+        let c = CloudSync(engine: self, calendarId: registry.activeId, // sync the ACTIVE calendar's zone
+                          readOnly: cloudReadOnly)
         cloud = c
         Task { await c.startIfAccountAvailable() }
         // The calendar LIST syncs independently of which calendar is open — started once, kept across
         // switches (stopCloudSync leaves it alone).
         if registrySync == nil {
-            let rs = RegistrySync(engine: self)
+            let rs = RegistrySync(engine: self, readOnly: cloudReadOnly)
             registrySync = rs
             Task { await rs.start() }
         }

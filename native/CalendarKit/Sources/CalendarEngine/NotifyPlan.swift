@@ -177,8 +177,10 @@ public enum NotifyPlanner {
             case .dayBefore: fire = morning(day, -1, ctx)
             }
             guard let fire, fire > ctx.now, fire <= ctx.windowEnd else { continue }
+            // The title rides in the id (hashed): a rename must mint a new id, or the reconcile
+            // would keep the pending request — and thus the banner text — from before the rename.
             out.append(PlannedNotification(
-                id: "\(idPrefix)\(kind.rawValue)|\(boxId)|\(off.rawValue)|\(Int(fire.timeIntervalSince1970 / 60))",
+                id: "\(idPrefix)\(kind.rawValue)|\(boxId)|\(off.rawValue)|\(Int(fire.timeIntervalSince1970 / 60))|\(TodoScan.fnv1a(title))",
                 fireDate: fire,
                 title: title.isEmpty ? "(untitled)" : title,
                 body: body(kind, off, moment: moment, ctx: ctx),

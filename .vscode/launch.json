@@ -19,6 +19,26 @@
             "target": "CalendarMac",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release CalendarMac (native/CalendarKit)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:libirabu}/native/CalendarKit",
+            "name": "Debug assistant-eval (native/CalendarKit)",
+            "target": "assistant-eval",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug assistant-eval (native/CalendarKit)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:libirabu}/native/CalendarKit",
+            "name": "Release assistant-eval (native/CalendarKit)",
+            "target": "assistant-eval",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release assistant-eval (native/CalendarKit)"
         }
     ]
 }

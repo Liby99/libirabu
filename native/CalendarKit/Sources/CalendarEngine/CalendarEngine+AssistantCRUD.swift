@@ -52,12 +52,14 @@ extension CalendarEngine {
     public func createTimedEvent(year: Int, month: Int, day: Int, startHour: CGFloat, endHour: CGFloat,
                                  title: String, color: String, notes: String? = nil,
                                  tags: [String] = [], promoteTrack: Int? = nil,
-                                 byAI: Bool = false) -> String {
+                                 anchorTz: String? = nil, byAI: Bool = false) -> String {
         beginTxn()
         let id = "new-\(UUID().uuidString)"
+        // An explicit anchor zone (e.g. a JST broadcast) stores the coords as THAT zone's wall
+        // clock verbatim — the original time is preserved and display converts, never the caller.
         items.events.append(TimedEvent(id: id, year: year, month: month, day: day,
                                        startHour: startHour, endHour: endHour, title: title, color: color,
-                                       anchorTz: anchorNow))
+                                       anchorTz: anchorTz.map(DeadlineTZ.concrete) ?? anchorNow))
         setRich(id, notes: notes, tags: tags, byAI: byAI, promoteTrack: promoteTrack)
         selectedId = id
         commitTxn()
@@ -83,16 +85,18 @@ extension CalendarEngine {
     public func createDeadline(year: Int, month: Int, day: Int, hour: CGFloat, title: String,
                                color: String, originTz: String? = nil, notes: String? = nil,
                                tags: [String] = [], promoteTrack: Int? = nil,
-                               byAI: Bool = false) -> String {
+                               anchorTz: String? = nil, byAI: Bool = false) -> String {
         beginTxn()
         let id = "new-\(UUID().uuidString)"
-        // If a distinct origin zone is given, the deadline is anchored THERE: the caller passes coords in
-        // the main tz, so re-express them as the origin wall-clock and anchor to it. Otherwise anchor to
-        // the current view zone. (Replaces the legacy originTz label — anchorTz now drives positioning.)
+        // Anchor precedence: an explicit `anchorTz` means the coords ARE that zone's wall clock —
+        // store verbatim (no conversion; the original time survives). A legacy `originTz` means the
+        // caller passed MAIN-zone coords: re-express them as the origin wall-clock and anchor there.
         var (dy, dm, dd, dh) = (year, month, day, hour)
         let anchor: String
-        if let otz = originTz,
-           !DeadlineTZ.sameOffset(otz, mainTz, at: DeadlineTZ.instant(year, month, day, hour)) {
+        if let atz = anchorTz {
+            anchor = DeadlineTZ.concrete(atz)
+        } else if let otz = originTz,
+                  !DeadlineTZ.sameOffset(otz, mainTz, at: DeadlineTZ.instant(year, month, day, hour)) {
             let w = DeadlineTZ.convertWall(year, month, day, hour, from: mainTz, to: otz)
             (dy, dm, dd, dh) = (w.year, w.month, w.day, w.hour); anchor = DeadlineTZ.concrete(otz)
         } else {

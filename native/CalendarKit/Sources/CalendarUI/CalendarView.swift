@@ -26,6 +26,10 @@ public struct CalendarView: View {
     /// Global Performance Mode: render events as flat tinted fills instead of Liquid Glass
     /// (glass is one GPU pass per sticker). Persisted; defaults on for now.
     @AppStorage("cc.performanceMode") private var perfMode = true
+    // Bench override: CC_PERF_OFF=1 forces the Liquid-Glass path on (Performance Mode OFF) so the
+    // profiler can measure the GPU-heavy path the throwaway store's default (perfMode on) never hits.
+    private static let forcePerfOff = ProcessInfo.processInfo.environment["CC_PERF_OFF"] != nil
+    private var effPerfMode: Bool { perfMode && !Self.forcePerfOff }
     // The View-menu prefs (show-hidden, current/alt timezone) → repaint observers live in ViewPrefObservers
     // (bundled into one modifier to keep the body's modifier chain within the Swift type-checker's budget).
     @AppStorage("cc.tutorial.seen") private var tutorialSeen = false // auto-show the onboarding carousel once
@@ -309,7 +313,9 @@ public struct CalendarView: View {
             Canvas { ctx, _ in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
-                SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
+                RenderProf.measure("drawBelow", "1_drawBelow") {
+                    SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
+                }
             }
             // 2. events (bands + timed), Liquid Glass stickers
             EventsOverlay(input: input, events: engine.viewEvents(), bands: engine.viewBands(),
@@ -318,7 +324,7 @@ public struct CalendarView: View {
                           drawerOpen: ui.openEventId != nil, editingId: ui.editingBand?.id ?? ui.editingTimed?.id,
                           editingRect: ui.editingTimed?.rect, // hide the title only on the segment being edited
                           draggingId: engine.activeTimedDragId,
-                          perfMode: perfMode, monthLive: engine.monthGestureActive, editGen: engine.displayGen,
+                          perfMode: effPerfMode, monthLive: engine.monthGestureActive, editGen: engine.displayGen,
                           hideBox: ui.openEventId != nil ? engine.selectedId : nil, // lifted sharp above
                           theme: theme)
                 .offset(x: Layout.padLeft)
@@ -328,16 +334,18 @@ public struct CalendarView: View {
             Canvas { ctx, _ in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
-                SceneRenderer.drawMid(
-                    input: input,
-                    deadlines: engine.viewDeadlines(),
-                    selected: engine.selectedId,
-                    drawerOpen: ui.openEventId != nil,
-                    hovered: engine.hoveredEventId,
-                    hide: liftDdl,
-                    in: &c,
-                    theme: theme
-                )
+                RenderProf.measure("drawMid", "3_drawMid") {
+                    SceneRenderer.drawMid(
+                        input: input,
+                        deadlines: engine.viewDeadlines(),
+                        selected: engine.selectedId,
+                        drawerOpen: ui.openEventId != nil,
+                        hovered: engine.hoveredEventId,
+                        hide: liftDdl,
+                        in: &c,
+                        theme: theme
+                    )
+                }
             }
             // …and the labels are SwiftUI glass pills (activation styling), above the line.
             DeadlinesOverlay(input: input, deadlines: engine.viewDeadlines(),
@@ -350,8 +358,10 @@ public struct CalendarView: View {
             Canvas { ctx, _ in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
-                SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames,
-                                        hideTrack: ui.editingTrack.map { ($0.month, $0.track) }, in: &c, theme: theme)
+                RenderProf.measure("drawAbove", "5_drawAbove") {
+                    SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames,
+                                            hideTrack: ui.editingTrack.map { ($0.month, $0.track) }, in: &c, theme: theme)
+                }
             }
             // Keyboard-navigation cursor (dashed sliding ring).
             CursorRing(rect: engine.blockCursorRect(), theme: theme, cornerRadius: 6,
@@ -415,7 +425,13 @@ public struct CalendarView: View {
         EventsOverlay(input: input, events: engine.viewEvents(), bands: engine.viewBands(),
                       bandBadges: engine.viewBandBadges(), eventBadges: engine.viewEventBadges(),
                       selected: sel, hovered: nil, drawerOpen: true, editingId: nil,
-                      draggingId: nil, perfMode: perfMode, onlyBox: sel, theme: theme)
+                      draggingId: nil, perfMode: effPerfMode,
+                      // The REAL edit generation, like the base overlay — the default (0) froze the
+                      // lifted copy on a stale cached layout, so events created after the first
+                      // drawer-open of a session never appeared in the lift (they "disappeared"
+                      // behind the scrim while the base layer hid them as "drawn by the lift").
+                      editGen: engine.displayGen,
+                      onlyBox: sel, theme: theme)
             .offset(x: Layout.padLeft - engine.drawerShift)
     }
 
@@ -814,7 +830,7 @@ public struct CalendarView: View {
             // View ▸ Filter by Tags lives here as a stay-open checklist popover (a menu can't stay open
             // while multi-toggling). The View-menu item in both shells toggles it via .toggleTagFilter.
             Button { showTagFilter.toggle() } label: { Image(systemName: "tag") }
-                .buttonStyle(.glass).buttonBorderShape(.circle).help("Filter by Tags")
+                .buttonStyle(.glass).buttonBorderShape(.circle).help("Filter by Tags (⌘G)")
                 .popover(isPresented: $showTagFilter, arrowEdge: .bottom) {
                     TagFilterPopover(engine: engine)
                 }

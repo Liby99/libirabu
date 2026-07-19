@@ -12,8 +12,14 @@ public final class ConversationStore {
     private(set) var conversations: [StoredConversation] = []
 
     @ObservationIgnored private lazy var url: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        // Demo/recording/eval sessions get an isolated conversation store too (mirrors
+        // calendarKitBaseDir) — a scripted session must never pollute the user's real chats.
+        let base: URL = if let demo = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !demo.isEmpty {
+            URL(fileURLWithPath: demo, isDirectory: true)
+        } else {
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        }
         let dir = base.appendingPathComponent("CalendarKit", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("conversations.json")

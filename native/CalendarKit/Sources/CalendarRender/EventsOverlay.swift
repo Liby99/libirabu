@@ -1,13 +1,18 @@
 // Timed + band events as real SwiftUI views layered over the Canvas — each sticker
 // is Liquid Glass (.glassEffect), so overlapping events are genuinely translucent
 // and blur what's behind them (the native analogue of the web's translucent fill +
-// backdrop-filter). Visual only; gestures are handled by the AppKit input bridge.
+// backdrop-filter). Visual only; gestures are handled by the platform input layer
+// (AppKit bridge on macOS, touch gestures on iOS).
 
-import AppKit
 import CalendarGeometry
 import SwiftUI
+#if canImport(AppKit)
+    import AppKit
+#else
+    import UIKit
+#endif
 
-struct EventsOverlay: View {
+public struct EventsOverlay: View {
     let input: SceneInput
     let events: [TimedEvent]
     let bands: [BandEvent]
@@ -30,7 +35,44 @@ struct EventsOverlay: View {
     // sharp by the lifted copy), so there's no blurry halo behind it
     let theme: Theme
 
-    static let spilloverDim: CGFloat = 0.45 // opacity of neighbor-month (spillover-day) events
+    public init(input: SceneInput, events: [TimedEvent], bands: [BandEvent],
+                bandBadges: [String: EventBadges] = [:], eventBadges: [String: EventBadges] = [:],
+                selected: String?, selectedIds: Set<String> = [], hovered: String?,
+                drawerOpen: Bool, editingId: String?, editingRect: CGRect? = nil,
+                draggingId: String? = nil, perfMode: Bool = false, monthLive: Bool = false,
+                editGen: UInt64 = 0, onlyBox: String? = nil, hideBox: String? = nil, theme: Theme) {
+        self.input = input
+        self.events = events
+        self.bands = bands
+        self.bandBadges = bandBadges
+        self.eventBadges = eventBadges
+        self.selected = selected
+        self.selectedIds = selectedIds
+        self.hovered = hovered
+        self.drawerOpen = drawerOpen
+        self.editingId = editingId
+        self.editingRect = editingRect
+        self.draggingId = draggingId
+        self.perfMode = perfMode
+        self.monthLive = monthLive
+        self.editGen = editGen
+        self.onlyBox = onlyBox
+        self.hideBox = hideBox
+        self.theme = theme
+    }
+
+    public static let spilloverDim: CGFloat = 0.45 // opacity of neighbor-month (spillover-day) events
+
+    /// Below this zoom (year view) all 12 months are on screen at once, so EVERY band in the year is a
+    /// live sticker — up to ~145 of them. Liquid Glass there is one backdrop-blur pass per sticker, which
+    /// the profiler showed drops the year-scroll fling from ~120fps to ~80fps (main thread ~65% busy
+    /// building glass descriptors + laying out the stickers, the rest blocked on GPU compositing) with NO
+    /// change to the Canvas layers. Flat fills render the same 145 bands at a full 120fps, so force the
+    /// cheap path in year view regardless of the Performance-Mode preference. Glass returns at month zoom,
+    /// where off-screen months are culled and only a handful of bars are live. Rest (year) ≈ z<0.5; the 0.6
+    /// cutoff also covers the first sliver of the year→month zoom, before culling thins the sticker count.
+    static let glassZoomFloor: CGFloat = 0.6
+    private var plainEff: Bool { perfMode || input.z < Self.glassZoomFloor }
 
     /// A box belongs to the clicked event's series (same source: recurrence occurrence / promoted
     /// bar / original), so it shares the accompanied style.
@@ -59,7 +101,7 @@ struct EventsOverlay: View {
         return abs(boxRect.minX - e.minX) < 2 && abs(boxRect.minY - e.minY) < 2
     }
 
-    var body: some View {
+    public var body: some View {
         let anim = input.monthAnim
         let to = anim.map { input.focus + $0.dir }
         // Outgoing (current) month — slides + fades out during a page-turn (anim==nil → resting, mul 1).
@@ -139,9 +181,19 @@ struct EventsOverlay: View {
     @ViewBuilder private func cursorTagView(_ spec: CursorTagSpec) -> some View {
         let c = theme.cursor
         let shape = RoundedRectangle(cornerRadius: 5)
-        Text(spec.text)
-            .font(.system(size: 11, weight: .semibold)).foregroundStyle(c)
-            .frame(width: spec.rect.width, height: spec.rect.height)
+        // Lines hug the caret (line-facing) side, like the CURRENT TIME pill: tag left of the
+        // column → trailing-aligned, tag right of the column → leading-aligned.
+        VStack(alignment: spec.pointsRight ? .trailing : .leading, spacing: -1) {
+            Text(spec.text)
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(c)
+            if let alt = spec.altText { // alt-tz wall clock, e.g. "13:45 (PST) [+1 day]"
+                Text(alt)
+                    .font(.system(size: 9, weight: .semibold)).foregroundStyle(c.opacity(0.75))
+            }
+        }
+        .padding(.horizontal, 6)
+        .frame(width: spec.rect.width, height: spec.rect.height,
+               alignment: spec.pointsRight ? .trailing : .leading)
             .background(shape.fill(theme.bg.opacity(0.82)))
             .overlay(shape.strokeBorder(c, lineWidth: 1))
             // Caret on the line-facing edge; on a side flip the old one retracts and the new one grows.
@@ -259,7 +311,9 @@ struct EventsOverlay: View {
         return rect.maxY > -M && rect.minY < input.vp.h + M && rect.maxX > -M && rect.minX < input.vp.w + M
     }
 
-    private func bandItems() -> [Item2] {
+    private func bandItems() -> [Item2] { RenderProf.measure("bandItems", "2a_bandItems") { bandItemsUncached() } }
+
+    private func bandItemsUncached() -> [Item2] {
         var placed: [(ev: BandEvent, rect: CGRect, fade: Double, clipStart: Bool, clipEnd: Bool)] = []
         let weekish = input.z >= 1.5
         for b in bands {
@@ -346,7 +400,7 @@ struct EventsOverlay: View {
                             clipStart: p.clipStart, clipEnd: p.clipEnd,
                             warn: warn.contains(id), box: p.rect.size,
                             badges: bandBadges[id] ?? [],
-                            plain: perfMode,
+                            plain: plainEff,
                             theme: theme)
             ))
         }
@@ -434,19 +488,28 @@ struct EventsOverlay: View {
             }
         }
         placed.sort(by: orderTimed)
+        // APPEARANCE comes from the live per-frame `events` (which carries the engine's post-cache
+        // overlays, e.g. the swatch hover color-preview); only GEOMETRY is served from the layout
+        // cache. The cached segment copies bake the event values at cache-build time, so drawing
+        // them directly ate any transient styling that (by design) doesn't bump editGen.
+        let freshById = Dictionary(events.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         return placed.enumerated().map { i, p in
             let id = p.seg.event.id
             let a = activation(id)
             let z: Double = a.isActive ? a.z : Double(i)
+            var ev = p.seg.event // segment-shaped copy (per-day split hours) — keep its geometry fields
+            if let fresh = freshById[id] {
+                ev.color = fresh.color; ev.title = fresh.title
+            }
             // The Item2 id must be unique per SEGMENT (a split event draws twice), but activation/badges
             // stay keyed by the shared event id → selecting highlights every segment at once.
             let segKey = "\(id)#\(p.seg.event.month * 100 + p.seg.event.day)"
             return Item2(id: segKey + keyTag, rect: p.rect, fade: p.fade, z: z, view: AnyView(
-                EventSticker(ev: p.seg.event, height: p.rect.height, showText: input.z >= 1.5,
+                EventSticker(ev: ev, height: p.rect.height, showText: input.z >= 1.5,
                              clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
                              timeText: fmtHourRange(p.seg.fullStart, p.seg.fullEnd),
                              subTimeText: subLabels[id],
-                             plain: perfMode, activation: a, badges: eventBadges[id] ?? [],
+                             plain: plainEff, activation: a, badges: eventBadges[id] ?? [],
                              // Hide the title ONLY on the segment the editor is over (rect match) — the other
                              // segments of a cross-midnight event keep showing the title (which updates live as
                              // you type), instead of going blank.
@@ -549,7 +612,7 @@ private struct EventSticker: View {
             }
             if showText {
                 Text(ev.title)
-                    .font(.custom("Comic Sans MS", size: lay.tiny ? 10 : 13))
+                    .font(.custom(BandStyle.titleFontName, size: lay.tiny ? 10 : 13))
                     .foregroundStyle(theme.text)
                     .lineLimit(lay.titleLines)
                     .multilineTextAlignment(.leading)
@@ -672,7 +735,7 @@ private struct OpenBorderShape: Shape {
 // renders the LABEL as a glass pill with the SAME five activation levels as events (tint by level;
 // border: none for plain/hover, solid focus-main, dashed accompanied, thick selected). The line
 // itself never dashes — selection styling lives entirely on the pill.
-struct DeadlinesOverlay: View {
+public struct DeadlinesOverlay: View {
     let input: SceneInput
     let deadlines: [Deadline]
     var sides: [String: Bool] = [:] // offline side assignment (id → onLeft); base for each label
@@ -683,6 +746,21 @@ struct DeadlinesOverlay: View {
     var only: String? // lifted copy → render ONLY this deadline's tag (sharp, above the scrim)
     var hide: String? // blurred main scene → SKIP this tag (it's drawn sharp in the lift)
     let theme: Theme
+
+    public init(input: SceneInput, deadlines: [Deadline], sides: [String: Bool] = [:],
+                selected: String?, selectedIds: Set<String> = [], hovered: String?,
+                drawerOpen: Bool, only: String? = nil, hide: String? = nil, theme: Theme) {
+        self.input = input
+        self.deadlines = deadlines
+        self.sides = sides
+        self.selected = selected
+        self.selectedIds = selectedIds
+        self.hovered = hovered
+        self.drawerOpen = drawerOpen
+        self.only = only
+        self.hide = hide
+        self.theme = theme
+    }
 
     private func activation(_ id: String) -> EventActivation {
         // Every box is independent — only the EXACT selected box is highlighted (no series-wide
@@ -735,7 +813,7 @@ struct DeadlinesOverlay: View {
         return out
     }
 
-    var body: some View {
+    public var body: some View {
         let anim = input.monthAnim
         let clipRight = dashboardLeftAnimated(input) // day-view dashboard mask (slides in from the right)
         let outMul = anim.map { outgoingDetailReveal($0.p) } ?? 1
@@ -819,7 +897,7 @@ private struct DeadlinePill: View {
         let r: CGFloat = 10
         let shape = RoundedRectangle(cornerRadius: r)
         VStack(alignment: .leading, spacing: -1) {
-            Text(title).font(.custom("Comic Sans MS", size: 12)).foregroundStyle(theme.text).lineLimit(1)
+            Text(title).font(.custom(BandStyle.titleFontName, size: 12)).foregroundStyle(theme.text).lineLimit(1)
             Text(timeLine).font(.system(size: 10, weight: .semibold)).foregroundStyle(color).lineLimit(1)
         }
         .padding(.horizontal, 7).padding(.vertical, 3)
@@ -1102,7 +1180,7 @@ private struct BandSticker: View {
 
     @ViewBuilder private func titleView(clip: CGFloat?) -> some View {
         let t = Text(ev.title)
-            .font(.custom("Comic Sans MS", size: BandStyle.titleSize))
+            .font(.custom(BandStyle.titleFontName, size: BandStyle.titleSize))
             .foregroundStyle(theme.text)
             .lineLimit(1)
         if let clip {
@@ -1113,16 +1191,28 @@ private struct BandSticker: View {
     }
 
     static func titleWidth(_ s: String) -> CGFloat {
-        let f = NSFont(name: "Comic Sans MS", size: BandStyle.titleSize) ?? NSFont
-            .systemFont(ofSize: BandStyle.titleSize)
+        // iOS has no Comic Sans; Font.custom falls back to the system font when rendering, and
+        // this measurement must use the SAME font the sticker actually renders with, or band
+        // title-spill widths drift from what's on screen.
+        #if canImport(AppKit)
+            let f = NSFont(name: BandStyle.titleFontName, size: BandStyle.titleSize) ?? NSFont
+                .systemFont(ofSize: BandStyle.titleSize)
+        #else
+            let f = UIFont(name: BandStyle.titleFontName, size: BandStyle.titleSize) ?? UIFont
+                .systemFont(ofSize: BandStyle.titleSize)
+        #endif
         return (s as NSString).size(withAttributes: [.font: f]).width
     }
 }
 
 /// Clips content to an absolute rectangle in the parent's coordinate space.
-struct RectClip: Shape {
+public struct RectClip: Shape {
     let rect: CGRect
-    func path(in _: CGRect) -> Path {
+    public init(rect: CGRect) {
+        self.rect = rect
+    }
+
+    public func path(in _: CGRect) -> Path {
         Path(rect)
     }
 }

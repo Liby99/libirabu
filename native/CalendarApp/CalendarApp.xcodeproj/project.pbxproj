@@ -9,16 +9,26 @@
 /* Begin PBXBuildFile section */
 		11C9B6871CD81247B3236C9F /* CalendarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01C64964D11274919B9C8CB0 /* CalendarApp.swift */; };
 		16A2BA359D6134E8A00015F8 /* CalendarApp_iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC56E7EA43E70B5199ACD8ED /* CalendarApp_iOS.swift */; };
+		41AD28C49C7A1C726CE6DF07 /* PhoneEventSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2546ABFD1065E6FC703B37F7 /* PhoneEventSheet.swift */; };
+		607B9674E8C9FF684B82C101 /* PhoneMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BAE0AB0D1D411DCF3BA7924 /* PhoneMenuView.swift */; };
 		6824311A9C2A2662CD2252A0 /* SyncHarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C789AA3FD488F088FF6D88E5 /* SyncHarnessView.swift */; };
+		70E6451AC9E8333EE4545419 /* PhoneCalendarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B02BDE9796F06C3BE0399496 /* PhoneCalendarView.swift */; };
 		9FBEFB316C1463468E7C3678 /* CalendarUI in Frameworks */ = {isa = PBXBuildFile; productRef = 4621EA362909A0CB306A1505 /* CalendarUI */; };
 		B1AB267A9F80C77C00BCFC97 /* CalendarEngine in Frameworks */ = {isa = PBXBuildFile; productRef = 80D6AD537A21092EBD96D7DE /* CalendarEngine */; };
 		B9DA05E115F5AC57765A91AD /* CalendarEngine in Frameworks */ = {isa = PBXBuildFile; productRef = 3067D902C5A483BC09908066 /* CalendarEngine */; };
 		CF4034CB124E9F778014E50E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CF4DC5ACF24156D3C0AAA974 /* Assets.xcassets */; };
+		D0EB8C3CFCE82EDFD9DE7711 /* PhonePagers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E6CFB98C6B71920E5BD485 /* PhonePagers.swift */; };
+		F0D848F2BF3844A6AC26ABF9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CF4DC5ACF24156D3C0AAA974 /* Assets.xcassets */; };
+		F0F7ADEC4E3826C47B6C559D /* CalendarRender in Frameworks */ = {isa = PBXBuildFile; productRef = 008CD80ACA456B1AC94892DC /* CalendarRender */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		01C64964D11274919B9C8CB0 /* CalendarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarApp.swift; sourceTree = "<group>"; };
+		2546ABFD1065E6FC703B37F7 /* PhoneEventSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneEventSheet.swift; sourceTree = "<group>"; };
+		3BAE0AB0D1D411DCF3BA7924 /* PhoneMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneMenuView.swift; sourceTree = "<group>"; };
+		96E6CFB98C6B71920E5BD485 /* PhonePagers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePagers.swift; sourceTree = "<group>"; };
 		9F26929D3FA8206C874AC575 /* CalendarApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CalendarApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B02BDE9796F06C3BE0399496 /* PhoneCalendarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneCalendarView.swift; sourceTree = "<group>"; };
 		B6F1345B7435663121D4B4D1 /* CalendarKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CalendarKit; path = ../CalendarKit; sourceTree = SOURCE_ROOT; };
 		B7DA44B583931677D28DEBF8 /* CalendarPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CalendarPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C2565BE4DC5A54E3D396AF1A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -42,6 +52,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B9DA05E115F5AC57765A91AD /* CalendarEngine in Frameworks */,
+				F0F7ADEC4E3826C47B6C559D /* CalendarRender in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,6 +100,10 @@
 			children = (
 				DC56E7EA43E70B5199ACD8ED /* CalendarApp_iOS.swift */,
 				C2565BE4DC5A54E3D396AF1A /* Info.plist */,
+				B02BDE9796F06C3BE0399496 /* PhoneCalendarView.swift */,
+				2546ABFD1065E6FC703B37F7 /* PhoneEventSheet.swift */,
+				3BAE0AB0D1D411DCF3BA7924 /* PhoneMenuView.swift */,
+				96E6CFB98C6B71920E5BD485 /* PhonePagers.swift */,
 				C789AA3FD488F088FF6D88E5 /* SyncHarnessView.swift */,
 			);
 			path = iOS;
@@ -102,6 +117,7 @@
 			buildConfigurationList = C351CC799DDEFFDF40BA5CA6 /* Build configuration list for PBXNativeTarget "CalendarPhone" */;
 			buildPhases = (
 				7B89A77DB06EF00EC425F786 /* Sources */,
+				B7B9A6191C849C0314675B21 /* Resources */,
 				2AD8D69282D8EF00FF4C35B3 /* Frameworks */,
 			);
 			buildRules = (
@@ -111,6 +127,7 @@
 			name = CalendarPhone;
 			packageProductDependencies = (
 				3067D902C5A483BC09908066 /* CalendarEngine */,
+				008CD80ACA456B1AC94892DC /* CalendarRender */,
 			);
 			productName = CalendarPhone;
 			productReference = B7DA44B583931677D28DEBF8 /* CalendarPhone.app */;
@@ -188,6 +205,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B7B9A6191C849C0314675B21 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F0D848F2BF3844A6AC26ABF9 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -204,6 +229,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				16A2BA359D6134E8A00015F8 /* CalendarApp_iOS.swift in Sources */,
+				70E6451AC9E8333EE4545419 /* PhoneCalendarView.swift in Sources */,
+				41AD28C49C7A1C726CE6DF07 /* PhoneEventSheet.swift in Sources */,
+				607B9674E8C9FF684B82C101 /* PhoneMenuView.swift in Sources */,
+				D0EB8C3CFCE82EDFD9DE7711 /* PhonePagers.swift in Sources */,
 				6824311A9C2A2662CD2252A0 /* SyncHarnessView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -387,7 +416,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = CalendarApp.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "CalendarApp-Release.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -476,6 +505,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		008CD80ACA456B1AC94892DC /* CalendarRender */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CalendarRender;
+		};
 		3067D902C5A483BC09908066 /* CalendarEngine */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CalendarEngine;

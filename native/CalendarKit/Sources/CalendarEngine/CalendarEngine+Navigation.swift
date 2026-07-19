@@ -20,6 +20,11 @@ extension CalendarEngine {
 
     /// Zoom back out to the yearly view (breadcrumb "Year" crumb from a deeper level).
     public func zoomToYear() {
+        // Carry the month view's horizontal scroll back to its quarter (phone overflow; both
+        // stay 0 on desktop) so the year view shows the same day columns after the zoom.
+        if yearQX.indices.contains(focus / 3) {
+            yearQX[focus / 3] = clamp(monthQX, 0, yearQuarterMaxX(viewport))
+        }
         tweenZ(to: 0)
     }
 

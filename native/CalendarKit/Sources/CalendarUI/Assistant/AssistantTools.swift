@@ -418,7 +418,7 @@ struct CreateEventTool: AssistantTool {
           "track":{"type":"integer","minimum":1,"maximum":4,"description":"Band lane 1–4, top to bottom (users say \\"the 3rd track\\" for track 3)."},
           "color":{"type":"string","description":"Named color, e.g. blue/green/red/orange/purple."},
           "promoteTrack":{"type":"integer","minimum":1,"maximum":4,"description":"Mirror a timed/deadline onto this monthly track lane (1–4, top to bottom) as a ghost band."},
-          "originTz":{"type":"string","description":"Deadline origin timezone: \"AOE\" or an IANA id. When given, 'date'+'start' are interpreted IN that timezone (e.g. 23:59 AOE) and converted to local time, keeping the origin label."},
+          "timezone":{"type":"string","description":"IANA id (e.g. Asia/Tokyo) or \"AOE\" — the zone 'date'/'start'/'end' are stated in. The item is ANCHORED to that zone: the original wall-clock time is stored verbatim and the calendar converts for display. Use whenever the source has a clear native timezone (a JST broadcast, an AOE CfP). timed + deadline only."},
           "repeat":{"type":"object","description":"Recurrence.","properties":{
             "kind":{"type":"string","enum":["daily","weekly","weekdays","yearly"]},
             "n":{"type":"integer","description":"Every n weeks/years (default 1)."},
@@ -452,8 +452,9 @@ struct CreateEventTool: AssistantTool {
         }
         let title = args["title"]?.stringValue ?? "New event"
         let color = args["color"]?.stringValue ?? "blue"
-        let notes = args["notes"]?.stringValue
+        let notes = mdUnescape(args["notes"]?.stringValue)
         let tags = (args["tags"]?.arrayValue ?? []).compactMap(\.stringValue)
+        let anchorTz = args["timezone"]?.stringValue
 
         let promote = laneIn(args["promoteTrack"]?.intValue)
         let repeatCfg = repeatConfig(from: args["repeat"])
@@ -464,12 +465,21 @@ struct CreateEventTool: AssistantTool {
             let end = args["end"]?.stringValue.flatMap(parseTime) ?? min(24, start + 1)
             let id = e.createTimedEvent(year: y, month: m, day: d, startHour: start,
                                         endHour: max(start + 0.25, end), title: title, color: color,
-                                        notes: notes, tags: tags, promoteTrack: promote, byAI: true)
+                                        notes: notes, tags: tags, promoteTrack: promote,
+                                        anchorTz: anchorTz, byAI: true)
             if let repeatCfg {
                 e.setRepeat(id, repeatCfg)
             }
-            return .obj(["ok": .bool(true), "id": .str(id), "kind": .str("timed"),
-                         "repeats": .bool(repeatCfg != nil)])
+            // Echo the PARSED rule so the model can verify what was actually stored (a malformed
+            // days list used to be dropped silently while the model reported success).
+            var out: [String: JSONValue] = ["ok": .bool(true), "id": .str(id), "kind": .str("timed")]
+            if let r = repeatCfg {
+                out["repeat"] = .str("\(r.kind)"
+                    + (r.days.map { " days:\($0)" } ?? "")
+                    + (r.until.map { " until:\($0)" } ?? "")
+                    + ((r.exdates?.isEmpty == false) ? " exdates:\(r.exdates!.count)" : ""))
+            }
+            return .obj(out)
         case "band":
             // A band may span months; the engine splits a cross-month range into one segment per
             // month. Default the end to the start day (a one-day band) when no endDate is given.
@@ -488,22 +498,21 @@ struct CreateEventTool: AssistantTool {
                 "repeats": .bool(repeatCfg != nil),
             ])
         case "deadline":
-            var (dy, dm, dd) = (y, m, d)
-            var hour = args["start"]?.stringValue.flatMap(parseTime) ?? 17
-            // Origin-timezone deadlines (AOE = UTC−12, or an IANA id): the given date+time are the
-            // ORIGIN wall clock; store the equivalent LOCAL wall clock, keeping the origin label.
-            if let tz = args["originTz"]?.stringValue,
-               let conv = convertFromOrigin(dy, dm, dd, hour, tz: tz) {
-                (dy, dm, dd, hour) = conv
-            }
-            let id = e.createDeadline(year: dy, month: dm, day: dd, hour: hour, title: title,
-                                      color: color, originTz: args["originTz"]?.stringValue,
-                                      notes: notes, tags: tags, promoteTrack: promote, byAI: true)
+            let hour = args["start"]?.stringValue.flatMap(parseTime) ?? 17
+            // With `timezone`, the given date+time ARE that zone's wall clock — stored verbatim,
+            // anchored there (the calendar converts for display; the original time survives).
+            let id = e.createDeadline(year: y, month: m, day: d, hour: hour, title: title,
+                                      color: color, notes: notes, tags: tags,
+                                      promoteTrack: promote, anchorTz: anchorTz, byAI: true)
             if let repeatCfg {
                 e.setRepeat(id, repeatCfg)
             }
-            return .obj(["ok": .bool(true), "id": .str(id), "kind": .str("deadline"),
-                         "localDate": .str(iso(dy, dm, dd)), "localTime": .str(hhmm(hour))])
+            var out: [String: JSONValue] = ["ok": .bool(true), "id": .str(id), "kind": .str("deadline"),
+                                            "date": .str(iso(y, m, d)), "time": .str(hhmm(hour))]
+            if let anchorTz {
+                out["anchoredTz"] = .str(anchorTz)
+            }
+            return .obj(out)
         default:
             return .obj(["error": .str("unknown kind '\(kind)'")])
         }
@@ -558,8 +567,8 @@ struct UpdateEventTool: AssistantTool {
         let patch = args["patch"] ?? .null
 
         // notes: replace, or append to what's already there (the TODO-in-notes flow).
-        var notes = patch["notes"]?.stringValue
-        if notes == nil, let extra = patch["appendNotes"]?.stringValue, !extra.isEmpty {
+        var notes = mdUnescape(patch["notes"]?.stringValue)
+        if notes == nil, let extra = mdUnescape(patch["appendNotes"]?.stringValue), !extra.isEmpty {
             let existing = e.notes(id)
             notes = existing.isEmpty ? extra : existing + "\n" + extra
         }
@@ -853,12 +862,25 @@ private func hhmm(_ h: CGFloat) -> String {
 }
 
 /// Recurrence config from a tool's `repeat` argument; nil when absent/none/invalid.
+/// Tolerant on two REAL model mistakes (caught by eval trajectory S001, where they silently
+/// produced a Tuesdays-only series for a Tue/Thu class):
+///   • day NAMES ("TUE"/"Thursday") coerce to 0=Sun..6=Sat integers
+///   • kind "weekly" WITH a multi-day list upgrades to "weekdays" (weekly ignores `days`)
 private func repeatConfig(from v: JSONValue?) -> Repeat? {
-    guard let o = v?.asObject, let kind = o["kind"]?.stringValue, kind != "none" else { return nil }
+    guard let o = v?.asObject, var kind = o["kind"]?.stringValue, kind != "none" else { return nil }
+    let dayNames = ["su": 0, "mo": 1, "tu": 2, "we": 3, "th": 4, "fr": 5, "sa": 6]
+    let days = o["days"]?.arrayValue?.compactMap { d -> Int? in
+        if let n = d.intValue { return (0 ... 6).contains(n) ? n : nil }
+        guard let s = d.stringValue?.lowercased(), s.count >= 2 else { return nil }
+        return dayNames[String(s.prefix(2))]
+    }
+    if kind == "weekly", (days?.count ?? 0) > 1 {
+        kind = "weekdays"
+    }
     return Repeat(kind: kind,
                   n: o["n"]?.intValue,
                   until: o["until"]?.stringValue,
-                  days: o["days"]?.arrayValue?.compactMap(\.intValue),
+                  days: days,
                   exdates: o["exdates"]?.arrayValue?.compactMap(\.stringValue))
 }
 
@@ -872,26 +894,14 @@ private func addDays(_ ymd: (Int, Int, Int), _ n: Int) -> (Int, Int, Int) {
     return (o.year ?? ymd.0, (o.month ?? 1) - 1, o.day ?? ymd.2)
 }
 
-/// Convert an origin-timezone wall clock (e.g. "23:59 AOE") into the device-local wall clock the
-/// engine stores. AOE (Anywhere on Earth) = UTC−12; anything else is an IANA id. nil if unknown tz.
-private func convertFromOrigin(_ y: Int, _ m: Int, _ d: Int, _ hour: CGFloat,
-                               tz: String) -> (Int, Int, Int, CGFloat)? {
-    let originTZ: TimeZone? = tz.uppercased() == "AOE"
-        ? TimeZone(secondsFromGMT: -12 * 3600)
-        : TimeZone(identifier: tz)
-    guard let originTZ else { return nil }
-    var origin = Calendar(identifier: .gregorian)
-    origin.timeZone = originTZ
-    var c = DateComponents()
-    c.year = y; c.month = m + 1; c.day = d
-    let totalMin = max(0, Int((hour * 60).rounded()))
-    c.hour = totalMin / 60; c.minute = totalMin % 60
-    guard let instant = origin.date(from: c) else { return nil }
-    let local = Calendar(identifier: .gregorian) // device timezone
-    let o = local.dateComponents([.year, .month, .day, .hour, .minute], from: instant)
-    guard let ly = o.year, let lm = o.month, let ld = o.day, let lh = o.hour, let lmin = o.minute
-    else { return nil }
-    return (ly, lm - 1, ld, CGFloat(lh) + CGFloat(lmin) / 60)
+/// Defensive Markdown unescape for the LLM's `notes`: models occasionally double-escape, leaving a
+/// LITERAL backslash-n in the note text, which renders as "\n" instead of a line break. A real
+/// backslash-n is never intended in calendar notes, so rewrite the common escapes.
+private func mdUnescape(_ s: String?) -> String? {
+    guard let s, s.contains("\\") else { return s }
+    return s.replacingOccurrences(of: "\\r\\n", with: "\n")
+        .replacingOccurrences(of: "\\n", with: "\n")
+        .replacingOccurrences(of: "\\t", with: "  ")
 }
 
 private func weekday(_ y: Int, _ m: Int, _ d: Int) -> String {

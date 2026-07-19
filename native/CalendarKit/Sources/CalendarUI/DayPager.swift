@@ -13,20 +13,6 @@ import CalendarEngine
 import CalendarGeometry
 import SwiftUI
 
-/// Snap the momentum-projected landing to the nearest DAY: a gentle nudge advances one day, a fast
-/// fling carries several (SwiftUI projects farther), and either way lands exactly on a day boundary
-/// with the native deceleration curve. Clamped to the month.
-struct DayScrollBehavior: ScrollTargetBehavior {
-    var dayW: CGFloat
-    var maxDay: CGFloat // last valid day index (= daysInMonth − 1)
-
-    func updateTarget(_ target: inout ScrollTarget, context: ScrollTargetBehaviorContext) {
-        guard dayW > 0 else { return }
-        let day = (target.rect.origin.x / dayW).rounded()
-        target.rect.origin.x = min(max(0, day), maxDay) * dayW
-    }
-}
-
 /// Shared handle between the SwiftUI day driver and the AppKit `CatcherView`. Positioning is
 /// IMPERATIVE (scroll the backing NSScrollView), NOT via `.scrollPosition` — a two-way binding
 /// re-renders the pager on every day crossed and re-applies itself, jumping the offset.

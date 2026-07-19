@@ -98,5 +98,6 @@ public struct ViewMenuContent: View {
         Button { NotificationCenter.default.post(name: .toggleTagFilter, object: nil) } label: {
             Label("Filter by Tags…", systemImage: "tag")
         }
+        .keyboardShortcut("g", modifiers: .command)
     }
 }

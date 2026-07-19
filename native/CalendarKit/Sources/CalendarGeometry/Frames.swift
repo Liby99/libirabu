@@ -21,21 +21,34 @@ public func yearMaxScroll(_ vp: Viewport) -> CGFloat {
     max(0, yearContentH() - (vp.h - Layout.yearTop - Layout.bottomPad))
 }
 
+/// Year-view day-cell width: fills the window, but never below `Layout.yearMinDayW`
+/// (phone: 26 → each quarter overflows into its own horizontal scroll).
+public func yearDayW(_ vp: Viewport) -> CGFloat {
+    max((vp.w - Layout.labelW) / 31, Layout.yearMinDayW)
+}
+
+/// How far a quarter's 31-day strip can scroll horizontally (0 when the cells fit).
+public func yearQuarterMaxX(_ vp: Viewport) -> CGFloat {
+    max(0, 31 * yearDayW(vp) - (vp.w - Layout.labelW))
+}
+
 /// GridCal-style year layout: 4 quarters separated by Q_GAP; months flush within a quarter.
-public func yearFrame(_ m: Int, _ vp: Viewport, _ scrollY: CGFloat) -> Frame {
-    let dayW = (vp.w - Layout.labelW) / 31
+/// `qx` is the month's QUARTER horizontal scroll offset (phone overflow; 0 on desktop) —
+/// the grid shifts left by it while the gutter (month name) stays, so names stick.
+public func yearFrame(_ m: Int, _ vp: Viewport, _ scrollY: CGFloat, qx: CGFloat = 0) -> Frame {
     let q = m / 3
     let within = m % 3
     let quarterTop = CGFloat(q) * (quarterBlock() + Layout.qGap)
     // Year view uses its own small top inset (yearTop); the accordion below still lands
     // the focused month band at topPad when zooming in.
     let bandY = Layout.yearTop - scrollY + quarterTop + Layout.qHeaderH + CGFloat(within) * Layout.monthH
-    return Frame(x0: Layout.labelW, dayW: dayW, bandY: bandY, trackH: Layout.trackH, opacity: 1)
+    return Frame(x0: Layout.labelW - qx, dayW: yearDayW(vp), bandY: bandY, trackH: Layout.trackH, opacity: 1)
 }
 
-/// Geometry of a month's band at Month level (also used for hit-testing).
-public func focusGeom(_ vp: Viewport) -> (x0: CGFloat, dayW: CGFloat, bandY: CGFloat, trackH: CGFloat) {
-    (Layout.labelW, (vp.w - Layout.labelW) / 31, Layout.topPad, Layout.trackH)
+/// Geometry of a month's band at Month level (also used for hit-testing). `mx` is the
+/// month-view horizontal scroll offset (phone overflow; 0 on desktop) — pass g.monthQX.
+public func focusGeom(_ vp: Viewport, mx: CGFloat = 0) -> (x0: CGFloat, dayW: CGFloat, bandY: CGFloat, trackH: CGFloat) {
+    (Layout.labelW - mx, yearDayW(vp), Layout.topPad, Layout.trackH)
 }
 
 private func detailFullH(_ vp: Viewport) -> CGFloat {
@@ -43,8 +56,12 @@ private func detailFullH(_ vp: Viewport) -> CGFloat {
 }
 
 /// Year→Month accordion: the focus lane scrolls to the top; detail space opens below it.
-private func yearToMonthFrame(_ m: Int, _ t: CGFloat, _ focus: Int, _ vp: Viewport, _ scrollY: CGFloat) -> Frame {
-    let yf = yearFrame(m, vp, scrollY)
+/// The QUARTER scroll offset (qx) blends into the MONTH scroll offset (mx) as t→1 — the
+/// engine seeds mx from the tapped month's qx, so the columns don't jump during the zoom.
+/// Both are 0 on desktop; dayW keeps the min-width overflow at every t (yearDayW).
+private func yearToMonthFrame(_ m: Int, _ t: CGFloat, _ focus: Int, _ vp: Viewport, _ scrollY: CGFloat,
+                              qx: CGFloat = 0, mx: CGFloat = 0) -> Frame {
+    let yf = yearFrame(m, vp, scrollY, qx: qx)
     let yfocus = yearFrame(focus, vp, scrollY)
     let PAD: CGFloat = 80
     let scroll = (yfocus.bandY - Layout.topPad) * t
@@ -54,7 +71,8 @@ private func yearToMonthFrame(_ m: Int, _ t: CGFloat, _ focus: Int, _ vp: Viewpo
     } else if m > focus {
         bandY += detailFullH(vp) * t + PAD * t
     }
-    return Frame(x0: Layout.labelW, dayW: yf.dayW, bandY: bandY, trackH: Layout.trackH, opacity: 1)
+    return Frame(x0: lerp(yf.x0, Layout.labelW - mx, t), dayW: yf.dayW,
+                 bandY: bandY, trackH: Layout.trackH, opacity: 1)
 }
 
 private func weekFrame(_ m: Int, _ g: SceneInput) -> Frame {
@@ -72,10 +90,14 @@ private func weekFrame(_ m: Int, _ g: SceneInput) -> Frame {
 }
 
 /// Vertical month-to-month paging. dir +1 = next month, -1 = prev; p ∈ [0,1].
-private func monthSwipeFrame(_ m: Int, _ anim: PageAnim, _ focus: Int, _ vp: Viewport) -> Frame {
+/// Keeps the min-width day columns AND the month's horizontal scroll offset (mx) through
+/// the turn — otherwise the phone's overflowing month compresses to fit-width mid-swipe
+/// and re-expands on settle. Both are inert on desktop (natural width, mx = 0).
+private func monthSwipeFrame(_ m: Int, _ anim: PageAnim, _ focus: Int, _ vp: Viewport,
+                             mx: CGFloat = 0) -> Frame {
     let dir = anim.dir, p = anim.p
     let to = focus + dir
-    let x0 = Layout.labelW, dayW = (vp.w - Layout.labelW) / 31
+    let x0 = Layout.labelW - mx, dayW = yearDayW(vp)
     let OFF_TOP = -Layout.monthH - 40
     let OFF_BOT = vp.h + 40
     if m == focus {
@@ -175,11 +197,12 @@ public func dashboardLeftAnimated(_ g: SceneInput) -> CGFloat {
 public func frameFor(_ m: Int, _ g: SceneInput, anim: PageAnim? = nil) -> Frame {
     var f: Frame
     if let anim {
-        f = monthSwipeFrame(m, anim, g.focus, g.vp)
+        f = monthSwipeFrame(m, anim, g.focus, g.vp, mx: g.monthQX)
     } else if g.z <= 1 {
-        f = yearToMonthFrame(m, easeInOut(clamp(g.z, 0, 1)), g.focus, g.vp, g.scrollY)
+        f = yearToMonthFrame(m, easeInOut(clamp(g.z, 0, 1)), g.focus, g.vp, g.scrollY,
+                             qx: g.qx(m), mx: g.monthQX)
     } else if g.z <= 2 {
-        let mf = yearToMonthFrame(m, 1, g.focus, g.vp, g.scrollY)
+        let mf = yearToMonthFrame(m, 1, g.focus, g.vp, g.scrollY, mx: g.monthQX)
         f = blend(mf, weekFrame(m, g), easeInOut(clamp(g.z - 1, 0, 1)))
     } else {
         f = blend(weekFrame(m, g), dayFrame(m, g), easeInOut(clamp(g.z - 2, 0, 1)))

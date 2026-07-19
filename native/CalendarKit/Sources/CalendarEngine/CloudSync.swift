@@ -28,14 +28,19 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     /// here; switching calendars tears this down and starts a new CloudSync for the new zone.
     private let zoneID: CKRecordZone.ID
     private var syncEngine: CKSyncEngine!
+    /// Read-only mode (the iPhone viewer): fetch + apply remote changes, but NEVER send — no
+    /// initial full push, no onLocalChange wiring, and nextRecordZoneChangeBatch returns nil so
+    /// nothing can reach the server even if a change were enqueued somehow.
+    private let readOnly: Bool
 
     // System-fields cache: id → CKRecord carrying the server change-tag. Materialized
     // records start from these so saves don't spuriously hit `serverRecordChanged`.
     private var knownRecords: [String: CKRecord] = [:]
     private let recordCacheURL: URL
 
-    init(engine: CalendarEngine, calendarId: String) {
+    init(engine: CalendarEngine, calendarId: String, readOnly: Bool = false) {
         self.engine = engine
+        self.readOnly = readOnly
         self.container = CKContainer(identifier: CloudSync.containerID)
         self.zoneID = CKRecordZone.ID(zoneName: calendarId, ownerName: CKCurrentUserDefaultName)
         // Per-calendar record cache, beside that calendar's data.json / syncState.bin.
@@ -100,14 +105,17 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         syncEngine = CKSyncEngine(config)
 
         engine.beginSyncTracking()
-        engine.onLocalChange = { [weak self] upserts, deletes in
-            self?.localChanged(upserts: upserts, deletes: deletes)
+        if !readOnly {
+            engine.onLocalChange = { [weak self] upserts, deletes in
+                self?.localChanged(upserts: upserts, deletes: deletes)
+            }
         }
         startPeriodicSync()
 
         // First run on this device: create the zone and push everything we have. On a
         // fresh second device this set is small/empty and the initial fetch fills it in.
-        if savedState == nil {
+        // Read-only: never — the phone contributes nothing; the Mac creates the zone.
+        if savedState == nil, !readOnly {
             syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
             let snap = engine.syncSnapshot()
             // Standalone overlay records for imported events the user has customized (color/promote/notes/tags).
@@ -125,9 +133,11 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     /// `lastSyncedAt` is stamped by the `didFetchChanges`/`didSendChanges` delegate events, not here.
     func syncNow() {
         guard let syncEngine else { engine?.syncMonitor.isSyncing = false; return }
-        Task { [weak self] in
+        Task { [weak self, readOnly] in
             try? await syncEngine.fetchChanges()
-            try? await syncEngine.sendChanges()
+            if !readOnly {
+                try? await syncEngine.sendChanges()
+            }
             self?.engine?.syncMonitor.isSyncing = false
         }
     }
@@ -169,8 +179,27 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     func nextRecordZoneChangeBatch(
         _ context: CKSyncEngine.SendChangesContext, syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
+        if readOnly { return nil } // hard block: a read-only client sends NOTHING
         let scope = context.options.scope
-        let pending = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
+        let raw = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
+        // Dedupe per record id: the same record gets queued repeatedly (edit bursts, conflict
+        // re-enqueues), and a batch holding one id twice is rejected WHOLESALE by the server
+        // ("You can't save the same record twice") — poisoning every send, so no local edit ever
+        // reaches iCloud. One change per id; a pending delete beats a stale save.
+        var deletes = Set<CKRecord.ID>()
+        for change in raw {
+            if case let .deleteRecord(id) = change {
+                deletes.insert(id)
+            }
+        }
+        var seen = Set<CKRecord.ID>()
+        let pending = raw.filter { change in
+            switch change {
+            case let .saveRecord(id): !deletes.contains(id) && seen.insert(id).inserted
+            case let .deleteRecord(id): seen.insert(id).inserted
+            @unknown default: true
+            }
+        }
         guard !pending.isEmpty, let engine else { return nil }
         let snap = engine.syncSnapshot()
         // Materialize up front on the main actor (touches knownRecords); the provider
@@ -230,7 +259,20 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         var events: [TimedEvent] = [], bands: [BandEvent] = [], deadlines: [Deadline] = []
         var rich: [String: RichFields] = [:]
         var trackNames: [[String]]? = nil
-        for m in modifications {
+        // LOCAL WINS: any record with a pending (un-pushed) local change is NEWER here than on the
+        // server — applying the fetched copy would revert the user's edit under their cursor (the
+        // "rename keeps reverting" bug: the echo landed inside commitTxn's 0.6s window, turned the
+        // edit into a detected no-op, and even suppressed the persist). Skip those records entirely
+        // — including their knownRecords tag, so our eventual push conflicts (serverRecordChanged)
+        // and re-pushes the local copy over the server's. Display NEVER waits on, nor is dictated
+        // by, the cloud; the server converges to us.
+        let locallyDirty = Set((syncEngine?.state.pendingRecordZoneChanges ?? []).map { change -> String in
+            switch change {
+            case let .saveRecord(id), let .deleteRecord(id): id.recordName
+            @unknown default: ""
+            }
+        })
+        for m in modifications where !locallyDirty.contains(m.record.recordID.recordName) {
             let r = m.record
             let name = r.recordID.recordName
             knownRecords[name] = r
@@ -249,7 +291,9 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             default: break
             }
         }
-        let deletedIDs = deletions.map(\.recordID.recordName)
+        // Same local-wins rule for deletions: a server delete of a record we're about to save
+        // must not remove it locally — our pending save recreates it server-side.
+        let deletedIDs = deletions.map(\.recordID.recordName).filter { !locallyDirty.contains($0) }
         for id in deletedIDs {
             knownRecords[id] = nil
         }
@@ -265,6 +309,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         for saved in e.savedRecords {
             knownRecords[saved.recordID.recordName] = saved
         }
+        guard !readOnly else { saveRecordCache(); return } // unreachable (nothing sends) — belt and braces
         for fail in e.failedRecordSaves {
             let name = fail.record.recordID.recordName
             switch fail.error.code {

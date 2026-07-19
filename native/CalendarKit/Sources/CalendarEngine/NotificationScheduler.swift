@@ -48,7 +48,13 @@ public final class NotificationScheduler: NSObject {
     /// Wire up once at engine creation: delegate + the non-data resync triggers. Demo recordings
     /// never touch the user's notification schedule (mirrors the CloudSync/Apple-import guards).
     func start(engine: CalendarEngine) {
-        self.engine = engine
+        // Adopt the engine only when we don't already track a LIVE one. SwiftUI re-constructs view
+        // structs freely, and each construction can build a throwaway CalendarEngine (a @State
+        // default value) that is immediately discarded — letting it clobber the weak ref here
+        // would leave `self.engine` nil and every resync silently dead.
+        if self.engine == nil {
+            self.engine = engine
+        }
         guard Self.isSupported, !CalendarEngine.isDemoMode, !started else { return }
         started = true
         UNUserNotificationCenter.current().delegate = self
@@ -82,7 +88,13 @@ public final class NotificationScheduler: NSObject {
     }
 
     private func resyncNow() async {
-        guard let engine else { return }
+        // The tracked engine can still die (window teardown) — fall back to the app's main one.
+        let live = engine ?? CalendarEngine.mainInstance
+        guard let engine = live else {
+            notifyLog.error("resync SKIPPED: no live engine (data source lost)")
+            return
+        }
+        self.engine = engine
         let center = UNUserNotificationCenter.current()
         let prefs = NotifyPrefs.load()
         let status = await center.notificationSettings().authorizationStatus

@@ -79,6 +79,7 @@ public enum MenuItemID: Sendable {
     public var shortcut: MenuShortcut? {
         switch self {
         case .openAssistant: return MenuShortcut("i")
+        case .syncNow:       return MenuShortcut("r")
         case .settings:      return MenuShortcut(",")
         case .hide:          return MenuShortcut("h")
         case .quit:          return MenuShortcut("q")

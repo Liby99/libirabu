@@ -190,12 +190,20 @@ extension CalendarEngine {
         }
     }
 
-    private func navigate(at p: CGPoint) {
+    /// Drill one zoom level into whatever sits at point `p` (year→month→week→day). Public for the
+    /// iPhone client, whose tap gesture calls this directly instead of the pointer pipeline (which
+    /// carries create/drag paths a read-only client must never enter).
+    public func navigate(at p: CGPoint) {
         let g = snapshot()
         switch level(z) {
         case 0:
             if let m = monthAtPoint(p.x, p.y, g) ?? monthNameAtPoint(p.x, p.y, g) {
-                focus = m; tweenZ(to: 1)
+                focus = m
+                // Carry the quarter's horizontal scroll into the month view (phone overflow;
+                // both stay 0 on desktop) so the visible columns don't jump during the zoom.
+                monthQX = clamp(yearQX.indices.contains(m / 3) ? yearQX[m / 3] : 0,
+                                0, yearQuarterMaxX(viewport))
+                tweenZ(to: 1)
             }
         case 1:
             if let w = weekAtPointInMonth(p.x, g) {

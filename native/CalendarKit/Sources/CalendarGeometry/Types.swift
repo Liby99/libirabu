@@ -216,6 +216,19 @@ public struct SceneInput: Sendable, Equatable {
     public var weekFlipDir: Int // in-flight week-boundary flip direction (0 = none, ±1)
     public var weekFlipFade: CGFloat // 0→1 cross-fade progress of the dim/bright swap
     public var dayPull: DayPull? // day-view boundary pull (overscroll flip hint)
+    /// Per-QUARTER horizontal scroll offsets for the year view (phone: min-width day cells
+    /// overflow each quarter into its own scroll; desktop: always zeros). Grid content shifts
+    /// left by yearQX[q]; gutter items (month names) don't, so they stick.
+    public var yearQX: [CGFloat]
+    /// MONTH-view horizontal scroll offset (phone: the focused month's 31 min-width columns
+    /// overflow into one scroll; desktop: always 0). Same shift model as yearQX.
+    public var monthQX: CGFloat
+
+    /// Month `m`'s quarter scroll offset (safe on a short/empty array).
+    public func qx(_ m: Int) -> CGFloat {
+        let q = m / 3
+        return yearQX.indices.contains(q) ? yearQX[q] : 0
+    }
 
     public init(z: CGFloat, focus: Int, week: CGFloat, vp: Viewport, scrollY: CGFloat,
                 tlScroll: CGFloat, now: Date, year: Int, hover: Hover = .none,
@@ -225,7 +238,9 @@ public struct SceneInput: Sendable, Equatable {
                 animating: Bool = false, monthPull: YearPull? = nil, monthFlipShift: CGFloat = 0,
                 weekPull: WeekPull? = nil, weekFlipDir: Int = 0, weekFlipFade: CGFloat = 0,
                 dayPull: DayPull? = nil,
-                mainTz: String = "auto") {
+                mainTz: String = "auto",
+                yearQX: [CGFloat] = [0, 0, 0, 0],
+                monthQX: CGFloat = 0) {
         self.z = z; self.focus = focus; self.week = week; self.vp = vp; self.scrollY = scrollY
         self.tlScroll = tlScroll; self.now = now; self.year = year; self.hover = hover
         self.weekHourH = weekHourH; self.daily = daily; self.monthAnim = monthAnim
@@ -235,5 +250,7 @@ public struct SceneInput: Sendable, Equatable {
         self.animating = animating; self.monthPull = monthPull; self.monthFlipShift = monthFlipShift
         self.weekPull = weekPull; self.weekFlipDir = weekFlipDir; self.weekFlipFade = weekFlipFade
         self.dayPull = dayPull
+        self.yearQX = yearQX
+        self.monthQX = monthQX
     }
 }

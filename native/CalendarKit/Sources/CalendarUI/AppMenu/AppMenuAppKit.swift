@@ -92,8 +92,8 @@ import CalendarEngine
         case .tagFilter:
             // A menu can't stay open while multi-toggling on macOS, so this opens the tag-filter popover
             // (in CalendarView's toolbar) via a notification — identical to the .app's View menu.
-            let mi = menu.addItem(withTitle: "Filter by Tags…", action: #selector(openTagFilter(_:)), keyEquivalent: "")
-            mi.target = self
+            let mi = menu.addItem(withTitle: "Filter by Tags…", action: #selector(openTagFilter(_:)), keyEquivalent: "g")
+            mi.target = self // default modifier mask = ⌘ → ⌘G toggles the popover
         case .fullScreen:
             let mi = menu.addItem(withTitle: "Enter Full Screen",
                                   action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")

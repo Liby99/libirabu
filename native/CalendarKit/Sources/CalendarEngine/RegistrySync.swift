@@ -20,9 +20,13 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
     private var knownRecords: [String: CKRecord] = [:]
     private let stateURL: URL
     private let recordCacheURL: URL
+    /// Read-only mode (the iPhone viewer): discover calendars, never push the local list. Mirrors
+    /// CloudSync.readOnly — see there for the policy.
+    private let readOnly: Bool
 
-    init(engine: CalendarEngine) {
+    init(engine: CalendarEngine, readOnly: Bool = false) {
         self.engine = engine
+        self.readOnly = readOnly
         self.container = CKContainer(identifier: CloudSync.containerID)
         let base = calendarKitBaseDir()   // beside calendars.json — the registry is app-wide, not per-calendar
         self.stateURL = base.appendingPathComponent("registrySync.bin")
@@ -40,7 +44,7 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
         let config = CKSyncEngine.Configuration(
             database: container.privateCloudDatabase, stateSerialization: savedState, delegate: self)
         syncEngine = CKSyncEngine(config)
-        if savedState == nil {
+        if savedState == nil, !readOnly {
             syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
             syncEngine.state.add(pendingRecordZoneChanges: engine.allCalendars.map { .saveRecord(recordID(for: $0.id)) })
         }
@@ -49,15 +53,22 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
 
     func syncNow() {
         guard let syncEngine else { return }
-        Task { try? await syncEngine.fetchChanges(); try? await syncEngine.sendChanges() }
+        Task { [readOnly] in
+            try? await syncEngine.fetchChanges()
+            if !readOnly {
+                try? await syncEngine.sendChanges()
+            }
+        }
     }
 
     // ── Local mutations ────────────────────────────────────────────────────────────────────────────
     func upsertCalendar(_ id: String) {
+        guard !readOnly else { return }
         syncEngine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID(for: id))])
     }
     func removeCalendar(_ id: String) {
         knownRecords[id] = nil
+        guard !readOnly else { return }
         syncEngine?.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID(for: id))])
     }
 
@@ -65,6 +76,7 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
     func nextRecordZoneChangeBatch(
         _ context: CKSyncEngine.SendChangesContext, syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
+        if readOnly { return nil } // hard block: a read-only client sends NOTHING
         let scope = context.options.scope
         let pending = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         guard !pending.isEmpty else { return nil }

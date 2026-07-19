@@ -1,0 +1,89 @@
+{
+  "calendarCreated" : [
+    "band|2026-10 d1–31 track1|CS 601.442 (Fall 2026)|rep:-|tags:teaching,cs601",
+    "band|2026-11 d1–30 track1|CS 601.442 (Fall 2026)|rep:-|tags:teaching,cs601",
+    "band|2026-12 d1–10 track1|CS 601.442 (Fall 2026)|rep:-|tags:teaching,cs601",
+    "band|2026-9 d1–30 track1|CS 601.442 (Fall 2026)|rep:-|tags:teaching,cs601",
+    "timed|2026-9-1 15:00–16:15|CS 601.442 Lecture|tz:America\/New_York|rep:weekly|tags:teaching,cs601,lecture|promote:-"
+  ],
+  "calendarRemoved" : [
+
+  ],
+  "finalText" : "All set! Here's what I created:\n\n**Recurring lecture series — CS 601.442**\n- Tue\/Thu, 3:00–4:15 pm, Sep 1 through Dec 10\n- Thanksgiving week skipped (Nov 24 & 26 are exed out)\n- That's **28 class sessions** total\n\n**Semester band** on the Teaching track, spanning Sep 1 – Dec 10, so the course is visible at the year level too.\n\nBoth are in blue. Let me know if you want to add anything — office hours, a final exam date, a course website link, etc.",
+  "model" : "anthropic\/claude-sonnet-4.6",
+  "name" : "Semester lecture series with a break",
+  "policies" : [
+
+  ],
+  "prompt" : "I teach CS 601.442 this fall. Lectures Tue\/Thu 3:00–4:15pm, first class Sep 1, last Dec 10. No class Thanksgiving week (Nov 23–27). Set it all up.",
+  "scenario" : "S001",
+  "seconds" : 25,
+  "turns" : [
+    {
+      "expanded" : false,
+      "id" : "4826C2C6-4070-4F31-9AC9-0C7DD37596C7",
+      "resumeConsumed" : false,
+      "role" : "user",
+      "text" : "I teach CS 601.442 this fall. Lectures Tue\/Thu 3:00–4:15pm, first class Sep 1, last Dec 10. No class Thanksgiving week (Nov 23–27). Set it all up."
+    },
+    {
+      "detail" : {
+        "params" : "{\"to\":\"2026-12-10\",\"query\":\"lecture class teach\",\"from\":\"2026-09-01\"}",
+        "result" : "{\"range\":\"2026-09-01 – 2026-12-10\",\"events\":[],\"count\":0}",
+        "seconds" : 0.004544973373413086
+      },
+      "expanded" : false,
+      "icon" : "magnifyingglass",
+      "id" : "D6CA52B4-79CF-4B2A-8716-E5D1B7A9499E",
+      "resumeConsumed" : false,
+      "role" : "action",
+      "text" : "Lookup: 0 items · 2026-09-01 – 2026-12-10 · “lecture class teach”"
+    },
+    {
+      "detail" : {
+        "params" : "{\"year\":2026}",
+        "result" : "{\"trackNamesByMonth\":[[{\"track\":1,\"name\":\"Teaching\"},{\"track\":2,\"name\":\"Research\"},{\"track\":3,\"name\":\"Service\"},{\"track\":4,\"name\":\"Travel\"}],[{\"track\":1,\"name\":\"Teaching\"},{\"track\":2,\"name\":\"Research\"},{\"track\":3,\"name\":\"Service\"},{\"track\":4,\"name\":\"Travel\"}],[{\"track\":1,\"name\":\"Teaching\"},{\"track\":2,\"name\":\"Research\"},{\"track\":3,\"name\":\"Service\"},{\"track\":4,\"name\":\"Travel\"}],[{\"track\":1,\"name\":\"Teaching\"},{\"track\":2,\"name\":\"Research\"},{\"track\":3,\"name\":\"Service\"},{\"track\":4,\"name\":\"Travel\"}],[{\"track\":1,\"name\":\"Teaching\"},{\"track\":2,\"name\":\"Research\"},{\"track\":3,\"name\":\"Service\"},{\"track\":4,\"name\":\"Travel\"}],[{\"track\":1,\"name\":\"Teaching\"},{\"track\":2,\"name\":\"Research\"},{\"track\":3,\"name\":\"Service\"},{\"track\":4,\"name\":\"Travel\"}],[{\"name\":\"Teaching\",\"track\":1},{\"name\":\"Research\",\"track\":2},{\"name\":\"Service\",\"track\":3},{\"name\":\"Travel\",\"track\":4}],[{\"name\":\"Teaching\",\"track\":1},{\"name\":\"Research\",\"track\":2},{\"name\":\"Service\",\"track\":3},{\"name\":\"Travel\",\"track\":4}],[{\"name\":\"Teaching\",\"track\":1},{\"name\":\"Research\",\"track\":2},{\"name\":\"Service\",\"track\":3},{\"name\":\"Travel\",\"track\":4}],[{\"name\":\"Teaching\",\"track\":1},{\"name\":\"Research\",\"track\":2},{\"name\":\"Service\",\"track\":3},{\"name\":\"Travel\",\"track\":4}],[{\"name\":\"Teaching\",\"track\":1},{\"name\":\"Research\",\"track\":2},{\"name\":\"Service\",\"track\":3},{\"name\":\"Travel\",\"track\":4}],[{\"name\":\"Teaching\",\"track\":1},{\"name\":\"Research\",\"track\":2},{\"name\":\"Service\",\"track\":3},{\"name\":\"Travel\",\"track\":4}]],\"note\":\"Tracks are numbered 1–4, top to bottom.\"}",
+        "seconds" : 0.0006749629974365234
+      },
+      "expanded" : false,
+      "icon" : "magnifyingglass",
+      "id" : "B5EBE2DB-20DE-44BA-ACDB-AE0D00F0C449",
+      "resumeConsumed" : false,
+      "role" : "action",
+      "text" : "Lookup: track names"
+    },
+    {
+      "detail" : {
+        "params" : "{\"title\":\"CS 601.442 Lecture\",\"date\":\"2026-09-01\",\"color\":\"blue\",\"notes\":\"CS 601.442 — Fall 2026\\n\\n**Time:** Tue\\\/Thu 3:00–4:15 pm\\n**Dates:** Sep 1 – Dec 10, 2026 (no class Thanksgiving week, Nov 23–27)\",\"tags\":[\"teaching\",\"cs601\",\"lecture\"],\"start\":\"15:00\",\"end\":\"16:15\",\"kind\":\"timed\",\"repeat\":{\"until\":\"2026-12-10\",\"kind\":\"weekly\",\"days\":[\"TUE\",\"THU\"],\"exdates\":[\"2026-11-24\",\"2026-11-26\"]}}",
+        "result" : "{\"kind\":\"timed\",\"id\":\"new-72C89632-C7D3-400F-99C9-F7E5F49E6855\",\"repeats\":true,\"ok\":true}",
+        "seconds" : 0.00021195411682128906
+      },
+      "expanded" : false,
+      "icon" : "plus.circle.fill",
+      "id" : "3EF36CC4-06AC-4B58-B495-A29AB0227359",
+      "resumeConsumed" : false,
+      "role" : "action",
+      "text" : "Created timed: CS 601.442 Lecture"
+    },
+    {
+      "detail" : {
+        "params" : "{\"kind\":\"band\",\"tags\":[\"teaching\",\"cs601\"],\"title\":\"CS 601.442 (Fall 2026)\",\"notes\":\"CS 601.442 — Fall 2026 semester band. Lectures Tue\\\/Thu 3:00–4:15 pm.\",\"track\":1,\"endDate\":\"2026-12-10\",\"date\":\"2026-09-01\",\"color\":\"blue\"}",
+        "result" : "{\"kind\":\"band\",\"repeats\":false,\"segments\":4,\"ids\":[\"new-142B8885-6470-4D95-8922-07B1F2CC2F90\",\"new-AFA2A63A-B02F-4F10-ACF1-232C82B28036\",\"new-D9419280-AA45-4A2E-96C4-5C2829EF09FA\",\"new-311FDF4C-6E42-408B-90D2-28DCE9D097A7\"],\"id\":\"new-142B8885-6470-4D95-8922-07B1F2CC2F90\",\"ok\":true}",
+        "seconds" : 0.00016391277313232422
+      },
+      "expanded" : false,
+      "icon" : "plus.circle.fill",
+      "id" : "66C000D8-EB6A-4601-8CC5-006B20C664DB",
+      "resumeConsumed" : false,
+      "role" : "action",
+      "text" : "Created band (4 months): CS 601.442 (Fall 2026)"
+    },
+    {
+      "expanded" : false,
+      "id" : "14B822A7-5EE7-4E39-B8B4-46962A4195FF",
+      "resumeConsumed" : false,
+      "role" : "assistant",
+      "text" : "All set! Here's what I created:\n\n**Recurring lecture series — CS 601.442**\n- Tue\/Thu, 3:00–4:15 pm, Sep 1 through Dec 10\n- Thanksgiving week skipped (Nov 24 & 26 are exed out)\n- That's **28 class sessions** total\n\n**Semester band** on the Teaching track, spanning Sep 1 – Dec 10, so the course is visible at the year level too.\n\nBoth are in blue. Let me know if you want to add anything — office hours, a final exam date, a course website link, etc."
+    }
+  ]
+}

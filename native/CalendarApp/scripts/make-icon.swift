@@ -1,9 +1,15 @@
-// Renders the MagiCal macOS app icon (1024×1024 master PNG) using CoreGraphics.
+// Renders the MagiCal app icon (1024×1024 master PNG) using CoreGraphics.
 // Design: minimalistic + monotone. A flat white "calendar page" card with the brand-red
 // header band on top, and below it a hairline day/lane grid carrying three light red/pink
 // HORIZONTAL band-event pills — the app's signature year-view band lanes.
-// Big Sur icon-grid proportions: 824×824 content centered in a 1024 canvas (100px margins),
-// corner radius ≈ 0.225 · side, with a soft drop shadow. One hue (#FF3B6B) + neutrals.
+//
+// Two modes, same artwork:
+//   default — macOS: Big Sur icon-grid proportions (824×824 card centered in 1024,
+//             100px transparent margins, radius ≈ 0.225 · side, soft drop shadow).
+//   --ios   — iOS: FULL-BLEED square, no margin/rounding/shadow (iOS masks the corners
+//             itself; the mac margins would render as a black border on the home screen).
+//
+//   swift make-icon.swift out.png [--ios]
 
 import AppKit
 
@@ -26,16 +32,19 @@ func squircle(_ rect: CGRect, radius: CGFloat) -> CGPath {
     NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).cgPath
 }
 
-let margin: CGFloat = 100
+let ios = CommandLine.arguments.contains("--ios")
+let margin: CGFloat = ios ? 0 : 100
 let card = CGRect(x: margin, y: margin, width: S - 2 * margin, height: S - 2 * margin)
-let radius = card.width * 0.2237
-let cardPath = squircle(card, radius: radius)
+let radius = ios ? 0 : card.width * 0.2237
+let cardPath = ios ? CGPath(rect: card, transform: nil) : squircle(card, radius: radius)
 
-// ---- soft drop shadow under the card ----
-ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: 0, height: -16), blur: 40, color: rgb(0, 0, 0, 0.22))
-ctx.addPath(cardPath); ctx.setFillColor(rgb(255, 255, 255)); ctx.fillPath()
-ctx.restoreGState()
+// ---- soft drop shadow under the card (macOS only — iOS is full-bleed) ----
+if !ios {
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -16), blur: 40, color: rgb(0, 0, 0, 0.22))
+    ctx.addPath(cardPath); ctx.setFillColor(rgb(255, 255, 255)); ctx.fillPath()
+    ctx.restoreGState()
+}
 
 // Everything else clips to the card.
 ctx.saveGState()

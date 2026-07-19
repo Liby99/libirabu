@@ -21,6 +21,8 @@ struct CalendarApp: App {
     // chat window read the same live state — the assistant's read-only calendar context reflects
     // whatever the calendar is currently showing.
     @State private var engine = CalendarEngine()
+    // Keeps the File ▸ Close item pinned to the bottom of the File menu (retained so its delegate lives).
+    @State private var fileMenuCloseRelocator = FileMenuCloseRelocator()
 
     init() {
         let store = ConversationStore()
@@ -52,9 +54,9 @@ struct CalendarApp: App {
                     // tabbing removes the View/Window menu's "Show Tab Bar / Show All Tabs / Move Tab…"
                     // items. Idempotent; safe to set on every appearance.
                     NSWindow.allowsAutomaticWindowTabbing = false
-                    // Drop the default File ▸ Close (⌘W): the menu-bar item keeps the app alive, so a
-                    // single persistent window has no meaningful "Close" — it just hides the calendar.
-                    removeFileCloseItem()
+                    // Move the default File ▸ Close (⌘W) to the bottom of the File menu (SwiftUI injects it
+                    // at the top), matching the dev shell's spec-driven placement.
+                    fileMenuCloseRelocator.install()
                 }
         }
         .defaultSize(width: 1440, height: 840)
@@ -69,33 +71,41 @@ struct CalendarApp: App {
             // cursor" shortcut (handled by the calendar's key monitor); otherwise it also spawns a
             // new window.
             CommandGroup(replacing: .newItem) { }
-            // File menu: import an .ics calendar, and import/export a .mdc backup. Contents live in
-            // CalendarUI (FileCommands); `.importExport` lands them in the standard File menu.
+            // File menu: the open-calendar ("document") controls, then import an .ics calendar and
+            // import/export a backup. Contents live in CalendarUI (CalendarMenuContent / FileCommands);
+            // `.importExport` lands them in the standard File menu.
             CommandGroup(replacing: .importExport) {
+                CalendarMenuContent(engine: engine)
+                Divider()
                 FileCommands(engine: engine)
+            }
+            // File ▸ Print… (⌘P): the YEAR view prints via the system panel; other levels show a notice.
+            // Title/shortcut + the action (post .requestPrint) come from the shared AppMenu spec.
+            CommandGroup(replacing: .printItem) {
+                MenuActionButton(.printCalendar, engine: engine)
             }
             // ⌘Z / ⌘⇧Z — the SINGLE undo/redo handler (the calendar's key monitor deliberately passes these
             // through so they don't fire twice). A focused text field does its own native undo via `undo:`;
             // otherwise call the engine DIRECTLY — not via the responder chain — so undo works even when the
-            // canvas isn't first responder (e.g. right after an inline title rename hands focus back).
+            // canvas isn't first responder (e.g. right after an inline title rename hands focus back). Titles
+            // come from the shared spec (StandardItem); the routing is host-specific so it stays here.
             CommandGroup(replacing: .undoRedo) {
-                Button { routeUndoRedo(redo: false, engine: engine) } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
+                Button { routeUndoRedo(redo: false, engine: engine) } label: { Label(StandardItem.undo.title, systemImage: "arrow.uturn.backward") }
                     .keyboardShortcut("z", modifiers: .command)
-                Button { routeUndoRedo(redo: true, engine: engine) } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
+                Button { routeUndoRedo(redo: true, engine: engine) } label: { Label(StandardItem.redo.title, systemImage: "arrow.uturn.forward") }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
             }
             // Deselect All (⌘D). "Select All" (⌘A) is the standard Edit item, handled by the calendar canvas's
             // `selectAll(_:)` responder. Both also flow through the key monitor so they work regardless of focus.
             CommandGroup(after: .pasteboard) {
-                Button { engine.deselectAll() } label: { Label("Deselect All", systemImage: "square.dashed") }
-                    .keyboardShortcut("d", modifiers: .command)
+                MenuActionButton(.deselectAll, engine: engine)
             }
-            // Display preferences (stored in UserDefaults, shared with the renderer), placed INTO the
-            // native View menu. REPLACING the .toolbar group also strips its "Show/Customize Toolbar"
-            // items — the calendar's toolbar is fixed, so those don't apply. (Window-tab items are
-            // removed separately by disabling automatic window tabbing; see the window's onAppear.)
+            // The View menu payload (go-to-today, show-hidden, timezone pickers, tag filter) is defined ONCE
+            // in CalendarUI (ViewMenuContent) and shared with the dev shell's View menu. REPLACING the
+            // .toolbar group also strips its "Show/Customize Toolbar" items — the calendar's toolbar is fixed.
+            // (SwiftUI still supplies Enter/Exit Full Screen itself; window-tab items are removed separately.)
             CommandGroup(replacing: .toolbar) {
-                ViewMenu()
+                ViewMenuContent(engine: engine)
             }
             // A top-level "Assistant" menu — new/current conversation, model selection, API keys. Its
             // contents live in CalendarUI (AICommands) so they can read the internal assistant model catalog.
@@ -107,10 +117,14 @@ struct CalendarApp: App {
             CommandMenu("Sync") {
                 ConnectivityMenu(engine: engine)
             }
-            // Standard macOS Help menu (kept at the end): the onboarding tutorial + the ⌘K shortcut guide.
+            // Standard macOS Help menu (kept at the end). Per Apple HIG, "<App> Help" is the first item
+            // and opens the in-app Help browser window; the tutorial + ⌘K shortcut guide sit below it. All
+            // titles/shortcuts/actions come from the shared AppMenu spec.
             CommandGroup(replacing: .help) {
-                Button { NotificationCenter.default.post(name: .showTutorial, object: nil) } label: { Label("Tutorial", systemImage: "graduationcap") }
-                Button { NotificationCenter.default.post(name: .showKeyboardShortcuts, object: nil) } label: { Label("Keyboard Shortcuts", systemImage: "keyboard") }
+                OpenHelpCommand()   // "MagiCal Help" (⌘?) → opens the HelpView window
+                Divider()
+                MenuActionButton(.tutorial, engine: engine)
+                MenuActionButton(.keyboardShortcuts, engine: engine)
             }
         }
 
@@ -132,6 +146,15 @@ struct CalendarApp: App {
         .defaultSize(width: 420, height: 640)   // slim, chat-only by default (sidebar starts closed)
         .windowResizability(.contentMinSize)
 
+        // The in-app Help browser — its own window (matches the AppKit dev shell's Help ▸ MagiCal Help).
+        // A single-instance window: opening it again just refocuses it. Content is HelpView (CalendarUI).
+        Window("MagiCal Help", id: "help") {
+            HelpView()
+                .onAppear { applyPersistedAppearance() }
+        }
+        .defaultSize(width: 860, height: 620)
+        .windowResizability(.contentMinSize)
+
         // Menu-bar item (top-right) → a small dropdown. Its presence keeps the app alive when all
         // windows are closed, so the chat can be opened without (or outliving) the calendar window.
         MenuBarExtra("MagiCal AI", systemImage: "sparkles") {
@@ -140,16 +163,43 @@ struct CalendarApp: App {
     }
 }
 
-/// Remove the default File ▸ Close (⌘W) item SwiftUI adds for the window. Deferred to the next runloop
-/// so it runs after the main menu is built. Matches by the `performClose:` action (locale-independent).
-@MainActor private func removeFileCloseItem() {
-    DispatchQueue.main.async {
+/// Moves the default File ▸ Close (⌘W) item SwiftUI injects at the TOP of the File menu down to the
+/// bottom, out of the way of the calendar/document actions. A one-shot move is unreliable (SwiftUI builds
+/// the menu lazily and can rebuild it when our dynamic File content changes), so this attaches as the File
+/// menu's delegate and re-positions on every open. The File menu is found locale-independently by our own
+/// "New MagiCal" item; a ⌘W match (plus the performClose action) catches Close whatever selector SwiftUI
+/// gives it. Mirrors the dev shell, where the spec puts Close at the bottom of File.
+@MainActor final class FileMenuCloseRelocator: NSObject, NSMenuDelegate {
+    func install(attempt: Int = 0) {
+        if let file = findFileMenu() {
+            relocate(file)
+            file.delegate = self   // re-position on every open (survives SwiftUI rebuilding the menu)
+        } else if attempt < 12 {   // menu bar not built yet → retry briefly
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.install(attempt: attempt + 1) }
+        }
+    }
+    func menuNeedsUpdate(_ menu: NSMenu) { relocate(menu) }
+
+    private func findFileMenu() -> NSMenu? {
         for top in NSApp.mainMenu?.items ?? [] {
-            guard let sub = top.submenu else { continue }
-            for item in sub.items where item.action == #selector(NSWindow.performClose(_:)) {
-                sub.removeItem(item)
+            if let sub = top.submenu, sub.items.contains(where: { $0.title == MenuItemID.newCalendar.title }) {
+                return sub
             }
         }
+        return nil
+    }
+    /// Collapse any Close item(s) to exactly one, at the bottom (after a separator). Idempotent: once
+    /// Close is last, re-running leaves it in place.
+    private func relocate(_ menu: NSMenu) {
+        let closes = menu.items.filter(isClose)
+        guard !closes.isEmpty else { return }
+        for c in closes { menu.removeItem(c) }
+        if menu.items.last?.isSeparatorItem == false { menu.addItem(.separator()) }
+        menu.addItem(closes[0])
+    }
+    private func isClose(_ item: NSMenuItem) -> Bool {
+        item.action == #selector(NSWindow.performClose(_:))
+            || (item.keyEquivalent == "w" && item.keyEquivalentModifierMask == [.command])
     }
 }
 
@@ -175,32 +225,6 @@ struct CalendarApp: App {
     return cls.contains("TextView") || cls.contains("TextField") || cls.contains("WKContent")
 }
 
-/// The "View" menu's contents. A Toggle bound to @AppStorage renders as a checkmark menu item and shares
-/// the UserDefaults key the renderer reads; CalendarView's own @AppStorage onChange repaints on flip.
-private struct ViewMenu: View {
-    @AppStorage(PrefKeys.showHiddenImported) private var showHidden = false
-    @AppStorage(PrefKeys.mainTz) private var mainTz = CalendarTimezones.autoId
-    @AppStorage(PrefKeys.altTz) private var altTz = "none"
-    var body: some View {
-        Toggle(isOn: $showHidden) { Label("Show Hidden Imported Events", systemImage: "eye.slash") }
-        Divider()
-        // "Current Timezone ▸" — drives deadline origin-time labels.
-        Picker(selection: $mainTz) {
-            ForEach(CalendarTimezones.all) { Text($0.label).tag($0.id) }
-        } label: {
-            Label("Current Timezone", systemImage: "clock")
-        }
-        // "Alternative Timezone ▸" — a second dimmed hour column on the week/day/month timeline. "None"
-        // hides it; a concrete zone shows it (Automatic/device isn't offered — that would equal Current).
-        Picker(selection: $altTz) {
-            Text("None").tag("none")
-            ForEach(CalendarTimezones.all.filter { $0.id != CalendarTimezones.autoId }) { Text($0.label).tag($0.id) }
-        } label: {
-            Label("Alternative Timezone", systemImage: "globe")
-        }
-    }
-}
-
 /// The "Connectivity" menu's contents: a disabled "Last Synced" line + a "Sync Now" action. A dedicated
 /// view so it can observe the engine's `syncMonitor` (@Observable) and refresh the relative-time label.
 private struct ConnectivityMenu: View {
@@ -210,6 +234,7 @@ private struct ConnectivityMenu: View {
         Button { engine.refreshConnectivity() } label: {
             Label(engine.syncMonitor.isSyncing ? "Syncing…" : "Sync Now", systemImage: "arrow.triangle.2.circlepath")
         }
+        .keyboardShortcut("r", modifiers: .command) // matches AppMenu's .syncNow spec (⌘R, dev shell)
         .disabled(engine.syncMonitor.isSyncing)
     }
     private var lastSyncedLabel: String {
@@ -242,9 +267,19 @@ private struct OpenAssistantCommand: View {
             if callout != nil { callout = !(callout ?? false) }
             else { openWindow(id: "assistant") }
         } label: {
-            Label("MagiCal AI", systemImage: "sparkles")
+            menuLabel(.openAssistant)   // "MagiCal AI" + sparkles, from the shared spec
         }
-        .keyboardShortcut("i", modifiers: .command)
+        .modifier(OptionalShortcut(s: MenuItemID.openAssistant.shortcut))
+    }
+}
+
+/// Help ▸ "MagiCal Help" (⌘?) — opens the in-app Help browser window. A dedicated view so
+/// `@Environment(\.openWindow)` resolves inside the command builder (mirrors OpenAssistantCommand).
+private struct OpenHelpCommand: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Button { openWindow(id: "help") } label: { menuLabel(.help) }   // "MagiCal Help" + icon, from the spec
+            .modifier(OptionalShortcut(s: MenuItemID.help.shortcut))
     }
 }
 

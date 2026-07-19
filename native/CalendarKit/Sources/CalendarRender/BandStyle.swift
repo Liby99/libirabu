@@ -7,35 +7,53 @@
 // go back to a clearer (more transparent, less colorful) idle look.
 
 import SwiftUI
+#if canImport(UIKit)
+    import UIKit
+#endif
 
-enum BandStyle {
-    static let cornerRadius: CGFloat = 9
+public enum BandStyle {
+    public static let cornerRadius: CGFloat = 9
+
+    /// The band/sticker title face. macOS has Comic Sans MS; iOS doesn't ship it, so fall
+    /// back to Chalkboard SE — Apple's closest handwritten face — before the system font.
+    /// Resolved once (title rendering AND width measurement must agree on the same font).
+    public static let titleFontName: String = {
+        #if canImport(UIKit)
+            for name in ["Comic Sans MS", "ChalkboardSE-Regular"] where UIFont(name: name, size: 12) != nil {
+                return name
+            }
+            return "" // → .custom falls back to the system font
+        #else
+            return "Comic Sans MS"
+        #endif
+    }()
 
     // Tint = saturated event color at this opacity, by state (0…1).
-    static let tintIdle: Double = 0.20
-    static let tintHovered: Double = 0.25
-    static let tintSelected: Double = 0.40
+    public static let tintIdle: Double = 0.20
+    public static let tintHovered: Double = 0.25
+    public static let tintSelected: Double = 0.40
 
     /// Idle material: true = .regular (frosted, colorful), false = .clear (transparent, pale).
-    static let idleFrosted = true
+    public static let idleFrosted = true
 
     // Left accent bar (rounded capsule), inset from left/top/bottom.
-    static let accentInset: CGFloat = 6
-    static let accentWidth: CGFloat = 1
-    static let accentWidthSelected: CGFloat = 3
+    public static let accentInset: CGFloat = 6
+    public static let accentWidth: CGFloat = 1
+    public static let accentWidthSelected: CGFloat = 3
 
     // Borders — one per activation level (see EventActivation).
-    static let accompaniedBorderWidth: CGFloat = 1 // dashed, for a focused event's siblings
-    static let accompaniedDash: [CGFloat] = [2, 1]
-    static let focusBorderWidth: CGFloat = 1.5 // normal solid, for the single-clicked box
-    static let selectedBorderWidth: CGFloat = 3 // thick solid, for the double-clicked (drawer) box
+    public static let accompaniedBorderWidth: CGFloat = 1 // dashed, for a focused event's siblings
+    public static let accompaniedDash: [CGFloat] = [2, 1]
+    public static let focusBorderWidth: CGFloat = 1.5 // normal solid, for the single-clicked box
+    public static let selectedBorderWidth: CGFloat = 3 // thick solid, for the double-clicked (drawer) box
 
-    // Title.
-    static let titleSize: CGFloat = 12
-    static let barTextGap: CGFloat = 5 // fixed gap between the accent bar and the title/markers
-    static let titleTrailing: CGFloat = 6
+    // Title. Size is write-once-at-launch (like Layout.labelW): desktop keeps 12; the
+    // phone bumps it — its year cells are few on screen at a time, so titles read larger.
+    public static nonisolated(unsafe) var titleSize: CGFloat = 12
+    public static let barTextGap: CGFloat = 5 // fixed gap between the accent bar and the title/markers
+    public static let titleTrailing: CGFloat = 6
 
-    static let animation: Double = 0.18 // state-transition duration (s)
+    public static let animation: Double = 0.18 // state-transition duration (s)
 }
 
 /// The five visual activation levels for an event box. Assigned per-box in EventsOverlay:
@@ -44,21 +62,21 @@ enum BandStyle {
 ///   focusMain    — single-clicked box → normal solid border
 ///   accompanied  — a sibling of the focused series (recurrence/promoted/original) → dashed border
 ///   selected     — double-clicked box (drawer open) → thick solid border
-enum EventActivation: Equatable {
+public enum EventActivation: Equatable {
     case plain, hover, focusMain, accompanied, selected
 
-    var isActive: Bool {
+    public var isActive: Bool {
         self != .plain
     }
 
     /// Whether this box un-truncates its title (and gets the spill scrim). Only the single box the
     /// user is focused on — the exact clicked/drawer box, or a lone hovered box — expands; the
     /// siblings of a selected series stay clipped and scrim-free so only the main title spills.
-    var expandsTitle: Bool {
+    public var expandsTitle: Bool {
         switch self { case .hover, .focusMain, .selected: return true; default: return false }
     }
 
-    var tint: Double {
+    public var tint: Double {
         switch self {
         case .plain: BandStyle.tintIdle
         case .hover: BandStyle.tintHovered
@@ -67,12 +85,12 @@ enum EventActivation: Equatable {
     }
 
     /// Thicker accent bar for any "committed" (clicked) level; thin for idle/hover.
-    var accentWide: Bool {
+    public var accentWide: Bool {
         switch self { case .focusMain, .accompanied, .selected: return true; default: return false }
     }
 
     /// Draw priority: the clicked box on top, then its siblings, then a hovered box.
-    var z: Double {
+    public var z: Double {
         switch self {
         case .selected, .focusMain: 1001
         case .accompanied: 1000

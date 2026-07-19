@@ -24,6 +24,31 @@ private func onScreen(_ f: Frame, _ vp: Viewport) -> Bool {
     f.bandY <= vp.h + 20 && f.bandY + 4 * f.trackH >= -20
 }
 
+/// A main-zone wall clock re-expressed in the alt zone: "13:45 (PST)", with a day marker when the
+/// alt wall-clock lands on a different calendar day — "23:30 (JST) [+1 day]" — so a time near the
+/// day boundary isn't mistaken for the same day. Public: shared by the now pill + cursor tag, and
+/// unit-tested directly.
+public func altClockText(minutes: Int, deltaHours: CGFloat, label: String?) -> String {
+    let shifted = minutes + Int((deltaHours * 60).rounded())
+    let dayShift = Int(floor(Double(shifted) / 1440))
+    let wrapped = ((shifted % 1440) + 1440) % 1440
+    var s = String(format: "%02d:%02d", wrapped / 60, wrapped % 60)
+    if let label {
+        s += " (\(label))"
+    }
+    if dayShift != 0 {
+        s += " [\(dayShift > 0 ? "+" : "")\(dayShift) day]"
+    }
+    return s
+}
+
+/// True when `altClockText` for this wall clock would carry the "[±N day]" marker — the pills
+/// widen to fit it (their rects are fixed-size, so the width is decided at scene-build time).
+func altDayMarker(minutes: Int, deltaHours: CGFloat) -> Bool {
+    let shifted = minutes + Int((deltaHours * 60).rounded())
+    return Int(floor(Double(shifted) / 1440)) != 0
+}
+
 /// The current-time ("CURRENT TIME") label placements for this frame — the now-line still draws in
 /// the Canvas, but the LABEL is rendered as a real SwiftUI glass view (see EventsOverlay). Derived
 /// from the built scene so it inherits all the month/week/page-turn placement logic for free.
@@ -41,9 +66,7 @@ public func nowLabelSpecs(_ g: SceneInput) -> [NowLabelSpec] {
     // as an alt-tz wall clock, tagged with the zone's short label.
     let altText: String? = g.altDeltaHours.map { d in
         let c = clockOf(g.now)
-        let mins = ((Int(((CGFloat(c.hour) + CGFloat(c.minute) / 60 + d) * 60).rounded()) % 1440) + 1440) % 1440
-        let t = String(format: "%02d:%02d", mins / 60, mins % 60)
-        return g.altLabel.map { "\(t) (\($0))" } ?? t
+        return altClockText(minutes: c.hour * 60 + c.minute, deltaHours: d, label: g.altLabel)
     }
     return buildScene(g).items.compactMap { it in
         guard it.kind == .nowLabel, it.opacity > 0.01 else { return nil }
@@ -58,13 +81,22 @@ public func nowLabelSpecs(_ g: SceneInput) -> [NowLabelSpec] {
 public struct CursorTagSpec: Sendable {
     public var rect: CGRect
     public var text: String
+    public var altText: String? // second line when the alt-tz column is on: "13:45 (PST) [+1 day]"
     public var pointsRight: Bool // tag sits left of the column → caret points right (into the line)
     public var opacity: CGFloat
 }
 
 public func cursorTagSpec(_ g: SceneInput) -> CursorTagSpec? {
     guard let it = buildScene(g).items.first(where: { $0.key == "cur-tag" }), it.opacity > 0.01 else { return nil }
-    return CursorTagSpec(rect: it.rect, text: it.text ?? "", pointsRight: it.align == .right, opacity: it.opacity)
+    // The cursor moment in the alt zone. The item's text is the tag's own "HH:MM" (built from the
+    // hover hour), so parse it back rather than re-deriving the hover position here.
+    let altText: String? = g.altDeltaHours.flatMap { d in
+        let p = (it.text ?? "").split(separator: ":")
+        guard p.count == 2, let h = Int(p[0]), let m = Int(p[1]) else { return nil }
+        return altClockText(minutes: h * 60 + m, deltaHours: d, label: g.altLabel)
+    }
+    return CursorTagSpec(rect: it.rect, text: it.text ?? "", altText: altText,
+                         pointsRight: it.align == .right, opacity: it.opacity)
 }
 
 /// Single-frame memo: buildScene is called 3× per frame (drawBelow, drawAbove, nowLabelSpecs) with
@@ -123,9 +155,12 @@ private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, fo: I
 
     func nowLabel(_ key: String, _ x: CGFloat, _ colW: CGFloat, _ lineY: CGFloat, _ active: Bool,
                   gate: CGFloat = 1) -> Item {
-        // With the alt-tz column on the pill grows a second time line (see nowLabelSpecs).
+        // With the alt-tz column on the pill grows a second time line (see nowLabelSpecs), and
+        // widens further when that line carries the "[±1 day]" boundary marker.
         let alt = g.altDeltaHours != nil
-        let W: CGFloat = alt ? 96 : 88, GAP: CGFloat = 10,
+        let marker = g.altDeltaHours.map { altDayMarker(minutes: clock.hour * 60 + clock.minute, deltaHours: $0) }
+            ?? false
+        let W: CGFloat = alt ? (marker ? 148 : 96) : 88, GAP: CGFloat = 10,
             H: CGFloat = alt ? 47 : 36 // match the deadline label pill's size
         let onLeft = g.z > 2 || x + colW / 2 >= (Layout.labelW + g.vp.w) / 2
         return Item(key: key, kind: .nowLabel, x: onLeft ? x - GAP - W : x + colW + GAP, y: lineY - H / 2, w: W, h: H,
@@ -195,7 +230,7 @@ private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, fo: I
         let f = frameFor(mo, g, anim: g.monthAnim) // slide the now-line with a month page-turn
         let colW = f.dayW
         let tlTop = f.bandY + 4 * f.trackH + 18
-        let tlBottom = g.vp.h - 8
+        let tlBottom = Layout.tlBottomY(g.vp.h)
         let detail = g.z >= 0.82
         let x = f.x0 + (CGFloat(tDom) - 1) * colW
         items.append(Item(
@@ -226,7 +261,7 @@ private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, fo: I
         let f = frameFor(g.focus, g)
         let colW = f.dayW
         let tlTop = f.bandY + 4 * f.trackH + 18
-        let tlBottom = g.vp.h - 8
+        let tlBottom = Layout.tlBottomY(g.vp.h)
         let x = f.x0 + (CGFloat(relDom ?? 1) - 1) * colW
         // The today-column red wash fades OUT as the week view opens (z 1.5→2) and stays gone in week
         // and day view — today there is marked by the now-line + the highlighted date/weekday labels.
@@ -324,7 +359,7 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         let colW = f.dayW
         let bandTop = f.bandY
         let bandBottom = f.bandY + 4 * f.trackH
-        let colBottom = g.z >= 0.82 ? g.vp.h - 8 : bandBottom // day column runs through the timeline
+        let colBottom = g.z >= 0.82 ? Layout.tlBottomY(g.vp.h) : bandBottom // day column runs through the timeline
         // Track lane row (hovering a track name OR a band cell) — gutter + content.
         if active, let tr = h.track {
             let ly = bandTop + CGFloat(tr) * f.trackH
@@ -370,7 +405,7 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         let f = frameFor(g.focus, g)
         let colW = f.dayW
         let tlTop = f.bandY + 4 * f.trackH + 18
-        let tlBottom = g.vp.h - 8
+        let tlBottom = Layout.tlBottomY(g.vp.h)
         let m = hourMetrics(tlTop, tlBottom, g.z, g.tlScroll, g.weekHourH)
         let dcol = h.dom ?? 1
         let x = f.x0 + (CGFloat(dcol) - 1) * colW
@@ -419,7 +454,11 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         let total = Int((hf * 60).rounded())
         let tStr = String(format: "%02d:%02d", (total / 60) % 24, total % 60)
         let tagLeft = g.z > 2 || x + colW / 2 >= (Layout.labelW + g.vp.w) / 2
-        let TW: CGFloat = 44, GAP: CGFloat = 10, TH: CGFloat = 20
+        // Alt-tz column on → the tag grows a second line (the cursor moment in the alt zone, see
+        // cursorTagSpec), and widens further when that line carries the "[±1 day]" marker.
+        let alt = g.altDeltaHours != nil
+        let marker = g.altDeltaHours.map { altDayMarker(minutes: total % 1440, deltaHours: $0) } ?? false
+        let TW: CGFloat = alt ? (marker ? 148 : 96) : 44, GAP: CGFloat = 10, TH: CGFloat = alt ? 33 : 20
         // Nudge the tag down ~2px so it reads as hanging just under the cursor moment, and align its
         // side to the dot it points at (a caret is drawn on the near edge — see drawCursorTag).
         items.append(Item(
@@ -445,9 +484,12 @@ private func buildQuarterHeaders(_ g: SceneInput, _ clock: Clock) -> [Item] {
         return []
     }
     var items: [Item] = []
-    let dayW = (g.vp.w - Layout.labelW) / 31
     for q in 0 ..< 4 {
-        let hy = frameFor(q * 3, g).bandY - Layout.qHeaderH
+        // The quarter frame carries the (possibly scrolled) x0 and min-width dayW, so the
+        // day-number header shifts with its quarter's horizontal scroll like the grid does.
+        let f = frameFor(q * 3, g)
+        let dayW = f.dayW
+        let hy = f.bandY - Layout.qHeaderH
         if hy < -Layout.qHeaderH || hy > g.vp.h {
             continue
         }
@@ -457,7 +499,7 @@ private func buildQuarterHeaders(_ g: SceneInput, _ clock: Clock) -> [Item] {
             items.append(Item(
                 key: "qh-\(q)-\(d)",
                 kind: .dayLabel,
-                x: Layout.labelW + CGFloat(d - 1) * dayW,
+                x: f.x0 + CGFloat(d - 1) * dayW,
                 y: hy + 5,
                 w: dayW,
                 h: 14,
@@ -479,7 +521,7 @@ private func buildQuarterHeaders(_ g: SceneInput, _ clock: Clock) -> [Item] {
             kind: .gridline,
             x: 0,
             y: topY,
-            w: Layout.labelW - Layout.rightPad,
+            w: Layout.isCompactGutter ? Layout.labelW : Layout.labelW - Layout.rightPad,
             h: 1,
             opacity: yearVis * Layout.bandEdgeOpacity,
             z: 11,
@@ -489,7 +531,7 @@ private func buildQuarterHeaders(_ g: SceneInput, _ clock: Clock) -> [Item] {
         items.append(Item(
             key: "qhsepd-\(q)",
             kind: .gridline,
-            x: Layout.labelW,
+            x: f.x0,
             y: topY,
             w: 31 * dayW,
             h: 1,
@@ -550,7 +592,7 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
                 kind: .gridline,
                 x: 0,
                 y: f.bandY - 1,
-                w: Layout.labelW - Layout.rightPad,
+                w: Layout.isCompactGutter ? Layout.labelW : Layout.labelW - Layout.rightPad,
                 h: 1,
                 opacity: top,
                 z: 11,
@@ -604,8 +646,26 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
         items.append(Item(key: "msep-\(m)", kind: .gridline, x: rowX, y: f.bandY + 4 * f.trackH - 1, w: rowW, h: 1,
                           opacity: f.opacity * lerp(Layout.bandInnerOpacity, Layout.bandEdgeOpacity, edge), z: 1,
                           lineW: lerp(Layout.bandInnerWidth, Layout.bandEdgeWidth, edge)))
+        // Compact gutter (phone): the month-name cell gets its own full-width bottom rule
+        // in the GUTTER region (content rules clip at labelW), so every name reads as a
+        // bounded cell — its top rule is the previous month's bottom / the quarter header's.
+        if Layout.isCompactGutter {
+            items.append(Item(key: "msepg-\(m)", kind: .gridline, x: 0, y: f.bandY + 4 * f.trackH - 1,
+                              w: Layout.labelW, h: 1,
+                              opacity: f.opacity * lerp(Layout.bandInnerOpacity, Layout.bandEdgeOpacity, edge),
+                              z: 11, gutter: true,
+                              lineW: lerp(Layout.bandInnerWidth, Layout.bandEdgeWidth, edge)))
+        }
     }
     return items
+}
+
+/// Short 12-hour label for the compact (phone) timeline gutter: 12AM, 9AM, 12PM, 4PM…
+private func fmt12Hour(_ hr: Int) -> String {
+    let h = ((hr % 24) + 24) % 24
+    if h == 0 { return "12AM" }
+    if h == 12 { return "12PM" }
+    return h < 12 ? "\(h)AM" : "\(h - 12)PM"
 }
 
 /// ── Focused month's headers + timeline + week boundaries + spillover ─────────────
@@ -629,7 +689,7 @@ private func buildDetail(_ g: SceneInput, _ clock: Clock, focus: Int, detailMul:
     let weekZoom = clamp(g.z - 1, 0, 1)
 
     let tlTop = bandBottom + 18
-    let tlBottom = g.vp.h - 8
+    let tlBottom = Layout.tlBottomY(g.vp.h)
     let hasTL = tlBottom > tlTop
     let hm = hasTL ? hourMetrics(tlTop, tlBottom, g.z, g.tlScroll, g.weekHourH) : HourMetrics(
         viewH: 0,
@@ -642,8 +702,13 @@ private func buildDetail(_ g: SceneInput, _ clock: Clock, focus: Int, detailMul:
 
     let altOn = g.altDeltaHours != nil
     if hasTL {
+        // Compact gutter (phone): the tall month timeline fits hourly gridlines and 2-hour
+        // labels; the labels use the short 12-hour form ("9AM") RIGHT-ALIGNED inside the
+        // narrow gutter (the desktop's "HH:00" at labelW-46 would hang off the screen edge).
+        let compact = Layout.isCompactGutter
         var hr = 0
-        let step = wide ? 1 : 6
+        let step = wide ? 1 : (compact && hourH >= 14 ? 1 : 6)
+        let labelEvery = wide ? 2 : (compact && hourH >= 14 ? 2 : 6)
         while hr <= 24 {
             let y = tlTop + CGFloat(hr) * hourH - scroll
             if y < tlTop - 0.5 || y > tlBottom + 0.5 {
@@ -661,18 +726,18 @@ private func buildDetail(_ g: SceneInput, _ clock: Clock, focus: Int, detailMul:
                 lineStyle: even ? .dashed : .dotted,
                 z: 0
             ))
-            if hr % (wide ? 2 : 6) == 0 {
+            if hr % labelEvery == 0 {
                 items.append(Item(
                     key: "ht-\(hr)",
                     kind: .dayLabel,
-                    x: Layout.labelW - 46,
+                    x: compact ? 2 : Layout.labelW - 46,
                     y: y - 7,
-                    w: 42,
+                    w: compact ? Layout.labelW - 8 : 42,
                     h: 14,
                     opacity: reveal * 0.7,
-                    text: String(format: "%02d:00", hr),
+                    text: compact ? fmt12Hour(hr) : String(format: "%02d:00", hr),
                     fontSize: 9,
-                    align: .center,
+                    align: compact ? .right : .center,
                     z: 9,
                     gutter: true
                 ))

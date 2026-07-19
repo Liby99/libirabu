@@ -6,32 +6,38 @@ import PackageDescription
 /// Layering (dependencies point one way, toward purity):
 ///   CalendarGeometry  ← pure math, no dependencies (Foundation + CoreGraphics)
 ///   CalendarEngine    ← @Observable view-state + tween clock   (→ Geometry)
-///   CalendarUI        ← Canvas renderer + SwiftUI views         (→ Geometry, Engine)
+///   CalendarRender    ← portable Canvas renderer + glass overlays (→ Geometry, Engine)
+///   CalendarUI        ← AppKit input/editing/chrome + views     (→ Geometry, Engine, Render)
 ///   CalendarMac       ← macOS app bootstrap (executable)        (→ UI)
 ///
 /// Targets macOS 26 for Liquid Glass (.glassEffect) — the native glass the events
 /// use. Language mode is held at v5 for now to avoid strict-concurrency churn.
 ///
-/// iOS 26 is a supported platform so the iPhone app can link CalendarEngine (which
-/// carries the CloudKit sync layer). CalendarUI/CalendarMac use AppKit and are only
-/// built when their product is requested (the macOS app), so they never compile for
-/// iOS — the iPhone target depends on CalendarEngine only, pending a UIKit UI port.
+/// iOS 26 is a supported platform: the iPhone app links CalendarEngine (which carries
+/// the CloudKit sync layer) and CalendarRender (the platform-neutral scene renderer —
+/// Canvas passes + glass event/deadline overlays + Theme). CalendarUI/CalendarMac use
+/// AppKit and are only built when their product is requested (the macOS app), so they
+/// never compile for iOS.
 let package = Package(
     name: "CalendarKit",
     platforms: [.macOS("26.0"), .iOS("26.0")],
     products: [
         .library(name: "CalendarGeometry", targets: ["CalendarGeometry"]),
         .library(name: "CalendarEngine", targets: ["CalendarEngine"]),
+        .library(name: "CalendarRender", targets: ["CalendarRender"]),
         .library(name: "CalendarUI", targets: ["CalendarUI"]),
         .executable(name: "CalendarMac", targets: ["CalendarMac"]),
+        .executable(name: "assistant-eval", targets: ["AssistantEvalRunner"]),
     ],
     targets: [
         .target(name: "CalendarGeometry"),
         .target(name: "CalendarEngine", dependencies: ["CalendarGeometry"]),
-        .target(name: "CalendarUI", dependencies: ["CalendarGeometry", "CalendarEngine"],
+        .target(name: "CalendarRender", dependencies: ["CalendarGeometry", "CalendarEngine"]),
+        .target(name: "CalendarUI", dependencies: ["CalendarGeometry", "CalendarEngine", "CalendarRender"],
                 resources: [.copy("Resources/editor"), // bundled WKWebView notes editor (see webeditor/)
                             .copy("Resources/tutorial")]), // onboarding carousel GIFs (see TutorialView)
         .executableTarget(name: "CalendarMac", dependencies: ["CalendarUI"]),
+        .executableTarget(name: "AssistantEvalRunner", dependencies: ["CalendarUI"]),
         .testTarget(name: "CalendarGeometryTests", dependencies: ["CalendarGeometry"]),
         .testTarget(name: "CalendarEngineTests", dependencies: ["CalendarEngine", "CalendarGeometry"]),
     ],

@@ -23,8 +23,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Calendar</string>
-  <key>CFBundleDisplayName</key><string>Calendar</string>
+  <key>CFBundleName</key><string>MagiCal</string>
+  <key>CFBundleDisplayName</key><string>MagiCal</string>
   <key>CFBundleExecutable</key><string>CalendarMac</string>
   <key>CFBundleIdentifier</key><string>dev.libirabu.calendar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -39,6 +39,18 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# Sign the bundle. The notification daemon (usernoted) refuses to register an UNSIGNED bundle —
+# UNUserNotificationCenter errors with a "needs code signature" complaint. Prefer a real Apple
+# Development identity: its signature is STABLE across rebuilds, so the user's one-time
+# notification permission sticks. Ad-hoc fallback works too, but every rebuild changes the
+# ad-hoc identity and macOS may treat it as a new app (permission re-prompt).
+IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+  | awk -F'"' '/Apple Development/ {print $2; exit}')
+echo "Signing (${IDENTITY:-ad-hoc})..."
+codesign --force --sign "${IDENTITY:--}" "$APP"
+
 echo "Launching..."
+# `open` on a RUNNING app just activates the old instance — the fresh binary would never start.
+pkill -x CalendarMac 2>/dev/null && sleep 1 || true
 open "$APP"
 echo "Done. (Relaunch anytime: open $PWD/$APP)"

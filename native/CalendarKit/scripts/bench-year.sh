@@ -25,13 +25,16 @@ case "${PAYLOAD:-display}" in
   display) cp bench/year-display-2026.json "$TMP/data.json" ;;  # expanded real load (recurrence + ghosts) — the default
   bands)   cp bench/year-bands-2026.json "$TMP/data.json" ;;
   empty)   cp bench/empty.json "$TMP/data.json" ;;    # stored 2026 bands only (the light fixture)
+  dump)    cp "$HOME/.magical-bench/data.json" "$TMP/data.json" ;;  # CC_DUMP_DISPLAY of the REAL app (heavy: 1007 ev)
   full)    cp "$HOME/Library/Application Support/CalendarKit/data.json" "$TMP/data.json" ;;  # raw live store
   *) echo "unknown PAYLOAD=${PAYLOAD}"; exit 1 ;;
 esac
 echo "Launching bench scene (throwaway store at $TMP; payload=${PAYLOAD:-display} window=${WINDOW:-default} hover=${HOVER:-0})…"
 # `env` so the optional ${…:+VAR=val} expansions are still parsed as environment assignments.
 env CC_DEMO="$SCENE" CC_DEMO_DATADIR="$TMP" \
-  ${WINDOW:+CC_WINDOW="$WINDOW"} ${HOVER:+CC_BENCH_HOVER=1} ${DWELL:+CC_BENCH_DWELL=1} ${MONTHS:+CC_BENCH_MONTHS="$MONTHS"} ${MOUNTALL:+CC_BENCH_MOUNT_ALL=1} "$BIN" &
+  ${WINDOW:+CC_WINDOW="$WINDOW"} ${HOVER:+CC_BENCH_HOVER=1} ${DWELL:+CC_BENCH_DWELL=1} ${MONTHS:+CC_BENCH_MONTHS="$MONTHS"} ${MOUNTALL:+CC_BENCH_MOUNT_ALL=1} \
+  ${PROF:+CC_PROF=1} ${PERF_OFF:+CC_PERF_OFF=1} ${FLING_STEPS:+CC_BENCH_FLING_STEPS="$FLING_STEPS"} \
+  ${SWIPE_STEPS:+CC_BENCH_SWIPE_STEPS="$SWIPE_STEPS"} ${SWIPE_GAP:+CC_BENCH_SWIPE_GAP="$SWIPE_GAP"} "$BIN" &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
@@ -40,15 +43,24 @@ for _ in $(seq 1 300); do [ -f "$TMP/bench.json" ] && break; sleep 0.2; done
 [ -f "$TMP/bench.json" ] || { echo "bench never produced results"; exit 1; }
 sleep 0.2
 
-python3 - "$TMP/bench.json" "$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}/dwell=${DWELL:-0}${MONTHS:+/m=$MONTHS}" <<'PY'
+# Tag results with the git branch (worktree-aware) so per-optimization branches compare cleanly.
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+python3 - "$TMP/bench.json" "$BRANCH|$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}/dwell=${DWELL:-0}${MONTHS:+/m=$MONTHS}${SWIPE_STEPS:+/ss=$SWIPE_STEPS}" <<'PY'
 import json, sys, datetime
 r = json.load(open(sys.argv[1]))
 line = (f"{datetime.datetime.now():%Y-%m-%d %H:%M} [{sys.argv[2]}] "
-        f"avg {r['avg_fps']:.1f} fps | p50 {r['frame_ms_p50']:.2f} ms | p95 {r['frame_ms_p95']:.2f} ms | "
+        f"avg {r['avg_fps']:.1f} fps | HUD-min {r.get('hud_min_fps', float('nan')):.1f} fps | "
+        f"p50 {r['frame_ms_p50']:.2f} ms | p95 {r['frame_ms_p95']:.2f} ms | "
         f"max {r['frame_ms_max']:.1f} ms | hitches(>33ms) {r['hitches_over_33ms']} | "
         + (f"MOVING: {r['moving_avg_fps']:.1f} fps p95 {r['moving_p95_ms']:.1f} ms hitches {r['moving_hitches']} | " if 'moving_avg_fps' in r else '')
         + f"{r['frames']} frames / {r['seconds']:.2f} s")
 print("\n== bench ==\n" + line)
 if 'hitch_offsets_s' in r: print('hitch offsets within turn (s):', r['hitch_offsets_s'])
+if 'layers_ms' in r:
+    print("\n-- per-layer CPU (main thread) --")
+    print(f"  {'layer':<16}{'samples':>9}{'avg ms':>9}{'total ms':>10}{'peak ms':>9}")
+    for k in sorted(r['layers_ms']):
+        n, avg, tot, peak = r['layers_ms'][k]
+        print(f"  {k:<16}{int(n):>9}{avg:>9.3f}{tot:>10.1f}{peak:>9.3f}")
 open("bench/results.log", "a").write(line + "\n")
 PY

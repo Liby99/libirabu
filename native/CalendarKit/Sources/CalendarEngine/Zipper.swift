@@ -53,20 +53,27 @@ enum Zipper {
 
     @discardableResult
     private static func run(_ path: String, _ args: [String], cwd: URL?) throws -> String {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: path)
-        p.arguments = args
-        if let cwd {
-            p.currentDirectoryURL = cwd
-        }
-        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
-        try p.run(); p.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard p.terminationStatus == 0 else {
-            throw NSError(domain: "Zipper", code: Int(p.terminationStatus),
-                          userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ??
-                              "archive tool failed"])
-        }
-        return String(data: data, encoding: .utf8) ?? ""
+        #if os(macOS)
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: path)
+            p.arguments = args
+            if let cwd {
+                p.currentDirectoryURL = cwd
+            }
+            let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+            try p.run(); p.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard p.terminationStatus == 0 else {
+                throw NSError(domain: "Zipper", code: Int(p.terminationStatus),
+                              userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ??
+                                  "archive tool failed"])
+            }
+            return String(data: data, encoding: .utf8) ?? ""
+        #else
+            // No Process/zip on iOS — .mgc backup import/export is a Mac feature; the phone
+            // viewer never reaches this. Kept compiling so the shared engine links on iOS.
+            throw NSError(domain: "Zipper", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "zip archives are not supported on this platform"])
+        #endif
     }
 }

@@ -11,6 +11,7 @@
 import AppKit
 import CalendarEngine
 import CalendarGeometry
+import CalendarRender
 import SwiftUI
 
 @MainActor @Observable
@@ -74,12 +75,22 @@ public final class DemoController {
         active = true
         self.engine = engine
         self.size = size
-        installCursorPanel()
+        // The manual-benchmark scene ("idle") drives NOTHING — the human scrolls the real pointer — so it
+        // must NOT install the synthetic click-through cursor panel that scripted scenes use.
+        if !Self.isIdleScene { installCursorPanel() }
         Task { await run(CalendarEngine.demoScene) }
     }
 
+    /// CC_DEMO=idle (or bench-idle): the manual-benchmark mode. isDemoMode is TRUE, so every background
+    /// source (iCloud sync, ICS feeds, Apple-Calendar import, notifications, the now-timer) is off and the
+    /// store is the throwaway CC_DEMO_DATADIR — identical to the CalendarMac bench — but no scene scripts
+    /// input. Point CC_DEMO_DATADIR at a dir holding a data.json copy of bench/year-display-2026.json and
+    /// turn on CC_FPS_HUD=1 to A/B the Xcode CalendarApp against the CalendarMac harness by hand.
+    static var isIdleScene: Bool { CalendarEngine.demoScene == "idle" || CalendarEngine.demoScene == "bench-idle" }
+
     private func run(_ scene: String) async {
         switch scene {
+        case "idle", "bench-idle": return // manual benchmark: load fixture, everything off, human drives
         case "timed-week": await sceneTimedWeek()
         case "band-year": await sceneBandYear()
         case "pinch-zoom": await scenePinchZoom()
@@ -838,7 +849,9 @@ public final class DemoController {
         engine.demoGoToYear(centerMonth: 0) // January at the top
         try? await pause(0.8)
         benchFrames.removeAll()
+        RenderProf.reset()
         benchActive = true
+        RenderProf.mark("benchBegin")
         // CC_BENCH_HOVER=1 → wiggle a synthetic pointer over the content during the glide, exercising the
         // real per-move hover/hit-test path a trackpad scroll pays (mouseMoved → onHover → bandAt).
         let hover = ProcessInfo.processInfo.environment["CC_BENCH_HOVER"] != nil
@@ -856,6 +869,7 @@ public final class DemoController {
             }
             try? await pause(0.25)
         }
+        RenderProf.mark("benchEnd")
         benchActive = false
         writeBenchResults()
     }
@@ -869,12 +883,18 @@ public final class DemoController {
         engine.demoGoToYear(centerMonth: 0)
         try? await pause(0.8)
         benchFrames.removeAll()
+        RenderProf.reset()
         benchActive = true
+        RenderProf.mark("benchBegin")
         let maxY = yearMaxScroll(engine.viewport)
         var hoverStep = 0
+        // Sweep speed is tunable: CC_BENCH_FLING_STEPS=N sets the frames-per-sweep (default 120 ≈ a ~1s
+        // heavy fling). FEWER steps ⇒ a bigger scroll jump per frame ⇒ a FASTER scroll (e.g. 30 sweeps the
+        // whole year in ~0.25s — a violent flick that stresses per-frame scene rebuild the hardest). Passes
+        // through the SAME setYearScroll mirror a real trackpad drives, so it stays representative.
+        let steps = max(2, ProcessInfo.processInfo.environment["CC_BENCH_FLING_STEPS"].flatMap { Int($0) } ?? 120)
         for (from, to) in [(CGFloat(0), maxY), (maxY, CGFloat(0))] { // fast down, fast up
             engine.beginYearScrollGesture()
-            let steps = 120 // ~1s sweep at 120Hz — a heavy fling's speed
             for i in 0 ... steps {
                 let t = CGFloat(i) / CGFloat(steps)
                 engine.setYearScroll(from + (to - from) * t)
@@ -887,6 +907,7 @@ public final class DemoController {
             engine.endYearScrollGesture()
             try? await pause(0.25)
         }
+        RenderProf.mark("benchEnd")
         benchActive = false
         writeBenchResults()
     }
@@ -901,16 +922,29 @@ public final class DemoController {
         engine.setView(zoom: "month", focusedMonth: 5) // June
         try? await pause(0.8)
         benchFrames.removeAll()
+        RenderProf.reset()
         benchActive = true
+        RenderProf.mark("benchBegin")
         let pageH = size.height
         let dwell = ProcessInfo.processInfo.environment["CC_BENCH_DWELL"] != nil
-        // CC_BENCH_MONTHS="5,6" → ping-pong between exactly those two months (×3 round trips) —
-        // e.g. Jun↔Jul, the densest pair. Default: the Jun→Sep tour with revisits.
+        let env = ProcessInfo.processInfo.environment
+        // Swipe SPEED: CC_BENCH_SWIPE_STEPS=N frames per page-turn (default 40 ≈ a relaxed swipe). FEWER
+        // steps ⇒ a bigger progress jump per frame ⇒ a FASTER flick — set 8–12 for the "very very rapid"
+        // back-and-forth a real trackpad does. CC_BENCH_SWIPE_GAP=secs is the settle between turns (default
+        // 0.15; drop to ~0.02 so turns land in rapid succession and the 1-second HUD window stays inside the
+        // churn — that's when the neighbor-month pre-mount hitches stack up and the visible fps sags).
+        let steps = max(2, Int(env["CC_BENCH_SWIPE_STEPS"].flatMap { Int($0) } ?? 40))
+        let gap = Double(env["CC_BENCH_SWIPE_GAP"].flatMap { Double($0) } ?? 0.15)
+        // CC_BENCH_MONTHS="5,6,7" → walk Jun→Jul→Aug and back, adjacent turns only, ×3 (a two- or
+        // N-month list both work). Default: the Jun→Sep tour with revisits.
         var pairs: [(Int, Int)] = [(5, 6), (6, 7), (7, 8), (8, 7), (7, 6), (6, 7), (7, 8), (8, 7), (7, 6)]
-        if let spec = ProcessInfo.processInfo.environment["CC_BENCH_MONTHS"] {
+        if let spec = env["CC_BENCH_MONTHS"] {
             let mm = spec.split(separator: ",").compactMap { Int($0) }
-            if mm.count == 2 {
-                pairs = [(mm[0], mm[1]), (mm[1], mm[0]), (mm[0], mm[1]), (mm[1], mm[0]), (mm[0], mm[1]), (mm[1], mm[0])]
+            if mm.count >= 2 {
+                // adjacent transitions forward then backward (5→6→7→6→5), repeated for a sustained run
+                let fwd = zip(mm, mm.dropFirst()).map { ($0, $1) }
+                let leg = fwd + fwd.reversed().map { ($0.1, $0.0) }
+                pairs = leg + leg + leg
             }
         }
         for (from, to) in pairs {
@@ -918,7 +952,6 @@ public final class DemoController {
             if dwell { // A/B: let the neighbor pre-mount land on STATIC frames before moving
                 for _ in 0 ..< 30 { engine.wake(); try? await pause(0.016) }
             }
-            let steps = 40
             moveStart = Date.timeIntervalSinceReferenceDate
             for i in 0 ... steps {
                 let t = easeOutQuad(CGFloat(i) / CGFloat(steps))
@@ -929,8 +962,9 @@ public final class DemoController {
             }
             benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
             engine.endMonthGesture()
-            try? await pause(0.15)
+            try? await pause(gap)
         }
+        RenderProf.mark("benchEnd")
         benchActive = false
         writeBenchResults()
     }
@@ -965,10 +999,26 @@ public final class DemoController {
             (x * 100).rounded() / 100
         }
         let seconds = benchFrames.last! - benchFrames.first!
+        // The WORST 1-second rolling window's fps — exactly what the on-screen HUD shows as "lowest
+        // framerate," which the avg/p95 summary hides (a cluster of hitches inside one second reads far
+        // lower than p95). For each frame, count frames in the trailing 1s and take the min fps over the run.
+        func hudMinFps() -> Double {
+            guard benchFrames.count > 5 else { return r2(Double(deltas.count) / seconds) }
+            var worst = Double.infinity
+            var lo = 0
+            for hi in 1 ..< benchFrames.count {
+                while benchFrames[hi] - benchFrames[lo] > 1.0 { lo += 1 }
+                let span = benchFrames[hi] - benchFrames[lo]
+                let n = hi - lo
+                if span >= 0.5, n >= 3 { worst = min(worst, Double(n) / span) } // need a near-full window
+            }
+            return worst.isFinite ? r2(worst) : r2(Double(deltas.count) / seconds)
+        }
         let base: [String: Any] = [
             "frames": deltas.count + 1,
             "seconds": r2(seconds),
             "avg_fps": r2(Double(deltas.count) / seconds),
+            "hud_min_fps": hudMinFps(),
             "frame_ms_p50": r2(pctMs(0.50)),
             "frame_ms_p95": r2(pctMs(0.95)),
             "frame_ms_max": r2(sorted.last! * 1000),
@@ -982,6 +1032,12 @@ public final class DemoController {
             out2["moving_max_ms"] = r2(ms.last! * 1000)
             out2["moving_hitches"] = movingDeltas.filter { $0 > 1.0 / 30.0 }.count
             out2["hitch_offsets_s"] = hitchOffsets
+        }
+        // Per-layer CPU attribution (CC_PROF=1): each draw layer's [samples, avg-ms, total-ms, peak-ms].
+        // NB: main-thread CPU only — glass GPU compositing is invisible here (see RenderProfiler).
+        let layers = RenderProf.summary()
+        if !layers.isEmpty {
+            out2["layers_ms"] = layers
         }
         let out = out2
         if let data = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]) {

@@ -50,6 +50,19 @@ struct ProviderSettings: Codable, Equatable {
     var baseURL: String = "" // gateway only
     var region: String = "us-east-1" // bedrock only
     var testedOK: Bool = false
+
+    init() {}
+
+    /// Tolerant decode (the RichFields pattern): a field ADDED in a newer build must not fail the
+    /// whole blob — that silently reset `testedOK` on every schema-growing rebuild, re-demanding
+    /// "Test Connection" even though the stored key and model were intact.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        model = try c.decodeIfPresent(String.self, forKey: .model) ?? ""
+        baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? ""
+        region = try c.decodeIfPresent(String.self, forKey: .region) ?? "us-east-1"
+        testedOK = try c.decodeIfPresent(Bool.self, forKey: .testedOK) ?? false
+    }
 }
 
 /// Persistence + construction. Secrets live in the Keychain; the gateway key keeps the legacy
