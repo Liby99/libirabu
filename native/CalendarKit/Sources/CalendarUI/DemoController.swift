@@ -34,10 +34,20 @@ public final class DemoController {
     public var configPulse = 0
     public var repeatFeed: Repeat?
 
+    // promote scene hooks (wired by CalendarView): open/close the right-click event callout.
+    @ObservationIgnored var eventMenuHook: ((String, CGRect) -> Void)?
+    @ObservationIgnored var closeEventMenuHook: (() -> Void)?
+
     // search-demo scene hooks (wired by CalendarView.setupOnAppear): open the toolbar search bar, and the
     // live SearchState the field binds to — the scene types into it and reads the results.
     @ObservationIgnored var openSearchHook: (() -> Void)?
     @ObservationIgnored var searchState: SearchState?
+
+    // The synthetic cursor is hosted in its own transparent, click-through PANEL WINDOW above the app:
+    // the right-click callout is an NSPopover (an AppKit child window over the whole SwiftUI tree), so an
+    // in-tree overlay would draw UNDER it. True → CalendarView skips its in-tree cursor overlay.
+    @ObservationIgnored public private(set) var cursorPanelUp = false
+    @ObservationIgnored private var cursorPanel: NSPanel?
 
     private weak var engine: CalendarEngine?
     private var size: CGSize = .zero
@@ -59,6 +69,7 @@ public final class DemoController {
         active = true
         self.engine = engine
         self.size = size
+        installCursorPanel()
         Task { await run(CalendarEngine.demoScene) }
     }
 
@@ -75,6 +86,7 @@ public final class DemoController {
         case "recurring": await sceneRecurring()
         case "search-demo": await sceneSearchDemo()
         case "promote": await scenePromote()
+        case "promote-manual": await scenePromoteManual()
         case "daily-dashboard": await sceneDailyDashboard()
         case "bench-year-scroll": await sceneBenchYearScroll()
         case "bench-year-fling": await sceneBenchYearFling()
@@ -648,48 +660,129 @@ public final class DemoController {
         try? await pause(0.5)
     }
 
-    /// PROMOTE: a deadline mirrors onto a month track lane as a ghost bar.
+    /// PROMOTE: right-click an early-morning DEADLINE in week view → "Promote" mirrors it onto the top
+    /// track lane (T1) — then drag the ghost bar DOWN two lanes (the lane-only promoted-band drag) to T3.
     private func scenePromote() async {
         guard let engine else { return }
         engine.demoClearEvents()
-        let id = engine.createDeadline(year: engine.year, month: 6, day: 21, hour: 23.5,
-                                       title: "CFP deadline", color: "red")
+        seedWeek()
+        let did = engine.createDeadline(year: engine.year, month: 6, day: 16, hour: 7 + 59.0 / 60.0,
+                                        title: "Milestone due", color: "red")
         engine.demoSelect(nil)
-        engine.setView(zoom: "month", focusedMonth: 6)
-        try? await pause(1.8)
+        engine.jumpToDay(engine.year, 6, 15)
+        try? await pause(2.2)
+        engine.cmdZoomOut()
+        try? await pause(1.6)
+        engine.demoScrollTimelineToHour(10)   // bring the 7:59 deadline on screen (scroll pins to 16:00)
+        try? await pause(0.8)
         signalReady()
         await waitForGo()
-        try? await pause(0.9)
+        try? await pause(0.5)
 
-        // Pulse over the Travel lane around day 21, then promote the deadline there.
-        cursor = CGPoint(x: size.width * 0.62, y: size.height * 0.245)
-        try? await pause(0.7)
-        pressed = true; try? await pause(0.16); pressed = false
-        try? await pause(0.4)
-        engine.setPromoteTrack(id, 3)   // ghost bar appears on the lane
-        try? await pause(2.6)
+        // Right-click the deadline's moment line → the context callout opens.
+        guard let pt = engine.demoDeadlinePointView(did) else { return }
+        cursor = CGPoint(x: pt.x - 70, y: pt.y + 55)
+        await move(to: pt, over: 0.8)
+        pressed = true; try? await pause(0.15); pressed = false
+        eventMenuHook?(did, CGRect(x: pt.x, y: pt.y, width: 2, height: 2))
+        try? await pause(1.1)
+
+        // Glide down the menu to "Promote" and click it → ghost bar appears on the TOP free lane (T1).
+        await move(to: CGPoint(x: pt.x + 180, y: pt.y + 40), over: 0.9)   // the callout's Promote row
+        pressed = true; try? await pause(0.15); pressed = false
+        closeEventMenuHook?()
+        engine.togglePromote(did)
+        try? await pause(1.5)
+
+        // Drag the ghost DOWN two lanes → T3 (only the lane moves; the date mirrors the deadline).
+        guard let ghost = engine.viewBands().first(where: { sourceId(of: $0.id) == did }),
+              let r = engine.demoBandRectView(ghost.id) else { return }
+        let from = CGPoint(x: r.midX, y: r.midY)
+        await move(to: from, over: 0.8)
+        pressed = true
+        engine.demoPointerDown(atView: from)
+        let to = CGPoint(x: from.x, y: from.y + r.height * 2.4)
+        await drag(from: from, to: to, over: 1.1) { p in engine.demoPointerDrag(atView: p) }
+        engine.demoPointerUp(atView: to)
+        pressed = false
+        try? await pause(1.4)
     }
 
-    /// DAILY DASHBOARD: day view's TODO list — a click checks an item off (the note updates live).
+    /// PROMOTE (manual): stage the promote scene — seeded week + the 7:59 deadline, morning in view —
+    /// then just stay alive: the USER drives the real mouse while the recorder captures.
+    private func scenePromoteManual() async {
+        guard let engine else { return }
+        engine.demoClearEvents()
+        seedWeek()
+        _ = engine.createDeadline(year: engine.year, month: 6, day: 16, hour: 7 + 59.0 / 60.0,
+                                  title: "Milestone due", color: "red")
+        engine.demoSelect(nil)
+        engine.jumpToDay(engine.year, 6, 15)
+        try? await pause(2.2)
+        engine.cmdZoomOut()
+        try? await pause(1.6)
+        engine.demoScrollTimelineToHour(10)
+        try? await pause(0.6)
+        signalReady()
+        await waitForGo()
+        while true { engine.wake(); try? await pause(0.5) }   // recorder kills the app when done
+    }
+
+    /// DAILY DASHBOARD: day view's TODO list — varied items (priorities, due dates, tags, people,
+    /// links; from the daily note AND an event's notes) — then a click checks one off live.
     private func sceneDailyDashboard() async {
         guard let engine else { return }
         engine.demoClearEvents()
         seedWeek()
+        let gr = engine.demoAddTimed(month: 6, day: 15, startHour: 15, endHour: 16,
+                                     title: "Grant review", color: "indigo")
+        engine.setNotes(gr, """
+        - [ ] Score the proposals p:!! due:2026-07-17
+        - [ ] Send summary to the committee @chair
+        """)
         let iso = String(format: "%04d-07-15", engine.year)
-        engine.setDailyNote(iso, "## Today\n- [ ] Review the draft\n- [ ] Email Alex\n- [x] Standup notes\n")
+        let note = """
+        ## Today
+        - [ ] Review the draft due:today p:!!!
+        - [ ] Email Alex about the demo @alex
+        - [ ] Book flights for the conference #travel due:2026-07-22
+        - [ ] Read [the segmentation paper](https://arxiv.org) #reading
+        - [x] Post the standup notes
+        """
+        engine.setDailyNote(iso, note)
         engine.jumpToDay(engine.year, 6, 15)
         try? await pause(2.6)
         signalReady()
         await waitForGo()
-        try? await pause(0.8)
+        try? await pause(1.0)
 
-        // Cursor over the first TODO row, click, and the checkbox flips (note rewritten through the engine).
-        let row = CGPoint(x: size.width * 0.70, y: size.height * 0.325)
+        // Cursor over the first TODO row, click, and its checkbox flips (note rewritten via the engine).
+        let row = CGPoint(x: size.width * 0.70, y: size.height * 0.335)
         cursor = CGPoint(x: row.x - 60, y: row.y + 50)
         await move(to: row, over: 0.9)
         pressed = true; try? await pause(0.16); pressed = false
-        engine.setDailyNote(iso, "## Today\n- [x] Review the draft\n- [ ] Email Alex\n- [x] Standup notes\n")
-        try? await pause(2.4)
+        engine.setDailyNote(iso, note.replacingOccurrences(
+            of: "- [ ] Review the draft", with: "- [x] Review the draft"))
+        try? await pause(2.2)
+    }
+
+    /// Float the synthetic cursor in a borderless, click-through panel window pinned over the main
+    /// window's content area — above EVERY window layer, including NSPopover callouts (which sit over the
+    /// whole SwiftUI hierarchy and would otherwise cover an in-tree cursor overlay).
+    private func installCursorPanel() {
+        guard cursorPanel == nil, let win = NSApp.mainWindow, let content = win.contentView else { return }
+        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.level = .screenSaver
+        panel.contentView = NSHostingView(rootView: DemoCursorOverlay(demo: self))
+        panel.setFrame(win.convertToScreen(content.convert(content.bounds, to: nil)), display: true)
+        win.addChildWindow(panel, ordered: .above)
+        cursorPanel = panel
+        cursorPanelUp = true
     }
 
     /// ── Benchmarks (CC_DEMO=bench-*: measure, don't record) ───────────────────────────────────
@@ -803,7 +896,16 @@ public final class DemoController {
         benchActive = true
         let pageH = size.height
         let dwell = ProcessInfo.processInfo.environment["CC_BENCH_DWELL"] != nil
-        for (from, to) in [(5, 6), (6, 7), (7, 8), (8, 7), (7, 6), (6, 7), (7, 8), (8, 7), (7, 6)] {
+        // CC_BENCH_MONTHS="5,6" → ping-pong between exactly those two months (×3 round trips) —
+        // e.g. Jun↔Jul, the densest pair. Default: the Jun→Sep tour with revisits.
+        var pairs: [(Int, Int)] = [(5, 6), (6, 7), (7, 8), (8, 7), (7, 6), (6, 7), (7, 8), (8, 7), (7, 6)]
+        if let spec = ProcessInfo.processInfo.environment["CC_BENCH_MONTHS"] {
+            let mm = spec.split(separator: ",").compactMap { Int($0) }
+            if mm.count == 2 {
+                pairs = [(mm[0], mm[1]), (mm[1], mm[0]), (mm[0], mm[1]), (mm[1], mm[0]), (mm[0], mm[1]), (mm[1], mm[0])]
+            }
+        }
+        for (from, to) in pairs {
             engine.beginMonthGesture()
             if dwell { // A/B: let the neighbor pre-mount land on STATIC frames before moving
                 for _ in 0 ..< 30 { engine.wake(); try? await pause(0.016) }
@@ -836,10 +938,14 @@ public final class DemoController {
         // Moving-phase-only stats (frames inside recorded gesture windows): the number that
         // matches what the EYE sees — a slow frame on a static screen is invisible.
         var movingDeltas: [Double] = []
+        var hitchOffsets: [Double] = [] // hitch position within its turn window (0 = turn start), seconds
         if !benchMoves.isEmpty {
             for (t2, t1) in zip(benchFrames.dropFirst(), benchFrames) {
-                if benchMoves.contains(where: { t2 > $0.0 && t2 <= $0.1 + 0.02 }) {
+                if let win = benchMoves.first(where: { t2 > $0.0 && t2 <= $0.1 + 0.02 }) {
                     movingDeltas.append(t2 - t1)
+                    if t2 - t1 > 1.0 / 30.0 {
+                        hitchOffsets.append(((t2 - win.0) * 1000).rounded() / 1000)
+                    }
                 }
             }
         }
@@ -867,6 +973,7 @@ public final class DemoController {
             out2["moving_p95_ms"] = r2(ms[min(ms.count - 1, Int(Double(ms.count) * 0.95))] * 1000)
             out2["moving_max_ms"] = r2(ms.last! * 1000)
             out2["moving_hitches"] = movingDeltas.filter { $0 > 1.0 / 30.0 }.count
+            out2["hitch_offsets_s"] = hitchOffsets
         }
         let out = out2
         if let data = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]) {

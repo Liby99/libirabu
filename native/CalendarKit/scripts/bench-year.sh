@@ -31,7 +31,7 @@ esac
 echo "Launching bench scene (throwaway store at $TMP; payload=${PAYLOAD:-display} window=${WINDOW:-default} hover=${HOVER:-0})…"
 # `env` so the optional ${…:+VAR=val} expansions are still parsed as environment assignments.
 env CC_DEMO="$SCENE" CC_DEMO_DATADIR="$TMP" \
-  ${WINDOW:+CC_WINDOW="$WINDOW"} ${HOVER:+CC_BENCH_HOVER=1} ${DWELL:+CC_BENCH_DWELL=1} "$BIN" &
+  ${WINDOW:+CC_WINDOW="$WINDOW"} ${HOVER:+CC_BENCH_HOVER=1} ${DWELL:+CC_BENCH_DWELL=1} ${MONTHS:+CC_BENCH_MONTHS="$MONTHS"} ${MOUNTALL:+CC_BENCH_MOUNT_ALL=1} "$BIN" &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
@@ -40,7 +40,7 @@ for _ in $(seq 1 300); do [ -f "$TMP/bench.json" ] && break; sleep 0.2; done
 [ -f "$TMP/bench.json" ] || { echo "bench never produced results"; exit 1; }
 sleep 0.2
 
-python3 - "$TMP/bench.json" "$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}/dwell=${DWELL:-0}" <<'PY'
+python3 - "$TMP/bench.json" "$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}/dwell=${DWELL:-0}${MONTHS:+/m=$MONTHS}" <<'PY'
 import json, sys, datetime
 r = json.load(open(sys.argv[1]))
 line = (f"{datetime.datetime.now():%Y-%m-%d %H:%M} [{sys.argv[2]}] "
@@ -49,5 +49,6 @@ line = (f"{datetime.datetime.now():%Y-%m-%d %H:%M} [{sys.argv[2]}] "
         + (f"MOVING: {r['moving_avg_fps']:.1f} fps p95 {r['moving_p95_ms']:.1f} ms hitches {r['moving_hitches']} | " if 'moving_avg_fps' in r else '')
         + f"{r['frames']} frames / {r['seconds']:.2f} s")
 print("\n== bench ==\n" + line)
+if 'hitch_offsets_s' in r: print('hitch offsets within turn (s):', r['hitch_offsets_s'])
 open("bench/results.log", "a").write(line + "\n")
 PY
