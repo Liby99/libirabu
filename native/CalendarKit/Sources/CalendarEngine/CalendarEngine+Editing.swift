@@ -550,6 +550,38 @@ extension CalendarEngine {
         }
     }
 
+    /// Paste at an EXPLICIT timeline slot — the event menu's "Paste Here" (timed/deadline
+    /// clips only). No snapping: the pasted item starts exactly at `hour`.
+    @discardableResult
+    public func paste(_ clip: ClipPayload, atYear y: Int, month m: Int, day d: Int, hour: CGFloat) -> String? {
+        guard clip.kind == "timed" || clip.kind == "deadline" else { return nil }
+        let delta = clip.move.map { dayDiff($0.baseYear, $0.baseMonth, $0.baseDay, y, m, d) } ?? 0
+        beginTxn()
+        let id = "new-\(UUID().uuidString)"
+        if clip.kind == "timed" {
+            let dur = max(0.25, clip.durationHours)
+            let start = max(0, min(24 - dur, hour))
+            items.events.append(TimedEvent(id: id, year: y, month: m, day: d, startHour: start,
+                                           endHour: start + dur, title: clip.title, color: clip.color, anchorTz: anchorNow))
+        } else {
+            items.deadlines.append(Deadline(id: id, year: y, month: m, day: d, hour: max(0, min(23.75, hour)),
+                                            title: clip.title, color: clip.color, anchorTz: anchorNow))
+        }
+        items.richById[id] = pasteRich(clip, newId: id, delta: delta)
+        selectedId = id; commitTxn()
+        return id
+    }
+
+    /// "Paste Here" on a clicked TIMED event box: land the clip exactly at that box's start time
+    /// (occurrence-aware — a ghost pastes on its own day, not the series base).
+    @discardableResult
+    public func pasteHere(_ clip: ClipPayload, on boxId: String) -> String? {
+        let src = sourceId(of: boxId)
+        guard let e = event(src) else { return nil }
+        let day = occurrenceStart(of: boxId) ?? YMD(e.year, e.month, e.day)
+        return paste(clip, atYear: day.year, month: day.month, day: day.day, hour: e.startHour)
+    }
+
     private func pasteRich(_ clip: ClipPayload, newId: String, delta: Int) -> RichFields {
         // A copy carries no `move` → notes+tags only; a cut carries recurrence/promotion/occ-notes, with
         // the recurrence dates and occurrence-note keys shifted by the move's day offset ("preserving offset").

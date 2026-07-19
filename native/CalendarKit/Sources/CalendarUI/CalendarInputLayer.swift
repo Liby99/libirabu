@@ -790,6 +790,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
     /// Unambiguous entry point for programmatic copy (the context menu): `copy(nil)` from outside
     /// collides with NSObject's `copy()`/`copy(with:)` overloads, this name can't.
     func copySelection() { copy(nil as Any?) }
+    func cutSelection() { cut(nil as Any?) }
     @objc func copy(_ sender: Any?) {
         guard let engine, let id = engine.selectedId, let clip = engine.clipPayload(of: id, full: false) else { NSSound.beep(); return }
         writeClip(clip)

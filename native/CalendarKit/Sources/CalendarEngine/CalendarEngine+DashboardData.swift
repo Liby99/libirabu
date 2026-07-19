@@ -163,6 +163,34 @@ extension CalendarEngine {
         guard let base = items.bands.first(where: { $0.id == sourceId(of: id) }) else { return nil }
         return YMD(base.year, base.month, base.startDay)
     }
+    /// The date a specific BOX represents: a ghost's own occurrence date, else the base date.
+    public func occurrenceStart(of boxId: String) -> YMD? {
+        occurrenceYMD(sourceId(of: boxId), occurrenceKey(of: boxId))
+    }
+
+    /// The neighboring occurrence's BOX id (dir −1/＋1), or nil at the series edge / not recurring.
+    public func neighborOccurrence(of boxId: String, dir: Int) -> String? {
+        let src = sourceId(of: boxId)
+        guard let rep = repeatConfig(src), let base = baseYMD(src),
+              let cur = occurrenceYMD(src, occurrenceKey(of: boxId)) else { return nil }
+        var dates: Set<YMD> = []
+        for y in (cur.year - 1)...(cur.year + 1) { dates.formUnion(occurrenceDates(base, rep, y)) }
+        dates.insert(base)
+        let sorted = dates.sorted { ($0.year, $0.month, $0.day) < ($1.year, $1.month, $1.day) }
+        guard let i = sorted.firstIndex(of: cur), (0..<sorted.count).contains(i + dir) else { return nil }
+        let t = sorted[i + dir]
+        return t == base ? src : "\(src)@\(t.year)-\(t.month)-\(t.day)"
+    }
+    private func baseYMD(_ src: String) -> YMD? { dateOf(src).map { YMD($0.0, $0.1, $0.2) } }
+
+    /// Navigate to a box (base or ghost): fly to its day and select it.
+    public func goToBox(_ boxId: String) {
+        let target = occurrenceStart(of: boxId) ?? baseYMD(sourceId(of: boxId)).map { $0 }
+        guard let t = target else { return }
+        select(boxId)
+        jumpToDay(t.year, t.month, t.day)
+    }
+
     public func repeatConfig(_ id: String) -> Repeat? { Repeat.parse(items.richById[id]?.repeatJSON) }
     public func promoteTrack(_ id: String) -> Int? { items.richById[overlayKey(id)]?.promoteTrack }
 

@@ -78,8 +78,9 @@ public struct CalendarView: View {
                       onDelete: { performDelete($0) },
                       onRename: { renameInline($0) },
                       onCopy: { (gestureForwarder.catcher as? CatcherView)?.copySelection() },
+                      onCut: { (gestureForwarder.catcher as? CatcherView)?.cutSelection() },
                       onPaste: { (gestureForwarder.catcher as? CatcherView)?.performPaste() },
-                      clipKind: { (gestureForwarder.catcher as? CatcherView)?.readClip()?.kind })
+                      readClip: { (gestureForwarder.catcher as? CatcherView)?.readClip() })
     }
 
     /// The AppKit input bridge, built OUTSIDE the body chain and assignment-style: the chain is

@@ -157,8 +157,9 @@ struct ModalOverlays: ViewModifier {
     // body chain gains no new links — see EventMenuOverlay).
     var onRename: (String) -> Void = { _ in }
     var onCopy: () -> Void = {}
+    var onCut: () -> Void = {}
     var onPaste: () -> Void = {}
-    var clipKind: () -> String? = { nil }
+    var readClip: () -> CalendarEngine.ClipPayload? = { nil }
 
     /// The canvas input gate reflects EVERY blocking dialog this modifier hosts.
     private func syncModalGate() { engine.inputModalUp = ui.pendingDelete != nil || ui.notice != nil }
@@ -224,8 +225,8 @@ struct ModalOverlays: ViewModifier {
             }
             // Right-click event callout (kept in this bundle for the type-checker's budget).
             .modifier(EventMenuOverlay(ui: ui, engine: engine, theme: theme,
-                                       onRename: onRename, onCopy: onCopy,
-                                       onPaste: onPaste, clipKind: clipKind))
+                                       onRename: onRename, onCopy: onCopy, onCut: onCut,
+                                       onPaste: onPaste, readClip: readClip))
     }
 }
 
