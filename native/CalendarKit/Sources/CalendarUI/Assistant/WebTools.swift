@@ -39,10 +39,11 @@ struct WebSearchTool: AssistantTool {
         let key = (Keychain.get(account: Self.keychainAccount) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
-            // Graceful degrade — matches the web tool: no throw, just report unavailability.
+            // Graceful degrade — matches the web tool: no throw, just report unavailability, with an
+            // explicit relay instruction so the model tells the user how to enable it.
             return .obj([
                 "available": .bool(false),
-                "note": .str("Web search is unavailable — add a Tavily API key in Settings → API Keys."),
+                "note": .str("Web search is unavailable because no Tavily API key is set. Tell the user verbatim: \"Please add your Tavily API key in the Settings window (Settings ▸ API Keys, ⌘,) to enable web search.\" Do not attempt the search again."),
             ])
         }
         let maxResults = max(1, min(10, args["max_results"]?.intValue ?? 5))

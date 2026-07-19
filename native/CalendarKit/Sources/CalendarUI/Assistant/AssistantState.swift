@@ -49,10 +49,8 @@ public final class AssistantState {
 
     @ObservationIgnored private var blockedState: BlockedState?
 
-    /// The model id currently selected in the picker (persisted by the panel via @AppStorage).
-    private var model: String {
-        UserDefaults.standard.string(forKey: AssistantModels.defaultsKey) ?? AssistantModels.fallback
-    }
+    /// The model configured for the ACTIVE provider (Settings ▸ API Keys ▸ Supported LLMs).
+    private var model: String { ProviderStore.activeModel }
 
     // ── Actions ─────────────────────────────────────────────────────────────────────
 
@@ -90,6 +88,18 @@ public final class AssistantState {
         busy = true
         persistCurrent() // the conversation appears in the sidebar as soon as it starts
 
+        // Pre-flight: no tested provider → answer with a fixed, friendly pointer to Settings instead
+        // of spinning up the agent loop just to surface a transport error. A provider counts only
+        // once its Test Connection has passed (Settings ▸ API Keys).
+        if !ProviderStore.activeReady {
+            let tavilyMissing = (Keychain.get(account: WebSearchTool.keychainAccount) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            var msg = "Please pick an **AI provider**, add its key, and press **Test Connection** in the Settings window (**Settings ▸ API Keys**, ⌘,) — I can answer once a provider tests OK."
+            if tavilyMissing { msg += "\n\nAdding a **Tavily** key there also enables web search." }
+            finish(text: msg)
+            return
+        }
+
         continuation?.append(ChatMessage(role: "user", content: text))
         let model = self.model
         let resume = continuation
@@ -111,7 +121,7 @@ public final class AssistantState {
             }
             let resp: ChatResponse
             do {
-                resp = try await LLMClient.chat(messages: wire, model: model, tools: AssistantTools.defs)
+                resp = try await LLM.chat(messages: wire, model: model, tools: AssistantTools.defs)
             } catch {
                 if !Task.isCancelled {
                     finish(error: error)

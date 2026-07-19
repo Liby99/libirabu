@@ -60,7 +60,7 @@ enum LLMError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingKey:
-            return "No API key set. Add your JHU WSE AI Gateway key in Settings → API Keys."
+            return "No AI provider is configured. Pick one and press Test Connection in Settings → API Keys."
         case let .http(status, body):
             let trimmed = body.count > 300 ? String(body.prefix(300)) + "…" : body
             return "The assistant service returned an error (\(status)). \(trimmed)"
@@ -85,29 +85,28 @@ enum LLMClient {
         return trimmed.isEmpty ? defaultBaseURL : trimmed
     }
 
-    /// Run one non-streaming chat completion. Retries transient failures (5xx/429/network) with
-    /// exponential backoff, mirroring jhuGateway.ts. Throws `LLMError` on permanent failure.
-    static func chat(messages: [ChatMessage], model: String, tools: [ToolDef] = [],
-                     temperature: Double = 1.0, maxTokens: Int = 2048) async throws -> ChatResponse {
-        // Trim defensively: a stored key with trailing whitespace/newline (e.g. from a paste) would
-        // otherwise make setValue silently drop the Authorization header → gateway "API_KEY_REQUIRED".
-        let key = (Keychain.get(account: keychainAccount) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { throw LLMError.missingKey }
-
-        // The base URL is user-overridable (UserDefaults) — never force-unwrap it.
-        guard let endpoint = URL(string: baseURL + "/compat/chat/completions") else {
-            throw LLMError.http(status: 0, body: "invalid assistant base URL: \(baseURL)")
-        }
-        var request = URLRequest(url: endpoint)
+    /// One OpenAI-compat chat completion against an arbitrary endpoint (the gateway and OpenAI
+    /// adapters both route here). Retries transient failures, mirroring jhuGateway.ts.
+    static func chatOpenAICompat(url: URL, headers: [String: String],
+                                 messages: [ChatMessage], model: String, tools: [ToolDef] = [],
+                                 temperature: Double = 1.0, maxTokens: Int = 2048) async throws -> ChatResponse {
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        for (k, v) in headers {
+            request.setValue(v, forHTTPHeaderField: k)
+        }
         request.timeoutInterval = 90
         request.httpBody = try JSONEncoder().encode(RequestBody(
             model: model, messages: messages, temperature: temperature, maxTokens: maxTokens,
             tools: tools.isEmpty ? nil : tools.map { ToolWrapper(function: $0) }
         ))
+        return try parse(try await send(request))
+    }
 
+    /// Shared transport: POST with retries on 5xx/429/network (exponential backoff); returns the
+    /// body on 2xx, throws LLMError.http otherwise. All provider adapters funnel through this.
+    static func send(_ request: URLRequest) async throws -> Data {
         var lastError: Error = LLMError.badResponse
         for attempt in 0 ..< 3 {
             do {
@@ -120,7 +119,7 @@ enum LLMClient {
                 guard (200 ... 299).contains(status) else {
                     throw LLMError.http(status: status, body: String(decoding: data, as: UTF8.self))
                 }
-                return try parse(data)
+                return data
             } catch let error as LLMError {
                 throw error // permanent (4xx / bad response) — don't retry
             } catch {

@@ -42,7 +42,7 @@ enum Auditor {
         """))
 
         do {
-            let resp = try await LLMClient.chat(messages: messages, model: model,
+            let resp = try await LLM.chat(messages: messages, model: model,
                                                 temperature: 0, maxTokens: 512)
             return parse(resp.content) ?? .failOpen
         } catch {

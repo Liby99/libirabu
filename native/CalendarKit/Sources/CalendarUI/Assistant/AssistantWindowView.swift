@@ -189,25 +189,25 @@ public struct AssistantWindowView: View {
         return fmt.localizedString(for: date, relativeTo: Date())
     }
 
-    /// ── Toolbar: model picker + new chat ────────────────────────────────────────────
+    private static var activeModelLabel: String {
+        guard let id = ProviderStore.active else { return "No AI provider" }
+        let m = ProviderStore.settings(id).model
+        return "\(id.label.components(separatedBy: " ").first ?? id.rawValue) · \(AssistantModels.label(for: m))"
+    }
+
+    /// ── Toolbar: provider/model indicator + new chat ─────────────────────────────────
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
+            // The model now comes from the provider config (Settings ▸ API Keys ▸ Supported LLMs);
+            // this shows the active provider · model and jumps to Settings to change it.
             Menu {
-                ForEach(AssistantModels.all) { m in
-                    Button {
-                        model = m.id
-                    } label: {
-                        if m.id == model {
-                            Label("\(m.label) · \(m.note)", systemImage: "checkmark")
-                        } else {
-                            Text("\(m.label) · \(m.note)")
-                        }
-                    }
+                Button("Change in Settings… (⌘,)") {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
                 }
             } label: {
-                Label(AssistantModels.label(for: model), systemImage: "cpu")
+                Label(Self.activeModelLabel, systemImage: "cpu")
             }
-            .help("Model")
+            .help("Active AI provider · model — configure in Settings ▸ API Keys")
         }
         ToolbarItem(placement: .primaryAction) {
             // Same as the calendar toolbar's AI button — a clean glass circle, just a different icon.

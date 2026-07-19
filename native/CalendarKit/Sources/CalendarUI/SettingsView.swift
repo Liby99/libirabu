@@ -99,7 +99,10 @@ private struct AccountTab: View {
 /// The Settings window is isolated from the running engine, so this talks to EventKit directly and
 /// shares state with the engine through UserDefaults + a `.appleCalendarSettingsChanged` notification.
 private struct AppleCalendarRows: View {
-    @AppStorage(PrefKeys.appleEnabled) private var enabled = false
+    // Apple subscription state is per MagiCal calendar; key both by the active calendar id (read from
+    // UserDefaults, which the engine keeps in sync). Fixed for this Settings session.
+    private static let calId = PrefKeys.currentCalendarId
+    @AppStorage(PrefKeys.appleEnabled(AppleCalendarRows.calId)) private var enabled = false
     @Environment(\.openURL) private var openURL
     @State private var access = CalendarEngine.appleAccess
     @State private var calendars: [AppleCalendarInfo] = []
@@ -116,7 +119,7 @@ private struct AppleCalendarRows: View {
         }
         .padding(.vertical, 2)
         .onAppear {
-            selected = Set(UserDefaults.standard.stringArray(forKey: PrefKeys.appleCalendars) ?? [])
+            selected = Set(UserDefaults.standard.stringArray(forKey: PrefKeys.appleCalendars(Self.calId)) ?? [])
             access = CalendarEngine.appleAccess
             if access == .authorized {
                 calendars = importer.calendars()
@@ -203,7 +206,7 @@ private struct AppleCalendarRows: View {
     }
 
     private func save() {
-        UserDefaults.standard.set(Array(selected), forKey: PrefKeys.appleCalendars)
+        UserDefaults.standard.set(Array(selected), forKey: PrefKeys.appleCalendars(Self.calId))
         notifyEngine()
     }
 
@@ -287,26 +290,25 @@ private struct AccentColorRows: View {
 // ── API Keys ──────────────────────────────────────────────────────────────────────
 
 private struct APIKeysTab: View {
+    @State private var selected: ProviderID? = ProviderStore.active
+
     var body: some View {
         Form {
-            Section("LLM providers") {
-                APIKeyRow(account: "jhu-gateway",
-                          name: "JHU WSE AI Gateway",
-                          subtitle: "gateway.engineering.jhu.edu · primary assistant backend",
-                          placeholder: "jhu_live_sk_…") {
-                    JHUModelPicker()
+            Section("AI Provider") {
+                Picker("Provider", selection: $selected) {
+                    Text("None").tag(ProviderID?.none)
+                    ForEach(ProviderID.allCases) { id in
+                        Text(id.label).tag(Optional(id))
+                    }
                 }
-                APIKeyRow(account: "bedrock",
-                          name: "Amazon Bedrock",
-                          subtitle: "AWS-hosted models",
-                          placeholder: "AWS access key") {
-                    BedrockRegionPicker()
+                .onChange(of: selected) { _, v in ProviderStore.active = v }
+                if selected == nil {
+                    Text("Pick a provider to configure it. The assistant activates once the selected provider passes Test Connection. Configurations for every provider are kept, so switching back is instant.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-                APIKeyRow(account: "openai", name: "OpenAI", subtitle: "GPT models", placeholder: "sk-…") { EmptyView()
-                }
-                APIKeyRow(account: "anthropic", name: "Anthropic", subtitle: "Claude models", placeholder: "sk-ant-…") {
-                    EmptyView()
-                }
+            }
+            if let id = selected {
+                ProviderConfigSection(id: id).id(id) // .id resets the section state per provider
             }
             Section("Web search") {
                 APIKeyRow(
@@ -317,13 +319,122 @@ private struct APIKeysTab: View {
                 ) { EmptyView() }
             }
             Section {
-                Text(
-                    "Keys are stored in your macOS Keychain on this device only — not synced. The assistant uses the JHU Gateway key for chat and the Tavily key for web search."
-                )
-                .font(.caption).foregroundStyle(.secondary)
+                Text("Keys are stored in your macOS Keychain on this device only — not synced. The assistant talks to whichever provider is selected AND tested above; the Tavily key powers web search.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// One provider's full configuration: its secret(s), provider-specific fields, the supported-LLM
+/// picker (+ custom id escape hatch), and Test Connection. Any edit clears the tested flag —
+/// the assistant only runs against a config that passed a test as-is.
+private struct ProviderConfigSection: View {
+    let id: ProviderID
+    @State private var cfg: ProviderSettings = .init()
+    @State private var customModel = ""
+    @State private var testing = false
+    @State private var testError: String?
+
+    var body: some View {
+        Section(id.label) {
+            // ── Secrets ──
+            switch id {
+            case .gateway:
+                TextField("Base URL", text: $cfg.baseURL, prompt: Text(LLMClient.defaultBaseURL))
+                    .onChange(of: cfg.baseURL) { _, _ in invalidate() }
+                Text("Any OpenAI-compatible gateway (LiteLLM-style). Default: JHU WSE AI Gateway; requests go to {base}/compat/chat/completions.")
+                    .font(.caption).foregroundStyle(.secondary)
+                keyRow("API Key", field: "key", placeholder: "jhu_live_sk_… / gateway key")
+            case .openai:
+                keyRow("API Key", field: "key", placeholder: "sk-…")
+            case .anthropic:
+                keyRow("API Key", field: "key", placeholder: "sk-ant-…")
+            case .bedrock:
+                keyRow("Access Key ID", field: "akid", placeholder: "AKIA…")
+                keyRow("Secret Access Key", field: "secret", placeholder: "AWS secret access key")
+                keyRow("Session Token (optional)", field: "session", placeholder: "temporary-credentials only")
+                TextField("Region", text: $cfg.region, prompt: Text("us-east-1"))
+                    .onChange(of: cfg.region) { _, _ in invalidate() }
+            }
+
+            // ── Supported LLMs ──
+            Picker("Model", selection: $cfg.model) {
+                ForEach(id.supportedModels, id: \.id) { m in
+                    Text(m.label).tag(m.id)
+                }
+                if !customModel.isEmpty || !id.supportedModels.contains(where: { $0.id == cfg.model }) {
+                    Text("Custom: \(cfg.model)").tag(cfg.model)
+                }
+            }
+            .onChange(of: cfg.model) { _, _ in invalidate() }
+            HStack {
+                TextField("Custom model id (optional)", text: $customModel)
+                    .textFieldStyle(.roundedBorder).font(.caption)
+                Button("Use") {
+                    let m = customModel.trimmingCharacters(in: .whitespaces)
+                    if !m.isEmpty { cfg.model = m; invalidate() }
+                }
+                .disabled(customModel.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            // ── Test Connection ──
+            HStack(spacing: 10) {
+                Button {
+                    runTest()
+                } label: {
+                    if testing {
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Testing…") }
+                    } else {
+                        Text("Test Connection")
+                    }
+                }
+                .disabled(testing)
+                if cfg.testedOK {
+                    Label("Tested — the assistant can use this provider", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green).font(.caption)
+                } else {
+                    Label("Not tested — the assistant won't use it yet", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(.orange).font(.caption)
+                }
+            }
+            if let testError {
+                Text(testError).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+            }
+        }
+        .onAppear { cfg = ProviderStore.settings(id) }
+    }
+
+    private func keyRow(_ name: String, field: String, placeholder: String) -> some View {
+        APIKeyRow(account: ProviderStore.secretAccount(id, field: field), name: name,
+                  subtitle: "", placeholder: placeholder, onChanged: { invalidate() }) { EmptyView() }
+    }
+
+    /// Any config edit → this exact combination is untested again.
+    private func invalidate() {
+        cfg.testedOK = false
+        testError = nil
+        ProviderStore.save(id, cfg)
+    }
+
+    private func runTest() {
+        testing = true; testError = nil
+        ProviderStore.save(id, cfg)
+        let id = id
+        let model = cfg.model
+        Task { @MainActor in
+            do {
+                try await ProviderStore.provider(id).testConnection(model: model)
+                cfg.testedOK = true
+                ProviderStore.save(id, cfg)
+            } catch {
+                cfg.testedOK = false
+                ProviderStore.save(id, cfg)
+                testError = error.localizedDescription
+            }
+            testing = false
+        }
     }
 }
 
@@ -334,6 +445,7 @@ private struct APIKeyRow<Extra: View>: View {
     let name: String
     let subtitle: String
     let placeholder: String
+    var onChanged: () -> Void = {}
     @ViewBuilder var extra: () -> Extra
 
     @State private var value = "" // what's typed in the field (never shows the stored secret)
@@ -377,54 +489,17 @@ private struct APIKeyRow<Extra: View>: View {
             saved = clean
         }
         value = "" // don't leave the raw secret sitting in the field
+        onChanged()
     }
 
     private func remove() {
         Keychain.delete(account: account)
         saved = nil
         value = ""
+        onChanged()
     }
 }
 
-/// JHU Gateway model picker (Vendor → Model), mirroring the web app's list.
-private struct JHUModelPicker: View {
-    private static let models: [(id: String, label: String)] = [
-        ("anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6 · Anthropic"),
-        ("openai/gpt-5.2", "GPT-5.2 · OpenAI"),
-        ("workers-ai/@cf/zai-org/glm-5.2", "GLM-5.2 · Z.ai · open"),
-        ("workers-ai/@cf/openai/gpt-oss-120b", "gpt-oss 120B · open weights"),
-        ("workers-ai/@cf/openai/gpt-oss-20b", "gpt-oss 20B · smaller/faster"),
-        ("workers-ai/@cf/qwen/qwq-32b", "Qwen QwQ 32B · reasoning"),
-        ("workers-ai/@cf/qwen/qwen2.5-coder-32b-instruct", "Qwen2.5 Coder 32B · instruct"),
-    ]
-    /// Non-secret config → UserDefaults (not in `syncedPrefKeys`, so it stays local).
-    @AppStorage("cc.apikeys.jhu.model") private var model = JHUModelPicker.models[0].id
-
-    var body: some View {
-        Picker("Model", selection: $model) {
-            ForEach(Self.models, id: \.id) { Text($0.label).tag($0.id) }
-        }
-    }
-}
-
-/// AWS region picker for Bedrock.
-private struct BedrockRegionPicker: View {
-    private static let regions = [
-        "us-east-1",
-        "us-west-2",
-        "eu-central-1",
-        "eu-west-1",
-        "ap-northeast-1",
-        "ap-southeast-2",
-    ]
-    @AppStorage("cc.apikeys.bedrock.region") private var region = "us-east-1"
-
-    var body: some View {
-        Picker("Region", selection: $region) {
-            ForEach(Self.regions, id: \.self) { Text($0).tag($0) }
-        }
-    }
-}
 
 // ── Developer ─────────────────────────────────────────────────────────────────────
 
