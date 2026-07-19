@@ -37,7 +37,31 @@ public final class CalendarUIState {
     // button and the hotkey (Delete on a selected event, drawer closed) present the same modal. `focus` is
     // the keyboard-focused button (index into `choices`); the key monitor drives it while this is non-nil.
     public var pendingDelete: PendingDelete?
+    /// A one-button informational modal (e.g. "Printing Week view is not supported right now."). Same
+    /// blocking treatment as the delete dialog: canvas blur + input gate; OK/Enter/Esc dismiss.
+    public var notice: String?
+    // Multi-select batch UI: a batch-delete confirm summary, and the floating "rename all" field.
+    public var pendingBatchDelete: CalendarEngine.BatchDeleteSummary?
+    public var batchRenaming = false
+    public var batchRenameText = ""
+    /// Right-click event menu: the target box + its anchor rect (view coords). Non-nil = callout up.
+    public struct EventMenuTarget: Equatable {
+        public var id: String
+        public var anchor: CGRect
+        public init(id: String, anchor: CGRect) { self.id = id; self.anchor = anchor }
+    }
+    public var eventMenu: EventMenuTarget?
+    /// One-shot: the next drawer open expands Configuration (the menu's "Repeat…" row).
+    public var openRepeatOnOpen = false
     public init() {}
+
+    /// Raise the batch-delete confirm for the current multi-selection (no-op if nothing deletable).
+    public func requestBatchDelete(_ engine: CalendarEngine) {
+        let s = engine.batchDeleteSummary()
+        if !s.isEmpty { pendingBatchDelete = s }
+    }
+    /// Open the floating "rename all" field (typing sets every selected title live).
+    public func startBatchRename() { batchRenameText = ""; batchRenaming = true }
 
     /// Raise the delete-confirm dialog for an event. No button is focused yet (no ring shows until the
     /// user arrows); Enter before that confirms the primary choice.
@@ -1188,6 +1212,8 @@ struct EventDrawer: View {
         tags = engine.richTags(id)
         rep = engine.repeatConfig(id) ?? Repeat(kind: "none")
         promote = engine.promoteTrack(id)
+        // Context menu's "Repeat…": arrive with Configuration already expanded.
+        if ui.openRepeatOnOpen { configOpen = true; ui.openRepeatOnOpen = false }
         // Focused occurrence box id (the clicked ghost if it belongs to this series, else the base).
         // Strip the promoted-band marker so a promoted bar and its timeline occurrence share one note.
         occKey = occurrenceKey(of: (engine.selectedId.flatMap { sourceId(of: $0) == id ? $0 : nil }) ?? id)

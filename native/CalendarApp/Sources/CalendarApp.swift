@@ -84,6 +84,12 @@ struct CalendarApp: App {
                 Button { routeUndoRedo(redo: true, engine: engine) } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
             }
+            // Deselect All (⌘D). "Select All" (⌘A) is the standard Edit item, handled by the calendar canvas's
+            // `selectAll(_:)` responder. Both also flow through the key monitor so they work regardless of focus.
+            CommandGroup(after: .pasteboard) {
+                Button { engine.deselectAll() } label: { Label("Deselect All", systemImage: "square.dashed") }
+                    .keyboardShortcut("d", modifiers: .command)
+            }
             // Display preferences (stored in UserDefaults, shared with the renderer), placed INTO the
             // native View menu. REPLACING the .toolbar group also strips its "Show/Customize Toolbar"
             // items — the calendar's toolbar is fixed, so those don't apply. (Window-tab items are
@@ -91,9 +97,9 @@ struct CalendarApp: App {
             CommandGroup(replacing: .toolbar) {
                 ViewMenu()
             }
-            // A top-level "AI" menu — new/current conversation, model selection, API keys. Its contents
-            // live in CalendarUI (AICommands) so they can read the internal assistant model catalog.
-            CommandMenu("AI") {
+            // A top-level "Assistant" menu — new/current conversation, model selection, API keys. Its
+            // contents live in CalendarUI (AICommands) so they can read the internal assistant model catalog.
+            CommandMenu("Assistant") {
                 AICommands(assistant: assistant)
             }
             // A top-level "Sync" menu: when iCloud last synced + a manual refresh (Apple Calendar

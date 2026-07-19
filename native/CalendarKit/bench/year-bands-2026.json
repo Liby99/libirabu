@@ -1,0 +1,1258 @@
+{
+ "events": [],
+ "deadlines": [],
+ "bands": [
+  {
+   "startDay": 15,
+   "track": 3,
+   "year": 2026,
+   "endDay": 20,
+   "id": "bev-mqweqp5d-1",
+   "color": "red",
+   "title": "PLDI 2026",
+   "month": 5
+  },
+  {
+   "startDay": 26,
+   "track": 1,
+   "year": 2026,
+   "endDay": 26,
+   "id": "bev-mqwfh72m-2",
+   "color": "yellow",
+   "title": "TOSEM Review Due",
+   "month": 5
+  },
+  {
+   "startDay": 30,
+   "track": 2,
+   "year": 2026,
+   "endDay": 30,
+   "id": "bev-mqwg79ve-0",
+   "color": "red",
+   "title": "Drivers License Expired",
+   "month": 5
+  },
+  {
+   "startDay": 6,
+   "track": 3,
+   "year": 2026,
+   "endDay": 11,
+   "id": "bev-mqx148tl-11",
+   "color": "red",
+   "title": "Shonan Semina - Japan",
+   "month": 2
+  },
+  {
+   "startDay": 16,
+   "track": 1,
+   "year": 2026,
+   "endDay": 16,
+   "id": "bev-mqwfg2f9-1",
+   "color": "yellow",
+   "title": "PLMW 2026",
+   "month": 5
+  },
+  {
+   "startDay": 16,
+   "track": 0,
+   "year": 2026,
+   "endDay": 16,
+   "id": "bev-mrdwg3xo-1",
+   "color": "purple",
+   "title": "DOE Genesis - Abstract Due",
+   "month": 6
+  },
+  {
+   "startDay": 3,
+   "track": 3,
+   "year": 2026,
+   "endDay": 18,
+   "id": "bev-mqwesxd7-2",
+   "color": "green",
+   "title": "China - Home",
+   "month": 4
+  },
+  {
+   "startDay": 10,
+   "track": 2,
+   "year": 2026,
+   "endDay": 10,
+   "id": "bev-mqx0wjns-0",
+   "color": "cyan",
+   "title": "Piano Lesson",
+   "month": 5
+  },
+  {
+   "startDay": 1,
+   "track": 1,
+   "year": 2026,
+   "endDay": 3,
+   "id": "bev-mqx1l34f-22",
+   "color": "yellow",
+   "title": "NeurIPS 2026 Discussion Period",
+   "month": 7
+  },
+  {
+   "startDay": 2,
+   "track": 3,
+   "year": 2026,
+   "endDay": 4,
+   "id": "bev-mqx13cez-9",
+   "color": "red",
+   "title": "Amazon AI Challenge Bootcamp - Seattle",
+   "month": 1
+  },
+  {
+   "startDay": 9,
+   "track": 0,
+   "year": 2026,
+   "endDay": 9,
+   "id": "bev-mqx1ob5k-0",
+   "color": "orange",
+   "title": "Schmidt Sciences Proposal Due",
+   "month": 7
+  },
+  {
+   "startDay": 18,
+   "track": 3,
+   "year": 2026,
+   "endDay": 18,
+   "id": "bev-mqx13opa-10",
+   "color": "yellow",
+   "title": "Apply Japan Visa - New York",
+   "month": 1
+  },
+  {
+   "startDay": 11,
+   "track": 3,
+   "year": 2026,
+   "endDay": 16,
+   "id": "bev-mqx1269g-8",
+   "color": "green",
+   "title": "China - Shenzhen",
+   "month": 0
+  },
+  {
+   "startDay": 10,
+   "track": 3,
+   "year": 2026,
+   "endDay": 10,
+   "id": "bev-mqx11xq7-7",
+   "color": "red",
+   "title": "China - Shanghai",
+   "month": 0
+  },
+  {
+   "startDay": 18,
+   "track": 3,
+   "year": 2026,
+   "endDay": 18,
+   "id": "bev-mqx14i2l-12",
+   "color": "red",
+   "title": "Jiani's UDelaware Interview",
+   "month": 2
+  },
+  {
+   "startDay": 24,
+   "track": 2,
+   "year": 2026,
+   "endDay": 24,
+   "id": "bev-mqx1lrq1-23",
+   "color": "green",
+   "title": "NeurIPS Result",
+   "month": 8
+  },
+  {
+   "startDay": 30,
+   "track": 0,
+   "year": 2026,
+   "endDay": 30,
+   "id": "bev-mqx153j4-13",
+   "color": "red",
+   "title": "AI4Math Abstract",
+   "month": 2
+  },
+  {
+   "startDay": 22,
+   "track": 0,
+   "year": 2026,
+   "endDay": 22,
+   "id": "bev-mqx22j4u-1",
+   "color": "red",
+   "title": "CCS 2026 - Abs",
+   "month": 3
+  },
+  {
+   "startDay": 22,
+   "track": 1,
+   "year": 2026,
+   "endDay": 22,
+   "id": "bev-mqx1kdml-20",
+   "color": "orange",
+   "title": "NeurIPS 2026 Rebuttal",
+   "month": 6
+  },
+  {
+   "startDay": 26,
+   "track": 1,
+   "year": 2026,
+   "endDay": 26,
+   "id": "bev-mqx0xy23-3",
+   "color": "yellow",
+   "title": "Meet the Flock",
+   "month": 7
+  },
+  {
+   "startDay": 21,
+   "track": 2,
+   "year": 2026,
+   "endDay": 21,
+   "id": "bev-mqx2audb-6",
+   "color": "darkgreen",
+   "title": "Move-out from Arrive",
+   "month": 7
+  },
+  {
+   "startDay": 4,
+   "track": 0,
+   "year": 2026,
+   "endDay": 4,
+   "id": "bev-mqx1iy2p-18",
+   "color": "red",
+   "title": "NeurIPS 2026 - Abs",
+   "month": 4
+  },
+  {
+   "startDay": 6,
+   "track": 0,
+   "year": 2026,
+   "endDay": 6,
+   "id": "bev-mqx1jaka-19",
+   "color": "red",
+   "title": "NeurIPS 2026 - Submission",
+   "month": 4
+  },
+  {
+   "startDay": 29,
+   "track": 0,
+   "year": 2026,
+   "endDay": 29,
+   "id": "bev-mqx22tju-2",
+   "color": "red",
+   "title": "CCS 2026 - Submission",
+   "month": 3
+  },
+  {
+   "startDay": 27,
+   "track": 1,
+   "year": 2026,
+   "endDay": 31,
+   "id": "bev-mqx1ktwd-21",
+   "color": "yellow",
+   "title": "NeurIPS 2026 Discussion Period",
+   "month": 6
+  },
+  {
+   "startDay": 23,
+   "track": 1,
+   "year": 2026,
+   "endDay": 23,
+   "id": "bev-mqx1prpw-1",
+   "color": "yellow",
+   "title": "Schmidt Sciences Webinar",
+   "month": 6
+  },
+  {
+   "startDay": 29,
+   "track": 1,
+   "year": 2026,
+   "endDay": 30,
+   "id": "bev-mqx23fpl-3",
+   "color": "orange",
+   "title": "CCS 2026 Rebuttal",
+   "month": 5
+  },
+  {
+   "startDay": 1,
+   "track": 3,
+   "year": 2026,
+   "endDay": 5,
+   "id": "bev-mqx11kgm-5",
+   "color": "green",
+   "title": "China - Shenzhen",
+   "month": 0
+  },
+  {
+   "startDay": 12,
+   "track": 3,
+   "year": 2026,
+   "endDay": 17,
+   "id": "bev-mqx20yag-0",
+   "color": "green",
+   "title": "Travel in Japan",
+   "month": 2
+  },
+  {
+   "startDay": 30,
+   "track": 2,
+   "year": 2026,
+   "endDay": 30,
+   "id": "bev-mqx2zvkk-9",
+   "color": "green",
+   "title": "Human Wannabes - West Philly Porch Fest",
+   "month": 4
+  },
+  {
+   "startDay": 13,
+   "track": 0,
+   "year": 2026,
+   "endDay": 13,
+   "id": "bev-mqx2nok6-7",
+   "color": "orange",
+   "title": "Amazon Research Awards",
+   "month": 4
+  },
+  {
+   "startDay": 6,
+   "track": 3,
+   "year": 2026,
+   "endDay": 9,
+   "id": "bev-mqx11ryj-6",
+   "color": "yellow",
+   "title": "China - Wuhan",
+   "month": 0
+  },
+  {
+   "startDay": 5,
+   "track": 1,
+   "year": 2026,
+   "endDay": 5,
+   "id": "bev-mqx32b8c-0",
+   "color": "yellow",
+   "title": "PoPL SP26 Final Exam",
+   "month": 4
+  },
+  {
+   "startDay": 2,
+   "track": 2,
+   "year": 2026,
+   "endDay": 2,
+   "id": "bev-mqx3tjec-23",
+   "color": "green",
+   "title": "Grandpa's Birthday",
+   "month": 0
+  },
+  {
+   "startDay": 12,
+   "track": 2,
+   "year": 2026,
+   "endDay": 12,
+   "id": "bev-mqx5k57u-2",
+   "color": "indigo",
+   "title": "Human Wannabes - Pier 8 Show",
+   "month": 3
+  },
+  {
+   "startDay": 4,
+   "track": 2,
+   "year": 2026,
+   "endDay": 4,
+   "id": "bev-mqx57cpx-1",
+   "color": "cyan",
+   "title": "Piano Lesson",
+   "month": 5
+  },
+  {
+   "startDay": 30,
+   "track": 1,
+   "year": 2026,
+   "endDay": 30,
+   "id": "bev-mqxjkwkr-0",
+   "color": "yellow",
+   "title": "Fall 2026 CA Hiring",
+   "month": 5
+  },
+  {
+   "startDay": 26,
+   "track": 2,
+   "year": 2026,
+   "endDay": 26,
+   "id": "bev-mqx58p19-2",
+   "color": "cyan",
+   "title": "Piano Lesson",
+   "month": 4
+  },
+  {
+   "startDay": 20,
+   "track": 2,
+   "year": 2026,
+   "endDay": 20,
+   "id": "bev-mqx3t9xh-22",
+   "color": "green",
+   "title": "My Birthday",
+   "month": 0
+  },
+  {
+   "startDay": 6,
+   "track": 2,
+   "year": 2026,
+   "endDay": 6,
+   "id": "bev-mqx3uyuh-24",
+   "color": "green",
+   "title": "Jiani's Birthday",
+   "month": 3
+  },
+  {
+   "startDay": 29,
+   "track": 2,
+   "year": 2026,
+   "endDay": 29,
+   "id": "bev-mqx5i6l6-1",
+   "color": "indigo",
+   "title": "Human Wannabes - New York Show",
+   "month": 4
+  },
+  {
+   "startDay": 28,
+   "track": 2,
+   "year": 2026,
+   "endDay": 28,
+   "id": "bev-mqx5a3gy-0",
+   "color": "cyan",
+   "title": "Piano Lesson",
+   "month": 3
+  },
+  {
+   "startDay": 9,
+   "track": 2,
+   "year": 2026,
+   "endDay": 9,
+   "id": "bev-mqx3syxi-21",
+   "color": "green",
+   "title": "Dad's Birthday",
+   "month": 4
+  },
+  {
+   "startDay": 12,
+   "track": 2,
+   "year": 2026,
+   "endDay": 12,
+   "id": "bev-mqx4t0yz-0",
+   "color": "green",
+   "title": "Aunt's Birthday",
+   "month": 4
+  },
+  {
+   "startDay": 31,
+   "track": 1,
+   "year": 2026,
+   "endDay": 31,
+   "id": "bev-mqxjonf3-1",
+   "color": "yellow",
+   "title": "Fall Semester Starts",
+   "month": 7
+  },
+  {
+   "startDay": 27,
+   "track": 0,
+   "year": 2026,
+   "endDay": 27,
+   "id": "bev-mqwuey4o-3",
+   "color": "orange",
+   "title": "Toyota Slides",
+   "month": 5
+  },
+  {
+   "startDay": 25,
+   "track": 1,
+   "year": 2026,
+   "endDay": 25,
+   "id": "bev-mqwfhk0d-3",
+   "color": "yellow",
+   "title": "NeurIPS 2026 Review",
+   "month": 5
+  },
+  {
+   "startDay": 2,
+   "track": 3,
+   "year": 2026,
+   "endDay": 9,
+   "id": "bev-mqykkeg8-0",
+   "color": "yellow",
+   "title": "Amazon AI Challenge - Tournament 2",
+   "month": 5
+  },
+  {
+   "startDay": 1,
+   "track": 3,
+   "year": 2026,
+   "endDay": 5,
+   "id": "cmr4e8vcb0009a9vm7c2nfxfs",
+   "color": "blue",
+   "title": "Amazon Nova AI Challenge \u2013 T03",
+   "month": 7
+  },
+  {
+   "startDay": 21,
+   "track": 0,
+   "year": 2026,
+   "endDay": 21,
+   "id": "bev-mqx1sxri-0",
+   "color": "orange",
+   "title": "AAAI 2027 - Abs",
+   "month": 6
+  },
+  {
+   "startDay": 4,
+   "track": 0,
+   "year": 2026,
+   "endDay": 4,
+   "id": "bev-mqwexi92-6",
+   "color": "purple",
+   "title": "IEEE S&P 2027 Abstract Registration \u2014 Round 1",
+   "month": 5
+  },
+  {
+   "startDay": 22,
+   "track": 3,
+   "year": 2026,
+   "endDay": 22,
+   "id": "bev-mrdlarqu-0",
+   "color": "purple",
+   "title": "DOE Genesis - Washington DC Summit",
+   "month": 6
+  },
+  {
+   "startDay": 17,
+   "track": 0,
+   "year": 2026,
+   "endDay": 17,
+   "id": "newb-96A27F14-E089-4E49-8891-81777B5E593A",
+   "color": "red",
+   "title": "Meeting with Al Aho",
+   "month": 6
+  },
+  {
+   "startDay": 13,
+   "track": 3,
+   "year": 2026,
+   "endDay": 20,
+   "id": "newb-9C9D33D9-7A27-4F03-8DA4-AE888D7C5755",
+   "color": "blue",
+   "title": "Amazon Nova AI Challenge \u2013 P03",
+   "month": 6
+  },
+  {
+   "startDay": 27,
+   "track": 3,
+   "year": 2026,
+   "endDay": 31,
+   "id": "newb-F44887C3-5154-448E-B5E4-EF7A939A0AB8",
+   "color": "blue",
+   "title": "Amazon Nova AI Challenge \u2013 T03",
+   "month": 6
+  },
+  {
+   "startDay": 31,
+   "track": 3,
+   "year": 2026,
+   "endDay": 31,
+   "id": "newb-917A4233-3280-4666-80AE-9B1740742966",
+   "color": "blue",
+   "title": "Amazon Nova AI Challenge \u2013 P04",
+   "month": 7
+  },
+  {
+   "startDay": 1,
+   "track": 3,
+   "year": 2026,
+   "endDay": 8,
+   "id": "newb-86D38C42-B0D5-4EA5-B201-E65ACB64E64A",
+   "color": "blue",
+   "title": "Amazon Nova AI Challenge \u2013 P04",
+   "month": 8
+  },
+  {
+   "startDay": 14,
+   "track": 3,
+   "year": 2026,
+   "endDay": 23,
+   "id": "newb-E375017D-6265-46FC-89AE-A0B4EC16F968",
+   "color": "blue",
+   "title": "Amazon Nova AI Challenge \u2013 T04",
+   "month": 8
+  },
+  {
+   "startDay": 16,
+   "track": 0,
+   "year": 2026,
+   "endDay": 16,
+   "id": "newb-8BFE8204-0A61-412D-BE07-031CA8C659A6",
+   "color": "blue",
+   "title": "Amazon Nova AI Challenge \u2013 Technical Articles",
+   "month": 9
+  },
+  {
+   "startDay": 9,
+   "track": 3,
+   "year": 2026,
+   "endDay": 13,
+   "id": "newb-3A41841D-F2A2-476D-8125-8B3464248B87",
+   "color": "blue",
+   "title": "Amazon Nova AI Challenge \u2013 Finals",
+   "month": 10
+  },
+  {
+   "startDay": 8,
+   "track": 3,
+   "year": 2026,
+   "endDay": 10,
+   "id": "newb-8E92ACC9-A23A-4971-9B1B-8448727CAF9C",
+   "color": "orange",
+   "title": "Amazon Nova AI Challenge Summit",
+   "month": 11
+  },
+  {
+   "startDay": 23,
+   "track": 0,
+   "year": 2026,
+   "endDay": 25,
+   "id": "new-A1F29B4C-236B-4FE2-9899-2F3E5AC7A9E3",
+   "color": "red",
+   "title": "ICSE 2027 Author Response Period",
+   "month": 8
+  },
+  {
+   "startDay": 14,
+   "track": 0,
+   "year": 2026,
+   "endDay": 18,
+   "id": "new-B744DFBC-CAEC-480D-9CB1-81A79E690ECB",
+   "color": "purple",
+   "title": "FSE 2027 Author Response Period",
+   "month": 11
+  },
+  {
+   "startDay": 3,
+   "track": 1,
+   "year": 2026,
+   "endDay": 6,
+   "id": "seg-b",
+   "color": "blue",
+   "title": "Trip",
+   "month": 0
+  },
+  {
+   "startDay": 3,
+   "track": 0,
+   "year": 2026,
+   "endDay": 5,
+   "id": "one-b",
+   "color": "red",
+   "title": "X",
+   "month": 0
+  }
+ ],
+ "monthTrackNames": [
+  [
+   "",
+   "Teaching",
+   "Life",
+   "Travel"
+  ],
+  [
+   "",
+   "Teaching",
+   "Life",
+   "Travel"
+  ],
+  [
+   "Research & Proposals",
+   "Teaching",
+   "Life & Music",
+   "Travel"
+  ],
+  [
+   "Research & Proposals",
+   "Teaching",
+   "Life & Music",
+   ""
+  ],
+  [
+   "Research & Proposals",
+   "Teaching",
+   "Life & Music",
+   "Travel"
+  ],
+  [
+   "Research & Deadlines",
+   "Organizing & Review",
+   "Life & Music",
+   "Travel"
+  ],
+  [
+   "Research & Proposals",
+   "Review & Rebuttal",
+   "Life & Music & Errands",
+   "Travel & Challenges"
+  ],
+  [
+   "Research & Proposals",
+   "JHU & Teaching",
+   "Life & Music",
+   "Travel & Challenges"
+  ],
+  [
+   "Research & Proposals",
+   "JHU & Teaching",
+   "Life & Music",
+   "Travel & Challenges"
+  ],
+  [
+   "Research & Proposals",
+   "JHU & Teaching",
+   "Life & Music",
+   ""
+  ],
+  [
+   "Research & Proposals",
+   "JHU & Teaching",
+   "Life & Music",
+   "Travel & Challenges"
+  ],
+  [
+   "Research & Proposals",
+   "JHU & Teaching",
+   "",
+   "Travel"
+  ]
+ ],
+ "rich": {
+  "newb-8E92ACC9-A23A-4971-9B1B-8448727CAF9C": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx11xq7-7": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "family"
+   ]
+  },
+  "newb-86D38C42-B0D5-4EA5-B201-E65ACB64E64A": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx1jaka-19": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx1l34f-22": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx13opa-10": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx1269g-8": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "family"
+   ]
+  },
+  "bev-mqx20yag-0": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqwfhk0d-3": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "- [x] Review paper 1789: ITPEval: Benchmarking Formal Translation Across Interactive Theorem Provers p:!!! done:2026-07-01T15:58\n- [x] Review paper 2196: Token Predictors Are Not Planners: Building Physically Grounded Causal Reasoners p:!!! done:2026-07-02T20:47\n- [x] Review paper 3548: PoCGym: Evaluating AI Coding Agents for PoC Generation via Verifiable Bug Injection p:!!! done:2026-06-30T17:37\n- [x] Review paper 4089: TraceEva: Exposing Code Semantic Reasoning Gaps in LLMs on Execution-Verified Programs p:!!! done:2026-06-30T11:53\n- [x] Review paper 4347: DatalogBench: Can LLMs Synthesize Effective Datalog Programs? p:!!! done:2026-06-29T22:44",
+   "tags": [
+    "review"
+   ]
+  },
+  "bev-mqx13cez-9": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx0wjns-0": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "- [x] Pay Dave $84 done:2026-06-29T13:12",
+   "tags": [
+    "music"
+   ]
+  },
+  "bev-mqwesxd7-2": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "family"
+   ]
+  },
+  "bev-mqwfg2f9-1": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "organize"
+   ]
+  },
+  "bev-mqwexi92-6": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "Abstract registration due **2026-06-04 AoE** (1 week before paper deadline).\n\nCFP: [sp2027.ieee-security.org](https://sp2027.ieee-security.org/cfpapers.html)\n\n- [x] Register abstract by 2026-06-04 AoE due:2026-06-04 !! #paper-submission start:2026-05-21 done:2026-07-02T20:47",
+   "tags": [
+    "paper-submission",
+    "S&P"
+   ]
+  },
+  "bev-mqx11kgm-5": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "family"
+   ]
+  },
+  "bev-mqx148tl-11": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "newb-96A27F14-E089-4E49-8891-81777B5E593A": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx32b8c-0": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx3uyuh-24": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "repeatJSON": "{\"kind\":\"yearly\",\"until\":null}",
+   "userHidden": false,
+   "tags": [
+    "birthday"
+   ]
+  },
+  "newb-917A4233-3280-4666-80AE-9B1740742966": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx1kdml-20": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx23fpl-3": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "paper-rebuttal"
+   ]
+  },
+  "newb-8BFE8204-0A61-412D-BE07-031CA8C659A6": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx4t0yz-0": {
+   "userHidden": false,
+   "hidden": false,
+   "createdByAI": false,
+   "repeatJSON": "{\"kind\":\"yearly\",\"until\":null}",
+   "tags": [
+    "birthday",
+    "family"
+   ],
+   "notes": "",
+   "source": "manual"
+  },
+  "bev-mqx3tjec-23": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "repeatJSON": "{\"kind\":\"yearly\",\"until\":null}",
+   "userHidden": false,
+   "tags": [
+    "birthday",
+    "family"
+   ]
+  },
+  "bev-mqx1sxri-0": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "Abstract registration due **July 21, 2026** at 11:59 PM AOE.\n\n- CFP: [AAAI-27 Main Technical Track Call](https://aaai.org/conference/aaai/aaai-27/main-technical-track-call)\n- Submission portal: [OpenReview \u2014 AAAI 2027](https://openreview.net/group?id=AAAI.org/2027/Conference)\n\n- [ ] Register abstract on OpenReview by Jul 21 AoE due:2026-07-21 p:!!!! #paper-submission start:2026-07-14",
+   "tags": []
+  },
+  "bev-mqx3t9xh-22": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "repeatJSON": "{\"kind\":\"yearly\",\"until\":null}",
+   "userHidden": false,
+   "tags": [
+    "birthday"
+   ]
+  },
+  "new-B744DFBC-CAEC-480D-9CB1-81A79E690ECB": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": true,
+   "userHidden": false,
+   "notes": "Author response period for FSE 2027 Research Track. Source: https://conf.researchr.org/dates/fse-2027",
+   "tags": [
+    "FSE",
+    "conference"
+   ]
+  },
+  "bev-mqx2nok6-7": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "new-A1F29B4C-236B-4FE2-9899-2F3E5AC7A9E3": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": true,
+   "userHidden": false,
+   "notes": "3-day author response window for ICSE 2027 Research Track. Source: https://conf.researchr.org/track/icse-2027/icse-2027-research-track",
+   "tags": [
+    "ICSE",
+    "conference"
+   ]
+  },
+  "bev-mqx1lrq1-23": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqxjonf3-1": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx22tju-2": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mrdlarqu-0": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqwfh72m-2": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "review"
+   ]
+  },
+  "bev-mqx1ob5k-0": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "[Website](https://schmidtsciences.smapply.io/prog/scaling_ai_safety_for_a_multi_agent_world/)\n\nScaling AI Safety for a Multi-Agent World\n\n- [ ] p:!!! Schmidt Sciences - Scaling AI Safety for a Multi-Agent World - Proposal writing",
+   "tags": [
+    "Proposal"
+   ]
+  },
+  "cmr4e8vcb0009a9vm7c2nfxfs": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "Tournament 3 continued (Jul 27 \u2013 Aug 5). Hardware reservation ends **8 am PT on Sat 8/1**.",
+   "tags": [
+    "research",
+    "funded",
+    "amazon-nova-challenge"
+   ]
+  },
+  "bev-mqx11ryj-6": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "family"
+   ]
+  },
+  "bev-mrdwg3xo-1": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "- [x] Submit the Abstract p:!!!!! done:2026-07-16",
+   "tags": []
+  },
+  "bev-mqwg79ve-0": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqweqp5d-1": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "- [ ] Reimburse PLDI p:!!!",
+   "tags": [
+    "conference"
+   ]
+  },
+  "bev-mqx2zvkk-9": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "music",
+    "show"
+   ]
+  },
+  "bev-mqx5k57u-2": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx1iy2p-18": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "newb-F44887C3-5154-448E-B5E4-EF7A939A0AB8": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx1prpw-1": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqwuey4o-3": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "- [x] Give the slides to Georgios for his video making p:!!!",
+   "tags": [
+    "funding",
+    "research"
+   ]
+  },
+  "bev-mqxjkwkr-0": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "- [x] Hire Yuming\n- [x] Hire Zhuohao done:2026-06-29T11:33",
+   "tags": [
+    "teaching",
+    "hiring"
+   ]
+  },
+  "bev-mqx5i6l6-1": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "music",
+    "show"
+   ]
+  },
+  "newb-9C9D33D9-7A27-4F03-8DA4-AE888D7C5755": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "notes": "",
+   "tags": []
+  },
+  "bev-mqx2audb-6": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx1ktwd-21": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx5a3gy-0": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "newb-3A41841D-F2A2-476D-8125-8B3464248B87": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx3syxi-21": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "repeatJSON": "{\"kind\":\"yearly\",\"until\":null}",
+   "userHidden": false,
+   "tags": [
+    "birthday",
+    "family"
+   ]
+  },
+  "bev-mqx0xy23-3": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqykkeg8-0": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "newb-E375017D-6265-46FC-89AE-A0B4EC16F968": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx58p19-2": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx153j4-13": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx22j4u-1": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx14i2l-12": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": []
+  },
+  "bev-mqx57cpx-1": {
+   "source": "manual",
+   "hidden": false,
+   "createdByAI": false,
+   "userHidden": false,
+   "tags": [
+    "music",
+    "lesson"
+   ]
+  }
+ },
+ "dailyNotes": {}
+}

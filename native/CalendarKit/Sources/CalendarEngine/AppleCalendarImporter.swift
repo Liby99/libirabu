@@ -19,6 +19,8 @@ public extension Notification.Name {
     static let showKeyboardShortcuts = Notification.Name("cc.help.showKeyboardShortcuts")
     /// Posted by Help → Tutorial to (re)open the onboarding GIF carousel (see CalendarView).
     static let showTutorial = Notification.Name("cc.help.showTutorial")
+    /// File ▸ Print… (⌘P) — CalendarView routes it: year view prints, other levels show a notice.
+    static let requestPrint = Notification.Name("cc.print.request")
 }
 
 /// One selectable Apple calendar (an `EKCalendar`) — for the Settings picker.

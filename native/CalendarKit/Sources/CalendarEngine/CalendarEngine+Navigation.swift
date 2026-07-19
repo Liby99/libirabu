@@ -46,6 +46,35 @@ extension CalendarEngine {
         jumpToDay(c.year ?? year, (c.month ?? 1) - 1, c.day ?? 1)
     }
 
+    /// View ▸ "Go to Current …": land on TODAY's year/month/week/day at the named level (unlike the
+    /// breadcrumb zoomTo* funcs, which keep the currently-focused period). Cross-year routes through
+    /// selectYear's flip; "day" reuses goToToday's lightest-path logic.
+    public func goToCurrent(_ zoom: String) {
+        wake()
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: now)
+        let ty = c.year ?? year, tm = (c.month ?? 1) - 1, td = c.day ?? 1
+        switch zoom.lowercased() {
+        case "day":
+            goToToday()
+        case "week":
+            if ty != year { selectYear(ty) }
+            focus = tm
+            week = CGFloat(weekOfDate(ty, tm, td))
+            daily.dom = td
+            zoomToWeek()
+        case "month":
+            if ty != year { selectYear(ty) }
+            focus = tm
+            daily.dom = td
+            zoomToMonth()
+        default:   // "year"
+            if ty != year { selectYear(ty) }
+            focus = tm
+            zoomToYear()
+            ensureMonthVisible(tm, animated: true)   // glide the year scroll so the current month shows
+        }
+    }
+
     /// The general "fly to a specific day" animation (goToToday is `jumpToDay(today)`). `onLand` fires
     /// once it finally settles at that day's view — used to open the NOTE tab for a daily-note todo.
     /// Target month `tm` is 0-based; `td` is 1-based day-of-month.

@@ -166,6 +166,21 @@ extension CalendarEngine {
     public func repeatConfig(_ id: String) -> Repeat? { Repeat.parse(items.richById[id]?.repeatJSON) }
     public func promoteTrack(_ id: String) -> Int? { items.richById[overlayKey(id)]?.promoteTrack }
 
+    /// ⌘U / context-menu toggle: promote the timed event to `defaultPromoteLane` (topmost free lane
+    /// on its day), or clear an existing promotion. No-op for bands/deadlines-only ids.
+    public func togglePromote(_ boxId: String) {
+        let sid = sourceId(of: boxId)
+        guard event(sid) != nil else { return }
+        setPromoteTrack(sid, promoteTrack(sid) == nil ? defaultPromoteLane(for: sid) : nil)
+    }
+    /// The topmost band lane with nothing on the event's day; every lane taken → lane 0.
+    public func defaultPromoteLane(for boxId: String) -> Int {
+        guard let e = event(sourceId(of: boxId)) else { return 0 }
+        var used = Set<Int>()
+        for b in bandsInMonth(e.year, e.month) where b.startDay <= e.day && b.endDay >= e.day { used.insert(b.track) }
+        return (0..<TRACKS.count).first { !used.contains($0) } ?? 0
+    }
+
     func mutateRich(_ id: String, _ mutate: (inout RichFields) -> Void) {
         beginTxn()             // tags / repeat / promote are structural edits → one undo step each
         var rf = items.richById[id] ?? RichFields()

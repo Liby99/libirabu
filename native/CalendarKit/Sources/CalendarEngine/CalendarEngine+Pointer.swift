@@ -18,16 +18,27 @@ extension CalendarEngine {
     // ── Pointer: unified down / drag / up ────────────────────────────────────────
     // A plain click (down+up, no movement) navigates (drills in). A drag creates,
     // moves, or resizes an event depending on what's under the cursor at down.
-    public func onPointerDown(at p: CGPoint) {
+    public func onPointerDown(at p: CGPoint, shift: Bool = false, command: Bool = false) {
         wake()
         commitTxn()   // flush any pending (e.g. drawer typing) before a new gesture
         cancelTween()
         let g = snapshot()
         let prior = selectedId   // decide deselect-vs-navigate on a plain click (see onPointerUp)
-        // 1. all-day bands (on the lanes) — selectable at every zoom incl. year view
+        // 0. Shift → a marquee (⌘⇧ = a negative/deselect marquee). If it turns out to be a CLICK (no drag),
+        //    the box under the cursor is toggled instead (shift-click multi-select). Selection changes are
+        //    driven on drag / up so a shift-drag from empty space doesn't create.
+        if shift {
+            drag = Drag(kind: command ? .negMarquee : .marquee, startPoint: p, priorSelection: prior,
+                        marqueeBase: selectedIds, marqueeHitId: itemId(at: p))
+            return
+        }
+        // 1. all-day bands (on the lanes) — selectable at every zoom incl. year view. A PROMOTED ghost
+        // (its box id carries ~p) has no band of its own — its date mirrors the source event, so the only
+        // draggable axis is the LANE: force the lane-only kind (edges don't resize a 1-day mirror either).
         if let hit = bandAt(p, g) {
             selectedId = hit.id
-            drag = Drag(kind: hit.zone, startPoint: p, eventId: hit.id,
+            let kind: PointerKind = hit.id.hasSuffix(PROMOTED_SUFFIX) ? .promotedMove : hit.zone
+            drag = Drag(kind: kind, startPoint: p, eventId: hit.id,
                         origBand: items.bands.first { $0.id == hit.id }, priorSelection: prior)
             return
         }
@@ -86,23 +97,44 @@ extension CalendarEngine {
         case .resizeBottom: applyResize(d, p, tl, top: false)
         case .create: applyCreate(p, tl)
         case .bandMove: applyBandMove(d, p, g)
+        case .promotedMove: applyPromotedLaneMove(d, p, g)
         case .bandResizeL: applyBandResize(d, p, g, left: true)
         case .bandResizeR: applyBandResize(d, p, g, left: false)
         case .bandCreate: applyBandCreate(p, g)
         case .ddlMove: applyDdlMove(d, p, g)
+        case .marquee: updateMarquee(d, p, g, negative: false)
+        case .negMarquee: updateMarquee(d, p, g, negative: true)
         }
+    }
+
+    /// Recompute the selection while a marquee drag is active: base ± every item whose box intersects the
+    /// rect from the drag anchor to `p`. Positive unions; negative subtracts. Sets `marqueeRect` for the overlay.
+    private func updateMarquee(_ d: Drag, _ p: CGPoint, _ g: SceneInput, negative: Bool) {
+        let rect = CGRect(x: min(d.startPoint.x, p.x), y: min(d.startPoint.y, p.y),
+                          width: abs(p.x - d.startPoint.x), height: abs(p.y - d.startPoint.y))
+        marqueeRect = rect; marqueeNegative = negative
+        let hit = itemsIntersecting(rect, g)
+        let base = d.marqueeBase ?? []
+        let result = negative ? base.subtracting(hit) : base.union(hit)
+        setSelection(result, primary: result.contains(selectedId ?? "\u{0}") ? selectedId : result.first)
     }
 
     public func onPointerUp(at p: CGPoint) {
         wake()
-        defer { commitTxn(); drag = nil }   // one undo entry per drag
+        defer { commitTxn(); drag = nil; marqueeRect = nil }   // one undo entry per drag; clear the marquee box
         guard let d = drag else { return }
         // Plain click (no drag) in empty space (create/band-create primed, or navigate):
         // deselect if something was selected, otherwise navigate (drill in).
         if !d.activated {
             switch d.kind {
+            case .marquee, .negMarquee:
+                // A shift-CLICK (no drag): toggle the box under the cursor; on truly-empty space, do nothing
+                // (keep the selection — shift-click-empty shouldn't clear it).
+                if let id = d.marqueeHitId { toggleInSelection(id) }
             case .create, .bandCreate, .navigate:
-                if d.priorSelection != nil { selectedId = nil } else { navigate(at: p) }
+                // Empty-space click: clear ANY selection — single OR multi (a ⌘A / marquee set has no
+                // single primary, so check the set too). Nothing selected → navigate (drill in).
+                if selectedId != nil || !selectedIds.isEmpty { deselectAll() } else { navigate(at: p) }
             case .bandMove:
                 // click the body of an ALREADY-selected band → edit its title inline
                 if d.priorSelection == d.eventId, let id = d.eventId { editBand(id) }
@@ -242,6 +274,9 @@ extension CalendarEngine {
         if trackNameHit(at: p) != nil { return .text }   // editable lane label
         let g = snapshot()
         if let hit = bandAt(p, g) {
+            // A promoted ghost only drags across LANES (its date mirrors the source) → always a grab hand,
+            // never the ↔ resize even at its edges, and no title I-beam (rename the source event instead).
+            if hit.id.hasSuffix(PROMOTED_SUFFIX) { return .grab }
             if hit.zone == .bandResizeL || hit.zone == .bandResizeR { return .resizeLR }
             return hit.id == selectedId ? .text : .grab   // a selected band edits its title on click
         }

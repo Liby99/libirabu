@@ -117,7 +117,16 @@ public final class CalendarEngine {
     public var trackEditing = false        // an inline track-name field is open (freezes scroll)
     public let chrome = CalendarChrome()   // breadcrumb state for the toolbar
 
-    public internal(set) var selectedId: String?                // internal(set): +Extensions files
+    public internal(set) var selectedId: String? {              // internal(set): +Extensions files
+        // The single "primary" selection. A multi-select op owns both fields (guarded); every OTHER write
+        // (click, create, paste, keyboard nav, deselect) is a single selection, so mirror it into the set.
+        didSet { if !inMultiSelect { selectedIds = selectedId.map { [$0] } ?? [] } }
+    }
+    /// The FULL selection (multi-select). Equals `{selectedId}` for a single selection, empty when nothing
+    /// is selected. `selectedId` stays the primary/anchor (drawer, cursor, single-item ops read it).
+    public internal(set) var selectedIds: Set<String> = []
+    public var multiSelectActive: Bool { selectedIds.count > 1 }   // → single-item edit ops are disabled
+    var inMultiSelect = false   // a multi-select op is writing both fields → skip the didSet sync
     public internal(set) var hoveredEventId: String?   // band/timed/deadline under the cursor
 
     // ── Keyboard navigation cursor ────────────────────────────────────────────────
@@ -251,7 +260,9 @@ public final class CalendarEngine {
     enum PointerKind {
         case navigate, move, resizeTop, resizeBottom, create           // timed
         case bandMove, bandResizeL, bandResizeR, bandCreate            // all-day bands
+        case promotedMove                                              // promoted ghost band → lane-only drag
         case ddlMove                                                   // deadlines
+        case marquee, negMarquee                                       // shift-drag select / ⌘⇧-drag deselect
     }
     struct Drag {
         var kind: PointerKind
@@ -269,8 +280,14 @@ public final class CalendarEngine {
         var origDdl: Deadline? = nil
         var priorSelection: String? = nil   // selection at down → deselect-vs-navigate on a plain click
         var titleHit = false                 // down landed on the title text → a click there inline-edits it
+        var marqueeBase: Set<String>? = nil  // selection before a marquee started (union/subtract each frame)
+        var marqueeHitId: String? = nil      // box under a shift-DOWN → toggled if it turns out to be a click
         var activated = false
     }
+    /// The live marquee rect (geometry space) + whether it's a NEGATIVE (deselect) drag — drives the
+    /// dashed selection box overlay. nil when no marquee is in progress.
+    public internal(set) var marqueeRect: CGRect?
+    public internal(set) var marqueeNegative = false
 
     public init() {
         let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
@@ -323,8 +340,15 @@ public final class CalendarEngine {
         }
         pushChrome()
         enableCloudSyncIfEntitled()
+        scheduleDisplayDumpIfRequested()   // dev: CC_DUMP_DISPLAY=<path> → write the expanded display set
         armSleep()   // an untouched app settles to a paused (idle) render after the initial frame
+        Self.mainInstance = self
     }
+
+    /// The most recently created engine — the AppKit menu bar (which has no engine reference) reads this to
+    /// populate dynamic menus (View ▸ Filter by Tags needs the live tag universe). Weak: previews/tests may
+    /// create short-lived engines; the app's real engine outlives the menus that query it.
+    public private(set) static weak var mainInstance: CalendarEngine?
 
     // ── Track names (editable lane labels, per month) ─────────────────────────────
     public func setTrackName(_ month: Int, _ track: Int, _ name: String) {
@@ -553,6 +577,9 @@ public final class CalendarEngine {
         if z >= ViewConst.detailZ, let id = deadlineAt(p, g) { return id }
         return nil
     }
+
+    /// Programmatic selection (right-click menu, demo scenes): select + repaint.
+    public func select(_ id: String?) { selectedId = id; caches.editGen &+= 1; wake() }
 
     // ── Drawer canvas-shift ───────────────────────────────────────────────────────
     // Slide the calendar left so the drawer item centers in the free area beside the drawer.

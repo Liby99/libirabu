@@ -253,6 +253,17 @@ extension CalendarEngine {
         items.bands[idx] = b
     }
 
+    /// Drag a PROMOTED ghost band: the ghost mirrors its source event's DATE, so only the LANE follows the
+    /// cursor — the drag just re-homes `rich.promoteTrack` on the SOURCE (timed event or deadline). The
+    /// ghost's date/month never change (drag horizontally all you like — it stays put), and the source's
+    /// own time is untouched. mutateRich opens the txn; pointer-up commits → one undo step per drag.
+    func applyPromotedLaneMove(_ d: Drag, _ p: CGPoint, _ g: SceneInput) {
+        guard let boxId = d.eventId, let slot = bandSlotAtPoint(p.x, p.y, g) else { return }
+        let src = sourceId(of: boxId)
+        guard items.richById[overlayKey(src)]?.promoteTrack != slot.track else { return }
+        setPromoteTrack(src, slot.track)
+    }
+
     func applyBandResize(_ d: Drag, _ p: CGPoint, _ g: SceneInput, left: Bool) {
         guard let orig = d.origBand, let idx = items.bands.firstIndex(where: { $0.id == d.eventId }) else { return }
         beginTxn()

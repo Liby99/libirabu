@@ -346,6 +346,15 @@ extension CalendarEngine {
     public func nudgeVertical(_ dir: Int) {
         guard let sid = selectedId else { return }
         let id = sourceId(of: sid)
+        // A selected PROMOTED ghost band: ⌘↑/↓ re-homes the promotion lane on the SOURCE event —
+        // NOT the source's time (the ghost is a lane mirror; its vertical axis IS the lane).
+        if sid.hasSuffix(PROMOTED_SUFFIX) {
+            guard let cur = items.richById[overlayKey(id)]?.promoteTrack else { return }
+            let t = cur + dir
+            guard (0...3).contains(t) else { return }
+            setPromoteTrack(id, t)
+            return
+        }
         if let b = band(id) {
             let t = b.track + dir                       // -1 = up a lane, +1 = down a lane
             guard t >= 0, t <= 3 else { return }

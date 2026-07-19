@@ -97,6 +97,53 @@ extension CalendarEngine {
         items.richById[Self.appleSeriesKey(e.id)]?.colorOverride ?? e.color
     }
 
+    // ── View ▸ Filter by Tags (ported from the web's "Tag Filter" flyout) ──────────────────────
+    /// Sentinel key for the "Untagged" row — the leading space can't collide with a real (trimmed) tag.
+    public static let untaggedKey = " untagged"
+    /// The persisted set of HIDDEN tag keys (trimmed+lowercased). Empty = no filtering.
+    public static var hiddenTagKeys: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: PrefKeys.hiddenTags) ?? [])
+    }
+    /// Web-parity "If Any" visibility: with a filter active, an item shows if at least one of its tags is
+    /// NOT hidden; an untagged item shows unless the Untagged row is hidden. `id` may be any derived box id
+    /// (occurrence / promoted / segment) — richTags resolves it to the source item's tags via overlayKey.
+    func tagVisible(_ id: String, _ hidden: Set<String>) -> Bool {
+        if hidden.isEmpty { return true }
+        let ts = richTags(id).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
+        if ts.isEmpty { return !hidden.contains(Self.untaggedKey) }
+        return ts.contains { !hidden.contains($0) }
+    }
+    /// Every tag in use, for the View ▸ Filter by Tags submenu: key (trimmed+lowercased identity), label
+    /// (first-seen original casing), and the count of items carrying it (distinct per item — a tag repeated
+    /// on one item counts once). Sorted by count desc, then label. `untagged` = items with no tags.
+    public func tagUniverse() -> (rows: [(key: String, label: String, count: Int)], untagged: Int) {
+        var counts: [String: (label: String, count: Int)] = [:]
+        var untagged = 0
+        func tally(_ id: String) {
+            let tags = richTags(id)
+            var seen = Set<String>()
+            for t in tags {
+                let key = t.trimmingCharacters(in: .whitespaces).lowercased()
+                guard !key.isEmpty, seen.insert(key).inserted else { continue }
+                if var e = counts[key] { e.count += 1; counts[key] = e }
+                else { counts[key] = (t.trimmingCharacters(in: .whitespaces), 1) }
+            }
+            if seen.isEmpty { untagged += 1 }
+        }
+        for e in items.events { tally(e.id) }
+        for b in items.bands { tally(b.id) }
+        for d in items.deadlines { tally(d.id) }
+        for e in imported.events where items.richById[e.id]?.hidden != true { tally(e.id) }
+        for b in imported.bands { tally(b.id) }
+        var rows: [(key: String, label: String, count: Int)] = []
+        for (key, v) in counts { rows.append((key: key, label: v.label, count: v.count)) }
+        rows.sort { a, b in
+            if a.count != b.count { return a.count > b.count }
+            return a.label < b.label
+        }
+        return (rows, untagged)
+    }
+
     private func ensureBandCache(_ year: Int) -> (bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]]) {
         if let c = caches.band, c.year == year, c.gen == caches.editGen { return (c.bands, c.badges, c.byMonth) }
         func repeatOf(_ id: String) -> Repeat? { Repeat.parse(items.richById[id]?.repeatJSON) }
@@ -114,14 +161,16 @@ extension CalendarEngine {
         }
         var out: [BandEvent] = []
         var badgeMap: [String: EventBadges] = [:]
+        let hiddenT = Self.hiddenTagKeys   // View ▸ Filter by Tags (applies to sources → ghosts follow)
 
         for b in items.bands where b.year == year {
             if baseHidden(occDate(YMD(b.year, b.month, b.startDay)), repeatOf(b.id)) { continue }
+            guard tagVisible(b.id, hiddenT) else { continue }
             out.append(b)
             badgeMap[b.id] = badges(b.id, recurrent: repeatOf(b.id) != nil, promoted: false)
         }
         for b in items.bands {
-            guard let r = repeatOf(b.id) else { continue }
+            guard let r = repeatOf(b.id), tagVisible(b.id, hiddenT) else { continue }
             let total = b.endDay - b.startDay + 1   // inclusive number of days the band covers
             for o in occurrenceDates(YMD(b.year, b.month, b.startDay), r, year) {
                 // A shifted occurrence can run past the end of its start month — render one bar PER month
@@ -144,7 +193,7 @@ extension CalendarEngine {
             }
         }
         func promote(_ id: String, _ y: Int, _ m: Int, _ day: Int, _ title: String, _ color: String) {
-            guard let track = items.richById[overlayKey(id)]?.promoteTrack else { return }
+            guard let track = items.richById[overlayKey(id)]?.promoteTrack, tagVisible(id, hiddenT) else { return }
             let r = repeatOf(id)
             if y == year && !baseHidden(occDate(YMD(y, m, day)), r) {
                 // A distinct occurrence-key id (not the raw source id) so the promoted bar is its own
@@ -170,6 +219,7 @@ extension CalendarEngine {
             promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e))
         }
         for b in imported.bands where b.year == year {   // Apple Calendar all-day events (read-only)
+            guard tagVisible(b.id, hiddenT) else { continue }
             out.append(b)
             badgeMap[b.id] = badges(b.id, recurrent: false, promoted: false)
         }
@@ -259,9 +309,10 @@ extension CalendarEngine {
         // seeds anchored in the neighbor years too and keep those whose DISPLAY date lands in `year`.
         // When an anchor equals the main tz (the common case) conversion is the identity, so a neighbor
         // event just converts back to its own year and is dropped here — same result as the old filter.
+        let hiddenT = Self.hiddenTagKeys   // View ▸ Filter by Tags
         func take(_ e: TimedEvent, _ badge: EventBadges) {
             let d = displayEvent(e)
-            guard d.year == year else { return }
+            guard d.year == year, tagVisible(d.id, hiddenT) else { return }
             out.append(d); badgeMap[d.id] = badge
         }
         for e in items.events where abs(e.year - year) <= 1 {
@@ -307,11 +358,12 @@ extension CalendarEngine {
         if let c = caches.ddl, c.year == year, c.gen == caches.editGen { return withPreview(c.deadlines, { $0.id }, { $0.color = $1 }) }
         func repeatOf(_ id: String) -> Repeat? { Repeat.parse(items.richById[id]?.repeatJSON) }
         var out: [Deadline] = []
+        let hiddenT = Self.hiddenTagKeys   // View ▸ Filter by Tags
         // Same neighbor-year scan + convert-then-filter as ensureEventCache: a moment near midnight can
         // land in an adjacent display year when the anchor differs from the main tz. Identity otherwise.
         func take(_ d: Deadline) {
             let dd = displayDeadline(d)
-            if dd.year == year { out.append(dd) }
+            if dd.year == year, tagVisible(dd.id, hiddenT) { out.append(dd) }
         }
         for d in items.deadlines where abs(d.year - year) <= 1 {
             if baseHidden(occDate(YMD(d.year, d.month, d.day)), repeatOf(d.id)) { continue }

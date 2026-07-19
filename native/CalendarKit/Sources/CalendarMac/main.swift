@@ -10,10 +10,15 @@ import CalendarEngine
 // Note: the unhandled-key "funk" beep is silenced inside CalendarView (WindowBeepSilencerView), so
 // it's handled for both this shell and the SwiftUI CalendarApp shell without per-window subclassing.
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSMenuDelegate {
     var window: NSWindow!
     var settingsWindow: NSWindow?
     var helpWindow: NSWindow?
+    // View ▸ Filter by Tags: the dynamic submenu + its parent item (retitled when filtering), and the
+    // last-shown tag universe keys ("Hide All" needs the full key set).
+    var tagFilterMenu: NSMenu?
+    var tagFilterItem: NSMenuItem?
+    var tagAllKeys: [String] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -25,7 +30,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // The default 1440×840 (also used for GIF recording — a wider grid reads less cluttered; the recorded
         // crop rect is read back from the actual window, so any fixed size stays deterministic).
         let demo = !(ProcessInfo.processInfo.environment["CC_DEMO"] ?? "").isEmpty
-        let size = NSSize(width: 1440, height: 840)
+        // CC_WINDOW=WxH overrides the size (benchmarks measure at realistic, e.g. full-screen, sizes).
+        var size = NSSize(width: 1440, height: 840)
+        if let ws = ProcessInfo.processInfo.environment["CC_WINDOW"] {
+            let p = ws.lowercased().split(separator: "x")
+            if p.count == 2, let w = Double(p[0]), let h = Double(p[1]) { size = NSSize(width: w, height: h) }
+        }
         window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -113,6 +123,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         appMenu.addItem(withTitle: "Hide \(name)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(withTitle: "Quit \(name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
+        // File menu — Print… (⌘P). (Import/export will join this menu when FileCommands is wired up.)
+        let fileItem = NSMenuItem()
+        main.addItem(fileItem)
+        let fileMenu = NSMenu(title: "File")
+        fileItem.submenu = fileMenu
+        let print = fileMenu.addItem(withTitle: "Print…", action: #selector(requestPrint(_:)), keyEquivalent: "p")
+        print.target = self
+
         let editItem = NSMenuItem()
         main.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
@@ -133,10 +151,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         main.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
         viewItem.submenu = viewMenu
+        // Top group: jump to TODAY at each zoom level (the web View menu's This Year/Month/Week/Today).
+        for (title, sel) in [("Go to Current Year", #selector(goToCurrentYear(_:))),
+                             ("Go to Current Month", #selector(goToCurrentMonth(_:))),
+                             ("Go to Current Week", #selector(goToCurrentWeek(_:))),
+                             ("Go to Current Day", #selector(goToCurrentDay(_:)))] {
+            viewMenu.addItem(withTitle: title, action: sel, keyEquivalent: "").target = self
+        }
+        viewMenu.addItem(.separator())
         // Checkmark toggle; validateMenuItem (below) reflects the current state each time the menu opens.
         let showHidden = viewMenu.addItem(withTitle: "Show Hidden Imported Events",
                                           action: #selector(toggleShowHiddenImported(_:)), keyEquivalent: "")
         showHidden.target = self
+        // View ▸ Filter by Tags — a dynamic submenu (menuNeedsUpdate repopulates it each open with the
+        // live tag universe; NSMenu scrolls natively if the list outgrows the screen). Ported from the
+        // web's "Tag Filter" flyout; ✓ = shown, semantics are "if any tag is shown, the item shows".
+        viewMenu.addItem(.separator())
+        let tagItem = viewMenu.addItem(withTitle: "Filter by Tags", action: nil, keyEquivalent: "")
+        let tagMenu = NSMenu(title: "Filter by Tags")
+        tagMenu.delegate = self
+        tagMenu.autoenablesItems = false
+        tagItem.submenu = tagMenu
+        tagFilterMenu = tagMenu
+        tagFilterItem = tagItem
+        viewMenu.delegate = self   // retitles "Filter by Tags (Filtered)" when a filter is active
+        // Bottom group: Full Screen on its own. An explicit toggleFullScreen: item (responder chain → the
+        // window) also stops AppKit from auto-inserting its own copy elsewhere in this menu. The system
+        // renames it Enter/Exit to match the window state.
+        viewMenu.addItem(.separator())
+        let fs = viewMenu.addItem(withTitle: "Enter Full Screen",
+                                  action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        fs.keyEquivalentModifierMask = [.control, .command]
 
         let windowItem = NSMenuItem()
         main.addItem(windowItem)
@@ -197,6 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func showTutorial(_ sender: Any?) { NotificationCenter.default.post(name: .showTutorial, object: nil) }
+    @objc func requestPrint(_ sender: Any?) { NotificationCenter.default.post(name: .requestPrint, object: nil) }
     @objc func showKeyboardShortcuts(_ sender: Any?) { NotificationCenter.default.post(name: .showKeyboardShortcuts, object: nil) }
 
     // View ▸ Show Hidden Imported Events — flip the shared UserDefaults key + nudge the running calendar to
@@ -213,6 +259,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         return true
     }
+
+    // ── View ▸ Filter by Tags (dynamic submenu; web's "Tag Filter" flyout, adapted native) ──────────
+    private var hiddenTagSet: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: PrefKeys.hiddenTags) ?? []) }
+        set {
+            UserDefaults.standard.set(Array(newValue).sorted(), forKey: PrefKeys.hiddenTags)
+            NotificationCenter.default.post(name: .calendarViewPrefsChanged, object: nil)
+        }
+    }
+
+    /// Repopulate the tag submenu each time it opens (tags/counts are live); retitle the parent row in
+    /// the View menu so an active filter is visible before drilling in.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        let hidden = hiddenTagSet
+        if menu !== tagFilterMenu {   // the View menu itself → just refresh the parent row's title
+            tagFilterItem?.title = hidden.isEmpty ? "Filter by Tags" : "Filter by Tags (Filtered)"
+            return
+        }
+        menu.removeAllItems()
+        // The engine owns the tag universe; menus fire on the main thread, where the engine lives.
+        let uni = MainActor.assumeIsolated { CalendarEngine.mainInstance?.tagUniverse() }
+        guard let uni else {
+            menu.addItem(withTitle: "Calendar not loaded", action: nil, keyEquivalent: "").isEnabled = false
+            return
+        }
+        tagAllKeys = uni.rows.map(\.key) + [CalendarEngine.untaggedKey]
+        if uni.rows.isEmpty && uni.untagged == 0 {
+            menu.addItem(withTitle: "No Tags", action: nil, keyEquivalent: "").isEnabled = false
+            return
+        }
+        for row in uni.rows {   // count-ordered; ✓ = shown (the item participates in the calendar)
+            let it = menu.addItem(withTitle: "\(row.label) (\(row.count))",
+                                  action: #selector(toggleTagFilter(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = row.key
+            it.state = hidden.contains(row.key) ? .off : .on
+        }
+        let un = menu.addItem(withTitle: "Untagged (\(uni.untagged))",
+                              action: #selector(toggleTagFilter(_:)), keyEquivalent: "")
+        un.target = self
+        un.representedObject = CalendarEngine.untaggedKey
+        un.state = hidden.contains(CalendarEngine.untaggedKey) ? .off : .on
+        menu.addItem(.separator())
+        let all = menu.addItem(withTitle: "Show All", action: #selector(showAllTags(_:)), keyEquivalent: "")
+        all.target = self
+        all.isEnabled = !hidden.isEmpty
+        let none = menu.addItem(withTitle: "Show None", action: #selector(showNoTags(_:)), keyEquivalent: "")
+        none.target = self
+    }
+
+    // View ▸ Go to Current … — land on today's period at the named zoom level (engine lives on the
+    // main actor; menu actions fire on the main thread).
+    @objc func goToCurrentYear(_ sender: Any?)  { MainActor.assumeIsolated { CalendarEngine.mainInstance?.goToCurrent("year") } }
+    @objc func goToCurrentMonth(_ sender: Any?) { MainActor.assumeIsolated { CalendarEngine.mainInstance?.goToCurrent("month") } }
+    @objc func goToCurrentWeek(_ sender: Any?)  { MainActor.assumeIsolated { CalendarEngine.mainInstance?.goToCurrent("week") } }
+    @objc func goToCurrentDay(_ sender: Any?)   { MainActor.assumeIsolated { CalendarEngine.mainInstance?.goToCurrent("day") } }
+
+    @objc func toggleTagFilter(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String else { return }
+        var h = hiddenTagSet
+        if h.contains(key) { h.remove(key) } else { h.insert(key) }
+        hiddenTagSet = h
+    }
+    @objc func showAllTags(_ sender: Any?) { hiddenTagSet = [] }
+    @objc func showNoTags(_ sender: Any?) { hiddenTagSet = Set(tagAllKeys) }
 }
 
 let app = NSApplication.shared

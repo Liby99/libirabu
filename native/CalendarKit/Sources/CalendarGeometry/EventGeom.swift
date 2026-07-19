@@ -83,6 +83,8 @@ public func relDomOf(_ focusYear: Int, _ focus: Int, _ evYear: Int, _ month: Int
 // ── A minimal timed event for seed/display + its overlap layout ──────────────────
 
 public let EVENT_COLORS = ["default", "blue", "indigo", "cyan", "green", "darkgreen", "yellow", "orange", "red", "purple"]
+/// The right-click menu's quick palette — the web app's MENU_COLORS subset of EVENT_COLORS.
+public let MENU_COLORS = ["default", "blue", "green", "yellow", "red", "purple"]
 
 public struct TimedEvent: Sendable, Identifiable, Equatable, Codable {
     public var id: String

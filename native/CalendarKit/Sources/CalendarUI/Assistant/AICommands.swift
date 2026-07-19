@@ -1,4 +1,4 @@
-// Contents of the macOS "AI" menu (hosted by the app via `CommandMenu("AI")`). Kept in CalendarUI so
+// Contents of the macOS "Assistant" menu (hosted by the app via `CommandMenu("Assistant")`). Kept in CalendarUI so
 // it can read the internal model catalog (AssistantModels) and drive the shared AssistantState; the app
 // target just drops `AICommands(assistant:)` into its command builder.
 

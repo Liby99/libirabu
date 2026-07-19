@@ -13,7 +13,8 @@ struct EventsOverlay: View {
     let bands: [BandEvent]
     var bandBadges: [String: EventBadges] = [:]   // provenance/kind markers per band box id
     var eventBadges: [String: EventBadges] = [:]  // …and per timed-event box id
-    let selected: String?        // the selected BOX id (a ghost carries occKey); series-matched below
+    let selected: String?        // the PRIMARY selected BOX id (a ghost carries occKey); series-matched below
+    var selectedIds: Set<String> = []   // the FULL multi-selection (each member gets a focus ring)
     let hovered: String?         // the hovered BOX id (exact box gets hover feedback)
     let drawerOpen: Bool         // the detail drawer is open → the focused box gets the thick border
     let editingId: String?
@@ -35,6 +36,9 @@ struct EventsOverlay: View {
     /// (single click) or selected (drawer open) — each box is independent, so siblings/source are NOT
     /// accompanied. An unrelated box under the pointer is hover; everything else is plain.
     private func activation(_ id: String) -> EventActivation {
+        // Multi-select: every member gets a focus ring. A lone selection with the drawer open gets the
+        // thick "selected" border. (The lifted-copy overlay passes only `selected` — the id check keeps it.)
+        if selectedIds.contains(id) { return (selectedIds.count == 1 && drawerOpen) ? .selected : .focusMain }
         if id == selected { return drawerOpen ? .selected : .focusMain }
         if id == hovered { return .hover }
         return .plain
@@ -560,6 +564,7 @@ struct DeadlinesOverlay: View {
     let deadlines: [Deadline]
     var sides: [String: Bool] = [:]   // offline side assignment (id → onLeft); base for each label
     let selected: String?
+    var selectedIds: Set<String> = []   // the FULL multi-selection (each member gets a focus ring)
     let hovered: String?
     let drawerOpen: Bool
     var only: String? = nil   // lifted copy → render ONLY this deadline's tag (sharp, above the scrim)
@@ -569,7 +574,8 @@ struct DeadlinesOverlay: View {
     private func activation(_ id: String) -> EventActivation {
         // Every box is independent — only the EXACT selected box is highlighted (no series-wide
         // "accompanied" highlight), so selecting a promoted band / one occurrence doesn't light up its
-        // siblings or its source event.
+        // siblings or its source event. Multi-select gives every member a focus ring.
+        if selectedIds.contains(id) { return (selectedIds.count == 1 && drawerOpen) ? .selected : .focusMain }
         if id == selected { return drawerOpen ? .selected : .focusMain }
         if id == hovered { return .hover }
         return .plain

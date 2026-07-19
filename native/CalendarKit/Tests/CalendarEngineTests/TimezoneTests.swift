@@ -54,11 +54,11 @@ func redirectStoreToTemp() {
 final class AnchorTZTests: XCTestCase {
     override func setUp() { super.setUp(); redirectStoreToTemp() }
     private func setMain(_ tz: String, _ e: CalendarEngine) {
-        UserDefaults.standard.set(tz, forKey: CalendarEngine.mainTzKey)
+        UserDefaults.standard.set(tz, forKey: PrefKeys.mainTz)
         e.viewPrefsChanged()   // re-reads mainTz AND bumps caches.editGen so the display cache re-converts
     }
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: CalendarEngine.mainTzKey)
+        UserDefaults.standard.removeObject(forKey: PrefKeys.mainTz)
         unsetenv("CC_DEMO_DATADIR")   // don't leak the temp-store redirect into other test classes
         super.tearDown()
     }
@@ -164,7 +164,7 @@ final class DeadlineCreateTests: XCTestCase {
 @MainActor
 final class AnchorMigrationTests: XCTestCase {
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: CalendarEngine.mainTzKey)
+        UserDefaults.standard.removeObject(forKey: PrefKeys.mainTz)
         unsetenv("CC_DEMO_DATADIR")   // don't leak the temp-store redirect into other test classes
         super.tearDown()
     }
@@ -176,7 +176,7 @@ final class AnchorMigrationTests: XCTestCase {
         let dir = NSTemporaryDirectory() + "mig-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         setenv("CC_DEMO_DATADIR", dir, 1)
-        UserDefaults.standard.set("America/New_York", forKey: CalendarEngine.mainTzKey)
+        UserDefaults.standard.set("America/New_York", forKey: PrefKeys.mainTz)
 
         // Legacy items: no anchorTz. The deadline's hour (11:00) is the stored main-tz value + an AOE origin.
         let legacy = PersistedState(

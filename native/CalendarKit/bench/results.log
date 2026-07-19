@@ -1,0 +1,5 @@
+2026-07-18 19:14 [release] avg 120.0 fps | p50 8.33 ms | p95 8.33 ms | max 8.3 ms | hitches(>33ms) 0 | 667 frames / 5.55 s
+2026-07-18 19:14 [debug] avg 120.0 fps | p50 8.33 ms | p95 8.33 ms | max 8.3 ms | hitches(>33ms) 0 | 667 frames / 5.55 s
+2026-07-18 19:19 [release/display/1440x840/hover=0] avg 120.0 fps | p50 8.33 ms | p95 8.33 ms | max 8.3 ms | hitches(>33ms) 0 | 659 frames / 5.48 s
+2026-07-18 19:21 [debug/display/3400x2000/hover=1] avg 117.9 fps | p50 8.33 ms | p95 8.33 ms | max 16.7 ms | hitches(>33ms) 0 | 449 frames / 3.80 s
+2026-07-18 19:21 [release/display/3400x2000/hover=1] avg 119.2 fps | p50 8.33 ms | p95 8.33 ms | max 16.7 ms | hitches(>33ms) 0 | 455 frames / 3.81 s

@@ -33,6 +33,12 @@ public final class DemoController {
     private var size: CGSize = .zero
     private var goTime: Date?             // set when recording starts (go.txt) → measures on-camera duration
 
+    // bench-year-scroll: per-frame timestamps recorded while the scripted scroll runs (see benchTick).
+    // @ObservationIgnored: these mutate EVERY FRAME from the render closure — they must not churn the
+    // observation machinery or invalidate any view.
+    @ObservationIgnored private var benchActive = false
+    @ObservationIgnored private var benchFrames: [Double] = []
+
     public init() {}
 
     /// Kick off the scene named by CC_DEMO once the view has a real size. Safe to call repeatedly.
@@ -51,6 +57,7 @@ public final class DemoController {
         case "pinch-zoom":     await scenePinchZoom()
         case "markdown-notes": await sceneMarkdownNotes()
         case "ai-assistant":   await sceneAIAssistant()
+        case "bench-year-scroll": await sceneBenchYearScroll()
         default:               await sceneTimedWeek()
         }
         // Signal the scene's exact end so the recorder can trim the GIF to length (screencapture -V can't be
@@ -383,6 +390,93 @@ public final class DemoController {
         }
     }
 
+    // ── Benchmarks (CC_DEMO=bench-*: measure, don't record) ───────────────────────────────────
+    /// Live FPS HUD toggle (works in ANY run: Xcode-attached, standalone, the signed app). Enable with the
+    /// env var CC_FPS_HUD=1 (add it to the Xcode scheme) or `defaults write … cc.fpsHUD -bool YES`.
+    public static let hudEnabled = ProcessInfo.processInfo.environment["CC_FPS_HUD"] != nil
+        || UserDefaults.standard.bool(forKey: "cc.fpsHUD")
+    @ObservationIgnored private var hudRing: [Double] = []   // recent frame timestamps (HUD window)
+
+    /// Per-frame hook from the render TimelineView (one evaluation = one rendered frame). A cheap no-op
+    /// unless a bench scene is recording or the HUD is on; same-date re-evaluations dedupe.
+    public func benchTick(_ date: Date) {
+        guard benchActive || Self.hudEnabled else { return }
+        let t = date.timeIntervalSinceReferenceDate
+        if benchActive, benchFrames.last != t { benchFrames.append(t) }
+        if Self.hudEnabled, hudRing.last != t {
+            hudRing.append(t)
+            if hudRing.count > 480 { hudRing.removeFirst(hudRing.count - 480) }
+        }
+    }
+
+    /// Stats over the last second of rendered frames (nil while idle/paused — no frames to judge).
+    public func hudStats() -> (fps: Double, p95ms: Double, maxms: Double)? {
+        let now = Date().timeIntervalSinceReferenceDate
+        let recent = hudRing.filter { $0 > now - 1.0 }
+        guard recent.count >= 5 else { return nil }
+        let deltas = zip(recent.dropFirst(), recent).map { $0 - $1 }.filter { $0 > 0 }
+        guard !deltas.isEmpty else { return nil }
+        let sorted = deltas.sorted()
+        let p95 = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
+        return (Double(deltas.count) / (recent.last! - recent.first!), p95 * 1000, sorted.last! * 1000)
+    }
+
+    /// YEAR-view scroll benchmark. The payload (bench/year-bands-2026.json — a real year of bands) is
+    /// pre-copied into the throwaway store as data.json, so the engine loads it like user data. Glide
+    /// Jan→Dec→Jan with the pace-locked keyboard-scroll tween while recording per-frame timestamps, then
+    /// write fps/frame-time stats to $CC_DEMO_DATADIR/bench.json for the script to print.
+    private func sceneBenchYearScroll() async {
+        guard let engine else { return }
+        try? await pause(1.2)                       // launch settle: store load + first layout
+        engine.demoGoToYear(centerMonth: 0)         // January at the top
+        try? await pause(0.8)
+        benchFrames.removeAll()
+        benchActive = true
+        // CC_BENCH_HOVER=1 → wiggle a synthetic pointer over the content during the glide, exercising the
+        // real per-move hover/hit-test path a trackpad scroll pays (mouseMoved → onHover → bandAt).
+        let hover = ProcessInfo.processInfo.environment["CC_BENCH_HOVER"] != nil
+        var hoverStep = 0
+        for target in [11, 0] {                     // Jan → Dec, then back to Jan
+            engine.demoScrollYearToMonth(target)
+            while !engine.demoYearScrollSettled {   // keep the render loop awake through the glide
+                engine.wake()
+                if hover {
+                    hoverStep += 1                  // drift horizontally over the band lanes
+                    let x = size.width * (0.25 + 0.5 * abs(sin(Double(hoverStep) * 0.11)))
+                    engine.demoHover(atView: CGPoint(x: x, y: size.height * 0.5))
+                }
+                try? await pause(0.016)             // ~per-frame, like a trackpad's move events
+            }
+            try? await pause(0.25)
+        }
+        benchActive = false
+        writeBenchResults()
+    }
+
+    /// Frame-time stats over the recorded ticks → $CC_DEMO_DATADIR/bench.json.
+    private func writeBenchResults() {
+        guard let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty,
+              benchFrames.count > 2 else { return }
+        let deltas = zip(benchFrames.dropFirst(), benchFrames).map { $0 - $1 }.filter { $0 > 0 }
+        guard !deltas.isEmpty else { return }
+        let sorted = deltas.sorted()
+        func pctMs(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count) * p))] * 1000 }
+        func r2(_ x: Double) -> Double { (x * 100).rounded() / 100 }
+        let seconds = benchFrames.last! - benchFrames.first!
+        let out: [String: Any] = [
+            "frames": deltas.count + 1,
+            "seconds": r2(seconds),
+            "avg_fps": r2(Double(deltas.count) / seconds),
+            "frame_ms_p50": r2(pctMs(0.50)),
+            "frame_ms_p95": r2(pctMs(0.95)),
+            "frame_ms_max": r2(sorted.last! * 1000),
+            "hitches_over_33ms": deltas.filter { $0 > 1.0 / 30.0 }.count,
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: dir).appendingPathComponent("bench.json"))
+        }
+    }
+
     // ── Cursor motion ──────────────────────────────────────────────────────────────────────────
     private func move(to p: CGPoint, over duration: Double, steps: Int = 34) async {
         let from = cursor ?? p
@@ -488,5 +582,32 @@ public struct DemoCursorOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)   // fill the overlay so .position uses view coords
             .allowsHitTesting(false)
         }
+    }
+}
+
+/// Live frame-rate readout (CC_FPS_HUD=1): fps + p95/max frame time over the last second, refreshed twice a
+/// second from the render loop's own tick (benchTick). Green = holding refresh, yellow = missing frames,
+/// red = visible hitches. Shows "idle" while the render loop is paused (no frames — nothing to judge).
+struct FPSHUD: View {
+    let demo: DemoController
+    @State private var text = "fps —"
+    @State private var tint = Color.secondary
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
+            .padding(10)
+            .allowsHitTesting(false)
+            .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+                if let s = demo.hudStats() {
+                    text = String(format: "%3.0f fps · p95 %4.1f ms · max %4.1f", s.fps, s.p95ms, s.maxms)
+                    tint = s.p95ms > 17 ? .red : (s.p95ms > 9.5 ? .yellow : .green)
+                } else {
+                    text = "idle"; tint = .secondary
+                }
+            }
     }
 }

@@ -50,6 +50,36 @@ extension CalendarEngine {
         guard let id = selectedId, let i = items.bands.firstIndex(where: { $0.id == id }) else { return }
         items.bands[i].title = title; caches.editGen &+= 1; wake()
     }
+    /// Bench: glide the YEAR scroll until month `m` is visible — the same pace-locked tween a keyboard
+    /// scroll uses (constant speed per month band), so a scroll benchmark is deterministic.
+    public func demoScrollYearToMonth(_ m: Int) { wake(); ensureMonthVisible(m, animated: true) }
+    /// Bench: feed the REAL hover path from a view-local point (what a trackpad scroll does every frame —
+    /// hit-testing bands/events under the pointer), so a scroll benchmark can include that per-move cost.
+    public func demoHover(atView p: CGPoint) { onHover(at: demoViewToGeometry(p)) }
+
+    /// Dev (env CC_DUMP_DISPLAY=<path>, real mode): once imports settle, write this year's fully-EXPANDED
+    /// display set — recurrence occurrences, promoted ghost bands, Apple-Calendar imports, exactly what
+    /// renders — as a plain store payload. Benchmarks load it as data.json so a demo-mode (no-EventKit,
+    /// no-personal-store) run renders the true production load.
+    func scheduleDisplayDumpIfRequested() {
+        guard let path = ProcessInfo.processInfo.environment["CC_DUMP_DISPLAY"], !path.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(6))   // give the EventKit import time to land
+            guard let self else { return }
+            let y = self.year
+            let st = PersistedState(events: self.displayEvents(for: y), bands: self.displayBands(for: y),
+                                    deadlines: self.displayDeadlines(for: y),
+                                    monthTrackNames: self.items.trackNames, rich: [:])
+            let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+            if let d = try? enc.encode(st) { try? d.write(to: URL(fileURLWithPath: path)) }
+            NSLog("CC_DUMP_DISPLAY: wrote %d events / %d bands / %d deadlines for %d to %@",
+                  self.displayEvents(for: y).count, self.displayBands(for: y).count,
+                  self.displayDeadlines(for: y).count, y, path)
+        }
+    }
+    /// Bench: has the year-scroll glide finished? (Poll + `wake()` while false to keep the frames coming.)
+    public var demoYearScrollSettled: Bool { anim.scrollTween == nil }
+
     /// Snap the view to year level, scrolled so `centerMonth` is visible (deterministic scene setup).
     public func demoGoToYear(centerMonth: Int) {
         cancelTween()

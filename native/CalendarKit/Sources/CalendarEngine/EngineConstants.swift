@@ -61,6 +61,9 @@ enum ViewConst {
 public enum PrefKeys {
     /// The "View ▸ Show Hidden Imported Events" toggle.
     public static let showHiddenImported = "cc.view.showHiddenImported"
+    /// View ▸ Filter by Tags — the [String] of HIDDEN tag keys (trimmed+lowercased; may include the
+    /// untagged sentinel). Empty/absent = no filtering. Persisted across launches (unlike the web app).
+    public static let hiddenTags = "cc.view.hiddenTags"
     /// View ▸ Current Timezone — the main tz for deadline origin-time labels. "auto" = device zone.
     public static let mainTz = "cc.view.mainTz"
     /// View ▸ Alternative Timezone — the second hour column on the timeline. "none" = off.

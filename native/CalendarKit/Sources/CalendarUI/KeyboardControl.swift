@@ -23,7 +23,7 @@ import CalendarGeometry
 
 // ── A normalized key, independent of view/state (mapped from the raw NSEvent by the catcher) ──
 enum KeyToken: Equatable {
-    case enter, space, escape, tab, backTab, left, right, up, down, delete, cmdS, cmdN, cmdT
+    case enter, space, escape, tab, backTab, left, right, up, down, delete, cmdS, cmdN, cmdT, cmdU
     case cmdEqual, cmdMinus                        // ⌘= / ⌘− → zoom in / out (keeps the current focus)
     case cmdUp, cmdDown, cmdLeft, cmdRight         // ⌘+arrows → move the selected event
     case shiftUp, shiftDown, shiftLeft, shiftRight // ⇧+arrows → resize the selected event
@@ -56,6 +56,7 @@ enum KeyToken: Equatable {
         case .cmdS:    return "⌘S"
         case .cmdN:    return "⌘N"
         case .cmdT:    return "⌘T"
+        case .cmdU:    return "⌘U"
         case .cmdEqual:return "⌘+"
         case .cmdMinus:return "⌘−"
         case .cmdUp:   return "⌘↑"
@@ -94,6 +95,7 @@ enum AppKeyState: Equatable {
     case bandSelected         // a band (multi-day) event is selected (Enter/Space/Escape)
     case bandTitleEditing     // its inline title editor is open (the field owns the keys)
     case deadlineSelected     // a deadline is selected (Space/Escape + ⌘↑/↓ nudge)
+    case multiSelected        // 2+ events selected → single-event ops are OFF; batch ops act on the set
     case drawerOpen           // the event drawer is open, no field focused
     case drawerTitleEditing   // the drawer's title field is focused (the field owns the keys)
     case drawerField(DrawerField)   // a drawer field is keyboard-focused (Tab-cycled); sub-keys act on it
@@ -112,6 +114,7 @@ enum AppKeyState: Equatable {
         case .timedSelected:     return "Event selected"
         case .timedTitleEditing: return "Editing title"
         case .bandSelected:      return "Band selected"
+        case .multiSelected:     return "Multiple selected"
         case .bandTitleEditing:  return "Editing title"
         case .deadlineSelected:  return "Deadline selected"
         case .drawerOpen:        return "Event drawer"
@@ -142,6 +145,7 @@ enum AppKeyState: Equatable {
             case .some(let f): return .drawerField(f)   // ring focus (includes .title as a ring)
             }
         }
+        if engine.multiSelectActive { return .multiSelected }   // 2+ selected → batch state (single ops off)
         if engine.selectedIsTimed { return .timedSelected }
         if engine.selectedIsBand { return .bandSelected }
         if engine.selectedIsDeadline { return .deadlineSelected }
@@ -219,6 +223,7 @@ enum AppKeyState: Equatable {
                 KeyBinding(.enter, "Edit title") { if let s = engine.selectedId { engine.editTimed(s) } },
                 KeyBinding(.space, "Open drawer") { if let s = engine.selectedId { ui.openEventId = sourceId(of: s) } },
                 KeyBinding(.escape, "Deselect") { engine.deselect() },
+                KeyBinding(.cmdU, "Toggle promote") { if let s = engine.selectedId { engine.togglePromote(s) } },
                 KeyBinding(.shiftUp, "Shrink") { engine.resizeSelected(0, -1) },
                 KeyBinding(.shiftDown, "Extend") { engine.resizeSelected(0, 1) },
             ] + [deleteBinding] + verticalMoveBindings + eventNavBindings + eventTabBindings + zoomBindings
@@ -247,6 +252,21 @@ enum AppKeyState: Equatable {
                 KeyBinding(.space, "Open drawer") { if let s = engine.selectedId { ui.openEventId = sourceId(of: s) } },
                 KeyBinding(.escape, "Deselect") { engine.deselect() },
             ] + [deleteBinding] + verticalMoveBindings + eventNavBindings + eventTabBindings + zoomBindings
+        case .multiSelected:
+            // Batch ops over the whole selection. Single-event ops (drawer, nav, inline rename) are OFF.
+            return [
+                KeyBinding(.escape, "Deselect all") { engine.deselectAll() },
+                KeyBinding(.enter, "Rename all…") { ui.startBatchRename() },
+                KeyBinding(.delete, "Delete selected…") { ui.requestBatchDelete(engine) },
+                KeyBinding(.cmdUp, "Move up") { engine.batchMove(dx: 0, dy: -1) },
+                KeyBinding(.cmdDown, "Move down") { engine.batchMove(dx: 0, dy: 1) },
+                KeyBinding(.cmdLeft, "Move ◂") { engine.batchMove(dx: -1, dy: 0) },
+                KeyBinding(.cmdRight, "Move ▸") { engine.batchMove(dx: 1, dy: 0) },
+                KeyBinding(.shiftUp, "Shrink") { engine.batchResize(dx: 0, dy: -1) },
+                KeyBinding(.shiftDown, "Extend") { engine.batchResize(dx: 0, dy: 1) },
+                KeyBinding(.shiftLeft, "Shrink") { engine.batchResize(dx: -1, dy: 0) },
+                KeyBinding(.shiftRight, "Extend") { engine.batchResize(dx: 1, dy: 0) },
+            ] + zoomBindings
         case .drawerOpen:
             return [
                 KeyBinding(.enter, "Edit title") { ui.drawerFocus = .title; ui.drawerTitleEditing = true },
