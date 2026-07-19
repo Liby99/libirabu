@@ -461,7 +461,9 @@ private func buildQuarterHeaders(_ g: SceneInput, _ clock: Clock) -> [Item] {
                 y: hy + 5,
                 w: dayW,
                 h: 14,
-                opacity: yearVis * 0.7,
+                // Ordinary day numbers are muted; today's accent capsule draws at FULL opacity so
+                // it matches the month view's date-row pill (same drawDayLabel + theme.nowLine).
+                opacity: yearVis * (isToday ? 1 : 0.7),
                 text: String(d),
                 fontSize: 10,
                 align: .center,
