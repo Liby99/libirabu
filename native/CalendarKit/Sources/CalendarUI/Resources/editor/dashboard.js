@@ -246,7 +246,38 @@
     if (t24) return `${today2}T${pad2(Number(t24[1]))}:${t24[2]}`;
     return void 0;
   }
-  function buildTodoFrom(ctx, line, raw2, done, tok, today2) {
+  function indentWidth(line) {
+    let w = 0;
+    for (const ch2 of line) {
+      if (ch2 === " ") w += 1;
+      else if (ch2 === "	") w += 4;
+      else break;
+    }
+    return w;
+  }
+  function scanTaskLines(notes2, visit2) {
+    const lines = notes2.split("\n");
+    const stack = [];
+    for (let i3 = 0; i3 < lines.length; i3++) {
+      const m = lines[i3].match(TASK_LINE_RE);
+      if (!m) {
+        if (lines[i3].trim() === "") continue;
+        const w = indentWidth(lines[i3]);
+        while (stack.length && stack[stack.length - 1].width >= w) stack.pop();
+        continue;
+      }
+      const tok = tokenizeLine(m[3]);
+      if (tok.text === "") continue;
+      const width = indentWidth(m[1]);
+      while (stack.length && stack[stack.length - 1].width >= width) stack.pop();
+      const top2 = stack.length ? stack[stack.length - 1] : void 0;
+      const depth = top2 ? top2.depth + 1 : 0;
+      visit2({ line: i3 + 1, raw: lines[i3], done: m[2].toLowerCase() === "x", tok, depth, parentLine: top2?.line ?? null });
+      stack.push({ width, line: i3 + 1, depth });
+    }
+  }
+  function buildTodoFrom(ctx, t2, today2) {
+    const { line, raw: raw2, done, tok, depth, parentLine } = t2;
     const entities = tok.entities;
     const dueTok = tok.due ? resolveDateToken(tok.due, today2) : void 0;
     const startTok = tok.start ? resolveDateToken(tok.start, today2) : void 0;
@@ -269,6 +300,8 @@
       occurrenceKey: ctx.occurrenceKey,
       dailyDate: ctx.dailyDate,
       line,
+      indent: depth,
+      parentLine,
       priority: tok.priority,
       due,
       dueTz,
@@ -290,27 +323,19 @@
     const out = [];
     const scan = (notes2, occurrenceKey, eventDate, eventEndDate) => {
       if (!notes2) return;
-      const lines = notes2.split("\n");
-      for (let i3 = 0; i3 < lines.length; i3++) {
-        const m = lines[i3].match(TASK_LINE_RE);
-        if (!m) continue;
-        const tok = tokenizeLine(m[3]);
-        if (tok.text === "") continue;
-        const done = m[2].toLowerCase() === "x";
-        const ctx = {
-          source: "event",
-          eventId: event.id,
-          eventTitle: event.title,
-          eventKind: event.kind,
-          occurrenceKey,
-          inheritDate: eventDate,
-          inheritEndDate: eventEndDate,
-          inheritColor: event.color,
-          inheritTags: event.tags,
-          originTz: event.originTz
-        };
-        out.push(buildTodoFrom(ctx, i3 + 1, lines[i3], done, tok, today2));
-      }
+      const ctx = {
+        source: "event",
+        eventId: event.id,
+        eventTitle: event.title,
+        eventKind: event.kind,
+        occurrenceKey,
+        inheritDate: eventDate,
+        inheritEndDate: eventEndDate,
+        inheritColor: event.color,
+        inheritTags: event.tags,
+        originTz: event.originTz
+      };
+      scanTaskLines(notes2, (t2) => out.push(buildTodoFrom(ctx, t2, today2)));
     };
     scan(event.notes, null, dateOf(event.start), dateOf(event.end));
     if (event.occurrenceNotes) {
@@ -321,27 +346,19 @@
   function parseDailyNoteTodos(date, notes2, today2) {
     if (!notes2) return [];
     const out = [];
-    const lines = notes2.split("\n");
-    for (let i3 = 0; i3 < lines.length; i3++) {
-      const m = lines[i3].match(TASK_LINE_RE);
-      if (!m) continue;
-      const tok = tokenizeLine(m[3]);
-      if (tok.text === "") continue;
-      const done = m[2].toLowerCase() === "x";
-      const ctx = {
-        source: "daily",
-        eventId: "",
-        eventTitle: `Daily note \xB7 ${date}`,
-        eventKind: "daily",
-        occurrenceKey: null,
-        dailyDate: date,
-        inheritDate: date,
-        inheritEndDate: date,
-        inheritColor: "default",
-        inheritTags: []
-      };
-      out.push(buildTodoFrom(ctx, i3 + 1, lines[i3], done, tok, today2));
-    }
+    const ctx = {
+      source: "daily",
+      eventId: "",
+      eventTitle: `Daily note \xB7 ${date}`,
+      eventKind: "daily",
+      occurrenceKey: null,
+      dailyDate: date,
+      inheritDate: date,
+      inheritEndDate: date,
+      inheritColor: "default",
+      inheritTags: []
+    };
+    scanTaskLines(notes2, (t2) => out.push(buildTodoFrom(ctx, t2, today2)));
     return out;
   }
   function indexTodos(events2, today2) {
@@ -55590,7 +55607,10 @@
         doc: "",
         extensions: [
           history(),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
+          // Tab/⇧Tab indent/outdent the line(s) — never native focus traversal; nested `- [ ]` items are
+          // how sub-tasks are made. Enter already continues list/task markers (markdown()'s own keymap)
+          // and ⌥↑/⌥↓ move lines, ⌘←/→ jump line bounds (defaultKeymap).
+          keymap.of([{ key: "Tab", run: indentMore, shift: indentLess }, ...defaultKeymap, ...historyKeymap]),
           drawSelection(),
           EditorView.lineWrapping,
           markdown(),
@@ -55856,7 +55876,8 @@
   var cmpTie = (a, b) => tieKey(a) < tieKey(b) ? -1 : tieKey(a) > tieKey(b) ? 1 : 0;
   function sectionsForDay(todos, viewIso) {
     const isToday = viewIso === today;
-    const shown = todos.filter((t2) => !t2.done && (!t2.start || t2.start <= viewIso));
+    const roots = todos.filter((t2) => t2.parentLine == null);
+    const shown = roots.filter((t2) => !t2.done && (!t2.start || t2.start <= viewIso));
     const soonEnd = addDays(viewIso, SOON_DAYS), followEnd = addDays(viewIso, FOLLOWUP_WINDOW);
     const byOp = (a, b) => {
       const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
@@ -55869,7 +55890,7 @@
     const highSoon = plain.filter((t2) => (t2.priority ?? 0) >= HIGH_PRIORITY && dueDate(t2) > viewIso && dueDate(t2) <= soonEnd).sort(byOp);
     const lowSoon = plain.filter((t2) => (t2.priority ?? 0) < HIGH_PRIORITY && dueDate(t2) > viewIso && dueDate(t2) <= soonEnd).sort(byOp);
     const recentStart = addDays(viewIso, -RECENT_DONE_DAYS);
-    const completed = todos.filter((t2) => t2.done && t2.doneDate && t2.doneDate.slice(0, 10) >= recentStart && t2.doneDate.slice(0, 10) <= viewIso).sort((a, b) => {
+    const completed = roots.filter((t2) => t2.done && t2.doneDate && t2.doneDate.slice(0, 10) >= recentStart && t2.doneDate.slice(0, 10) <= viewIso).sort((a, b) => {
       const d = a.doneDate < b.doneDate ? 1 : a.doneDate > b.doneDate ? -1 : 0;
       return d !== 0 ? d : cmpTie(a, b);
     }).slice(0, 12);
@@ -55882,9 +55903,33 @@
       { title: "Recently Completed", items: completed, done: true }
     ].filter((s2) => s2.items.length > 0);
   }
-  function rowHTML(t2, idx, viewIso) {
+  var scopeKey = (t2) => `${t2.source}\0${t2.eventId}\0${t2.occurrenceKey ?? ""}\0${t2.dailyDate ?? ""}`;
+  function childrenIndex(todos) {
+    const idx = /* @__PURE__ */ new Map();
+    for (const t2 of todos) {
+      if (t2.parentLine == null) continue;
+      const k = `${scopeKey(t2)}\0${t2.parentLine}`;
+      const list4 = idx.get(k);
+      if (list4) list4.push(t2);
+      else idx.set(k, [t2]);
+    }
+    for (const list4 of idx.values()) list4.sort((a, b) => a.line - b.line);
+    return idx;
+  }
+  function subtree(t2, kids, out = []) {
+    out.push(t2);
+    for (const c of kids.get(`${scopeKey(t2)}\0${t2.line}`) ?? []) subtree(c, kids, out);
+    return out;
+  }
+  var collapsed = /* @__PURE__ */ new Set();
+  var foldKey = (t2) => `${scopeKey(t2)}\0${t2.line}`;
+  function setFolded(t2, folded) {
+    if (folded) collapsed.add(foldKey(t2));
+    else collapsed.delete(foldKey(t2));
+  }
+  function rowHTML(t2, idx, viewIso, fold) {
     const date = opDate(t2), overdue = date < viewIso;
-    const prefix = t2.eventTitle && !(t2.source === "daily" && t2.dailyDate === viewIso) ? `<span class="cc-dtodo-event">${esc(t2.eventTitle)} \xB7 </span>` : "";
+    const prefix = t2.parentLine == null && t2.eventTitle && !(t2.source === "daily" && t2.dailyDate === viewIso) ? `<span class="cc-dtodo-event">${esc(t2.eventTitle)} \xB7 </span>` : "";
     const text9 = t2.text ? esc(t2.text) : "<em>(untitled)</em>";
     let meta2 = "";
     if (t2.done) {
@@ -55894,12 +55939,14 @@
       meta2 += t2.followup ? `<span class="cc-dtodo-followup${overdue ? " cc-dtodo-due-over" : ""}">\u21AA follow up ${esc(relDue(viewIso, t2.followup))}</span>` : `<span class="cc-dtodo-due${overdue ? " cc-dtodo-due-over" : ""}">${esc(relDue(viewIso, date))}</span>`;
       meta2 += t2.tags.slice(0, 3).map((tag) => `<span class="cc-dtodo-tag">#${esc(tag)}</span>`).join("");
     }
-    return `<li class="cc-dtodo${t2.done ? " cc-dtodo-is-done" : ""}">
+    if (fold?.folded && fold.hidden > 0) meta2 += `<span class="cc-dtodo-foldn">+${fold.hidden} sub</span>`;
+    const chevron = fold?.foldable ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items">\u25B8</button>` : "";
+    return `<li class="cc-dtodo${t2.done ? " cc-dtodo-is-done" : ""}" style="--nest:${Math.min(t2.indent ?? 0, 6)}" data-idx="${idx}">
     <input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t2.done ? " checked" : ""}>
     <span class="cc-dtodo-main" data-open="${idx}" role="button" tabindex="0" title="Go to event">
       <span class="cc-dtodo-text${t2.done ? " cc-struck" : ""}">${prefix}${text9}</span>
       <span class="cc-dtodo-meta">${meta2}</span>
-    </span></li>`;
+    </span>${chevron}</li>`;
   }
   var deadlineRange = "d30";
   var DEADLINE_OPTS = [
@@ -55955,10 +56002,25 @@
     }
     ensureTodos();
     const sections = sectionsForDay(allTodos, viewIso);
-    const flat = sections.flatMap((s2) => s2.items);
+    const kids = childrenIndex(allTodos);
+    const flat = [];
+    const renderTree = (t2, visible, out) => {
+      flat.push(t2);
+      const idx = flat.length - 1;
+      const children = kids.get(`${scopeKey(t2)}\0${t2.line}`) ?? [];
+      const folded = children.length > 0 && collapsed.has(foldKey(t2));
+      if (visible) {
+        const fold = { foldable: children.length > 0, folded, hidden: folded ? subtree(t2, kids).length - 1 : 0 };
+        out.push(rowHTML(t2, idx, viewIso, fold));
+      }
+      for (const c of children) renderTree(c, visible && !folded, out);
+    };
+    const secHTML = sections.map((s2) => {
+      const out = [];
+      for (const t2 of s2.items) renderTree(t2, true, out);
+      return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span></div><ul class="cc-dtodo-list">${out.join("")}</ul></section>`;
+    }).join("");
     flatOf.set(el, flat);
-    let i3 = -1;
-    const secHTML = sections.map((s2) => `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span></div><ul class="cc-dtodo-list">${s2.items.map((t2) => rowHTML(t2, ++i3, viewIso)).join("")}</ul></section>`).join("");
     const body3 = sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list \u2014 you\u2019re clear.</div>`;
     scroll.innerHTML = deadlineHTML(viewIso) + body3;
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;
@@ -56128,8 +56190,19 @@
     toggle(panel, Number(el.dataset.idx));
   });
   root5.addEventListener("click", (e) => {
-    const openEl = e.target.closest("[data-open]");
     const panel = panelOf(e);
+    const foldEl = e.target.closest("[data-fold]");
+    if (foldEl && panel) {
+      const t2 = (flatOf.get(panel) ?? [])[Number(foldEl.dataset.fold)];
+      if (t2) {
+        setFolded(t2, !collapsed.has(foldKey(t2)));
+        const iso = isoOf.get(panel);
+        if (iso) renderPanel(panel, iso);
+        applyNav();
+      }
+      return;
+    }
+    const openEl = e.target.closest("[data-open]");
     if (openEl && panel) {
       const todo = (flatOf.get(panel) ?? [])[Number(openEl.dataset.open)];
       if (todo) {
@@ -56198,14 +56271,28 @@
     },
     // ↑/↓ rows
     navActivate() {
-      if (navStop === "todo") toggle(p0, todoCursor);
+      if (navStop !== "todo") return;
+      const row2 = todoRows()[todoCursor];
+      if (row2) toggle(p0, Number(row2.dataset.idx ?? -1));
     },
     navOpen() {
       if (navStop !== "todo") return;
-      const t2 = (flatOf.get(p0) ?? [])[todoCursor];
+      const row2 = todoRows()[todoCursor];
+      const t2 = row2 ? (flatOf.get(p0) ?? [])[Number(row2.dataset.idx ?? -1)] : void 0;
       if (!t2) return;
       if (t2.source === "daily") post({ type: "jumpDay", date: t2.dailyDate });
       else post({ type: "open", eventId: t2.eventId, occKey: t2.occurrenceKey });
+    },
+    navFold(open2) {
+      if (navStop !== "todo") return;
+      const row2 = todoRows()[todoCursor];
+      if (!row2 || !row2.querySelector("[data-fold]")) return;
+      const t2 = (flatOf.get(p0) ?? [])[Number(row2.dataset.idx ?? -1)];
+      if (!t2 || collapsed.has(foldKey(t2)) === !open2) return;
+      setFolded(t2, !open2);
+      const iso = isoOf.get(p0);
+      if (iso) renderPanel(p0, iso);
+      applyNav();
     },
     noteEdit() {
       editingNote = true;

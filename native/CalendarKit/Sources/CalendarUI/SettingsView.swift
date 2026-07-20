@@ -7,15 +7,14 @@
 //  • Appearance — Light / Dark / Automatic, applied live and persisted (see AppSettings.swift).
 //  • Notifications — per-kind local-notification schedules (see NotifyPlan.swift +
 //                 NotificationScheduler.swift in CalendarEngine); authorization status + defaults.
-//  • API Keys   — the assistant's credentials (JHU Gateway for chat, Tavily for web search),
+//  • API Keys   — the assistant's credentials (LLM provider for chat, Tavily for web search),
 //                 stored in the macOS Keychain (see Keychain.swift); local to this device.
 //
-// Native controls throughout, tinted with the app's red accent (0xff3b6b, as in EventDrawer).
+// Native controls throughout, tinted with the app's accent (AccentPref — MagiCal red by default,
+// as in EventDrawer).
 
 import CalendarEngine
 import SwiftUI
-
-private var accent: Color { Theme.accent }
 
 public struct SettingsView: View {
     public init() {}
@@ -33,7 +32,7 @@ public struct SettingsView: View {
             DeveloperTab()
                 .tabItem { Label("Developer", systemImage: "hammer") }
         }
-        .tint(accent)
+        .tint(Theme.accent)
         .frame(width: 560, height: 480)
     }
 }
@@ -370,7 +369,7 @@ private struct APIKeysTab: View {
                 }
                 .onChange(of: selected) { _, v in ProviderStore.active = v }
                 if selected == nil {
-                    Text("Pick a provider to configure it. The assistant activates once the selected provider passes Test Connection. Configurations for every provider are kept, so switching back is instant.")
+                    Text("Pick a provider to configure it. The assistant activates once the selected provider has its key and model set. Configurations for every provider are kept, so switching back is instant.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -386,7 +385,7 @@ private struct APIKeysTab: View {
                 ) { EmptyView() }
             }
             Section {
-                Text("Keys are stored in your macOS Keychain on this device only — not synced. The assistant talks to whichever provider is selected AND tested above; the Tavily key powers web search.")
+                Text("Keys are stored in your macOS Keychain on this device only — not synced. The assistant talks to whichever provider is selected above; the Tavily key powers web search.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -403,17 +402,18 @@ private struct ProviderConfigSection: View {
     @State private var customModel = ""
     @State private var testing = false
     @State private var testError: String?
+    @State private var loaded = false // onAppear's programmatic cfg load must not "invalidate"
 
     var body: some View {
         Section(id.label) {
             // ── Secrets ──
             switch id {
             case .gateway:
-                TextField("Base URL", text: $cfg.baseURL, prompt: Text(LLMClient.defaultBaseURL))
+                TextField("Base URL", text: $cfg.baseURL, prompt: Text("https://your-gateway.example.com"))
                     .onChange(of: cfg.baseURL) { _, _ in invalidate() }
-                Text("Any OpenAI-compatible gateway (LiteLLM-style). Default: JHU WSE AI Gateway; requests go to {base}/compat/chat/completions.")
+                Text("Any OpenAI-compatible gateway (LiteLLM-style). Requests go to {base}/compat/chat/completions.")
                     .font(.caption).foregroundStyle(.secondary)
-                keyRow("API Key", field: "key", placeholder: "jhu_live_sk_… / gateway key")
+                keyRow("API Key", field: "key", placeholder: "gateway key")
             case .openai:
                 keyRow("API Key", field: "key", placeholder: "sk-…")
             case .anthropic:
@@ -438,7 +438,6 @@ private struct ProviderConfigSection: View {
             .onChange(of: cfg.model) { _, _ in invalidate() }
             HStack {
                 TextField("Custom model id (optional)", text: $customModel)
-                    .textFieldStyle(.roundedBorder).font(.caption)
                 Button("Use") {
                     let m = customModel.trimmingCharacters(in: .whitespaces)
                     if !m.isEmpty { cfg.model = m; invalidate() }
@@ -459,18 +458,22 @@ private struct ProviderConfigSection: View {
                 }
                 .disabled(testing)
                 if cfg.testedOK {
-                    Label("Tested — the assistant can use this provider", systemImage: "checkmark.circle.fill")
+                    Label("Tested — this configuration verified OK", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green).font(.caption)
                 } else {
-                    Label("Not tested — the assistant won't use it yet", systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.orange).font(.caption)
+                    Label("Optional — verifies the key, endpoint, and model work together",
+                          systemImage: "info.circle")
+                        .foregroundStyle(.secondary).font(.caption)
                 }
             }
             if let testError {
                 Text(testError).font(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
         }
-        .onAppear { cfg = ProviderStore.settings(id) }
+        .onAppear {
+            cfg = ProviderStore.settings(id)
+            loaded = true // arm invalidate() only for USER edits, not this programmatic load
+        }
     }
 
     private func keyRow(_ name: String, field: String, placeholder: String) -> some View {
@@ -478,8 +481,11 @@ private struct ProviderConfigSection: View {
                   subtitle: "", placeholder: placeholder, onChanged: { invalidate() }) { EmptyView() }
     }
 
-    /// Any config edit → this exact combination is untested again.
+    /// Any USER config edit → this exact combination is untested again. The `loaded` guard is
+    /// load-bearing: onAppear's programmatic `cfg` load fires the same onChange handlers, and
+    /// without it every visit to this section silently reset the persisted tested flag.
     private func invalidate() {
+        guard loaded else { return }
         cfg.testedOK = false
         testError = nil
         ProviderStore.save(id, cfg)
@@ -533,6 +539,7 @@ private struct APIKeyRow<Extra: View>: View {
             HStack(spacing: 8) {
                 SecureField(saved == nil ? placeholder : "Enter a new key to replace", text: $value)
                     .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.leading) // grouped Forms right-align field text by default
                 Button("Save") { save() }.disabled(value.isEmpty)
                 Button("Remove") { remove() }.disabled(saved == nil)
             }

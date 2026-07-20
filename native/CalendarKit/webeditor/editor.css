@@ -37,9 +37,12 @@ body { color: var(--accent-dark); -webkit-font-smoothing: antialiased; }
 .cc-dw-md table { border-collapse: collapse; margin: 0.5em 0; }
 .cc-dw-md th, .cc-dw-md td { border: 1px solid var(--accent-grey); padding: 0.25em 0.6em; }
 .cc-dw-md img { max-width: 100%; }
-/* GFM task list */
+/* GFM task list. The list markers are dropped, top-level checkboxes hug the left margin, and a
+   NESTED task list gets a full, clearly visible indent step per level (the old approach — full list
+   padding + a negative item margin — collapsed nested indents to ~0.2em). */
 .cc-dw-md ul.contains-task-list, .cc-dw-md .task-list-item { list-style: none; }
-.cc-dw-md .task-list-item { margin-left: -1.1em; }
+.cc-dw-md ul.contains-task-list { padding-left: 0.2em; }      /* top level: checkbox at the margin */
+.cc-dw-md li > ul.contains-task-list { padding-left: 1.6em; } /* nested: one visible step per level */
 .cc-dw-md .task-list-item input { margin-right: 0.4em; }
 /* Interactive task checkboxes tint to the app accent (red). */
 .cc-dw-md input[type="checkbox"] { accent-color: var(--highlight); cursor: pointer; }

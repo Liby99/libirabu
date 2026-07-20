@@ -256,6 +256,7 @@ public struct CalendarView: View {
                     carousel.navActivate()
                 }
             case .open: carousel.navOpen()
+            case let .fold(open): carousel.navFold(open)
             }
             engine.wake()
         }

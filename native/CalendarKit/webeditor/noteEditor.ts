@@ -5,7 +5,7 @@
 
 import { EditorView, keymap, placeholder as cmPlaceholder, drawSelection } from "@codemirror/view";
 import { EditorState, Prec } from "@codemirror/state";
-import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
+import { history, defaultKeymap, historyKeymap, indentMore, indentLess } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
@@ -135,7 +135,10 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
       doc: "",
       extensions: [
         history(),
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        // Tab/⇧Tab indent/outdent the line(s) — never native focus traversal; nested `- [ ]` items are
+        // how sub-tasks are made. Enter already continues list/task markers (markdown()'s own keymap)
+        // and ⌥↑/⌥↓ move lines, ⌘←/→ jump line bounds (defaultKeymap).
+        keymap.of([{ key: "Tab", run: indentMore, shift: indentLess }, ...defaultKeymap, ...historyKeymap]),
         drawSelection(),
         EditorView.lineWrapping,
         markdown(),

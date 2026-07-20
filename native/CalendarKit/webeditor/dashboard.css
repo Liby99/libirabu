@@ -100,7 +100,21 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dtodo-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; }
 .cc-dtodo-sec-count { font-size: 10px; font-weight: 600; line-height: 1; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent-grey) 18%, transparent); color: var(--accent-dark); opacity: 0.7; }
 .cc-dtodo-list { list-style: none; margin: 0; padding: 0; }
-.cc-dtodo { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; }
+/* --nest (set inline per row) indents nested sub-tasks under their parent. */
+.cc-dtodo { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0 3px calc(var(--nest, 0) * 18px); }
+/* Disclosure chevron on rows with sub-tasks: the last flex item, pushed to the row's right edge
+   (margin-left auto), aligned with the first text line. Points down (rotated) when expanded, right
+   when folded. Everything is expanded by default (see `collapsed`). */
+.cc-dtodo-fold {
+  flex: none; margin-left: auto; align-self: flex-start;
+  width: 22px; height: 20px; padding: 0; border: none; background: none;
+  font-size: 16px; line-height: 20px; text-align: center; color: var(--accent-grey); cursor: pointer;
+  transform: rotate(90deg); transition: transform 0.15s ease, color 0.12s ease;
+}
+.cc-dtodo-fold:hover { color: var(--highlight); }
+.cc-dtodo-fold[aria-expanded="false"] { transform: rotate(0deg); }
+/* Hidden-descendant count shown on a folded parent. */
+.cc-dtodo-foldn { font-size: 10px; opacity: 0.55; }
 .cc-dtodo-check {
   appearance: none; -webkit-appearance: none; flex: none; box-sizing: border-box;
   width: 15px; height: 15px; margin-top: 2px;

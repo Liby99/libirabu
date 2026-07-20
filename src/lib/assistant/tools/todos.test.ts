@@ -283,6 +283,44 @@ eq("first due wins", tokenizeLine("a due:2026-01-01 b due:2026-02-02").due, "202
   eq("due:5pm still due today (date part)", (at("- [ ] x due:5pm").due ?? "").slice(0, 10), "2026-06-29");
 }
 
+// ── 16. nesting: indented task lines are children of the nearest shallower task line ────────────
+{
+  const note = [
+    "- [ ] parent",         // line 1: root
+    "  - [x] child A",      // line 2: child of 1
+    "    - [ ] grandchild", // line 3: child of 2
+    "  - [ ] child B",      // line 4: pops back to child of 1
+    "- [ ] second root",    // line 5: root
+  ].join("\n");
+  const t = parseDailyNoteTodos("2026-06-30", note, "2026-06-30");
+  eq("nest: count", t.length, 5);
+  eq("nest: root", [t[0].indent, t[0].parentLine], [0, null]);
+  eq("nest: child A", [t[1].indent, t[1].parentLine], [1, 1]);
+  eq("nest: grandchild", [t[2].indent, t[2].parentLine], [2, 2]);
+  eq("nest: child B pops back", [t[3].indent, t[3].parentLine], [1, 1]);
+  eq("nest: second root", [t[4].indent, t[4].parentLine], [0, null]);
+
+  // top-level prose between lists breaks the chain…
+  const broken = parseDailyNoteTodos("2026-06-30", "- [ ] a\nsome prose\n  - [ ] b");
+  eq("nest: prose resets", [broken[1].indent, broken[1].parentLine], [0, null]);
+  // …but a wrapped continuation line indented under its item keeps it
+  const cont = parseDailyNoteTodos("2026-06-30", "- [ ] a\n  wrapped continuation\n  - [ ] b");
+  eq("nest: continuation keeps parent", [cont[1].indent, cont[1].parentLine], [1, 1]);
+  // blank lines keep the chain (loose lists)
+  const loose = parseDailyNoteTodos("2026-06-30", "- [ ] a\n\n  - [ ] b");
+  eq("nest: blank line keeps parent", [loose[1].indent, loose[1].parentLine], [1, 1]);
+  // an empty checkbox line is skipped and never parents — deeper items attach to the grandparent
+  const skip = parseDailyNoteTodos("2026-06-30", "- [ ] a\n  - [ ] \n    - [ ] c");
+  eq("nest: empty task never parents", [skip[1].indent, skip[1].parentLine], [1, 1]);
+  // event notes get the same nesting
+  const ev: TodoEventContext = {
+    id: "n", kind: "timed", title: "N", color: "default", tags: [],
+    start: "2026-06-01T09:00:00", end: "2026-06-01T10:00:00",
+    notes: "- [ ] top\n  - [ ] sub",
+  };
+  eq("nest: event notes too", [parseTodos(ev)[1].indent, parseTodos(ev)[1].parentLine], [1, 1]);
+}
+
 // ── report ─────────────────────────────────────────────────────────────────────────────────────
 if (failures.length) {
   console.error(`FAILED ${failures.length} / ${passed + failures.length}:`);

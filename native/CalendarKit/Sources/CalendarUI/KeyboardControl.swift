@@ -26,6 +26,7 @@ enum KeyToken: Equatable {
     case enter, space, escape, tab, backTab, left, right, up, down, delete, cmdS, cmdN, cmdT, cmdU, cmdL
     case cmdEqual, cmdMinus // ⌘= / ⌘− → zoom in / out (keeps the current focus)
     case cmdUp, cmdDown, cmdLeft, cmdRight // ⌘+arrows → move the selected event
+    case optUp, optDown // ⌥↑ / ⌥↓ — guide display only (the note editor owns them: move line)
     case shiftUp, shiftDown, shiftLeft, shiftRight // ⇧+arrows → resize the selected event
     case char(Character)
 
@@ -60,6 +61,8 @@ enum KeyToken: Equatable {
         case .cmdL: "⌘L"
         case .cmdEqual: "⌘+"
         case .cmdMinus: "⌘−"
+        case .optUp: "⌥↑"
+        case .optDown: "⌥↓"
         case .cmdUp: "⌘↑"
         case .cmdDown: "⌘↓"
         case .cmdLeft: "⌘←"
@@ -442,6 +445,8 @@ enum AppKeyState: Equatable {
             return [
                 KeyBinding(.up, "↑ item") { engine.dashMove(-1) },
                 KeyBinding(.down, "↓ item") { engine.dashMove(1) },
+                KeyBinding(.left, "Fold subs") { engine.dashFold(false) },
+                KeyBinding(.right, "Unfold subs") { engine.dashFold(true) },
                 KeyBinding(.space, "Toggle done") { engine.dashActivate() },
                 KeyBinding(.enter, "Open") { engine.dashOpen() },
                 KeyBinding(.escape, "Zoom out") { engine.onEscape() },
@@ -456,8 +461,12 @@ enum AppKeyState: Equatable {
                 KeyBinding(.backTab, "To-dos") { engine.tabCursor(false) },
             ] + zoomBindings
         case .dashNoteEditing:
-            // The daily-note WebView editor owns these (⌘S → preview, Esc → done) — listed for the guide.
+            // The daily-note WebView editor owns these (CodeMirror bindings) — listed for the guide.
             return [
+                KeyBinding(.tab, "Indent"),
+                KeyBinding(.backTab, "Outdent"),
+                KeyBinding(.optUp, "Move line up"),
+                KeyBinding(.optDown, "Move line down"),
                 KeyBinding(.cmdS, "Preview"),
                 KeyBinding(.escape, "Done"),
             ]

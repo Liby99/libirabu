@@ -1,8 +1,8 @@
 // The LLM provider abstraction. The agent framework (AssistantState, Auditor) talks ONLY to the
 // `LLM` facade + `LLMProvider` protocol — never to a concrete endpoint. Four backends:
 //
-//   • gateway    — any OpenAI-compatible proxy (default: JHU WSE AI Gateway; verified against the
-//                  web app's jhuGateway.ts: POST {base}/compat/chat/completions, Bearer key).
+//   • gateway    — any OpenAI-compatible proxy (user-supplied base URL; verified against the
+//                  web app's gateway client: POST {base}/compat/chat/completions, Bearer key).
 //   • openai     — api.openai.com/v1/chat/completions (same wire shape).
 //   • anthropic  — Anthropic Messages API (/v1/messages; tools → input_schema, tool_use/tool_result
 //                  content blocks; docs.anthropic.com "Messages").
@@ -10,8 +10,9 @@
 //
 // The canonical in-app wire format stays the OpenAI-shaped ChatMessage/ToolCall/ChatResponse
 // (LLMClient.swift) — adapters convert at their boundary. Config is per-provider and persists
-// side-by-side: secrets in the Keychain, the rest as JSON in UserDefaults. A provider must pass
-// "Test Connection" (Settings ▸ API Keys) before the assistant will use it.
+// side-by-side: secrets in the Keychain, the rest as JSON in UserDefaults. The assistant uses the
+// selected provider once its key/model (+ gateway URL) are set; "Test Connection" is an optional
+// verification aid, not a gate.
 
 import Foundation
 
@@ -75,8 +76,8 @@ enum ProviderStore {
             if let raw = UserDefaults.standard.string(forKey: activeKey) {
                 return raw.isEmpty ? nil : ProviderID(rawValue: raw)
             }
-            // Migration default: a pre-existing JHU gateway key pre-selects Gateway (it still
-            // needs one Test Connection). Fresh installs default to none.
+            // Migration default: a pre-existing gateway key pre-selects Gateway.
+            // Fresh installs default to none.
             return secret(.gateway).isEmpty ? nil : .gateway
         }
         set { UserDefaults.standard.set(newValue?.rawValue ?? "", forKey: activeKey) }
@@ -87,8 +88,7 @@ enum ProviderStore {
               let s = try? JSONDecoder().decode(ProviderSettings.self, from: data) else {
             var s = ProviderSettings()
             s.model = id.supportedModels.first?.id ?? ""
-            if id == .gateway { s.baseURL = LLMClient.defaultBaseURL }
-            return s
+            return s // gateway baseURL has NO default — the user types their own endpoint
         }
         return s
     }
@@ -110,11 +110,15 @@ enum ProviderStore {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// The active provider is usable: selected, has its secret(s), and passed Test Connection.
+    /// The active provider is usable: selected with its secret(s) + model (+ endpoint for the
+    /// gateway). Test Connection is OPTIONAL — a verification aid, not a gate; `testedOK` is
+    /// only the green status line in Settings.
     static var activeReady: Bool {
         guard let id = active else { return false }
-        guard settings(id).testedOK, !settings(id).model.isEmpty else { return false }
+        guard !settings(id).model.isEmpty else { return false }
         switch id {
+        case .gateway: return !secret(id).isEmpty && !settings(id).baseURL
+            .trimmingCharacters(in: .whitespaces).isEmpty
         case .bedrock: return !secret(id, field: "akid").isEmpty && !secret(id, field: "secret").isEmpty
         default: return !secret(id).isEmpty
         }
@@ -126,8 +130,7 @@ enum ProviderStore {
         let s = settings(id)
         switch id {
         case .gateway:
-            let base = s.baseURL.isEmpty ? LLMClient.defaultBaseURL : s.baseURL
-            return OpenAICompatProvider(id: id, endpoint: base.trimmingCharacters(in: .whitespaces)
+            return OpenAICompatProvider(id: id, endpoint: s.baseURL.trimmingCharacters(in: .whitespaces)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/compat/chat/completions",
                 key: secret(id))
         case .openai:

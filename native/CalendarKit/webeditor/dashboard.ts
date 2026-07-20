@@ -200,7 +200,11 @@ const tieKey = (t: ParsedTodo) =>
 const cmpTie = (a: ParsedTodo, b: ParsedTodo) => (tieKey(a) < tieKey(b) ? -1 : tieKey(a) > tieKey(b) ? 1 : 0);
 function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
   const isToday = viewIso === today;
-  const shown = todos.filter((t) => !t.done && (!t.start || t.start <= viewIso));
+  // NESTED todos: only ROOT items are sectioned/sorted. Each root then renders with its full
+  // subtree beneath it — done and not-done children alike — so a child never appears as its own
+  // top-level row (see renderPanel + subtree()).
+  const roots = todos.filter((t) => t.parentLine == null);
+  const shown = roots.filter((t) => !t.done && (!t.start || t.start <= viewIso));
   const soonEnd = addDays(viewIso, SOON_DAYS), followEnd = addDays(viewIso, FOLLOWUP_WINDOW);
   const byOp = (a: ParsedTodo, b: ParsedTodo) => {
     const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
@@ -215,7 +219,7 @@ function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
   // upcoming task doesn't vanish just because it isn't p:!!!.
   const lowSoon = plain.filter((t) => (t.priority ?? 0) < HIGH_PRIORITY && dueDate(t) > viewIso && dueDate(t) <= soonEnd).sort(byOp);
   const recentStart = addDays(viewIso, -RECENT_DONE_DAYS);
-  const completed = todos
+  const completed = roots
     .filter((t) => t.done && t.doneDate && t.doneDate.slice(0, 10) >= recentStart && t.doneDate.slice(0, 10) <= viewIso)
     .sort((a, b) => { const d = a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0; return d !== 0 ? d : cmpTie(a, b); }).slice(0, 12);
   return [
@@ -228,10 +232,46 @@ function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
   ].filter((s) => s.items.length > 0);
 }
 
+// ── Nesting: group children under their parent via the (note-scope, parentLine) soft link ────────
+// Todos from DIFFERENT notes can share line numbers, so the child index is keyed by the full note
+// scope (source + event/occurrence or daily date) plus the parent's line.
+const scopeKey = (t: ParsedTodo) => `${t.source}\0${t.eventId}\0${t.occurrenceKey ?? ""}\0${t.dailyDate ?? ""}`;
+function childrenIndex(todos: ParsedTodo[]): Map<string, ParsedTodo[]> {
+  const idx = new Map<string, ParsedTodo[]>();
+  for (const t of todos) {
+    if (t.parentLine == null) continue;
+    const k = `${scopeKey(t)}\0${t.parentLine}`;
+    const list = idx.get(k);
+    if (list) list.push(t);
+    else idx.set(k, [t]);
+  }
+  for (const list of idx.values()) list.sort((a, b) => a.line - b.line);
+  return idx;
+}
+/** A root and all its descendants, in source order (parent first, then each child's subtree). */
+function subtree(t: ParsedTodo, kids: Map<string, ParsedTodo[]>, out: ParsedTodo[] = []): ParsedTodo[] {
+  out.push(t);
+  for (const c of kids.get(`${scopeKey(t)}\0${t.line}`) ?? []) subtree(c, kids, out);
+  return out;
+}
+
+// ── Folding: any row WITH children gets a disclosure chevron; everything starts expanded ─────────
+// `collapsed` holds the folded parents (so the default for a never-touched row is open), keyed by
+// the same (note-scope, line) soft link as the child index. Session-lived, like the scroll memory —
+// editing a note can renumber lines, in which case a stale key just no-ops.
+const collapsed = new Set<string>();
+const foldKey = (t: ParsedTodo) => `${scopeKey(t)}\0${t.line}`;
+function setFolded(t: ParsedTodo, folded: boolean) {
+  if (folded) collapsed.add(foldKey(t));
+  else collapsed.delete(foldKey(t));
+}
+
 // ── Rendering ───────────────────────────────────────────────────────────────────────────────────
-function rowHTML(t: ParsedTodo, idx: number, viewIso: string): string {
+interface RowFold { foldable: boolean; folded: boolean; hidden: number; }
+function rowHTML(t: ParsedTodo, idx: number, viewIso: string, fold?: RowFold): string {
   const date = opDate(t), overdue = date < viewIso;
-  const prefix = t.eventTitle && !(t.source === "daily" && t.dailyDate === viewIso) ? `<span class="cc-dtodo-event">${esc(t.eventTitle)} · </span>` : "";
+  // A child row sits under its parent, which already carries the provenance prefix.
+  const prefix = t.parentLine == null && t.eventTitle && !(t.source === "daily" && t.dailyDate === viewIso) ? `<span class="cc-dtodo-event">${esc(t.eventTitle)} · </span>` : "";
   const text = t.text ? esc(t.text) : "<em>(untitled)</em>";
   let meta = "";
   if (t.done) {
@@ -243,12 +283,20 @@ function rowHTML(t: ParsedTodo, idx: number, viewIso: string): string {
       : `<span class="cc-dtodo-due${overdue ? " cc-dtodo-due-over" : ""}">${esc(relDue(viewIso, date))}</span>`;
     meta += t.tags.slice(0, 3).map((tag) => `<span class="cc-dtodo-tag">#${esc(tag)}</span>`).join("");
   }
-  return `<li class="cc-dtodo${t.done ? " cc-dtodo-is-done" : ""}">
+  // A folded parent shows how many sub-items it's hiding.
+  if (fold?.folded && fold.hidden > 0) meta += `<span class="cc-dtodo-foldn">+${fold.hidden} sub</span>`;
+  const chevron = fold?.foldable
+    ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items">▸</button>`
+    : "";
+  // data-idx on the row itself: with folding, the visible rows are a SUBSET of the flat list, so
+  // keyboard nav resolves a row → todo through this instead of assuming row order == flat order.
+  // The fold chevron is the LAST flex item — it rides the right edge of the row.
+  return `<li class="cc-dtodo${t.done ? " cc-dtodo-is-done" : ""}" style="--nest:${Math.min(t.indent ?? 0, 6)}" data-idx="${idx}">
     <input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t.done ? " checked" : ""}>
     <span class="cc-dtodo-main" data-open="${idx}" role="button" tabindex="0" title="Go to event">
       <span class="cc-dtodo-text${t.done ? " cc-struck" : ""}">${prefix}${text}</span>
       <span class="cc-dtodo-meta">${meta}</span>
-    </span></li>`;
+    </span>${chevron}</li>`;
 }
 
 // Upcoming-deadlines time window — a small dropdown in that section's header. Default: next 30 days.
@@ -317,12 +365,29 @@ function renderPanel(el: HTMLElement, viewIso: string) {
     return;
   }
   ensureTodos();                                       // lazy: rebuild only if data changed since last view
-  const sections = sectionsForDay(allTodos, viewIso);
-  const flat = sections.flatMap((s) => s.items);
+  const sections = sectionsForDay(allTodos, viewIso);  // sections hold ROOT todos only
+  const kids = childrenIndex(allTodos);
+  // Flatten each root's full subtree in render order. `flat` always holds EVERY todo — including
+  // ones hidden inside a folded parent — so data-idx values are stable regardless of fold state;
+  // only the emitted rows change. Checkbox toggles and keyboard nav resolve rows via data-idx.
+  const flat: ParsedTodo[] = [];
+  const renderTree = (t: ParsedTodo, visible: boolean, out: string[]) => {
+    flat.push(t);
+    const idx = flat.length - 1;
+    const children = kids.get(`${scopeKey(t)}\0${t.line}`) ?? [];
+    const folded = children.length > 0 && collapsed.has(foldKey(t));
+    if (visible) {
+      const fold: RowFold = { foldable: children.length > 0, folded, hidden: folded ? subtree(t, kids).length - 1 : 0 };
+      out.push(rowHTML(t, idx, viewIso, fold));
+    }
+    for (const c of children) renderTree(c, visible && !folded, out);
+  };
+  const secHTML = sections.map((s) => {
+    const out: string[] = [];
+    for (const t of s.items) renderTree(t, true, out);
+    return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${out.join("")}</ul></section>`;
+  }).join("");
   flatOf.set(el, flat);
-  let i = -1;
-  const secHTML = sections.map((s) =>
-    `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${s.items.map((t) => rowHTML(t, ++i, viewIso)).join("")}</ul></section>`).join("");
   const body = sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list — you’re clear.</div>`;
   scroll.innerHTML = deadlineHTML(viewIso) + body;
   // The two panels are RECYCLED across days and `daily.dom` advances mid-swipe (setDayProgress), so a
@@ -493,8 +558,21 @@ root.addEventListener("change", (e) => {
   toggle(panel, Number((el as HTMLInputElement).dataset.idx));
 });
 root.addEventListener("click", (e) => {
-  const openEl = (e.target as HTMLElement).closest("[data-open]") as HTMLElement | null;
   const panel = panelOf(e);
+  // Disclosure chevron → fold/unfold that row's subtree and re-render the panel in place (renderPanel
+  // restores the day's scroll, so nothing jumps; the nav ring is re-applied after).
+  const foldEl = (e.target as HTMLElement).closest("[data-fold]") as HTMLElement | null;
+  if (foldEl && panel) {
+    const t = (flatOf.get(panel) ?? [])[Number(foldEl.dataset.fold)];
+    if (t) {
+      setFolded(t, !collapsed.has(foldKey(t)));
+      const iso = isoOf.get(panel);
+      if (iso) renderPanel(panel, iso);
+      applyNav();
+    }
+    return;
+  }
+  const openEl = (e.target as HTMLElement).closest("[data-open]") as HTMLElement | null;
   if (openEl && panel) {
     const todo = (flatOf.get(panel) ?? [])[Number(openEl.dataset.open)];
     if (todo) {
@@ -545,14 +623,28 @@ root.addEventListener("click", (e) => {
   },
   navMove(delta: number) { if (navStop === "todo") { todoCursor += delta; applyTodoCursor(); } },   // ↑/↓ rows
   navActivate() {                              // Space on the TODO stop → toggle the focused row (in place)
-    if (navStop === "todo") toggle(p0, todoCursor);
+    if (navStop !== "todo") return;
+    const row = todoRows()[todoCursor];
+    if (row) toggle(p0, Number(row.dataset.idx ?? -1));   // rows are a subset of flat when folded
   },
   navOpen() {                                  // Enter on the TODO stop → open the focused row
     if (navStop !== "todo") return;
-    const t = (flatOf.get(p0) ?? [])[todoCursor];
+    const row = todoRows()[todoCursor];
+    const t = row ? (flatOf.get(p0) ?? [])[Number(row.dataset.idx ?? -1)] : undefined;
     if (!t) return;
     if (t.source === "daily") post({ type: "jumpDay", date: t.dailyDate });
     else post({ type: "open", eventId: t.eventId, occKey: t.occurrenceKey });
+  },
+  navFold(open: boolean) {                     // ←/→ on the TODO stop → fold/unfold the focused row's subtree
+    if (navStop !== "todo") return;
+    const row = todoRows()[todoCursor];
+    if (!row || !row.querySelector("[data-fold]")) return;   // a leaf row has nothing to fold
+    const t = (flatOf.get(p0) ?? [])[Number(row.dataset.idx ?? -1)];
+    if (!t || collapsed.has(foldKey(t)) === !open) return;   // already there (held key auto-repeats)
+    setFolded(t, !open);
+    const iso = isoOf.get(p0);
+    if (iso) renderPanel(p0, iso);
+    applyNav();   // children were BELOW the cursor, so the same index still points at this row
   },
   noteEdit() {                                 // Enter on the NOTE stop → focus the live editor
     editingNote = true; applyNav();

@@ -111,6 +111,10 @@ export interface ParsedTodo {
   dailyDate?: string; // daily source: the note's date "YYYY-MM-DD" (the soft-link anchor)
   line: number; // 1-based line number within that note
 
+  // Nesting: a task line indented under a preceding, less-indented task line is its child.
+  indent: number; // nesting depth: 0 = top-level, 1 = child, 2 = grandchild, …
+  parentLine: number | null; // 1-based line of the parent task within the same note; null for a root
+
   priority?: number; // 1–5
   due?: string; // line `due:` else the event's date
   dueTz?: string;
@@ -267,7 +271,59 @@ interface TodoContext {
   originTz?: string | null; // deadline origin tz (for the inherited due tz)
 }
 
-function buildTodoFrom(ctx: TodoContext, line: number, raw: string, done: boolean, tok: LineTokens, today: string | undefined): ParsedTodo {
+/** One checkbox line as found by `scanTaskLines`: tokens + its place in the nesting structure. */
+interface ScannedTask {
+  line: number; // 1-based line number within the note
+  raw: string; // the full source line, verbatim
+  done: boolean; // checkbox state
+  tok: LineTokens;
+  depth: number; // 0 = top-level
+  parentLine: number | null; // parent task's line, null for a root
+}
+
+/** Indent width of a line's leading whitespace, in columns (a tab counts as 4). */
+function indentWidth(line: string): number {
+  let w = 0;
+  for (const ch of line) {
+    if (ch === " ") w += 1;
+    else if (ch === "\t") w += 4;
+    else break;
+  }
+  return w;
+}
+
+/**
+ * Walk a note's checkbox lines tracking NESTING: a task line indented deeper than the nearest
+ * preceding task line is its child (`- [ ] parent` / `  - [ ] child`). The parent chain is an
+ * indent stack; a non-blank, non-task line pops the chain back to its own indent — so top-level
+ * prose between lists breaks nesting, but a wrapped continuation line indented under its item
+ * keeps it. Blank lines never break the chain (loose lists). Empty checkbox lines (`- [ ]` with
+ * no task text) are skipped and never parent anything.
+ */
+function scanTaskLines(notes: string, visit: (t: ScannedTask) => void): void {
+  const lines = notes.split("\n");
+  const stack: { width: number; line: number; depth: number }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(TASK_LINE_RE);
+    if (!m) {
+      if (lines[i].trim() === "") continue;
+      const w = indentWidth(lines[i]);
+      while (stack.length && stack[stack.length - 1].width >= w) stack.pop();
+      continue;
+    }
+    const tok = tokenizeLine(m[3]);
+    if (tok.text === "") continue; // skip empty checkbox lines (`- [ ]` with no task text)
+    const width = indentWidth(m[1]);
+    while (stack.length && stack[stack.length - 1].width >= width) stack.pop();
+    const top = stack.length ? stack[stack.length - 1] : undefined;
+    const depth = top ? top.depth + 1 : 0;
+    visit({ line: i + 1, raw: lines[i], done: m[2].toLowerCase() === "x", tok, depth, parentLine: top?.line ?? null });
+    stack.push({ width, line: i + 1, depth });
+  }
+}
+
+function buildTodoFrom(ctx: TodoContext, t: ScannedTask, today: string | undefined): ParsedTodo {
+  const { line, raw, done, tok, depth, parentLine } = t;
   const entities = tok.entities;
   // Resolve a line `due:`/`start:` (which may be a keyword/offset) to a concrete date.
   const dueTok = tok.due ? resolveDateToken(tok.due, today) : undefined;
@@ -297,6 +353,8 @@ function buildTodoFrom(ctx: TodoContext, line: number, raw: string, done: boolea
     occurrenceKey: ctx.occurrenceKey,
     dailyDate: ctx.dailyDate,
     line,
+    indent: depth,
+    parentLine,
     priority: tok.priority,
     due,
     dueTz,
@@ -325,20 +383,12 @@ export function parseTodos(event: TodoEventContext, today?: string): ParsedTodo[
 
   const scan = (notes: string | null | undefined, occurrenceKey: string | null, eventDate: string, eventEndDate: string) => {
     if (!notes) return;
-    const lines = notes.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(TASK_LINE_RE);
-      if (!m) continue;
-      const tok = tokenizeLine(m[3]);
-      if (tok.text === "") continue; // skip empty checkbox lines (`- [ ]` with no task text)
-      const done = m[2].toLowerCase() === "x";
-      const ctx: TodoContext = {
-        source: "event", eventId: event.id, eventTitle: event.title, eventKind: event.kind,
-        occurrenceKey, inheritDate: eventDate, inheritEndDate: eventEndDate,
-        inheritColor: event.color, inheritTags: event.tags, originTz: event.originTz,
-      };
-      out.push(buildTodoFrom(ctx, i + 1, lines[i], done, tok, today));
-    }
+    const ctx: TodoContext = {
+      source: "event", eventId: event.id, eventTitle: event.title, eventKind: event.kind,
+      occurrenceKey, inheritDate: eventDate, inheritEndDate: eventEndDate,
+      inheritColor: event.color, inheritTags: event.tags, originTz: event.originTz,
+    };
+    scanTaskLines(notes, (t) => out.push(buildTodoFrom(ctx, t, today)));
   };
 
   // Base note inherits the event's start date (default due) and end date (followup base); a
@@ -358,20 +408,12 @@ export function parseTodos(event: TodoEventContext, today?: string): ParsedTodo[
 export function parseDailyNoteTodos(date: string, notes: string | null | undefined, today?: string): ParsedTodo[] {
   if (!notes) return [];
   const out: ParsedTodo[] = [];
-  const lines = notes.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(TASK_LINE_RE);
-    if (!m) continue;
-    const tok = tokenizeLine(m[3]);
-    if (tok.text === "") continue;
-    const done = m[2].toLowerCase() === "x";
-    const ctx: TodoContext = {
-      source: "daily", eventId: "", eventTitle: `Daily note · ${date}`, eventKind: "daily",
-      occurrenceKey: null, dailyDate: date, inheritDate: date, inheritEndDate: date,
-      inheritColor: "default", inheritTags: [],
-    };
-    out.push(buildTodoFrom(ctx, i + 1, lines[i], done, tok, today));
-  }
+  const ctx: TodoContext = {
+    source: "daily", eventId: "", eventTitle: `Daily note · ${date}`, eventKind: "daily",
+    occurrenceKey: null, dailyDate: date, inheritDate: date, inheritEndDate: date,
+    inheritColor: "default", inheritTags: [],
+  };
+  scanTaskLines(notes, (t) => out.push(buildTodoFrom(ctx, t, today)));
   return out;
 }
 

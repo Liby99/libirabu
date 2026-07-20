@@ -729,20 +729,26 @@ final class CatcherView: NSView, NSMenuItemValidation {
                 return nil
             }
             // Cmd+K → hold-to-show the shortcut guide (ignore auto-repeat; released on keyUp/flagsChanged).
+            // Deliberately ABOVE the text-input check: the guide is a transient overlay that types
+            // nothing, and while a note editor is focused it's how the editor's own keys are discovered.
             if e.keyCode == 40, e.modifierFlags.contains(.command) {
                 if !keyGuideShown {
                     keyGuideShown = true; onKeyGuide?(true)
                 }
                 return nil
             }
+            // A focused field/editor owns every other key: typing, native undo, and the markdown
+            // editor's own bindings (Tab/⇧Tab indent, ⌥↑/⌥↓ move line, ⌘←/→ line bounds, ⌘S preview,
+            // Esc exit). ALL custom hotkeys below — including ⌘F search — stand down so none of them
+            // can hitch the editor.
+            if isTextInputFocused() {
+                return e
+            }
             // Cmd+F → open the toolbar search field (works from any state; the field then owns the keys).
             if e.keyCode == 3, e.modifierFlags.contains(.command), !e.isARepeat {
                 onSearch?()
                 return nil
             }
-            if isTextInputFocused() {
-                return e
-            } // a focused field/editor owns the key (typing, native undo)
             // ⌘Z / ⌘⇧Z are owned SOLELY by the Edit▸Undo/Redo menu command (one focus-aware handler). We
             // must NOT act on them here — doing so alongside the menu shortcut fired undo twice (rename +
             // create both undone on one press) — but we also must not let the catch-all `return nil` below

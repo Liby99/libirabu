@@ -28,6 +28,11 @@ extension CalendarEngine {
         guard cursor.dashStop == .todo else { return }; enterKeyboardMode(); onDashCommand?(.open)
     }
 
+    /// ←/→ on the TODO stop: fold / unfold the focused row's sub-tasks (no-op on a leaf row).
+    public func dashFold(_ open: Bool) {
+        guard cursor.dashStop == .todo else { return }; enterKeyboardMode(); onDashCommand?(.fold(open))
+    }
+
     /// The note editor handed focus back (Esc or ⌘S in the WebView) → return to the NOTE ring.
     public func dashNoteExit() {
         guard cursor.dashStop == .note else { return }; cursor.dashNoteEditing = false; onDashCommand?(.focus(.note))

@@ -163,6 +163,9 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     func navOpen() {
         eval("CK.navOpen()")
     } // Enter → open the focused TODO
+    func navFold(_ open: Bool) {
+        eval("CK.navFold(\(open))")
+    } // ←/→ → fold/unfold the focused TODO's subtree
     /// Enter on the NOTE stop → let the WebView own the keys (allow focus + first responder) and focus
     /// the CodeMirror editor.
     func focusNoteEditor() {
