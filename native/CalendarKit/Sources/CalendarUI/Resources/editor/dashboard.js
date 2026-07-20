@@ -55710,8 +55710,10 @@
     dy: 0,
     mFrom: "",
     mTo: "",
-    mDir: 0,
-    mP: 0
+    mDy0: 0,
+    mDy1: 0,
+    sDx0: 0,
+    sDx1: 0
   };
   var last = { ...TICK_DEFAULTS };
   var root5 = document.getElementById("dash");
@@ -56020,7 +56022,24 @@
   var liveMode = "";
   var dayViewShown = false;
   function apply() {
-    const { from, to, dir, p: p3, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDir, mP } = last;
+    const {
+      from,
+      to,
+      dir,
+      p: p3,
+      reveal,
+      slide,
+      scopeA,
+      scopeB,
+      scopeT,
+      dy,
+      mFrom,
+      mTo,
+      mDy0,
+      mDy1,
+      sDx0,
+      sDx1
+    } = last;
     if (reveal < 0.02) {
       if (dayViewShown) {
         dayViewShown = false;
@@ -56041,30 +56060,30 @@
     for (const [name2, el] of Object.entries(layers)) {
       let x = 0, op2 = 0;
       if (name2 === scopeB) {
-        x = -(1 - t2) * 100;
+        x = sDx1;
         op2 = t2;
       } else if (name2 === scopeA) {
-        x = t2 * 100;
+        x = sDx0;
         op2 = 1 - t2;
       }
       if (scopeA === scopeB && name2 === scopeA) {
         x = 0;
         op2 = 1;
       }
-      el.style.transform = `translateX(${x.toFixed(3)}%)`;
+      el.style.transform = `translateX(${x.toFixed(1)}px)`;
       el.style.opacity = op2.toFixed(3);
       el.style.pointerEvents = op2 > 0.999 ? "auto" : "none";
     }
     const scopeIsDay = (t2 > 0.5 ? scopeB : scopeA) === "day";
     renderMonthPH(mp0, mFrom || "Month");
-    if (mP > 1e-4 && mTo) {
+    if (mTo) {
       renderMonthPH(mp1, mTo);
-      mp0.style.transform = `translateY(${(-mDir * mP * 100).toFixed(3)}%)`;
-      mp0.style.opacity = (1 - mP).toFixed(3);
-      mp1.style.transform = `translateY(${(mDir * (1 - mP) * 100).toFixed(3)}%)`;
-      mp1.style.opacity = mP.toFixed(3);
+      mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
+      mp0.style.opacity = "1";
+      mp1.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
+      mp1.style.opacity = "1";
     } else {
-      mp0.style.transform = "translateY(0)";
+      mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
       mp0.style.opacity = "1";
       mp1.style.opacity = "0";
     }

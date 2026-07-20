@@ -489,7 +489,18 @@ public struct CalendarView: View {
                                headerTopY2: Double(fHeader2.bandY),
                                panelLeft: Double(dashboardLeftAnimated(input)),
                                webDy: Double(fRest.bandY - Layout.topPad),
-                               mFrom: mFrom, mTo: mTo, mDir: mDir, mP: mP)
+                               mFrom: mFrom, mTo: mTo, mDir: mDir, mP: mP,
+                               // Month-turn PIXEL offsets for the webview sub-panels, relative to the
+                               // resting frame (the root already carries the accordion dy): each
+                               // sub-panel rides its band's frame EXACTLY — same staggered easing,
+                               // same asymmetric travel as the Canvas header. Native is the standard.
+                               mDy0: Double(fHeader.bandY - fRest.bandY),
+                               mDy1: Double(fHeader2.bandY - fRest.bandY),
+                               // Scope-zoom PIXEL x-offsets from the LIVE panel width (it morphs while
+                               // zooming — a %-of-frame slide in the webview would run at a different
+                               // speed than the Canvas header panels).
+                               sDx0: sT * Double(vp.w - dashboardLeftAnimated(input)),
+                               sDx1: (sT - 1) * Double(vp.w - dashboardLeftAnimated(input)))
                     .frame(width: 0, height: 0)
             }
         }

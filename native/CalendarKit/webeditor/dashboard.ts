@@ -42,7 +42,8 @@ function ensureTodos() {
 // undefined (the positional-arity version once blanked the whole webview that way).
 const TICK_DEFAULTS = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
                         scopeA: "day", scopeB: "day", scopeT: 1,
-                        dy: 0, mFrom: "", mTo: "", mDir: 0, mP: 0 };
+                        dy: 0, mFrom: "", mTo: "", mDy0: 0, mDy1: 0,
+                        sDx0: 0, sDx1: 0 };
 let last = { ...TICK_DEFAULTS };
 
 const root = document.getElementById("dash")!;                 // reveal wrapper (zoom slide + fade)
@@ -395,7 +396,8 @@ let liveShown = false, liveMode = "";
 // editor over the centered panel at rest.
 let dayViewShown = false;   // true once the dashboard is revealed (day view); reset when hidden
 function apply() {
-  const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDir, mP } = last;
+  const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDy0, mDy1,
+          sDx0, sDx1 } = last;
   // Leaving day view (reveal fell to hidden) forgets every day's scroll, so re-entering day view always
   // starts at the top — the scroll doesn't carry across a trip out to week/month view. The reset on
   // re-entry restores from the (now-empty) map, i.e. 0, without re-rendering the unchanged panels.
@@ -415,32 +417,35 @@ function apply() {
   root.style.opacity = reveal.toFixed(3);
   root.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
   // ── Zoom-scope carousel: place the three scope layers (day = #panels, week, month) with the
-  // Canvas scopePair math — the finer (upper) scope enters from the LEFT as z rises (x −100%→0),
-  // the coarser (lower) exits right (0→+100%); zooming out runs the same path backwards.
+  // Canvas scopePair math. Offsets arrive in PIXELS from Swift (sDx0 = lower/outgoing,
+  // sDx1 = upper/incoming) computed against the LIVE panel width — the panel morphs while
+  // zooming, so a %-of-frame-width slide here would run at a different speed than the Canvas
+  // header. Native is the correctness standard.
   const layers: Record<string, HTMLElement> = { day: panelsEl, week: weekLayer, month: monthLayer };
   const t = scopeT;
   for (const [name, el] of Object.entries(layers)) {
     let x = 0, op = 0;
-    if (name === scopeB) { x = -(1 - t) * 100; op = t; }
-    else if (name === scopeA) { x = t * 100; op = 1 - t; }
+    if (name === scopeB) { x = sDx1; op = t; }
+    else if (name === scopeA) { x = sDx0; op = 1 - t; }
     // scopeA === scopeB (rest at month tail): the single active layer sits centered, opaque.
     if (scopeA === scopeB && name === scopeA) { x = 0; op = 1; }
-    el.style.transform = `translateX(${x.toFixed(3)}%)`;
+    el.style.transform = `translateX(${x.toFixed(1)}px)`;
     el.style.opacity = op.toFixed(3);
     el.style.pointerEvents = op > 0.999 ? "auto" : "none";
   }
   const scopeIsDay = (t > 0.5 ? scopeB : scopeA) === "day";
-  // Month page-turn: vertical carousel of the month sub-panels, matching the calendar's paging
-  // (next month rises from below; previous descends from above) with a cross-fade.
+  // Month page-turn: the sub-panels ride their bands' frames in PIXELS (mDy0/mDy1 are the
+  // band-frame deltas Swift computes — same staggered easing, same asymmetric travel as the
+  // Canvas header). Movement only, no cross-fade: the native header panels don't fade either.
   renderMonthPH(mp0, mFrom || "Month");
-  if (mP > 0.0001 && mTo) {
+  if (mTo) {
     renderMonthPH(mp1, mTo);
-    mp0.style.transform = `translateY(${(-mDir * mP * 100).toFixed(3)}%)`;
-    mp0.style.opacity = (1 - mP).toFixed(3);
-    mp1.style.transform = `translateY(${(mDir * (1 - mP) * 100).toFixed(3)}%)`;
-    mp1.style.opacity = mP.toFixed(3);
+    mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
+    mp0.style.opacity = "1";
+    mp1.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
+    mp1.style.opacity = "1";
   } else {
-    mp0.style.transform = "translateY(0)"; mp0.style.opacity = "1";
+    mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`; mp0.style.opacity = "1";
     mp1.style.opacity = "0";
   }
   if (isoOf.get(p0) !== from) renderPanel(p0, from);
