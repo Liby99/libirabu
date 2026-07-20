@@ -468,6 +468,10 @@ public struct CalendarView: View {
                 // Header anchor: the focused band's animated frame (accordion + page-turns) keeps
                 // the Canvas header, native tabs, and webview content vertically in lock-step.
                 let fHeader = frameFor(input.focus, input, anim: input.monthAnim)
+                // The INCOMING month's band frame during a page-turn (tabs ride both headers).
+                let fHeader2 = input.monthAnim.map { a in
+                    frameFor(input.focus + a.dir, input, anim: input.monthAnim)
+                } ?? fHeader
                 // The webview's own vertical shift excludes page-turns (its month LAYER carousels
                 // those internally) — so compute the accordion-only frame.
                 let fRest = frameFor(input.focus, input)
@@ -482,6 +486,7 @@ public struct CalendarView: View {
                                dir: c.dir, p: c.p, reveal: c.reveal, slide: slide,
                                scopeA: sA, scopeB: sB, scopeT: sT,
                                headerTopY: Double(fHeader.bandY),
+                               headerTopY2: Double(fHeader2.bandY),
                                panelLeft: Double(dashboardLeftAnimated(input)),
                                webDy: Double(fRest.bandY - Layout.topPad),
                                mFrom: mFrom, mTo: mTo, mDir: mDir, mP: mP)

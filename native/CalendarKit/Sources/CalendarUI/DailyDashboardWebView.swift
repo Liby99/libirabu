@@ -189,10 +189,14 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     var reveal = 1.0
     var slide = 0.0
     var headerTopY = Double(Layout.topPad) // the focused band's ANIMATED top (accordion / page-turn)
+    var headerTopY2 = Double(Layout.topPad) // the INCOMING month band's top during a page-turn
     var panelLeft = 0.0 // dashboardLeftAnimated — the panel's live left edge (pinned width morphs)
-    var monthP = 0.0 // month page-turn progress (native overlays fade out during a turn)
+    var monthP = 0.0 // month page-turn progress
+    var monthDir = 0
+    var scopeT = 1.0 // zoom-scope carousel fraction (0 = lower scope at rest … 1 = upper at rest)
     func set(dir: Int, p: Double, reveal: Double, slide: Double,
-             headerTopY: Double, panelLeft: Double, monthP: Double) {
+             headerTopY: Double, headerTopY2: Double, panelLeft: Double,
+             monthP: Double, monthDir: Int, scopeT: Double) {
         if self.dir != dir {
             self.dir = dir
         }
@@ -214,6 +218,15 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         if self.monthP != monthP {
             self.monthP = monthP
         }
+        if self.headerTopY2 != headerTopY2 {
+            self.headerTopY2 = headerTopY2
+        }
+        if self.monthDir != monthDir {
+            self.monthDir = monthDir
+        }
+        if self.scopeT != scopeT {
+            self.scopeT = scopeT
+        }
     }
 }
 
@@ -227,6 +240,7 @@ struct CarouselDriver: NSViewRepresentable {
     var scopeA: String = "day", scopeB: String = "day" // zoom-scope carousel (month/week/day)
     var scopeT: Double = 1 // eased fraction between scopeA (lower) and scopeB (upper)
     var headerTopY: Double = Double(Layout.topPad) // focused band's animated top (canvas-anchored)
+    var headerTopY2: Double = Double(Layout.topPad) // incoming month band's top (page-turns)
     var panelLeft: Double = 0 // dashboardLeftAnimated (for the native tab overlay)
     var webDy: Double = 0 // vertical shift of the webview CONTENT (accordion; excludes page-turns)
     var mFrom: String = "", mTo: String = "" // month page-turn labels (webview vertical carousel)
@@ -241,7 +255,8 @@ struct CarouselDriver: NSViewRepresentable {
                       scopeA: scopeA, scopeB: scopeB, scopeT: scopeT,
                       dy: webDy, mFrom: mFrom, mTo: mTo, mDir: mDir, mP: mP)
         anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
-                 headerTopY: headerTopY, panelLeft: panelLeft, monthP: mP)
+                 headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
+                 monthP: mP, monthDir: mDir, scopeT: scopeT)
     }
 }
 
@@ -569,10 +584,15 @@ struct DashTabsOverlay: View {
             let left = Layout.padLeft + CGFloat(anim.panelLeft)
             let right = containerWidth - Layout.padRight
             let w = max(1, right - left)
-            let titleY = CGFloat(anim.headerTopY) + Layout.monthH - 14
+            // A month page-turn shows TWO copies, each riding its own band's header (identical
+            // rows — the pair reads as the tabs traveling with the sliding sheets, exactly like
+            // the Canvas headers). At rest a single copy, anchored to the focused header.
             DashTabs(tab: $tab, theme: theme, anim: anim, w: w)
-                .position(x: left + w / 2, y: titleY)
-                .opacity(anim.monthP > 0.01 ? 0 : 1)
+                .position(x: left + w / 2, y: CGFloat(anim.headerTopY) + Layout.monthH - 14)
+            if anim.monthP > 0.001 {
+                DashTabs(tab: $tab, theme: theme, anim: anim, w: w)
+                    .position(x: left + w / 2, y: CGFloat(anim.headerTopY2) + Layout.monthH - 14)
+            }
         }
     }
 }
@@ -613,15 +633,26 @@ private struct DashTabs: View {
     let w: CGFloat
     var body: some View {
         let base = anim.slide * w
+        let sT = CGFloat(anim.scopeT)
         ZStack {
-            row.offset(x: base - CGFloat(anim.dir) * anim.p * w).opacity(anim.reveal * (1 - anim.p))
-            if anim.p > 0.001 {
-                row.offset(x: base + CGFloat(anim.dir) * (1 - anim.p) * w).opacity(anim.reveal * anim.p)
+            if sT > 0.001, sT < 0.999 {
+                // Zoom-scope transition: the tabs carousel WITH the scope panels — the outgoing
+                // copy exits right, an identical incoming copy enters from the left (they're the
+                // same row, so the pair reads as the tabs belonging to each sliding sheet).
+                row.offset(x: base + sT * w).opacity(anim.reveal * Double(1 - sT))
+                row.offset(x: base - (1 - sT) * w).opacity(anim.reveal * Double(sT))
+            } else {
+                row.offset(x: base - CGFloat(anim.dir) * anim.p * w).opacity(anim.reveal * (1 - anim.p))
+                if anim.p > 0.001 {
+                    row.offset(x: base + CGFloat(anim.dir) * (1 - anim.p) * w).opacity(anim.reveal * anim.p)
+                }
             }
         }
         .frame(width: w, height: 24)
         .clipped() // clip a sliding copy at the panel edge
-        .allowsHitTesting(anim.reveal > 0.5 && anim.p < 0.01) // interactive only at rest, revealed
+        // Interactive only at rest: revealed, no day-page, no scope-zoom, no month-turn in flight.
+        .allowsHitTesting(anim.reveal > 0.5 && anim.p < 0.01
+            && (anim.scopeT < 0.001 || anim.scopeT > 0.999) && anim.monthP < 0.01)
     }
 
     private var row: some View {
