@@ -171,6 +171,24 @@ extension CalendarEngine {
         }
     }
 
+    /// Bench: time the pure notification-planning pass over the CURRENT store (prefs forced
+    /// enabled, all kinds on) — per-rep milliseconds. This is the exact main-thread stall a
+    /// post-edit resync costs at this data size when the plan runs synchronously on main.
+    public func benchNotifyPlan(reps: Int) -> [Double] {
+        var prefs = NotifyPrefs.load()
+        prefs.enabled = true
+        for k in NotifyKind.allCases {
+            prefs.kindEnabled[k] = true
+        }
+        var out: [Double] = []
+        for _ in 0 ..< reps {
+            let t0 = DispatchTime.now().uptimeNanoseconds
+            _ = NotifyPlanner.plan(items: items, mainTz: mainTz, prefs: prefs, now: Date())
+            out.append(Double(DispatchTime.now().uptimeNanoseconds &- t0) / 1e6)
+        }
+        return out
+    }
+
     /// Bench: has the year-scroll glide finished? (Poll + `wake()` while false to keep the frames coming.)
     public var demoYearScrollSettled: Bool {
         anim.scrollTween == nil

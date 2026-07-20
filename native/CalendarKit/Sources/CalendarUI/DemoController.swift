@@ -108,6 +108,7 @@ public final class DemoController {
         case "bench-year-fling": await sceneBenchYearFling()
         case "bench-month-swipe": await sceneBenchMonthSwipe()
         case "bench-pinch-zoom": await sceneBenchPinchZoom()
+        case "bench-notify-plan": await sceneBenchNotifyPlan()
         default:
             NSLog("DemoController: UNKNOWN scene '%@' — falling back to timed-week (check the CC_DEMO value)", scene)
             await sceneTimedWeek()
@@ -1007,6 +1008,25 @@ public final class DemoController {
         RenderProf.mark("benchEnd")
         benchActive = false
         writeBenchResults()
+    }
+
+    /// Times the pure notification-planning pass over the loaded store (the main-thread stall a
+    /// post-edit resync costs) → $CC_DEMO_DATADIR/notify-bench.json.
+    private func sceneBenchNotifyPlan() async {
+        guard let engine else { return }
+        try? await pause(1.5) // store load settle
+        let ms = engine.benchNotifyPlan(reps: 20)
+        let sorted = ms.sorted()
+        let out: [String: Any] = [
+            "reps": ms.count,
+            "plan_ms_min": (sorted.first! * 100).rounded() / 100,
+            "plan_ms_p50": (sorted[sorted.count / 2] * 100).rounded() / 100,
+            "plan_ms_max": (sorted.last! * 100).rounded() / 100,
+        ]
+        if let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty,
+           let data = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: dir).appendingPathComponent("notify-bench.json"))
+        }
     }
 
     /// Frame-time stats over the recorded ticks → $CC_DEMO_DATADIR/bench.json.

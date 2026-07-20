@@ -87,7 +87,25 @@ public final class NotificationScheduler: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 
+    // Reentrancy guard: with the plan computed off-main, resyncNow suspends mid-flight — a second
+    // entry could otherwise interleave its stale-removal with the first's adds. One runs at a
+    // time; a request that lands mid-flight queues exactly one follow-up pass.
+    private var resyncInFlight = false
+    private var resyncQueued = false
+
     private func resyncNow() async {
+        if resyncInFlight {
+            resyncQueued = true
+            return
+        }
+        resyncInFlight = true
+        defer {
+            resyncInFlight = false
+            if resyncQueued {
+                resyncQueued = false
+                Task { @MainActor in await self.resyncNow() }
+            }
+        }
         // The tracked engine can still die (window teardown) — fall back to the app's main one.
         let live = engine ?? CalendarEngine.mainInstance
         guard let engine = live else {
@@ -118,7 +136,17 @@ public final class NotificationScheduler: NSObject {
             }
             return
         }
-        let plan = NotifyPlanner.plan(items: engine.items, mainTz: engine.mainTz, prefs: prefs, now: Date())
+        // Plan OFF the main thread: the pure pass walks every event/band/deadline + todo scan —
+        // measured 3.4-6.7ms on the real store and 10-20ms on the dense payload, i.e. a dropped
+        // frame (or two) landing 1s after every edit while it ran synchronously here on main.
+        // CalendarItems is a Sendable value snapshot, so the detached compute sees a consistent
+        // copy; only the UNUserNotificationCenter reconcile below stays on the main actor.
+        let itemsSnapshot = engine.items
+        let mainTz = engine.mainTz
+        let now = Date()
+        let plan = await Task.detached(priority: .utility) {
+            NotifyPlanner.plan(items: itemsSnapshot, mainTz: mainTz, prefs: prefs, now: now)
+        }.value
         let desired = Dictionary(plan.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let pending = Set(ours)
         let stale = pending.subtracting(desired.keys)
