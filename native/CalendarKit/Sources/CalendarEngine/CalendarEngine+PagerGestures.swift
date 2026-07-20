@@ -49,6 +49,20 @@ extension CalendarEngine {
         wake(); daily.frac = clamp(f, 0.22, 0.82); chrome.dailyResync &+= 1
     }
 
+    /// Split-handle drag at a PINNED month/week: adjusts (and persists) that scope's panel width.
+    /// The clamp keeps the panel usable without letting it eat the squeezed grid.
+    public func setDashPinFrac(_ f: CGFloat) {
+        wake()
+        let v = clamp(f, 0.15, 0.55)
+        if level(z) <= 1 {
+            dashMonthFrac = v; chrome.dashMonthFrac = v
+            UserDefaults.standard.set(Double(v), forKey: PrefKeys.dashMonthFrac)
+        } else {
+            dashWeekFrac = v; chrome.dashWeekFrac = v
+            UserDefaults.standard.set(Double(v), forKey: PrefKeys.dashWeekFrac)
+        }
+    }
+
     /// True when the current overscroll pull has passed the flip threshold — peeked on fingers-up so
     /// the catcher can withhold `.ended` from the pager (preventing a stale snap animation).
     public var weekFlipArmed: Bool {

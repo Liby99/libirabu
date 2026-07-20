@@ -10,6 +10,14 @@ import Observation
 public final class CalendarChrome {
     public internal(set) var level = 0 // 0 year · 1 month · 2 week · 3 day
     public internal(set) var dashPinned = UserDefaults.standard.bool(forKey: PrefKeys.dashPinned) // ⌘B panel pin
+    // Pinned panel widths, mirrored here (observable) so the WebView frame + tab overlays re-lay-out
+    // LIVE while the split handle drags (the engine itself isn't @Observable).
+    public internal(set) var dashWeekFrac: CGFloat = {
+        let v = UserDefaults.standard.double(forKey: PrefKeys.dashWeekFrac); return v > 0 ? v : 0.35
+    }()
+    public internal(set) var dashMonthFrac: CGFloat = {
+        let v = UserDefaults.standard.double(forKey: PrefKeys.dashMonthFrac); return v > 0 ? v : 0.25
+    }()
     public internal(set) var year = 2026
     public internal(set) var focus = 0 // month 0–11 — the RENDER anchor (also sizes the week/day pagers)
     public internal(set) var week = 0.0

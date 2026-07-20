@@ -453,7 +453,7 @@ public struct CalendarView: View {
                 // The webview frame sits at the DAY split in day view, at the narrower PINNED edge
                 // at month/week — normalize the CSS slide against whichever frame is in use.
                 let dayLOpen = Layout.labelW + dashFrac * max(1, vp.w - Layout.labelW)
-                let pinFrac = engine.chrome.level <= 1 ? engine.dashMonthFrac : engine.dashWeekFrac
+                let pinFrac = engine.chrome.level <= 1 ? engine.chrome.dashMonthFrac : engine.chrome.dashWeekFrac
                 let pinLOpen = vp.w - pinFrac * (vp.w - Layout.labelW)
                 let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPinned) ? pinLOpen : dayLOpen
                 let wvW = max(1, vp.w - lOpen)
@@ -616,7 +616,9 @@ public struct CalendarView: View {
                     // so it grabs the mouse in its narrow zone (the rest passes through). Shown in day view;
                     // reads chrome.level (@Observable) so it appears/disappears as you zoom.
                     .overlay {
-                        if engine.chrome.level == 3, ui.openEventId == nil {
+                        if engine.chrome.level == 3
+                            || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)),
+                            ui.openEventId == nil {
                             DashboardSplitHandle(engine: engine, vp: vp, height: geo.size.height, theme: theme,
                                                  onFrac: { dashFrac = $0 })
                         }

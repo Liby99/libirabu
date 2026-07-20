@@ -504,7 +504,7 @@ struct DailyDashboardOverlay: View {
         // a per-frame frame animation across the week→day widening is a phase-2 refinement.)
         let dayLeftGeo = Layout.labelW + frac * contentW // mirrors SceneRenderer.dashboardLeft
         let dashLeftGeo = (engine.chrome.level < 3 && engine.chrome.dashPinned)
-            ? vp.w - (engine.chrome.level <= 1 ? engine.dashMonthFrac : engine.dashWeekFrac) * contentW
+            ? vp.w - (engine.chrome.level <= 1 ? engine.chrome.dashMonthFrac : engine.chrome.dashWeekFrac) * contentW
             : dayLeftGeo
         let left = Layout.padLeft + dashLeftGeo // full panel: no gutter inset (CSS pads it)
         let right = containerWidth - Layout.padRight
