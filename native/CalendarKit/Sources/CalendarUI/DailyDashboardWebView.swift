@@ -27,17 +27,14 @@ import WebKit
 final class PassThroughWebView: WKWebView, FocusGatedControl {
     weak var forwarder: GestureForwarder?
 
-    /// Whole-panel motion, applied NATIVELY: the reveal slide (dx), the accordion follow (dy), and
-    /// the reveal fade run on this view's layer in the APP process — a per-frame
-    /// evaluateJavaScript would hop into the WebContent process and land on its own (often 60Hz)
-    /// async commit cadence, which is exactly the judder the CSS-transform version showed. Only
-    /// the multi-element inner carousels stay in JS.
-    func setPanelShift(dx: CGFloat, dy: CGFloat, alpha: CGFloat) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer?.sublayerTransform = CATransform3DMakeTranslation(dx, dy, 0)
-        alphaValue = alpha
-        CATransaction.commit()
+    /// The reveal FADE, applied natively (view alphaValue — plain AppKit compositing of the hosted
+    /// layer, safe). Panel MOTION stays in CSS: transforming the WKWebView's own layer
+    /// (sublayerTransform) fought WebKit's remote-layer commits — each web-process commit
+    /// re-asserted its geometry, alternating shifted/reset frames, i.e. flicker.
+    func setPanelAlpha(_ alpha: CGFloat) {
+        if alphaValue != alpha {
+            alphaValue = alpha
+        }
     }
     private enum Axis { case undecided, horizontal, vertical }
     private var axis: Axis = .undecided
@@ -151,12 +148,8 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             return
         }
         lastKey = key
-        // Whole-panel motion natively, on the view's layer (see PassThroughWebView.setPanelShift):
-        // slide (fraction of the webview width) + accordion dy + reveal fade.
-        if let ptw = web as? PassThroughWebView {
-            ptw.setPanelShift(dx: CGFloat(slide) * ptw.frame.width, dy: CGFloat(dy),
-                              alpha: CGFloat(reveal))
-        }
+        // Reveal fade natively (safe: view-level alpha); motion stays in CSS — see setPanelAlpha.
+        (web as? PassThroughWebView)?.setPanelAlpha(CGFloat(reveal))
         func r4(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
         let payload: [String: Any] = [
             "from": from, "to": to, "dir": dir,

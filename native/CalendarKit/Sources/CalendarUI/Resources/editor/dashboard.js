@@ -56052,6 +56052,7 @@
       P0.scroll.scrollTop = 0;
       P1.scroll.scrollTop = 0;
     }
+    root5.style.transform = `translate(${(slide * 100).toFixed(3)}%, ${dy.toFixed(1)}px)`;
     root5.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
     const layers = { day: panelsEl, week: weekLayer, month: monthLayer };
     const t2 = scopeT;
