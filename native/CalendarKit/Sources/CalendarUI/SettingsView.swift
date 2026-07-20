@@ -722,10 +722,20 @@ private struct KindSection: View {
 
 private struct DeveloperTab: View {
     @AppStorage("cc.fpsHUD") private var fpsHUD = false
+    @AppStorage("cc.performanceMode") private var perfMode = true
 
     var body: some View {
         Form {
             Section("Performance") {
+                Toggle("Performance Mode (flat event fills)", isOn: $perfMode)
+                    .toggleStyle(.switch)
+                Text("On (default): events render as flat tinted fills, and untouched events draw in a " +
+                    "single canvas layer — the fast path behind the 120fps scrolling. Off: events become " +
+                    "individual Liquid Glass views (real backdrop blur) from month zoom in; the year view " +
+                    "keeps flat fills either way (a full year of glass is one blur pass per event). " +
+                    "Expect lower frame rates and higher GPU load while it's off.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("Show frame rate HUD", isOn: $fpsHUD)
                     .toggleStyle(.switch)
                 Text("Overlays live render-loop frame timing in the calendar window's corner. " +
