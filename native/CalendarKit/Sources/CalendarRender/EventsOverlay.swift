@@ -15,7 +15,7 @@ import SwiftUI
 public struct EventsOverlay: View {
     var input: SceneInput // var: the year layer cache renders a copy with the scroll-free input
     let events: [TimedEvent]
-    let bands: [BandEvent]
+    var bands: [BandEvent] // var: per-month rigid layers render a month-sliced copy
     var bandBadges: [String: EventBadges] = [:] // provenance/kind markers per band box id
     var eventBadges: [String: EventBadges] = [:] // …and per timed-event box id
     var selected: String? // the PRIMARY selected BOX id (a ghost carries occKey); series-matched below
@@ -182,14 +182,25 @@ public struct EventsOverlay: View {
         let layers = timedLayers(anim, tlOut, outMul, clipRight)
 
         ZStack(alignment: .topLeading) {
-            // Rest-year layer cache: plain bands render ONCE into a full-year-height rigid canvas
-            // that CoreAnimation translates by -scrollY — no per-frame re-record. The overlay copy
-            // it renders carries the scroll-free g0 as its input; the Equatable == (bands content,
-            // activation ids, theme) decides when a re-record is actually needed. Wrapped in an
-            // overlay so the tall canvas doesn't inflate this ZStack's own layout size.
+            // Rest-year layer cache: plain bands render into rigid canvases that CoreAnimation
+            // translates by -scrollY — no per-frame re-record. PER-MONTH granularity: hovering a
+            // band (or editing one) invalidates only ITS month's small layer (~40 bands, ~0.4ms),
+            // not the whole year — with the dense payload (496 bands) the whole-year layer cost
+            // 4.6ms per hover change and produced 50ms re-record bursts during flings. Year-zoom
+            // band packing is per-(month,track) lane, so a copy holding one month's bands packs
+            // identically. CC_BANDGRAIN_OFF=1 restores the single whole-year layer for A/B.
             if let g0 = yearG0 {
                 Color.clear.overlay(alignment: .top) {
-                    rigidBandsView(g0).offset(y: -input.scrollY)
+                    ZStack(alignment: .topLeading) {
+                        if Self.bandGrainKill {
+                            rigidBandsView(g0)
+                        } else {
+                            ForEach(0 ..< 12, id: \.self) { m in
+                                rigidMonthBandsView(g0, month: m)
+                            }
+                        }
+                    }
+                    .offset(y: -input.scrollY)
                 }
             }
             // Canvas fast path: ALL plain flat stickers in ONE canvas (bands, then each timed layer,
@@ -638,6 +649,35 @@ public struct EventsOverlay: View {
         }
     }
 
+    private static let bandGrainKill = ProcessInfo.processInfo.environment["CC_BANDGRAIN_OFF"] != nil
+
+    /// One MONTH's rigid band canvas: a small equatable layer spanning just the month's band strip
+    /// (4 tracks), holding only that month's bands — so its == key (bands slice + month-filtered
+    /// activation ids) changes only when THIS month changes. Year-zoom packing is per-lane, so the
+    /// month-sliced copy packs identically to the whole-year pass.
+    private func rigidMonthBandsView(_ g0: SceneInput, month m: Int) -> some View {
+        var copy = self
+        copy.input = g0
+        copy.yearG0 = nil
+        let monthBands = bands.filter { $0.year == g0.year && $0.month == m }
+        let ids = Set(monthBands.map(\.id))
+        copy.bands = monthBands
+        copy.bandBadges = bandBadges.filter { ids.contains($0.key) }
+        copy.hovered = hovered.flatMap { ids.contains($0) ? $0 : nil }
+        copy.selected = selected.flatMap { ids.contains($0) ? $0 : nil }
+        copy.selectedIds = selectedIds.intersection(ids)
+        copy.editingId = editingId.flatMap { ids.contains($0) ? $0 : nil }
+        // The month's band strip in content space (g0: scrollY = 0), padded 4px for AA overflow.
+        let f = frameFor(m, g0)
+        let pad: CGFloat = 4
+        let y0 = f.bandY - pad
+        let h = 4 * f.trackH + 2 * pad
+        return YearMonthBandsCanvas(overlay: copy, month: m, yOrigin: y0)
+            .equatable()
+            .frame(height: h)
+            .offset(y: y0)
+    }
+
     /// The record-once rigid band canvas for rest-year: a COPY of this overlay whose input is the
     /// scroll-free g0, wrapped in an Equatable view so the Canvas body (packing + drawing) only
     /// re-runs when band content / activation / theme actually change — not per scroll frame.
@@ -676,6 +716,40 @@ public struct EventsOverlay: View {
             return a.seg.event.startHour < b.seg.event.startHour
         }
         return a.seg.event.endHour > b.seg.event.endHour
+    }
+}
+
+/// One month's rigid band layer (per-month granularity of YearBandsCanvas): a SMALL canvas over
+/// just the month's band strip. Its == sees only the month-sliced bands + month-filtered
+/// activation ids, so a hover/edit elsewhere in the year leaves this layer's display list intact.
+private struct YearMonthBandsCanvas: View, Equatable {
+    let overlay: EventsOverlay // bands sliced to one month; input = scroll-free g0
+    let month: Int
+    let yOrigin: CGFloat // content-space top of this canvas (bandY − pad)
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.month == b.month && a.yOrigin == b.yOrigin
+            && a.overlay.inputRef == b.overlay.inputRef && a.overlay.bands == b.overlay.bands
+            && a.overlay.bandBadges == b.overlay.bandBadges
+            && a.overlay.hovered == b.overlay.hovered && a.overlay.selected == b.overlay.selected
+            && a.overlay.selectedIds == b.overlay.selectedIds
+            && a.overlay.editingId == b.overlay.editingId && a.overlay.hideBox == b.overlay.hideBox
+            && a.overlay.themeRef.dark == b.overlay.themeRef.dark
+            && a.overlay.themeRef.accentDark == b.overlay.themeRef.accentDark
+    }
+
+    var body: some View {
+        Canvas { ctx, _ in
+            var c = ctx
+            RenderProf.measure("rigidBands", "2s_rigidBands") {
+                let g = overlay.inputRef
+                c.translateBy(x: 0, y: -yOrigin) // content space → this month's small canvas
+                c.clip(to: Path(CGRect(x: Layout.labelW, y: yOrigin,
+                                       width: max(0, g.vp.w - Layout.labelW),
+                                       height: 4 * frameFor(month, g).trackH + 8)))
+                StickerCanvas.draw(overlay.rigidBandStickers(), in: &c, theme: overlay.themeRef)
+            }
+        }
     }
 }
 
