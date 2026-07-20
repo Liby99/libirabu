@@ -55697,7 +55697,7 @@
     ];
     todosDirty = false;
   }
-  var last = {
+  var TICK_DEFAULTS = {
     from: "",
     to: "",
     dir: 0,
@@ -55713,6 +55713,7 @@
     mDir: 0,
     mP: 0
   };
+  var last = { ...TICK_DEFAULTS };
   var root5 = document.getElementById("dash");
   var panelsEl = document.getElementById("panels");
   var noteLive = document.getElementById("note-live");
@@ -56244,8 +56245,8 @@
       isoOf.delete(p1);
       apply();
     },
-    tick(from, to, dir, p3, reveal, slide, scopeA = "day", scopeB = "day", scopeT = 1, dy = 0, mFrom = "", mTo = "", mDir = 0, mP = 0) {
-      last = { from, to: to || "", dir, p: p3, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDir, mP };
+    tick(t2) {
+      last = { ...TICK_DEFAULTS, ...t2, to: t2.to || "" };
       apply();
     },
     setTab(t2) {

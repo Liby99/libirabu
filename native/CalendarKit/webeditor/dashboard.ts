@@ -38,9 +38,12 @@ function ensureTodos() {
 // the Canvas `dashboardLeftAnimated` EXACTLY (which also depends on the growing day-column width, not
 // reveal alone). `reveal` starts at 0 (hidden) so a freshly-mounted web view stays invisible until
 // the first real tick — else setData would paint it fully opaque for a frame at week level (a flash).
-let last = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
-             scopeA: "day", scopeB: "day", scopeT: 1,
-             dy: 0, mFrom: "", mTo: "", mDir: 0, mP: 0 };
+// One tick = one object merged over these defaults — a missing/new field can never arrive as
+// undefined (the positional-arity version once blanked the whole webview that way).
+const TICK_DEFAULTS = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
+                        scopeA: "day", scopeB: "day", scopeT: 1,
+                        dy: 0, mFrom: "", mTo: "", mDir: 0, mP: 0 };
+let last = { ...TICK_DEFAULTS };
 
 const root = document.getElementById("dash")!;                 // reveal wrapper (zoom slide + fade)
 const panelsEl = document.getElementById("panels")!;           // carousel content (todo OR note preview)
@@ -610,10 +613,8 @@ root.addEventListener("click", (e) => {
     isoOf.delete(p0); isoOf.delete(p1);   // force a re-render with the new data
     apply();
   },
-  tick(from: string, to: string, dir: number, p: number, reveal: number, slide: number,
-       scopeA: string = "day", scopeB: string = "day", scopeT: number = 1,
-       dy: number = 0, mFrom: string = "", mTo: string = "", mDir: number = 0, mP: number = 0) {
-    last = { from, to: to || "", dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDir, mP };
+  tick(t: Partial<typeof TICK_DEFAULTS>) {
+    last = { ...TICK_DEFAULTS, ...t, to: t.to || "" };
     apply();
   },
   setTab(t: "todo" | "note") { applyTab(t); },               // Swift (native tabs) drives the tab

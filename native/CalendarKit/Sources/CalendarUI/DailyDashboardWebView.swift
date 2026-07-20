@@ -125,6 +125,10 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
 
     /// Push a frame of the day carousel + the zoom-scope carousel (month/week/day panels sliding
     /// along z); skips the JS round-trip when nothing visible changed.
+    ///
+    /// The payload is ONE JSON object (CK.tick({...})) — the JS merges it over its defaults, so
+    /// adding a field can never desynchronize a positional-argument arity again (that bug blanked
+    /// the whole webview once: dy arrived as undefined and apply() threw before painting).
     func tick(from: String, to: String, dir: Int, p: Double, reveal: Double, slide: Double,
               scopeA: String = "day", scopeB: String = "day", scopeT: Double = 1,
               dy: Double = 0, mFrom: String = "", mTo: String = "", mDir: Int = 0, mP: Double = 0) {
@@ -133,7 +137,17 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             return
         }
         lastKey = key
-        let call = "CK.tick(\(js(from)),\(js(to)),\(dir),\(String(format: "%.4f", p)),\(String(format: "%.4f", reveal)),\(String(format: "%.4f", slide)),\(js(scopeA)),\(js(scopeB)),\(String(format: "%.4f", scopeT)),\(String(format: "%.1f", dy)),\(js(mFrom)),\(js(mTo)),\(mDir),\(String(format: "%.4f", mP)))"
+        func r4(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
+        let payload: [String: Any] = [
+            "from": from, "to": to, "dir": dir,
+            "p": r4(p), "reveal": r4(reveal), "slide": r4(slide),
+            "scopeA": scopeA, "scopeB": scopeB, "scopeT": r4(scopeT),
+            "dy": (dy * 10).rounded() / 10,
+            "mFrom": mFrom, "mTo": mTo, "mDir": mDir, "mP": r4(mP),
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let call = "CK.tick(\(json))"
         lastCall = call
         if ready {
             web?.evaluateJavaScript(call)
