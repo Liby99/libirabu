@@ -274,7 +274,7 @@ extension CalendarEngine {
         let overBot = offsetY > maxOff ? offsetY - maxOff : 0
         // Elastic: the month follows the (AppKit-rubber-banded) overscroll and snaps back with it.
         anim.monthFlipShift = overTop > 0 ? overTop : (overBot > 0 ? -overBot : 0)
-        if scroll.liveMonthScrolling, overTop > 2 || overBot > 2 {
+        if scroll.liveMonthScrolling, monthYearFlipEnabled, overTop > 2 || overBot > 2 {
             let atTop = overTop > 0
             scroll.monthPull = YearPull(targetYear: atTop ? year - 1 : year + 1, atTop: atTop,
                                         over: atTop ? overTop : overBot,
@@ -297,7 +297,7 @@ extension CalendarEngine {
         scroll.liveMonthScrolling = false
         let pull = scroll.monthPull
         scroll.monthPull = nil
-        guard let pull, pull.armed, !isMonthFlipping, isMonthLevel else { return }
+        guard let pull, pull.armed, monthYearFlipEnabled, !isMonthFlipping, isMonthLevel else { return }
         let dir = pull.atTop ? -1 : 1
         anim.monthFlip = MonthFlip(dir: dir, fromYear: year, fromFocus: focus,
                                    toYear: year + dir, toFocus: dir < 0 ? 11 : 0,

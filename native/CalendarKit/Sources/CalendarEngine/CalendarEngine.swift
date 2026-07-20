@@ -210,6 +210,9 @@ public final class CalendarEngine {
     // refuse to fire while it's open, matching the monitor's own block on ⌘K/⌘F/etc.
     public var inputModalUp = false
     public var yearFlipEnabled = true // gate the prev/next-year flip
+    /// Gate the MONTH view's Dec↔Jan cross-year flip (elastic overscroll past the first/last
+    /// page). Off on the phone for now — the pager just rubber-bands at the year edges.
+    public var monthYearFlipEnabled = true
     // Year-flip transition: outgoing year scrolls out + fades, then the incoming year
     // slides in from the opposite edge + fades in. Driven by the per-frame clock.
     struct FlipAnim {

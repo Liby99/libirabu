@@ -100,16 +100,25 @@ private func monthSwipeFrame(_ m: Int, _ anim: PageAnim, _ focus: Int, _ vp: Vie
     let x0 = Layout.labelW - mx, dayW = yearDayW(vp)
     let OFF_TOP = -Layout.monthH - 40
     let OFF_BOT = vp.h + 40
+    // Compact (phone): the page turn is a FINGER-TRACKED drag, so both months follow `p`
+    // linearly — direct manipulation, no dead zone. The desktop keeps its staggered
+    // ease-in-out curves (its pager is momentum-driven: p sweeps quickly after a flick,
+    // where the stagger reads as a page turn; under a slow finger it reads as lag).
+    let track = Layout.isCompactGutter
     if m == focus {
-        let bandY = dir > 0
-            ? lerp(Layout.topPad, OFF_TOP, easeInOut(clamp((p - 0.5) / 0.5, 0, 1)))
-            : lerp(Layout.topPad, OFF_BOT, easeInOut(p))
+        let bandY = track
+            ? lerp(Layout.topPad, dir > 0 ? OFF_TOP : OFF_BOT, p)
+            : (dir > 0
+                ? lerp(Layout.topPad, OFF_TOP, easeInOut(clamp((p - 0.5) / 0.5, 0, 1)))
+                : lerp(Layout.topPad, OFF_BOT, easeInOut(p)))
         return Frame(x0: x0, dayW: dayW, bandY: bandY, trackH: Layout.trackH, opacity: 1)
     }
     if m == to {
-        let bandY = dir > 0
-            ? lerp(OFF_BOT, Layout.topPad, easeInOut(p))
-            : lerp(OFF_TOP, Layout.topPad, easeInOut(clamp(p / 0.65, 0, 1)))
+        let bandY = track
+            ? lerp(dir > 0 ? OFF_BOT : OFF_TOP, Layout.topPad, p)
+            : (dir > 0
+                ? lerp(OFF_BOT, Layout.topPad, easeInOut(p))
+                : lerp(OFF_TOP, Layout.topPad, easeInOut(clamp(p / 0.65, 0, 1))))
         return Frame(x0: x0, dayW: dayW, bandY: bandY, trackH: Layout.trackH, opacity: 1)
     }
     return Frame(x0: x0, dayW: dayW, bandY: OFF_BOT, trackH: Layout.trackH, opacity: 0)
