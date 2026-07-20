@@ -248,8 +248,10 @@ public struct WeekTurn: Equatable, Sendable {
 }
 
 /// Left-border day offset (days past the base Sunday) where the week turn runs: p ramps 0→1 over
-/// [anchor, anchor + 1] — 4 = the border sweeping the Thursday column (thu→fri per spec).
-private let weekTurnAnchor: CGFloat = 4
+/// [anchor, anchor + 1] — 3 = the border sweeping the Wednesday column (wed→thu), which puts
+/// p = 0.5 exactly at the true visible-majority tie (3.5 days each side) and makes every rest
+/// stop show the majority week.
+private let weekTurnAnchor: CGFloat = 3
 
 public func weekDashTurn(_ g: SceneInput) -> WeekTurn {
     let base = floor(g.week)
