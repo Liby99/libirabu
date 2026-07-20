@@ -55712,6 +55712,7 @@
     mTo: "",
     mDy0: 0,
     mDy1: 0,
+    mP: 0,
     sDx0: 0,
     sDx1: 0
   };
@@ -56037,6 +56038,7 @@
       mTo,
       mDy0,
       mDy1,
+      mP,
       sDx0,
       sDx1
     } = last;
@@ -56080,15 +56082,13 @@
       mpA = mpB;
       mpB = t22;
     }
-    const mH = Math.max(1, monthLayer.clientHeight);
-    const mFade = (dyPx) => Math.max(0, 1 - Math.abs(dyPx) / mH).toFixed(3);
     renderMonthPH(mpA, fromLabel);
     mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
-    mpA.style.opacity = mFade(mDy0);
+    mpA.style.opacity = (1 - mP).toFixed(3);
     if (mTo) {
       renderMonthPH(mpB, mTo);
       mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
-      mpB.style.opacity = mFade(mDy1);
+      mpB.style.opacity = mP.toFixed(3);
     } else {
       mpB.style.opacity = "0";
     }

@@ -42,7 +42,7 @@ function ensureTodos() {
 // undefined (the positional-arity version once blanked the whole webview that way).
 const TICK_DEFAULTS = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
                         scopeA: "day", scopeB: "day", scopeT: 1,
-                        dy: 0, mFrom: "", mTo: "", mDy0: 0, mDy1: 0,
+                        dy: 0, mFrom: "", mTo: "", mDy0: 0, mDy1: 0, mP: 0,
                         sDx0: 0, sDx1: 0 };
 let last = { ...TICK_DEFAULTS };
 
@@ -399,7 +399,7 @@ let liveShown = false, liveMode = "";
 // editor over the centered panel at rest.
 let dayViewShown = false;   // true once the dashboard is revealed (day view); reset when hidden
 function apply() {
-  const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDy0, mDy1,
+  const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDy0, mDy1, mP,
           sDx0, sDx1 } = last;
   // Leaving day view (reveal fell to hidden) forgets every day's scroll, so re-entering day view always
   // starts at the top — the scroll doesn't carry across a trip out to week/month view. The reset on
@@ -445,15 +445,16 @@ function apply() {
   if (mpLabel.get(mpB) === fromLabel) {
     const t2 = mpA; mpA = mpB; mpB = t2;
   }
-  const mH = Math.max(1, monthLayer.clientHeight);
-  const mFade = (dyPx: number) => Math.max(0, 1 - Math.abs(dyPx) / mH).toFixed(3);
+  // Fade by TURN PROGRESS (1−p / p — the day-carousel house rule), not by displacement: the
+  // band-frame travel (~350px) is well short of the panel height, so a distance-based fade only
+  // reached ~50% and the exit read as clipping/occlusion instead of a fade.
   renderMonthPH(mpA, fromLabel);
   mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
-  mpA.style.opacity = mFade(mDy0);
+  mpA.style.opacity = (1 - mP).toFixed(3);
   if (mTo) {
     renderMonthPH(mpB, mTo);
     mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
-    mpB.style.opacity = mFade(mDy1);
+    mpB.style.opacity = mP.toFixed(3);
   } else {
     mpB.style.opacity = "0";
   }

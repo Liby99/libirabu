@@ -142,8 +142,9 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     func tick(from: String, to: String, dir: Int, p: Double, reveal: Double, slide: Double,
               scopeA: String = "day", scopeB: String = "day", scopeT: Double = 1,
               dy: Double = 0, mFrom: String = "", mTo: String = "",
-              mDy0: Double = 0, mDy1: Double = 0, sDx0: Double = 0, sDx1: Double = 0) {
-        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int(sDx0.rounded()))|\(Int(sDx1.rounded()))"
+              mDy0: Double = 0, mDy1: Double = 0, mP: Double = 0,
+              sDx0: Double = 0, sDx1: Double = 0) {
+        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(Int(sDx0.rounded()))|\(Int(sDx1.rounded()))"
         if key == lastKey {
             return
         }
@@ -158,6 +159,7 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             "dy": (dy * 10).rounded() / 10,
             "mFrom": mFrom, "mTo": mTo,
             "mDy0": (mDy0 * 10).rounded() / 10, "mDy1": (mDy1 * 10).rounded() / 10,
+            "mP": r4(mP),
             "sDx0": (sDx0 * 10).rounded() / 10, "sDx1": (sDx1 * 10).rounded() / 10,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
@@ -284,7 +286,7 @@ struct CarouselDriver: NSViewRepresentable {
     func updateNSView(_ v: NSView, context: Context) {
         carousel.tick(from: from, to: to, dir: dir, p: p, reveal: reveal, slide: slide,
                       scopeA: scopeA, scopeB: scopeB, scopeT: scopeT,
-                      dy: webDy, mFrom: mFrom, mTo: mTo, mDy0: mDy0, mDy1: mDy1,
+                      dy: webDy, mFrom: mFrom, mTo: mTo, mDy0: mDy0, mDy1: mDy1, mP: mP,
                       sDx0: sDx0, sDx1: sDx1)
         anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
                  headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
