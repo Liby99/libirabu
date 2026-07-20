@@ -55745,8 +55745,8 @@
     monthLayer.appendChild(el);
     return el;
   }
-  var mp0 = monthPH();
-  var mp1 = monthPH();
+  var mpA = monthPH();
+  var mpB = monthPH();
   var mpLabel = /* @__PURE__ */ new Map();
   function renderMonthPH(el, label) {
     if (mpLabel.get(el) === label) return;
@@ -56074,17 +56074,23 @@
       el.style.pointerEvents = op2 > 0.999 ? "auto" : "none";
     }
     const scopeIsDay = (t2 > 0.5 ? scopeB : scopeA) === "day";
+    const fromLabel = mFrom || "Month";
+    if (mpLabel.get(mpB) === fromLabel) {
+      const t22 = mpA;
+      mpA = mpB;
+      mpB = t22;
+    }
     const mH = Math.max(1, monthLayer.clientHeight);
     const mFade = (dyPx) => Math.max(0, 1 - Math.abs(dyPx) / mH).toFixed(3);
-    renderMonthPH(mp0, mFrom || "Month");
-    mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
-    mp0.style.opacity = mFade(mDy0);
+    renderMonthPH(mpA, fromLabel);
+    mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
+    mpA.style.opacity = mFade(mDy0);
     if (mTo) {
-      renderMonthPH(mp1, mTo);
-      mp1.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
-      mp1.style.opacity = mFade(mDy1);
+      renderMonthPH(mpB, mTo);
+      mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
+      mpB.style.opacity = mFade(mDy1);
     } else {
-      mp1.style.opacity = "0";
+      mpB.style.opacity = "0";
     }
     if (isoOf.get(p0) !== from) renderPanel(p0, from);
     const atRest = !to || p3 <= 1e-4;

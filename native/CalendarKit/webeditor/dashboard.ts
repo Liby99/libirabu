@@ -87,7 +87,10 @@ function monthPH(): HTMLElement {
   monthLayer.appendChild(el);
   return el;
 }
-const mp0 = monthPH(), mp1 = monthPH();
+// Role panels are IDENTITY-KEYED by month label (mirroring the day panels' isoOf): when the
+// pager re-bases mid-turn (focus flips, from/to swap), each panel KEEPS its month — positions
+// stay continuous across the flip instead of two panels teleport-swapping contents.
+let mpA = monthPH(), mpB = monthPH();
 const mpLabel = new Map<HTMLElement, string>();
 function renderMonthPH(el: HTMLElement, label: string) {
   if (mpLabel.get(el) === label) return;
@@ -435,19 +438,24 @@ function apply() {
   const scopeIsDay = (t > 0.5 ? scopeB : scopeA) === "day";
   // Month page-turn: the sub-panels ride their bands' frames in PIXELS (mDy0/mDy1 are the
   // band-frame deltas Swift computes — same staggered easing, same asymmetric travel as the
-  // Canvas header) and FADE with displacement, the day-paging carousel's 1 − |offset|/size rule —
-  // the thin Canvas header reads fine sliding solid, but a full content panel wants the fade.
+  // Canvas header) and FADE with displacement, the day-paging carousel's 1 − |offset|/size rule.
+  // Identity first: if the "from" month currently lives in panel B (the pager re-based and
+  // from/to swapped), swap the ROLES so each panel keeps its month — continuous positions.
+  const fromLabel = mFrom || "Month";
+  if (mpLabel.get(mpB) === fromLabel) {
+    const t2 = mpA; mpA = mpB; mpB = t2;
+  }
   const mH = Math.max(1, monthLayer.clientHeight);
   const mFade = (dyPx: number) => Math.max(0, 1 - Math.abs(dyPx) / mH).toFixed(3);
-  renderMonthPH(mp0, mFrom || "Month");
-  mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
-  mp0.style.opacity = mFade(mDy0);
+  renderMonthPH(mpA, fromLabel);
+  mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
+  mpA.style.opacity = mFade(mDy0);
   if (mTo) {
-    renderMonthPH(mp1, mTo);
-    mp1.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
-    mp1.style.opacity = mFade(mDy1);
+    renderMonthPH(mpB, mTo);
+    mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
+    mpB.style.opacity = mFade(mDy1);
   } else {
-    mp1.style.opacity = "0";
+    mpB.style.opacity = "0";
   }
   if (isoOf.get(p0) !== from) renderPanel(p0, from);
   const atRest = !to || p <= 0.0001;

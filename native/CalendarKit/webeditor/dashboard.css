@@ -19,10 +19,7 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
    ticks them, mirroring SceneRenderer.drawPanel). Overflow hidden clips a sliding panel at the panel
    edge, just like the Canvas title bars above. */
 #dash { height: 100%; position: relative; overflow: hidden; font-size: 13px; box-sizing: border-box;
-  transform-origin: left center; will-change: transform, opacity;
-  /* Same tick interpolation as .cc-dd-panel: the compositor glides between the per-frame IPC
-     ticks instead of stair-stepping (the fade is native — no opacity transition needed here). */
-  transition: transform 0.06s linear; }
+  transform-origin: left center; will-change: transform, opacity; }
 :root { --dd-pad: 25px; }
 /* Drawer-open scrim: blurs the dashboard + intercepts pointer events (the app's SwiftUI blur/scrim
    can't reach this separate WebKit layer). Fades in; a click closes the drawer. */
@@ -56,10 +53,9 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dd-panel {
   position: absolute; inset: 0; box-sizing: border-box; overflow: hidden;
   will-change: transform, opacity; opacity: 0;
-  /* Tick interpolation: per-frame values arrive over IPC on the WebContent process's own commit
-     cadence — a short linear transition lets the compositor glide between ticks instead of
-     stair-stepping. Costs ~60ms of uniform trail; drop to 0 if the trail ever reads as lag. */
-  transition: transform 0.06s linear, opacity 0.06s linear;
+  /* NO transitions here: per-tick values include intentional DISCONTINUITIES (panel role swaps
+     at pager re-base boundaries, scope snaps) — a transition turns those into visible glides,
+     and boundary jitter makes them oscillate. Values apply directly, like the Canvas. */
 }
 /* Plain inner scroller: no transform/will-change, so WebKit gives it native elastic overscroll. */
 .cc-dd-scroll {
