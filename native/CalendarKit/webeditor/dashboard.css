@@ -53,6 +53,10 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dd-panel {
   position: absolute; inset: 0; box-sizing: border-box; overflow: hidden;
   will-change: transform, opacity; opacity: 0;
+  /* Tick interpolation: per-frame values arrive over IPC on the WebContent process's own commit
+     cadence — a short linear transition lets the compositor glide between ticks instead of
+     stair-stepping. Costs ~60ms of uniform trail; drop to 0 if the trail ever reads as lag. */
+  transition: transform 0.06s linear, opacity 0.06s linear;
 }
 /* Plain inner scroller: no transform/will-change, so WebKit gives it native elastic overscroll. */
 .cc-dd-scroll {

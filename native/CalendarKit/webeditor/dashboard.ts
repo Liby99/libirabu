@@ -410,11 +410,10 @@ function apply() {
     isoOf.delete(p0); isoOf.delete(p1);
     P0.scroll.scrollTop = 0; P1.scroll.scrollTop = 0;
   }
-  // Zoom reveal: `slide` positions the left edge to match the Canvas dashboardLeftAnimated exactly;
-  // `reveal` fades it in. (The panel stays put when the drawer opens — the scrim dims it in place.)
-  // `dy` rides the year→month accordion: the content top tracks the (moving) header bottom.
-  root.style.transform = `translate(${(slide * 100).toFixed(3)}%, ${dy.toFixed(1)}px)`;
-  root.style.opacity = reveal.toFixed(3);
+  // Zoom reveal slide + accordion dy + reveal fade are applied NATIVELY to the WKWebView's layer
+  // (PassThroughWebView.setPanelShift) — an evaluateJavaScript per frame lands on the WebContent
+  // process's own async commit cadence and judders against the 120Hz native layers. JS keeps only
+  // the interactivity gate (and the slide/dy/reveal values still arrive for logic like this).
   root.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
   // ── Zoom-scope carousel: place the three scope layers (day = #panels, week, month) with the
   // Canvas scopePair math. Offsets arrive in PIXELS from Swift (sDx0 = lower/outgoing,

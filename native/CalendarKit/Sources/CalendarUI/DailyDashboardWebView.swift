@@ -26,6 +26,19 @@ import WebKit
 /// scroll pages days and pinch zooms — both handled by the InputCatcher underneath.
 final class PassThroughWebView: WKWebView, FocusGatedControl {
     weak var forwarder: GestureForwarder?
+
+    /// Whole-panel motion, applied NATIVELY: the reveal slide (dx), the accordion follow (dy), and
+    /// the reveal fade run on this view's layer in the APP process — a per-frame
+    /// evaluateJavaScript would hop into the WebContent process and land on its own (often 60Hz)
+    /// async commit cadence, which is exactly the judder the CSS-transform version showed. Only
+    /// the multi-element inner carousels stay in JS.
+    func setPanelShift(dx: CGFloat, dy: CGFloat, alpha: CGFloat) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.sublayerTransform = CATransform3DMakeTranslation(dx, dy, 0)
+        alphaValue = alpha
+        CATransaction.commit()
+    }
     private enum Axis { case undecided, horizontal, vertical }
     private var axis: Axis = .undecided
     /// The pointer is over a horizontally-scrollable element (a code block with a long line). Set from
@@ -138,6 +151,12 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             return
         }
         lastKey = key
+        // Whole-panel motion natively, on the view's layer (see PassThroughWebView.setPanelShift):
+        // slide (fraction of the webview width) + accordion dy + reveal fade.
+        if let ptw = web as? PassThroughWebView {
+            ptw.setPanelShift(dx: CGFloat(slide) * ptw.frame.width, dy: CGFloat(dy),
+                              alpha: CGFloat(reveal))
+        }
         func r4(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
         let payload: [String: Any] = [
             "from": from, "to": to, "dir": dir,
