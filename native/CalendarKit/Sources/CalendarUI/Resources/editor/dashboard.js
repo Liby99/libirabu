@@ -56244,8 +56244,8 @@
       isoOf.delete(p1);
       apply();
     },
-    tick(from, to, dir, p3, reveal, slide, scopeA = "day", scopeB = "day", scopeT = 1) {
-      last = { from, to: to || "", dir, p: p3, reveal, slide, scopeA, scopeB, scopeT };
+    tick(from, to, dir, p3, reveal, slide, scopeA = "day", scopeB = "day", scopeT = 1, dy = 0, mFrom = "", mTo = "", mDir = 0, mP = 0) {
+      last = { from, to: to || "", dir, p: p3, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDir, mP };
       apply();
     },
     setTab(t2) {

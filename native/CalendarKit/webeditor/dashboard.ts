@@ -611,8 +611,9 @@ root.addEventListener("click", (e) => {
     apply();
   },
   tick(from: string, to: string, dir: number, p: number, reveal: number, slide: number,
-       scopeA: string = "day", scopeB: string = "day", scopeT: number = 1) {
-    last = { from, to: to || "", dir, p, reveal, slide, scopeA, scopeB, scopeT };
+       scopeA: string = "day", scopeB: string = "day", scopeT: number = 1,
+       dy: number = 0, mFrom: string = "", mTo: string = "", mDir: number = 0, mP: number = 0) {
+    last = { from, to: to || "", dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDir, mP };
     apply();
   },
   setTab(t: "todo" | "note") { applyTab(t); },               // Swift (native tabs) drives the tab
