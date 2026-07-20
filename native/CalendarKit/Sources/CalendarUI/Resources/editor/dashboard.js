@@ -56075,16 +56075,16 @@
       el.style.pointerEvents = op2 > 0.999 ? "auto" : "none";
     }
     const scopeIsDay = (t2 > 0.5 ? scopeB : scopeA) === "day";
+    const mH = Math.max(1, monthLayer.clientHeight);
+    const mFade = (dyPx) => Math.max(0, 1 - Math.abs(dyPx) / mH).toFixed(3);
     renderMonthPH(mp0, mFrom || "Month");
+    mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
+    mp0.style.opacity = mFade(mDy0);
     if (mTo) {
       renderMonthPH(mp1, mTo);
-      mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
-      mp0.style.opacity = "1";
       mp1.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
-      mp1.style.opacity = "1";
+      mp1.style.opacity = mFade(mDy1);
     } else {
-      mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
-      mp0.style.opacity = "1";
       mp1.style.opacity = "0";
     }
     if (isoOf.get(p0) !== from) renderPanel(p0, from);

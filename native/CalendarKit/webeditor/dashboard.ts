@@ -436,16 +436,18 @@ function apply() {
   const scopeIsDay = (t > 0.5 ? scopeB : scopeA) === "day";
   // Month page-turn: the sub-panels ride their bands' frames in PIXELS (mDy0/mDy1 are the
   // band-frame deltas Swift computes — same staggered easing, same asymmetric travel as the
-  // Canvas header). Movement only, no cross-fade: the native header panels don't fade either.
+  // Canvas header) and FADE with displacement, the day-paging carousel's 1 − |offset|/size rule —
+  // the thin Canvas header reads fine sliding solid, but a full content panel wants the fade.
+  const mH = Math.max(1, monthLayer.clientHeight);
+  const mFade = (dyPx: number) => Math.max(0, 1 - Math.abs(dyPx) / mH).toFixed(3);
   renderMonthPH(mp0, mFrom || "Month");
+  mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
+  mp0.style.opacity = mFade(mDy0);
   if (mTo) {
     renderMonthPH(mp1, mTo);
-    mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
-    mp0.style.opacity = "1";
     mp1.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
-    mp1.style.opacity = "1";
+    mp1.style.opacity = mFade(mDy1);
   } else {
-    mp0.style.transform = `translateY(${mDy0.toFixed(1)}px)`; mp0.style.opacity = "1";
     mp1.style.opacity = "0";
   }
   if (isoOf.get(p0) !== from) renderPanel(p0, from);
