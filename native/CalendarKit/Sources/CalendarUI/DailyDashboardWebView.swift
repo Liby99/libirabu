@@ -246,9 +246,21 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     var monthP = 0.0 // month page-turn progress
     var monthDir = 0
     var scopeT = 1.0 // zoom-scope carousel fraction (0 = lower scope at rest … 1 = upper at rest)
+    // Per-panel scope geometry (GEOMETRY-space px, same numbers the Canvas header draws with) —
+    // the tab rows anchor to each panel's RIGHT edge and fade with its opacity.
+    var aName = ""
+    var aX = 0.0
+    var aW = 0.0
+    var aOp = 0.0
+    var bName = ""
+    var bX = 0.0
+    var bW = 0.0
+    var bOp = 0.0
     func set(dir: Int, p: Double, reveal: Double, slide: Double,
              headerTopY: Double, headerTopY2: Double, panelLeft: Double,
-             monthP: Double, monthDir: Int, scopeT: Double) {
+             monthP: Double, monthDir: Int, scopeT: Double,
+             aName: String, aX: Double, aW: Double, aOp: Double,
+             bName: String, bX: Double, bW: Double, bOp: Double) {
         if self.dir != dir {
             self.dir = dir
         }
@@ -278,6 +290,30 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         }
         if self.scopeT != scopeT {
             self.scopeT = scopeT
+        }
+        if self.aName != aName {
+            self.aName = aName
+        }
+        if self.aX != aX {
+            self.aX = aX
+        }
+        if self.aW != aW {
+            self.aW = aW
+        }
+        if self.aOp != aOp {
+            self.aOp = aOp
+        }
+        if self.bName != bName {
+            self.bName = bName
+        }
+        if self.bX != bX {
+            self.bX = bX
+        }
+        if self.bW != bW {
+            self.bW = bW
+        }
+        if self.bOp != bOp {
+            self.bOp = bOp
         }
     }
 }
@@ -316,7 +352,9 @@ struct CarouselDriver: NSViewRepresentable {
                       bName: bName, bX: bX, bW: bW, bOp: bOp)
         anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
                  headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
-                 monthP: mP, monthDir: mDir, scopeT: scopeT)
+                 monthP: mP, monthDir: mDir, scopeT: scopeT,
+                 aName: aName, aX: aX, aW: aW, aOp: aOp,
+                 bName: bName, bX: bX, bW: bW, bOp: bOp)
     }
 }
 
@@ -620,9 +658,9 @@ struct DailyDashboardOverlay: View {
 
 /// The TODO/NOTE tabs — a SEPARATE overlay (above the WebView, so the hosted WKWebView NSView can't
 /// hit-test over them). Text-only, right-aligned in the title zone (mirrors the web's `.cc-dd-tabs`).
-/// They carousel with the page via `anim` (same state the Canvas title + WebView use): the current
-/// copy slides out by −dir·p fading to 1−p, an incoming copy slides in from dir·(1−p) fading to p, the
-/// whole thing offset by the zoom `slide` and faded by `reveal` — so it moves as one with the page.
+/// Placement is per-PANEL: each scope panel from dashScopePanels (via `anim`) gets its own row,
+/// right-aligned to that panel's right edge and fading with the panel's opacity — so the tabs are
+/// glued to their sliding sheet through every scope transition, exactly like the Canvas headers.
 struct DashTabsOverlay: View {
     let engine: CalendarEngine
     let anim: DashCarouselAnim
@@ -634,20 +672,36 @@ struct DashTabsOverlay: View {
 
     var body: some View {
         if engine.chrome.level >= 2 || (engine.chrome.dashPresented && engine.chrome.level >= 1) {
-            // Anchor to the LIVE panel edge (pinned widths morph) and the ANIMATED header bottom —
-            // the tabs keep a fixed gap to the big title through the accordion and page-turns
-            // (they ride with the header, fading out while a month turn is in flight).
-            let left = Layout.padLeft + CGFloat(anim.panelLeft)
-            let right = containerWidth - Layout.padRight
-            let w = max(1, right - left)
-            // A month page-turn shows TWO copies, each riding its own band's header (identical
-            // rows — the pair reads as the tabs traveling with the sliding sheets, exactly like
-            // the Canvas headers). At rest a single copy, anchored to the focused header.
-            DashTabs(tab: $tab, theme: theme, anim: anim, w: w)
-                .position(x: left + w / 2, y: CGFloat(anim.headerTopY) + Layout.monthH - 14)
-            if anim.monthP > 0.001 {
-                DashTabs(tab: $tab, theme: theme, anim: anim, w: w)
-                    .position(x: left + w / 2, y: CGFloat(anim.headerTopY2) + Layout.monthH - 14)
+            // Each scope panel carries ITS OWN tabs row, right-aligned to THAT panel's right edge
+            // (`x + w` from dashScopePanels — the same numbers the Canvas header and webview place
+            // with), fading with the panel's cross-fade. So during a scope transition the rows
+            // travel glued to their sliding sheets instead of jumping between mask formulas.
+            panelTabs(name: anim.aName, x: anim.aX, w: anim.aW, op: anim.aOp)
+            if anim.bOp > 0.001 {
+                panelTabs(name: anim.bName, x: anim.bX, w: anim.bW, op: anim.bOp)
+            }
+        }
+    }
+
+    /// One panel's tabs row. `x`/`w` are the panel's own geometry (frame-local px, frame left =
+    /// labelW). The month panel rides its band's animated top — a month page-turn shows TWO copies,
+    /// each on its own band (identical rows: the pair reads as the tabs traveling with the sheets).
+    /// Rows are additionally clipped at the live mask edge so an entering panel's tabs never draw
+    /// over the calendar grid to the mask's left.
+    @ViewBuilder private func panelTabs(name: String, x: Double, w: Double, op: Double) -> some View {
+        let left = Layout.padLeft + Layout.labelW + CGFloat(x)
+        let width = max(1, CGFloat(w))
+        let opac = anim.reveal * op
+        let clipLeft = max(0, CGFloat(anim.panelLeft) - (Layout.labelW + CGFloat(x)))
+        if opac > 0.001 {
+            let y0 = name == "month" ? CGFloat(anim.headerTopY) : CGFloat(Layout.topPad)
+            DashTabs(tab: $tab, theme: theme, anim: anim, w: width, op: opac,
+                     clipLeft: clipLeft, paging: name == "day")
+                .position(x: left + width / 2, y: y0 + Layout.monthH - 14)
+            if name == "month", anim.monthP > 0.001 {
+                DashTabs(tab: $tab, theme: theme, anim: anim, w: width, op: opac,
+                         clipLeft: clipLeft, paging: false)
+                    .position(x: left + width / 2, y: CGFloat(anim.headerTopY2) + Layout.monthH - 14)
             }
         }
     }
@@ -686,29 +740,26 @@ private struct DashTabs: View {
     @Binding var tab: DashTab
     let theme: Theme
     let anim: DashCarouselAnim
-    let w: CGFloat
+    let w: CGFloat // the OWNING panel's width — the row right-aligns inside it
+    let op: Double // owning panel's opacity (cross-fade × reveal); the row inherits it
+    let clipLeft: CGFloat // local x below which the row is masked (the live mask edge)
+    let paging: Bool // day panel only: the row carousels with day page-turns
     var body: some View {
-        let base = anim.slide * w
-        let sT = CGFloat(anim.scopeT)
         ZStack {
-            if sT > 0.001, sT < 0.999 {
-                // Zoom-scope transition: the tabs carousel WITH the scope panels — the outgoing
-                // copy exits right, an identical incoming copy enters from the left (they're the
-                // same row, so the pair reads as the tabs belonging to each sliding sheet).
-                row.offset(x: base + sT * w).opacity(anim.reveal * Double(1 - sT))
-                row.offset(x: base - (1 - sT) * w).opacity(anim.reveal * Double(sT))
+            if paging, anim.p > 0.001 {
+                // Day page-turn: two identical copies slide within the panel, one per sheet.
+                row.offset(x: -CGFloat(anim.dir) * anim.p * w).opacity(op * (1 - anim.p))
+                row.offset(x: CGFloat(anim.dir) * (1 - anim.p) * w).opacity(op * anim.p)
             } else {
-                row.offset(x: base - CGFloat(anim.dir) * anim.p * w).opacity(anim.reveal * (1 - anim.p))
-                if anim.p > 0.001 {
-                    row.offset(x: base + CGFloat(anim.dir) * (1 - anim.p) * w).opacity(anim.reveal * anim.p)
-                }
+                row.opacity(op)
             }
         }
         .frame(width: w, height: 24)
         .clipped() // clip a sliding copy at the panel edge
-        // Interactive only at rest: revealed, no day-page, no scope-zoom, no month-turn in flight.
-        .allowsHitTesting(anim.reveal > 0.5 && anim.p < 0.01
-            && (anim.scopeT < 0.001 || anim.scopeT > 0.999) && anim.monthP < 0.01)
+        .mask(alignment: .leading) { Rectangle().padding(.leading, clipLeft) }
+        // Interactive only at rest: panel fully opaque (no scope transition), no day-page,
+        // no month-turn in flight.
+        .allowsHitTesting(op > 0.999 && anim.p < 0.01 && anim.monthP < 0.01)
     }
 
     private var row: some View {
