@@ -107,6 +107,7 @@ public final class DemoController {
         case "bench-year-scroll": await sceneBenchYearScroll()
         case "bench-year-fling": await sceneBenchYearFling()
         case "bench-month-swipe": await sceneBenchMonthSwipe()
+        case "bench-week-swipe": await sceneBenchWeekSwipe()
         case "bench-pinch-zoom": await sceneBenchPinchZoom()
         case "bench-notify-plan": await sceneBenchNotifyPlan()
         default:
@@ -972,6 +973,53 @@ public final class DemoController {
     }
 
     private func easeOutQuad(_ t: CGFloat) -> CGFloat { 1 - (1 - t) * (1 - t) }
+
+    /// Week-view page turns inside ONE month: drives the week pager mirror (`setWeekProgress`, the
+    /// same call the WeekPager's scroll observation makes) through full swipe ramps, so the 7-day
+    /// window slides between adjacent weeks with events/deadline pills/dashboard live — the "swipe
+    /// between weekly views" cost none of the month/year scenes measure. Speed reuses the month
+    /// scene's knobs (CC_BENCH_SWIPE_STEPS frames per turn, CC_BENCH_SWIPE_GAP settle secs).
+    /// CC_BENCH_WEEK_MONTH picks the month (0-based, default 0 = January — the reproduced real-world
+    /// dip) and CC_BENCH_WEEKS the walked week indices (0-based within the month's weekly rows,
+    /// default "2,3" — the breadcrumb's Week 3⇄Week 4), forward then back, ×3 for a sustained run.
+    private func sceneBenchWeekSwipe() async {
+        guard let engine else { return }
+        try? await pause(1.2)
+        let env = ProcessInfo.processInfo.environment
+        let month = max(0, min(11, env["CC_BENCH_WEEK_MONTH"].flatMap { Int($0) } ?? 0))
+        var weeks = env["CC_BENCH_WEEKS"].map { $0.split(separator: ",").compactMap { Int($0) } } ?? [2, 3]
+        if weeks.count < 2 { weeks = [2, 3] }
+        engine.demoGoToWeek(month: month, week: CGFloat(weeks[0]))
+        try? await pause(0.8)
+        benchFrames.removeAll()
+        RenderProf.reset()
+        benchActive = true
+        RenderProf.mark("benchBegin")
+        // The pager's cell width — mirrors WeekPager: the 7-day grid inside the padding + hour gutter.
+        let dayW = max(1, (size.width - Layout.padLeft - Layout.padRight - Layout.labelW) / 7)
+        let steps = max(2, env["CC_BENCH_SWIPE_STEPS"].flatMap { Int($0) } ?? 40)
+        let gap = env["CC_BENCH_SWIPE_GAP"].flatMap { Double($0) } ?? 0.15
+        // Adjacent transitions forward then backward (2→3→2), repeated — same shape as the month tour.
+        let fwd = zip(weeks, weeks.dropFirst()).map { ($0, $1) }
+        let leg = fwd + fwd.reversed().map { ($0.1, $0.0) }
+        for (from, to) in leg + leg + leg {
+            engine.beginWeekGesture()
+            moveStart = Date.timeIntervalSinceReferenceDate
+            for i in 0 ... steps {
+                let t = easeOutQuad(CGFloat(i) / CGFloat(steps))
+                let x = (CGFloat(from) + CGFloat(to - from) * t) * 7 * dayW
+                engine.setWeekProgress(x, dayW: dayW)
+                engine.wake()
+                try? await pause(0.008)
+            }
+            benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
+            engine.endWeekGesture()
+            try? await pause(gap)
+        }
+        RenderProf.mark("benchEnd")
+        benchActive = false
+        writeBenchResults()
+    }
 
     /// Continuous pinch-zoom benchmark: year → day → year (z 0→3→0) driven through the REAL magnify
     /// path (`demoMagnify` → onMagnify), ×3 cycles. Crosses every zoom seam — including z=1.5, where

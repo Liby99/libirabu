@@ -154,10 +154,11 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
               scopeA: String = "day", scopeB: String = "day", scopeT: Double = 1,
               dy: Double = 0, mFrom: String = "", mTo: String = "",
               mDy0: Double = 0, mDy1: Double = 0, mP: Double = 0,
+              wFrom: String = "", wTo: String = "", wP: Double = 0,
               maskX: Double = 0, maskW: Double = 0,
               aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0,
               bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0) {
-        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))"
+        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(wFrom)|\(wTo)|\(Int((wP * 1000).rounded()))|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))"
         if key == lastKey {
             return
         }
@@ -177,6 +178,7 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             "mFrom": mFrom, "mTo": mTo,
             "mDy0": (mDy0 * 10).rounded() / 10, "mDy1": (mDy1 * 10).rounded() / 10,
             "mP": r4(mP),
+            "wFrom": wFrom, "wTo": wTo, "wP": r4(wP),
             "maskX": (maskX * 10).rounded() / 10, "maskW": (maskW * 10).rounded() / 10,
             "aName": aName, "aX": (aX * 10).rounded() / 10, "aW": (aW * 10).rounded() / 10,
             "aOp": r4(aOp),
@@ -246,6 +248,7 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     var monthP = 0.0 // month page-turn progress
     var monthDir = 0
     var scopeT = 1.0 // zoom-scope carousel fraction (0 = lower scope at rest … 1 = upper at rest)
+    var weekP = 0.0 // week-turn progress (weekly dashboard; rests at BOTH 0 and 1)
     // Per-panel scope geometry (GEOMETRY-space px, same numbers the Canvas header draws with) —
     // the tab rows anchor to each panel's RIGHT edge and fade with its opacity.
     var aName = ""
@@ -258,7 +261,7 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     var bOp = 0.0
     func set(dir: Int, p: Double, reveal: Double, slide: Double,
              headerTopY: Double, headerTopY2: Double, panelLeft: Double,
-             monthP: Double, monthDir: Int, scopeT: Double,
+             monthP: Double, monthDir: Int, scopeT: Double, weekP: Double,
              aName: String, aX: Double, aW: Double, aOp: Double,
              bName: String, bX: Double, bW: Double, bOp: Double) {
         if self.dir != dir {
@@ -290,6 +293,9 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         }
         if self.scopeT != scopeT {
             self.scopeT = scopeT
+        }
+        if self.weekP != weekP {
+            self.weekP = weekP
         }
         if self.aName != aName {
             self.aName = aName
@@ -335,6 +341,8 @@ struct CarouselDriver: NSViewRepresentable {
     var mDir: Int = 0
     var mP: Double = 0
     var mDy0: Double = 0, mDy1: Double = 0 // month-turn PIXEL offsets (band-frame deltas; see caller)
+    var wFrom: String = "", wTo: String = "" // week-turn labels (weekly-dashboard carousel)
+    var wP: Double = 0 // week-turn progress (0 = base week at rest … 1 = next week at rest)
     // Per-panel scope geometry from dashScopePanels, frame-local px (frame left = labelW):
     var maskX: Double = 0, maskW: Double = 0 // the clip region (dashboardLeftAnimated → right edge)
     var aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0 // current/outgoing panel
@@ -347,12 +355,13 @@ struct CarouselDriver: NSViewRepresentable {
         carousel.tick(from: from, to: to, dir: dir, p: p, reveal: reveal, slide: slide,
                       scopeA: scopeA, scopeB: scopeB, scopeT: scopeT,
                       dy: webDy, mFrom: mFrom, mTo: mTo, mDy0: mDy0, mDy1: mDy1, mP: mP,
+                      wFrom: wFrom, wTo: wTo, wP: wP,
                       maskX: maskX, maskW: maskW,
                       aName: aName, aX: aX, aW: aW, aOp: aOp,
                       bName: bName, bX: bX, bW: bW, bOp: bOp)
         anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
                  headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
-                 monthP: mP, monthDir: mDir, scopeT: scopeT,
+                 monthP: mP, monthDir: mDir, scopeT: scopeT, weekP: wP,
                  aName: aName, aX: aX, aW: aW, aOp: aOp,
                  bName: bName, bX: bX, bW: bW, bOp: bOp)
     }
@@ -695,12 +704,17 @@ struct DashTabsOverlay: View {
         let clipLeft = max(0, CGFloat(anim.panelLeft) - (Layout.labelW + CGFloat(x)))
         if opac > 0.001 {
             let y0 = name == "month" ? CGFloat(anim.headerTopY) : CGFloat(Layout.topPad)
+            // Inner horizontal paging within the panel: the day panel rides day page-turns, the
+            // week panel rides the week-to-week turn (rests at BOTH ends of its progress).
+            let (pageDir, pageP): (Int, Double) = name == "day"
+                ? (anim.dir, anim.p)
+                : (name == "week" ? (1, anim.weekP) : (0, 0))
             DashTabs(tab: $tab, theme: theme, anim: anim, w: width, op: opac,
-                     clipLeft: clipLeft, paging: name == "day")
+                     clipLeft: clipLeft, pageDir: pageDir, pageP: pageP)
                 .position(x: left + width / 2, y: y0 + Layout.monthH - 14)
             if name == "month", anim.monthP > 0.001 {
                 DashTabs(tab: $tab, theme: theme, anim: anim, w: width, op: opac,
-                         clipLeft: clipLeft, paging: false)
+                         clipLeft: clipLeft, pageDir: 0, pageP: 0)
                     .position(x: left + width / 2, y: CGFloat(anim.headerTopY2) + Layout.monthH - 14)
             }
         }
@@ -743,13 +757,14 @@ private struct DashTabs: View {
     let w: CGFloat // the OWNING panel's width — the row right-aligns inside it
     let op: Double // owning panel's opacity (cross-fade × reveal); the row inherits it
     let clipLeft: CGFloat // local x below which the row is masked (the live mask edge)
-    let paging: Bool // day panel only: the row carousels with day page-turns
+    let pageDir: Int // inner page-turn direction (day paging / week turn); 0 = none
+    let pageP: Double // inner page-turn progress; the WEEK turn rests at both 0 AND 1
     var body: some View {
         ZStack {
-            if paging, anim.p > 0.001 {
-                // Day page-turn: two identical copies slide within the panel, one per sheet.
-                row.offset(x: -CGFloat(anim.dir) * anim.p * w).opacity(op * (1 - anim.p))
-                row.offset(x: CGFloat(anim.dir) * (1 - anim.p) * w).opacity(op * anim.p)
+            if pageDir != 0, pageP > 0.001, pageP < 0.999 {
+                // Mid page-turn: two identical copies slide within the panel, one per sheet.
+                row.offset(x: -CGFloat(pageDir) * pageP * w).opacity(op * (1 - pageP))
+                row.offset(x: CGFloat(pageDir) * (1 - pageP) * w).opacity(op * pageP)
             } else {
                 row.opacity(op)
             }
@@ -757,9 +772,9 @@ private struct DashTabs: View {
         .frame(width: w, height: 24)
         .clipped() // clip a sliding copy at the panel edge
         .mask(alignment: .leading) { Rectangle().padding(.leading, clipLeft) }
-        // Interactive only at rest: panel fully opaque (no scope transition), no day-page,
-        // no month-turn in flight.
-        .allowsHitTesting(op > 0.999 && anim.p < 0.01 && anim.monthP < 0.01)
+        // Interactive only at rest: panel fully opaque (no scope transition), no inner page-turn
+        // mid-flight (the week turn rests at 1 too), no month-turn in flight.
+        .allowsHitTesting(op > 0.999 && (pageP < 0.01 || pageP > 0.99) && anim.monthP < 0.01)
     }
 
     private var row: some View {

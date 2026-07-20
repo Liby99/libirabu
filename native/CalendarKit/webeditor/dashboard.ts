@@ -43,6 +43,7 @@ function ensureTodos() {
 const TICK_DEFAULTS = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
                         scopeA: "day", scopeB: "day", scopeT: 1,
                         dy: 0, mFrom: "", mTo: "", mDy0: 0, mDy1: 0, mP: 0,
+                        wFrom: "", wTo: "", wP: 0,
                         // Per-panel scope geometry from Swift's dashScopePanels (frame-local px):
                         // the mask (clip) region + each panel's own left/width/opacity.
                         maskX: 0, maskW: 0,
@@ -78,7 +79,34 @@ function makeScopeLayer(id: string, title: string, items: string[]): HTMLElement
   root.appendChild(el);
   return el;
 }
-const weekLayer = makeScopeLayer("scope-week", "WEEKLY", ["Weekly item", "Weekly item", "Weekly item", "Weekly item"]);
+// The WEEK layer holds TWO side-by-side sub-panels that carousel HORIZONTALLY during a
+// week-to-week turn (Swift ticks wFrom/wTo/wP from the continuous week scroll) — labeled by
+// date range so the motion is unmistakable while tuning.
+const weekLayer = document.createElement("div");
+weekLayer.className = "cc-dd-panel"; weekLayer.id = "scope-week";
+root.appendChild(weekLayer);
+function weekPH(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "cc-dd-panel";           // absolute-fill inside the week layer
+  weekLayer.appendChild(el);
+  return el;
+}
+// Identity-keyed by week label (same rule as the month panels): when the week base advances
+// and from/to re-base, each panel KEEPS its week — positions stay continuous across the flip.
+let wpA = weekPH(), wpB = weekPH();
+const wpLabel = new Map<HTMLElement, string>();
+function renderWeekPH(el: HTMLElement, label: string) {
+  if (wpLabel.get(el) === label) return;
+  wpLabel.set(el, label);
+  el.innerHTML = `<div class="cc-dd-scroll">` +
+    `<div style="opacity:.55;font-size:11px;letter-spacing:1.5px;margin:4px 0 10px">WEEKLY · ${label.toUpperCase()} · PLACEHOLDER</div>` +
+    [1, 2, 3, 4].map(i =>
+      `<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.18)">
+         <span style="width:14px;height:14px;border:1.5px solid rgba(128,128,128,.55);border-radius:4px;flex:none"></span>
+         <span>${label} item ${i}</span>
+       </div>`).join("") +
+    `<div style="margin-top:14px;opacity:.5;font-size:12px">${label} note — placeholder text.</div></div>`;
+}
 // The MONTH layer holds TWO stacked sub-panels that carousel VERTICALLY during a month page-turn
 // (jan→feb), mirroring the calendar's vertical month paging — labeled by month name so the motion
 // is unmistakable while tuning.
@@ -404,7 +432,7 @@ let liveShown = false, liveMode = "";
 let dayViewShown = false;   // true once the dashboard is revealed (day view); reset when hidden
 function apply() {
   const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDy0, mDy1, mP,
-          maskX, maskW, aName, aX, aW, aOp, bName, bX, bW, bOp } = last;
+          wFrom, wTo, wP, maskX, maskW, aName, aX, aW, aOp, bName, bX, bW, bOp } = last;
   // Leaving day view (reveal fell to hidden) forgets every day's scroll, so re-entering day view always
   // starts at the top — the scroll doesn't carry across a trip out to week/month view. The reset on
   // re-entry restores from the (now-empty) map, i.e. 0, without re-rendering the unchanged panels.
@@ -462,6 +490,23 @@ function apply() {
     mpB.style.opacity = mP.toFixed(3);
   } else {
     mpB.style.opacity = "0";
+  }
+  // Week turn: the sub-panels carousel HORIZONTALLY, driven by the continuous week scroll
+  // (wP ramps while the viewport's left border sweeps the turn band; rests at BOTH 0 and 1).
+  // Same identity-keying + fade-by-progress rules as the month pair above.
+  const wFromLabel = wFrom || "Week";
+  if (wpLabel.get(wpB) === wFromLabel) {
+    const t3 = wpA; wpA = wpB; wpB = t3;
+  }
+  renderWeekPH(wpA, wFromLabel);
+  wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
+  wpA.style.opacity = (1 - wP).toFixed(3);
+  if (wTo && wP > 0.001) {
+    renderWeekPH(wpB, wTo);
+    wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
+    wpB.style.opacity = wP.toFixed(3);
+  } else {
+    wpB.style.opacity = "0";
   }
   if (isoOf.get(p0) !== from) renderPanel(p0, from);
   const atRest = !to || p <= 0.0001;

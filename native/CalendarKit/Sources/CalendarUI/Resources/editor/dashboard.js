@@ -55713,6 +55713,9 @@
     mDy0: 0,
     mDy1: 0,
     mP: 0,
+    wFrom: "",
+    wTo: "",
+    wP: 0,
     // Per-panel scope geometry from Swift's dashScopePanels (frame-local px):
     // the mask (clip) region + each panel's own left/width/opacity.
     maskX: 0,
@@ -55730,22 +55733,27 @@
   var root5 = document.getElementById("dash");
   var panelsEl = document.getElementById("panels");
   var noteLive = document.getElementById("note-live");
-  function makeScopeLayer(id2, title, items) {
+  var weekLayer = document.createElement("div");
+  weekLayer.className = "cc-dd-panel";
+  weekLayer.id = "scope-week";
+  root5.appendChild(weekLayer);
+  function weekPH() {
     const el = document.createElement("div");
     el.className = "cc-dd-panel";
-    el.id = id2;
-    const scroll = document.createElement("div");
-    scroll.className = "cc-dd-scroll";
-    scroll.innerHTML = `<div style="opacity:.55;font-size:11px;letter-spacing:1.5px;margin:4px 0 10px">${title} \xB7 PLACEHOLDER</div>` + items.map((t2, i3) => `<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.18)">
-         <span style="width:14px;height:14px;border:1.5px solid rgba(128,128,128,.55);border-radius:4px;flex:none"></span>
-         <span>${t2} ${i3 + 1}</span>
-       </div>`).join("") + `<div style="margin-top:14px;opacity:.5;font-size:12px">${title.toLowerCase()} note \u2014 placeholder text.
-      Lorem calendar sit amet, styling and animation tuning only.</div>`;
-    el.appendChild(scroll);
-    root5.appendChild(el);
+    weekLayer.appendChild(el);
     return el;
   }
-  var weekLayer = makeScopeLayer("scope-week", "WEEKLY", ["Weekly item", "Weekly item", "Weekly item", "Weekly item"]);
+  var wpA = weekPH();
+  var wpB = weekPH();
+  var wpLabel = /* @__PURE__ */ new Map();
+  function renderWeekPH(el, label) {
+    if (wpLabel.get(el) === label) return;
+    wpLabel.set(el, label);
+    el.innerHTML = `<div class="cc-dd-scroll"><div style="opacity:.55;font-size:11px;letter-spacing:1.5px;margin:4px 0 10px">WEEKLY \xB7 ${label.toUpperCase()} \xB7 PLACEHOLDER</div>` + [1, 2, 3, 4].map((i3) => `<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.18)">
+         <span style="width:14px;height:14px;border:1.5px solid rgba(128,128,128,.55);border-radius:4px;flex:none"></span>
+         <span>${label} item ${i3}</span>
+       </div>`).join("") + `<div style="margin-top:14px;opacity:.5;font-size:12px">${label} note \u2014 placeholder text.</div></div>`;
+  }
   var monthLayer = document.createElement("div");
   monthLayer.className = "cc-dd-panel";
   monthLayer.id = "scope-month";
@@ -56049,6 +56057,9 @@
       mDy0,
       mDy1,
       mP,
+      wFrom,
+      wTo,
+      wP,
       maskX,
       maskW,
       aName,
@@ -56111,6 +56122,22 @@
       mpB.style.opacity = mP.toFixed(3);
     } else {
       mpB.style.opacity = "0";
+    }
+    const wFromLabel = wFrom || "Week";
+    if (wpLabel.get(wpB) === wFromLabel) {
+      const t3 = wpA;
+      wpA = wpB;
+      wpB = t3;
+    }
+    renderWeekPH(wpA, wFromLabel);
+    wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
+    wpA.style.opacity = (1 - wP).toFixed(3);
+    if (wTo && wP > 1e-3) {
+      renderWeekPH(wpB, wTo);
+      wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
+      wpB.style.opacity = wP.toFixed(3);
+    } else {
+      wpB.style.opacity = "0";
     }
     if (isoOf.get(p0) !== from) renderPanel(p0, from);
     const atRest = !to || p3 <= 1e-4;

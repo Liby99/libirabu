@@ -598,18 +598,21 @@ import SwiftUI
             }
         }
 
-        /// The WEEK scope: the focused week's date range ("Jul 13 – 19, 2026").
+        /// The WEEK scope: composes the week-to-week carousel within the panel's own width. The
+        /// turn is driven by the CONTINUOUS week scroll (weekDashTurn): the base week's header
+        /// exits left / the next week's enters from the right while the viewport's left border
+        /// traverses the turn band, resting on the majority week outside it.
         func drawWeekScope(_ p: DashPanel) {
-            let startDOM = 1 - firstDOW(input.year, input.focus) + Int(input.week.rounded()) * 7
-            let s = resolveDate(input.year, input.focus, startDOM)
-            let e = resolveDate(input.year, input.focus, startDOM + 6)
-            var range = ""
-            if let s, let e {
-                range = s.month == e.month
-                    ? "\(MONTH_NAMES[s.month]) \(s.day) – \(e.day), \(e.year)"
-                    : "\(MONTH_NAMES[s.month]) \(s.day) – \(MONTH_NAMES[e.month]) \(e.day), \(e.year)"
+            let t = weekDashTurn(input)
+            if t.p <= 0.001 || t.p >= 0.999 {
+                drawPanelChrome("WEEKLY DASHBOARD", t.p < 0.5 ? t.from : t.to,
+                                left: p.x, width: p.w, op: p.op)
+            } else {
+                drawPanelChrome("WEEKLY DASHBOARD", t.from, left: p.x - t.p * p.w, width: p.w,
+                                op: p.op * (1 - t.p))
+                drawPanelChrome("WEEKLY DASHBOARD", t.to, left: p.x + (1 - t.p) * p.w, width: p.w,
+                                op: p.op * t.p)
             }
-            drawPanelChrome("WEEKLY DASHBOARD", range, left: p.x, width: p.w, op: p.op)
         }
 
         /// The MONTH scope: one header per (visible) month, each VERTICALLY anchored to its month

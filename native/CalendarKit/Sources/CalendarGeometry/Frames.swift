@@ -233,6 +233,42 @@ func pinnedDashLeft(_ g: SceneInput) -> CGFloat? {
     return lerp(monthRight, weekRight, easeInOut(clamp(g.z - 1, 0, 1)))
 }
 
+/// Weekly-dashboard carousel state. The week window scrolls per-DAY (fractional `week`), but the
+/// dashboard shows one calendar week at a time: it rests on the MAJORITY week and transitions
+/// while the viewport's LEFT border traverses the column `weekTurnAnchor` days past the base
+/// week's Sunday — before that band p = 0 (base week at rest), past it p = 1 (next week at rest).
+/// The labels double as headline text (Canvas header) and identity keys (webview sub-panels).
+public struct WeekTurn: Equatable, Sendable {
+    public var from: String // base week's headline ("Jul 13 – 19, 2026")
+    public var to: String // next week's headline
+    public var p: CGFloat // carousel progress: 0 = from at rest … 1 = to at rest
+    public init(from: String, to: String, p: CGFloat) {
+        self.from = from; self.to = to; self.p = p
+    }
+}
+
+/// Left-border day offset (days past the base Sunday) where the week turn runs: p ramps 0→1 over
+/// [anchor, anchor + 1] — 4 = the border sweeping the Thursday column (thu→fri per spec).
+private let weekTurnAnchor: CGFloat = 4
+
+public func weekDashTurn(_ g: SceneInput) -> WeekTurn {
+    let base = floor(g.week)
+    let o = (g.week - base) * 7 // left-border day offset past the base week's Sunday
+    let s0 = weekStartDOM(g.year, g.focus, Int(base))
+    return WeekTurn(from: weekRangeLabel(g.year, g.focus, s0),
+                    to: weekRangeLabel(g.year, g.focus, s0 + 7),
+                    p: clamp(o - weekTurnAnchor, 0, 1))
+}
+
+/// "Jul 13 – 19, 2026" for the week whose Sunday is (possibly spilling) day-of-month `startDOM`.
+public func weekRangeLabel(_ year: Int, _ focus: Int, _ startDOM: Int) -> String {
+    guard let s = resolveDate(year, focus, startDOM),
+          let e = resolveDate(year, focus, startDOM + 6) else { return "" }
+    return s.month == e.month
+        ? "\(MONTH_NAMES[s.month]) \(s.day) – \(e.day), \(e.year)"
+        : "\(MONTH_NAMES[s.month]) \(s.day) – \(MONTH_NAMES[e.month]) \(e.day), \(e.year)"
+}
+
 /// One dashboard scope panel's placement this frame: its OWN target width, absolute screen-x of
 /// its left border, and cross-fade opacity. Computed by dashScopePanels — the SINGLE source both
 /// the Canvas header and the webview consume, so their panels align by construction.
