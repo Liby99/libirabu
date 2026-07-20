@@ -10,6 +10,12 @@ import Observation
 public final class CalendarChrome {
     public internal(set) var level = 0 // 0 year · 1 month · 2 week · 3 day
     public internal(set) var dashPinned = UserDefaults.standard.bool(forKey: PrefKeys.dashPinned) // ⌘B panel pin
+    /// The pinned panel's PRESENTATION is active: true the instant ⌘B pins, but false only when
+    /// the retract tween COMPLETES — frame-placing consumers (webview frame, carousel lOpen, tab
+    /// visibility) key on this so a toggle-off keeps them parked at the pinned edge while the CSS
+    /// slide carries the content off-right with the panel (keying on `dashPinned` teleported the
+    /// webview to the day-split position mid-retract). Interactivity gates keep using dashPinned.
+    public internal(set) var dashPresented = UserDefaults.standard.bool(forKey: PrefKeys.dashPinned)
     // Pinned panel widths, mirrored here (observable) so the WebView frame + tab overlays re-lay-out
     // LIVE while the split handle drags (the engine itself isn't @Observable).
     public internal(set) var dashWeekFrac: CGFloat = {

@@ -456,7 +456,9 @@ public struct CalendarView: View {
                 let pinLOpen = engine.chrome.level <= 1
                     ? vp.w - dashMonthPanelW(vp, frac: engine.chrome.dashMonthFrac)
                     : vp.w - engine.chrome.dashWeekFrac * (vp.w - Layout.labelW)
-                let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPinned) ? pinLOpen : dayLOpen
+                // dashPresented (not dashPinned): stays true through the ⌘B retract tween, so the
+                // slide normalizes against the PINNED edge while the content rides off with it.
+                let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPresented) ? pinLOpen : dayLOpen
                 let wvW = max(1, vp.w - lOpen)
                 let slide = min(1, max(0, Double((dashboardLeftAnimated(input) - lOpen) / wvW)))
                 // Zoom-scope carousel: pure function of z (mirrors SceneRenderer's scopePair) —

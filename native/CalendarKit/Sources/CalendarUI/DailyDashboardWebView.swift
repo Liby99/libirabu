@@ -552,7 +552,10 @@ struct DailyDashboardOverlay: View {
         // snaps between the two at the level boundary; the in-page CSS slide covers the reveal —
         // a per-frame frame animation across the week→day widening is a phase-2 refinement.)
         let dayLeftGeo = Layout.labelW + frac * contentW // mirrors SceneRenderer.dashboardLeft
-        let dashLeftGeo = (engine.chrome.level < 3 && engine.chrome.dashPinned)
+        // dashPresented (not dashPinned): the frame stays parked at the pinned edge through the
+        // ⌘B retract tween — the CSS slide carries the content off-right with the departing panel
+        // (keying on dashPinned teleported the frame to the day split mid-retract).
+        let dashLeftGeo = (engine.chrome.level < 3 && engine.chrome.dashPresented)
             ? (engine.chrome.level <= 1
                 ? vp.w - dashMonthPanelW(vp, frac: engine.chrome.dashMonthFrac)
                 : vp.w - engine.chrome.dashWeekFrac * contentW)
@@ -613,7 +616,7 @@ struct DashTabsOverlay: View {
     let theme: Theme
 
     var body: some View {
-        if engine.chrome.level >= 2 || (engine.chrome.dashPinned && engine.chrome.level >= 1) {
+        if engine.chrome.level >= 2 || (engine.chrome.dashPresented && engine.chrome.level >= 1) {
             // Anchor to the LIVE panel edge (pinned widths morph) and the ANIMATED header bottom —
             // the tabs keep a fixed gap to the big title through the accordion and page-turns
             // (they ride with the header, fading out while a month turn is in flight).

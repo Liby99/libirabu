@@ -625,6 +625,9 @@ public final class CalendarEngine {
             dashPin = pt.value(at: date)
             if pt.isComplete(at: date) {
                 dashPin = pt.to; anim.dashPinTween = nil
+                if dashPin <= 0 {
+                    chrome.dashPresented = false // retract finished → frames may leave the pinned edge
+                }
             }
         }
         if let wt = anim.weekTween {

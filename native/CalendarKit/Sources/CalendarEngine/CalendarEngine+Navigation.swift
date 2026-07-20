@@ -220,6 +220,9 @@ extension CalendarEngine {
         anim.dashPinTween = Tween(from: dashPin, to: dashPinned ? 1 : 0,
                                   start: Date(), duration: 0.3, ease: easeInOut)
         chrome.dashPinned = dashPinned
+        if dashPinned {
+            chrome.dashPresented = true // pin ON: present immediately (retract clears on tween end)
+        }
         wake()
     }
 
