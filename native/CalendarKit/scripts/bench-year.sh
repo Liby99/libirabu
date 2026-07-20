@@ -26,6 +26,7 @@ case "${PAYLOAD:-display}" in
   bands)   cp bench/year-bands-2026.json "$TMP/data.json" ;;
   empty)   cp bench/empty.json "$TMP/data.json" ;;    # stored 2026 bands only (the light fixture)
   dump)    cp "$HOME/.magical-bench/data.json" "$TMP/data.json" ;;  # CC_DUMP_DISPLAY of the REAL app (heavy: 1007 ev)
+  dense)   cp bench/year-dense-2026.json "$TMP/data.json" ;;  # stress: real dump densified (3000 ev / ~500 bands @87% lane fill)
   full)    cp "$HOME/Library/Application Support/CalendarKit/data.json" "$TMP/data.json" ;;  # raw live store
   *) echo "unknown PAYLOAD=${PAYLOAD}"; exit 1 ;;
 esac

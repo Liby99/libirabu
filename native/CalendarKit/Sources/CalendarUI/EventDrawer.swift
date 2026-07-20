@@ -1229,8 +1229,7 @@ struct EventDrawer: View {
     private var tzControls: some View {
         VStack(alignment: .leading, spacing: 4) {
             Picker("", selection: tzBinding) {
-                ForEach(CalendarTimezones.all.filter { $0.id != CalendarTimezones.autoId }) { Text($0.label).tag($0.id)
-                }
+                ForEach(CalendarTimezones.anchorZones) { Text($0.label).tag($0.id) }
             }
             .labelsHidden().fixedSize()
             if let hint = gridTimeHint {
@@ -1286,7 +1285,7 @@ struct EventDrawer: View {
     }
 
     private func stepTimezone(_ delta: Int) {
-        let zones = CalendarTimezones.all.filter { $0.id != CalendarTimezones.autoId }.map(\.id)
+        let zones = CalendarTimezones.anchorZones.map(\.id)
         guard !zones.isEmpty else { return }
         let cur = zones.firstIndex(of: DeadlineTZ.concrete(eventAnchorTz)) ?? 0
         tzBinding.wrappedValue = zones[((cur + delta) % zones.count + zones.count) % zones.count]

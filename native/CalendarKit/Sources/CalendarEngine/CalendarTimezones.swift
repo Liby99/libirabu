@@ -30,7 +30,18 @@ public enum CalendarTimezones {
         .init(id: "UTC", label: "UTC"),
     ]
 
+    /// "AOE" (Anywhere on Earth = UTC−12, the CfP-deadline convention). A pseudo-zone: offered as
+    /// an item ANCHOR (the drawer's timezone picker) but not as a view zone — the grid's main/alt
+    /// pickers stay concrete-IANA-only. DeadlineTZ resolves it to Etc/GMT+12 everywhere.
+    public static let aoe = Zone(id: "AOE", label: "Anywhere on Earth (AOE)")
+
+    /// The drawer's anchor-zone choices: every concrete zone + AOE. No "auto" — a stored anchor
+    /// must never drift with the device.
+    public static var anchorZones: [Zone] {
+        all.filter { $0.id != autoId } + [aoe]
+    }
+
     public static func label(for id: String) -> String {
-        all.first { $0.id == id }?.label ?? id
+        (all + [aoe]).first { $0.id == id }?.label ?? id
     }
 }
