@@ -13,16 +13,16 @@ import SwiftUI
 #endif
 
 public struct EventsOverlay: View {
-    let input: SceneInput
+    var input: SceneInput // var: the year layer cache renders a copy with the scroll-free input
     let events: [TimedEvent]
     let bands: [BandEvent]
     var bandBadges: [String: EventBadges] = [:] // provenance/kind markers per band box id
     var eventBadges: [String: EventBadges] = [:] // …and per timed-event box id
-    let selected: String? // the PRIMARY selected BOX id (a ghost carries occKey); series-matched below
+    var selected: String? // the PRIMARY selected BOX id (a ghost carries occKey); series-matched below
     var selectedIds: Set<String> = [] // the FULL multi-selection (each member gets a focus ring)
-    let hovered: String? // the hovered BOX id (exact box gets hover feedback)
+    var hovered: String? // the hovered BOX id (exact box gets hover feedback)
     let drawerOpen: Bool // the detail drawer is open → the focused box gets the thick border
-    let editingId: String?
+    var editingId: String?
     var editingRect: CGRect? // the inline title editor's rect → hide the title on THAT segment only
     var draggingId: String? // event being moved/resized → floats full-width above the day,
     // and is excluded from the others' overlap packing (no reflow)
@@ -33,6 +33,8 @@ public struct EventsOverlay: View {
     // sharp "lifted" copy above the drawer's blur scrim — see CalendarView)
     var hideBox: String? // …and the inverse: the blurred main render SKIPS this box (it's drawn
     // sharp by the lifted copy), so there's no blurry halo behind it
+    var yearG0: SceneInput? // rest-year layer cache: the scroll-free input (see yearCacheInput);
+    // non-nil → plain bands render in a record-once rigid canvas translated by -scrollY
     let theme: Theme
 
     public init(input: SceneInput, events: [TimedEvent], bands: [BandEvent],
@@ -40,7 +42,8 @@ public struct EventsOverlay: View {
                 selected: String?, selectedIds: Set<String> = [], hovered: String?,
                 drawerOpen: Bool, editingId: String?, editingRect: CGRect? = nil,
                 draggingId: String? = nil, perfMode: Bool = false, monthLive: Bool = false,
-                editGen: UInt64 = 0, onlyBox: String? = nil, hideBox: String? = nil, theme: Theme) {
+                editGen: UInt64 = 0, onlyBox: String? = nil, hideBox: String? = nil,
+                yearG0: SceneInput? = nil, theme: Theme) {
         self.input = input
         self.events = events
         self.bands = bands
@@ -58,6 +61,7 @@ public struct EventsOverlay: View {
         self.editGen = editGen
         self.onlyBox = onlyBox
         self.hideBox = hideBox
+        self.yearG0 = yearG0
         self.theme = theme
     }
 
@@ -164,14 +168,28 @@ public struct EventsOverlay: View {
         let layers = timedLayers(anim, tlOut, outMul, clipRight)
 
         ZStack(alignment: .topLeading) {
+            // Rest-year layer cache: plain bands render ONCE into a full-year-height rigid canvas
+            // that CoreAnimation translates by -scrollY — no per-frame re-record. The overlay copy
+            // it renders carries the scroll-free g0 as its input; the Equatable == (bands content,
+            // activation ids, theme) decides when a re-record is actually needed. Wrapped in an
+            // overlay so the tall canvas doesn't inflate this ZStack's own layout size.
+            if let g0 = yearG0 {
+                Color.clear.overlay(alignment: .top) {
+                    rigidBandsView(g0).offset(y: -input.scrollY)
+                }
+            }
             // Canvas fast path: ALL plain flat stickers in ONE canvas (bands, then each timed layer,
             // each clipped to its own region — same clips as the view layers below). Sits under the
             // view stickers; active stickers (z ≥ 950) always render above plain ones anyway.
+            // Under the year layer cache the bands are in the rigid canvas instead (timed layers are
+            // empty at year zoom — the timeline isn't revealed).
             Canvas { ctx, _ in
                 RenderProf.measure("stickerCanvas", "2b_stickerCanvas") {
-                    var b = ctx
-                    b.clip(to: Path(bandClip))
-                    StickerCanvas.draw(canvasList(bandAll), in: &b, theme: theme)
+                    if yearG0 == nil {
+                        var b = ctx
+                        b.clip(to: Path(bandClip))
+                        StickerCanvas.draw(canvasList(bandAll), in: &b, theme: theme)
+                    }
                     for l in layers {
                         var t = ctx
                         t.clip(to: Path(l.clip))
@@ -603,6 +621,31 @@ public struct EventsOverlay: View {
         }
     }
 
+    /// The record-once rigid band canvas for rest-year: a COPY of this overlay whose input is the
+    /// scroll-free g0, wrapped in an Equatable view so the Canvas body (packing + drawing) only
+    /// re-runs when band content / activation / theme actually change — not per scroll frame.
+    private func rigidBandsView(_ g0: SceneInput) -> some View {
+        var copy = self
+        copy.input = g0
+        copy.yearG0 = nil
+        // Activation ids only matter to the BAND canvas when they refer to a band — a hovered/
+        // selected TIMED event or deadline must not invalidate the cached layer (during a scroll
+        // the pointer sweeps hover ids constantly). Filter to band ids before they enter the key.
+        let bandIds = Set(bands.map(\.id))
+        copy.hovered = hovered.flatMap { bandIds.contains($0) ? $0 : nil }
+        copy.selected = selected.flatMap { bandIds.contains($0) ? $0 : nil }
+        copy.selectedIds = selectedIds.intersection(bandIds)
+        copy.editingId = editingId.flatMap { bandIds.contains($0) ? $0 : nil }
+        return YearBandsCanvas(overlay: copy)
+            .equatable()
+            .frame(height: g0.vp.h)
+    }
+
+    /// Fileprivate accessors for YearBandsCanvas (same file; keeps the members private otherwise).
+    fileprivate func rigidBandStickers() -> [CanvasSticker] { canvasList(bandItems()) }
+    fileprivate var themeRef: Theme { theme }
+    fileprivate var inputRef: SceneInput { input }
+
     /// Draw order: later-starting events in front; the selected box always frontmost.
     private func orderTimed(
         _ a: (seg: TimedSegment, rect: CGRect, fade: Double),
@@ -616,6 +659,35 @@ public struct EventsOverlay: View {
             return a.seg.event.startHour < b.seg.event.startHour
         }
         return a.seg.event.endHour > b.seg.event.endHour
+    }
+}
+
+/// Equatable wrapper around the rest-year rigid band canvas: body (band packing + sticker draws)
+/// runs only when == says the CONTENT changed — bands (includes live color previews), the
+/// activation-relevant ids, or the theme — never merely because scrollY/now ticked.
+private struct YearBandsCanvas: View, Equatable {
+    let overlay: EventsOverlay // input already swapped to the scroll-free g0
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.overlay.inputRef == b.overlay.inputRef && a.overlay.bands == b.overlay.bands
+            && a.overlay.bandBadges == b.overlay.bandBadges
+            && a.overlay.hovered == b.overlay.hovered && a.overlay.selected == b.overlay.selected
+            && a.overlay.selectedIds == b.overlay.selectedIds
+            && a.overlay.editingId == b.overlay.editingId && a.overlay.hideBox == b.overlay.hideBox
+            && a.overlay.themeRef.dark == b.overlay.themeRef.dark
+            && a.overlay.themeRef.accentDark == b.overlay.themeRef.accentDark
+    }
+
+    var body: some View {
+        Canvas { ctx, _ in
+            var c = ctx
+            RenderProf.measure("rigidBands", "2s_rigidBands") {
+                let g = overlay.inputRef
+                c.clip(to: Path(CGRect(x: Layout.labelW, y: 0,
+                                       width: max(0, g.vp.w - Layout.labelW), height: g.vp.h)))
+                StickerCanvas.draw(overlay.rigidBandStickers(), in: &c, theme: overlay.themeRef)
+            }
+        }
     }
 }
 

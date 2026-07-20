@@ -311,13 +311,33 @@ public struct CalendarView: View {
     /// draws) 60×/sec even when paused. Dropping the TimelineView from the tree entirely is what actually
     /// stops the idle redraw.
     private func calendarScene(_ input: SceneInput, vp: Viewport, theme: Theme) -> some View {
-        ZStack {
-            // 1. scene below events — clipped to the content area
-            Canvas { ctx, _ in
-                var c = ctx
-                c.translateBy(x: Layout.padLeft, y: 0)
-                RenderProf.measure("drawBelow", "1_drawBelow") {
-                    SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
+        // Rest-year layer cache (see YearLayerCache.swift): non-nil at z==0 with no page-turn/flip.
+        let g0 = yearCacheInput(input)
+        return ZStack {
+            // 1. scene below events — clipped to the content area. At rest-year the scroll-RIGID
+            // slice records once at full year height and CA translates it; only the hover
+            // highlights re-draw per frame. Elsewhere: the classic single per-frame canvas.
+            if let g0 {
+                Color.clear.overlay(alignment: .top) {
+                    YearRigidBelow(g0: g0, theme: theme)
+                        .equatable()
+                        .frame(height: g0.vp.h)
+                        .offset(y: -input.scrollY)
+                }
+                Canvas { ctx, _ in
+                    var c = ctx
+                    c.translateBy(x: Layout.padLeft, y: 0)
+                    RenderProf.measure("drawBelow", "1_drawBelow") {
+                        SceneRenderer.drawBelow(input: input, filter: .hoverOnly, in: &c, theme: theme)
+                    }
+                }
+            } else {
+                Canvas { ctx, _ in
+                    var c = ctx
+                    c.translateBy(x: Layout.padLeft, y: 0)
+                    RenderProf.measure("drawBelow", "1_drawBelow") {
+                        SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
+                    }
                 }
             }
             // 2. events (bands + timed), Liquid Glass stickers
@@ -329,6 +349,7 @@ public struct CalendarView: View {
                           draggingId: engine.activeTimedDragId,
                           perfMode: effPerfMode, monthLive: engine.monthGestureActive, editGen: engine.displayGen,
                           hideBox: ui.openEventId != nil ? engine.selectedId : nil, // lifted sharp above
+                          yearG0: g0,
                           theme: theme)
                 .offset(x: Layout.padLeft)
             // 3. deadlines: the moment line + dots are drawn in the Canvas… When the drawer is open the
@@ -357,13 +378,34 @@ public struct CalendarView: View {
                              hovered: engine.hoveredEventId,
                              drawerOpen: ui.openEventId != nil, hide: liftDdl, theme: theme)
                 .offset(x: Layout.padLeft)
-            // 4. chrome on top of the glass: gutter labels/borders, track names, now-line/cursor, dashboard title
-            Canvas { ctx, _ in
-                var c = ctx
-                c.translateBy(x: Layout.padLeft, y: 0)
-                RenderProf.measure("drawAbove", "5_drawAbove") {
-                    SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames,
-                                            hideTrack: ui.editingTrack.map { ($0.month, $0.track) }, in: &c, theme: theme)
+            // 4. chrome on top of the glass: gutter labels/borders, track names, now-line/cursor, dashboard title.
+            // Rest-year: the gutter (month names + track names + borders) is scroll-rigid → cached layer;
+            // the per-frame pass keeps only the gutter hover strip + foreground + pull hints.
+            if let g0 {
+                Color.clear.overlay(alignment: .top) {
+                    YearRigidAbove(g0: g0, tracks: engine.items.trackNames,
+                                   hideTrack: ui.editingTrack.map { ($0.month, $0.track) }, theme: theme)
+                        .equatable()
+                        .frame(height: g0.vp.h)
+                        .offset(y: -input.scrollY)
+                }
+                Canvas { ctx, _ in
+                    var c = ctx
+                    c.translateBy(x: Layout.padLeft, y: 0)
+                    RenderProf.measure("drawAbove", "5_drawAbove") {
+                        SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames,
+                                                hideTrack: ui.editingTrack.map { ($0.month, $0.track) },
+                                                filter: .hoverOnly, in: &c, theme: theme)
+                    }
+                }
+            } else {
+                Canvas { ctx, _ in
+                    var c = ctx
+                    c.translateBy(x: Layout.padLeft, y: 0)
+                    RenderProf.measure("drawAbove", "5_drawAbove") {
+                        SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames,
+                                                hideTrack: ui.editingTrack.map { ($0.month, $0.track) }, in: &c, theme: theme)
+                    }
                 }
             }
             // Keyboard-navigation cursor (dashed sliding ring).
