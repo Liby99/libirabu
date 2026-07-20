@@ -515,7 +515,7 @@ import SwiftUI
     /// ── Chrome: dashboard title + bars, track names ───────────────────────────────
     /// (The gutter + dashboard masks themselves are frosted SwiftUI material views.)
     private static func drawDashboardChrome(_ input: SceneInput, _ ctx: inout GraphicsContext, _ theme: Theme) {
-        let reveal = clamp(input.z - 2, 0, 1)
+        let reveal = dashRevealTotal(input) // day-forced OR pinned (⌘B) at month/week
         if reveal <= 0.001 {
             return
         }
@@ -539,10 +539,11 @@ import SwiftUI
         let cal = Calendar.current
         let today = cal.dateComponents([.year, .month, .day], from: input.now)
 
-        /// One day's panel, translated by `x` (0 = centered) and faded by distance from center.
-        func drawPanel(_ dom: Int, _ x: CGFloat) {
-            let op = max(0, 1 - abs(x) / panelW) // web: opacity = 1 − |x|/width
-            guard op > 0.01, let r = resolveDate(input.year, input.focus, dom) else { return }
+        /// The shared panel skeleton at slide-offset `x`: top/bottom bars + eyebrow title + big
+        /// headline, faded by distance from center (web: opacity = 1 − |x|/width).
+        func drawPanelChrome(_ title: String, _ headline: String, _ x: CGFloat, opMul: CGFloat = 1) {
+            let op = max(0, 1 - abs(x) / panelW) * opMul
+            guard op > 0.01 else { return }
             var layer = ctx
             layer.opacity = Double(reveal * op)
             layer.clip(to: clipRect)
@@ -558,9 +559,15 @@ import SwiftUI
                     lineWidth: Layout.bandEdgeWidth
                 )
             }
-            drawText("DAILY DASHBOARD", CGRect(x: barX + x, y: lowerBarY - 46, width: w, height: 14),
+            drawText(title, CGRect(x: barX + x, y: lowerBarY - 46, width: w, height: 14),
                      size: 10, align: .left, color: theme.textMuted, tracking: 1.5, into: &layer)
-            // date + a (Today/Yesterday/Tomorrow) suffix (muted), like the web's cc-dd-special
+            drawText(headline, CGRect(x: barX + x, y: lowerBarY - 33, width: w, height: 26),
+                     size: 19, align: .left, color: theme.text, weight: .medium, into: &layer)
+        }
+
+        /// One DAY panel (with the Today/Yesterday/Tomorrow suffix), at slide-offset `x`.
+        func drawDayPanel(_ dom: Int, _ x: CGFloat, opMul: CGFloat = 1) {
+            guard let r = resolveDate(input.year, input.focus, dom) else { return }
             let base = "\(WD_LONG[dayOfWeek(r.year, r.month, r.day)]), \(MONTH_LONG[r.month]) \(r.day)"
             var special = ""
             if let d0 = cal.date(from: DateComponents(year: today.year, month: today.month, day: today.day)),
@@ -570,15 +577,63 @@ import SwiftUI
                     " (Tomorrow)"; default: break
                 }
             }
-            drawText(base + special, CGRect(x: barX + x, y: lowerBarY - 33, width: w, height: 26),
-                     size: 19, align: .left, color: theme.text, weight: .medium, into: &layer)
+            drawPanelChrome("DAILY DASHBOARD", base + special, x, opMul: opMul)
         }
-        if let a = input.daily.anim {
-            let dir = CGFloat(a.dir)
-            drawPanel(input.daily.dom, -dir * a.p * panelW) // current slides out + fades
-            drawPanel(input.daily.dom + a.dir, dir * (1 - a.p) * panelW) // incoming slides in from the other side
+
+        /// The DAY scope at slide-offset `baseX`: composes the inner day-to-day paging carousel.
+        func drawDayScope(_ baseX: CGFloat, opMul: CGFloat = 1) {
+            if let a = input.daily.anim {
+                let dir = CGFloat(a.dir)
+                drawDayPanel(input.daily.dom, baseX - dir * a.p * panelW, opMul: opMul)
+                drawDayPanel(input.daily.dom + a.dir, baseX + dir * (1 - a.p) * panelW, opMul: opMul)
+            } else {
+                drawDayPanel(input.daily.dom, baseX, opMul: opMul)
+            }
+        }
+
+        /// The WEEK scope: the focused week's date range ("Jul 13 – 19, 2026").
+        func drawWeekScope(_ baseX: CGFloat, opMul: CGFloat = 1) {
+            let startDOM = 1 - firstDOW(input.year, input.focus) + Int(input.week.rounded()) * 7
+            let s = resolveDate(input.year, input.focus, startDOM)
+            let e = resolveDate(input.year, input.focus, startDOM + 6)
+            var range = ""
+            if let s, let e {
+                range = s.month == e.month
+                    ? "\(MONTH_NAMES[s.month]) \(s.day) – \(e.day), \(e.year)"
+                    : "\(MONTH_NAMES[s.month]) \(s.day) – \(MONTH_NAMES[e.month]) \(e.day), \(e.year)"
+            }
+            drawPanelChrome("WEEKLY DASHBOARD", range, baseX, opMul: opMul)
+        }
+
+        /// The MONTH scope: "July 2026".
+        func drawMonthScope(_ baseX: CGFloat, opMul: CGFloat = 1) {
+            drawPanelChrome("MONTHLY DASHBOARD", "\(MONTH_LONG[input.focus]) \(input.year)", baseX, opMul: opMul)
+        }
+
+        // ── Scope carousel along the zoom axis ────────────────────────────────────────────────
+        // Position is a pure function of z. Between adjacent scopes (LOWER = coarser, UPPER =
+        // finer), t = eased fraction: the UPPER scope enters from the LEFT as you zoom in
+        // (x −panelW→0) while the LOWER exits right (0→+panelW); zooming out runs the same path
+        // backwards, so the target "returns from the right to center" — the day-paging carousel's
+        // exact look, applied to month↔week↔day.
+        func scopePair(_ t: CGFloat, lower: (CGFloat, CGFloat) -> Void, upper: (CGFloat, CGFloat) -> Void) {
+            if t <= 0.001 {
+                lower(0, 1)
+            } else if t >= 0.999 {
+                upper(0, 1)
+            } else {
+                upper(-(1 - t) * panelW, 1)
+                lower(t * panelW, 1)
+            }
+        }
+        if input.z >= 2 {
+            scopePair(easeInOut(clamp(input.z - 2, 0, 1)),
+                      lower: { drawWeekScope($0, opMul: $1) }, upper: { drawDayScope($0, opMul: $1) })
+        } else if input.z >= 1 {
+            scopePair(easeInOut(clamp(input.z - 1, 0, 1)),
+                      lower: { drawMonthScope($0, opMul: $1) }, upper: { drawWeekScope($0, opMul: $1) })
         } else {
-            drawPanel(input.daily.dom, 0)
+            drawMonthScope(0, opMul: 1) // year→month tail: the whole panel is still sliding in
         }
     }
 

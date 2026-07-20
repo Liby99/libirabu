@@ -64,6 +64,9 @@ public enum PrefKeys {
     /// View ▸ Filter by Tags — the [String] of HIDDEN tag keys (trimmed+lowercased; may include the
     /// untagged sentinel). Empty/absent = no filtering. Persisted across launches (unlike the web app).
     public static let hiddenTags = "cc.view.hiddenTags"
+    public static let dashPinned = "cc.dashPinned" // pinned weekly/monthly dashboard (⌘B)
+    public static let dashWeekFrac = "cc.dashWeekFrac" // pinned panel width at WEEK (fraction of content)
+    public static let dashMonthFrac = "cc.dashMonthFrac" // pinned panel width at MONTH
     /// View ▸ Current Timezone — the main tz for deadline origin-time labels. "auto" = device zone.
     public static let mainTz = "cc.view.mainTz"
     /// View ▸ Alternative Timezone — the second hour column on the timeline. "none" = off.

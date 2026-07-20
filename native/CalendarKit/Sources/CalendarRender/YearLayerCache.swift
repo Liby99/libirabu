@@ -34,6 +34,7 @@ public func yearCacheInput(_ input: SceneInput) -> SceneInput? {
     // only feeds buildDetail (reveal 0 → no items) and the focus-band border emphasis
     // (clamp((z−0.82)/0.18) → 0). Same for the week/day sub-state and detail scroll.
     g.focus = 0
+    g.dashPin = 0 // panel reveal is 0 at z==0 either way; keep the pin toggle out of the cache key
     g.week = 0
     g.tlScroll = 0
     g.daily = DailyState()

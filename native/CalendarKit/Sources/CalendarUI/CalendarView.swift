@@ -448,9 +448,14 @@ public struct CalendarView: View {
             }
             // Per-frame day-carousel driver for the dashboard WebView (invisible). Carries {from,to,dir,p}
             // for day paging and `reveal` for the panel's slide-in-from-right + fade. Week level up.
-            if input.z > 1.5 {
+            if input.z > 1.5 || input.dashPin > 0.01 {
                 let c = engine.dashboardCarousel()
-                let lOpen = Layout.labelW + dashFrac * max(1, vp.w - Layout.labelW)
+                // The webview frame sits at the DAY split in day view, at the narrower PINNED edge
+                // at month/week — normalize the CSS slide against whichever frame is in use.
+                let dayLOpen = Layout.labelW + dashFrac * max(1, vp.w - Layout.labelW)
+                let pinFrac = engine.chrome.level <= 1 ? engine.dashMonthFrac : engine.dashWeekFrac
+                let pinLOpen = vp.w - pinFrac * (vp.w - Layout.labelW)
+                let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPinned) ? pinLOpen : dayLOpen
                 let wvW = max(1, vp.w - lOpen)
                 let slide = min(1, max(0, Double((dashboardLeftAnimated(input) - lOpen) / wvW)))
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
@@ -564,7 +569,8 @@ public struct CalendarView: View {
                                                   onNavTab: { fwd in engine.tabCursor(fwd) })
                                 // Stay hit-testable while the drawer is open so the in-page scrim can intercept +
                                 // close (the WKWebView layer ignores the SwiftUI scrim/allowsHitTesting anyway).
-                                .allowsHitTesting(engine.chrome.level == 3)
+                                .allowsHitTesting(engine.chrome.level == 3
+                                    || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)))
                         }
                     }
                     // TODO/NOTE tabs + note edit/preview toggle — SEPARATE overlays ABOVE the WebView so the

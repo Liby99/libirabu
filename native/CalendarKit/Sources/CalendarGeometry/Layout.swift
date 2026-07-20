@@ -71,6 +71,7 @@ public enum Layout {
     // iPhone app zeroes it before the first render (month names flush to the edge).
     public static nonisolated(unsafe) var padLeft: CGFloat = 20
     public static let padRight: CGFloat = 0
+
 }
 
 @inlinable public func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat {

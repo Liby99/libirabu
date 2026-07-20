@@ -83,6 +83,13 @@ public struct ViewMenuContent: View {
         MenuActionButton(.goToWeek, engine: engine)
         MenuActionButton(.goToDay, engine: engine)
         Divider()
+        // Checkmark tracks the pin; the set-closure routes through the engine so the panel slide
+        // animates (a bare @AppStorage write would snap it). Disabled where the toggle no-ops.
+        Toggle(isOn: Binding(get: { engine.dashPinned }, set: { _ in engine.toggleDashPin() })) {
+            Label("Weekly/Monthly Dashboard", systemImage: "sidebar.trailing")
+        }
+        .keyboardShortcut("b", modifiers: .command)
+        .disabled(!(1 ... 2).contains(engine.chrome.level))
         Toggle(isOn: $showHidden) { Label("Show Hidden Imported Events", systemImage: "eye.slash") }
         Divider()
         Picker(selection: $mainTz) {

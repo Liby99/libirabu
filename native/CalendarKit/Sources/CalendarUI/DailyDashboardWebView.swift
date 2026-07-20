@@ -472,7 +472,13 @@ struct DailyDashboardOverlay: View {
 
     var body: some View {
         let contentW = max(1, vp.w - Layout.labelW)
-        let dashLeftGeo = Layout.labelW + frac * contentW // mirrors SceneRenderer.dashboardLeft
+        // Day view: the daily split. Pinned month/week: the narrower pinned panel edge. (The frame
+        // snaps between the two at the level boundary; the in-page CSS slide covers the reveal —
+        // a per-frame frame animation across the week→day widening is a phase-2 refinement.)
+        let dayLeftGeo = Layout.labelW + frac * contentW // mirrors SceneRenderer.dashboardLeft
+        let dashLeftGeo = (engine.chrome.level < 3 && engine.chrome.dashPinned)
+            ? vp.w - (engine.chrome.level <= 1 ? engine.dashMonthFrac : engine.dashWeekFrac) * contentW
+            : dayLeftGeo
         let left = Layout.padLeft + dashLeftGeo // full panel: no gutter inset (CSS pads it)
         let right = containerWidth - Layout.padRight
         let top = Layout.topPad + Layout.monthH + 14 // below the title + date rows
@@ -482,7 +488,9 @@ struct DailyDashboardOverlay: View {
         DailyDashboardWebView(
             carousel: carousel, forwarder: forwarder, data: engine.dashboardDataJSON(),
             tab: tab, noteMode: noteMode, inactive: inactive,
-            interactive: engine.chrome.level == 3, // day view → own the cursor; week (slid out) → yield
+            // Day view owns the cursor; a PINNED panel at month/week is interactive too.
+            interactive: engine.chrome.level == 3
+                || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)),
             theme: theme,
             onToggle: { id, occKey, value in engine.applyTodoNote(eventId: id, occKey: occKey, value: value) },
             onOpen: onOpen, onDeselect: { engine.deselect() },
@@ -527,7 +535,7 @@ struct DashTabsOverlay: View {
     let theme: Theme
 
     var body: some View {
-        if engine.chrome.level >= 2 {
+        if engine.chrome.level >= 2 || (engine.chrome.dashPinned && engine.chrome.level >= 1) {
             let contentW = max(1, vp.w - Layout.labelW)
             let left = Layout.padLeft + Layout.labelW + frac * contentW
             let right = containerWidth - Layout.padRight

@@ -59,7 +59,7 @@ public final class CalendarEngine {
     /// Anything that changes the scene frame-to-frame (so the loop must stay awake). `isAnimating`
     /// covers the z/scroll/week/day tweens + flips; add the rest of the live/elastic/drag states.
     private var needsRender: Bool {
-        isAnimating || anim.shiftTween != nil || anim.monthFlip != nil || drag != nil || daily.anim != nil
+        isAnimating || anim.shiftTween != nil || anim.dashPinTween != nil || anim.monthFlip != nil || drag != nil || daily.anim != nil
             || scroll.liveScrolling || scroll.liveMonthScrolling || scroll.liveWeekScrolling || scroll.liveDayScrolling
             || scroll.yearPull != nil || scroll.monthPull != nil || scroll.weekPull != nil || scroll.dayPull != nil
     }
@@ -70,6 +70,18 @@ public final class CalendarEngine {
     public internal(set) var week: CGFloat = 0
     public internal(set) var scrollY: CGFloat = 0
     public internal(set) var tlScroll: CGFloat = 0
+
+    /// Pinned (⌘B) weekly/monthly dashboard: the persisted user intent…
+    public internal(set) var dashPinned = UserDefaults.standard.bool(forKey: PrefKeys.dashPinned)
+    /// …and its animated presentation value (0 retracted … 1 out), tweened on toggle.
+    public internal(set) var dashPin: CGFloat = UserDefaults.standard.bool(forKey: PrefKeys.dashPinned) ? 1 : 0
+    /// Per-scope pinned panel widths (persisted; defaults month 0.25 < week 0.35 < daily.frac split).
+    public internal(set) var dashWeekFrac: CGFloat = {
+        let v = UserDefaults.standard.double(forKey: PrefKeys.dashWeekFrac); return v > 0 ? v : 0.35
+    }()
+    public internal(set) var dashMonthFrac: CGFloat = {
+        let v = UserDefaults.standard.double(forKey: PrefKeys.dashMonthFrac); return v > 0 ? v : 0.25
+    }()
     func fireDayLand() {
         if let cb = anim.dayLandDone {
             anim.dayLandDone = nil; cb()
@@ -522,7 +534,7 @@ public final class CalendarEngine {
 
     /// ── Frame snapshot ──────────────────────────────────────────────────────────
     func snapshot() -> SceneInput {
-        SceneInput(z: z, focus: focus, week: week, vp: viewport, scrollY: scrollY, tlScroll: tlScroll,
+        var g = SceneInput(z: z, focus: focus, week: week, vp: viewport, scrollY: scrollY, tlScroll: tlScroll,
                    now: now, year: year, hover: blockHoverOverride() ?? hover, weekHourH: weekHourH, daily: daily,
                    monthAnim: anim.monthAnim, altDeltaHours: altDeltaHours, altLabel: altColumnLabel,
                    yearPull: scroll.yearPull, flipFade: anim.flipFade,
@@ -535,6 +547,10 @@ public final class CalendarEngine {
                    mainTz: mainTz,
                    yearQX: yearQX,
                    monthQX: monthQX)
+        g.dashPin = dashPin
+        g.dashWeekFrac = dashWeekFrac
+        g.dashMonthFrac = dashMonthFrac
+        return g
     }
 
     /// Per-quarter horizontal scroll offsets for the year view (phone overflow; zeros on
@@ -603,6 +619,12 @@ public final class CalendarEngine {
             tlScroll = tt.value(at: date); onSetTlScroll?(tlScroll)
             if tt.isComplete(at: date) {
                 tlScroll = tt.to; anim.tlScrollTween = nil; onSetTlScroll?(tlScroll)
+            }
+        }
+        if let pt = anim.dashPinTween {
+            dashPin = pt.value(at: date)
+            if pt.isComplete(at: date) {
+                dashPin = pt.to; anim.dashPinTween = nil
             }
         }
         if let wt = anim.weekTween {

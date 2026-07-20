@@ -224,6 +224,16 @@ public struct SceneInput: Sendable, Equatable {
     /// overflow into one scroll; desktop: always 0). Same shift model as yearQX.
     public var monthQX: CGFloat
 
+    /// Pinned (⌘B) weekly/monthly dashboard: 0 = retracted, 1 = out, animated on toggle. Drives
+    /// the panel reveal at month/week zoom AND the week/month grid squeeze (the whole week/month
+    /// stays visible, compressed left of the panel). Day view forces the panel regardless.
+    public var dashPin: CGFloat = 0
+    /// Per-scope pinned panel widths (fractions of the content area), persisted user prefs: the
+    /// daily split is `daily.frac`; these cover week and month. Generally day > week > month —
+    /// the panel MORPHS between them as the zoom crosses scopes (see dashboardLeftAnimated).
+    public var dashWeekFrac: CGFloat = 0.35
+    public var dashMonthFrac: CGFloat = 0.25
+
     /// Month `m`'s quarter scroll offset (safe on a short/empty array).
     public func qx(_ m: Int) -> CGFloat {
         let q = m / 3
