@@ -36,6 +36,17 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             alphaValue = alpha
         }
     }
+
+    /// Frame-local x of the live mask edge (set per tick): the frame spans the FULL content
+    /// region, so pointer events left of the panel must fall through to the calendar beneath.
+    var interactiveLeftX: CGFloat = .greatestFiniteMagnitude
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        if local.x < interactiveLeftX {
+            return nil
+        }
+        return super.hitTest(point)
+    }
     private enum Axis { case undecided, horizontal, vertical }
     private var axis: Axis = .undecided
     /// The pointer is over a horizontally-scrollable element (a code block with a long line). Set from
@@ -143,14 +154,20 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
               scopeA: String = "day", scopeB: String = "day", scopeT: Double = 1,
               dy: Double = 0, mFrom: String = "", mTo: String = "",
               mDy0: Double = 0, mDy1: Double = 0, mP: Double = 0,
-              sDx0: Double = 0, sDx1: Double = 0) {
-        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(Int(sDx0.rounded()))|\(Int(sDx1.rounded()))"
+              maskX: Double = 0, maskW: Double = 0,
+              aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0,
+              bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0) {
+        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))"
         if key == lastKey {
             return
         }
         lastKey = key
         // Reveal fade natively (safe: view-level alpha); motion stays in CSS — see setPanelAlpha.
-        (web as? PassThroughWebView)?.setPanelAlpha(CGFloat(reveal))
+        // The hit gate tracks the live mask edge so only the panel area belongs to the webview.
+        if let ptw = web as? PassThroughWebView {
+            ptw.setPanelAlpha(CGFloat(reveal))
+            ptw.interactiveLeftX = CGFloat(maskX)
+        }
         func r4(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
         let payload: [String: Any] = [
             "from": from, "to": to, "dir": dir,
@@ -160,7 +177,11 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             "mFrom": mFrom, "mTo": mTo,
             "mDy0": (mDy0 * 10).rounded() / 10, "mDy1": (mDy1 * 10).rounded() / 10,
             "mP": r4(mP),
-            "sDx0": (sDx0 * 10).rounded() / 10, "sDx1": (sDx1 * 10).rounded() / 10,
+            "maskX": (maskX * 10).rounded() / 10, "maskW": (maskW * 10).rounded() / 10,
+            "aName": aName, "aX": (aX * 10).rounded() / 10, "aW": (aW * 10).rounded() / 10,
+            "aOp": r4(aOp),
+            "bName": bName, "bX": (bX * 10).rounded() / 10, "bW": (bW * 10).rounded() / 10,
+            "bOp": r4(bOp),
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -278,7 +299,10 @@ struct CarouselDriver: NSViewRepresentable {
     var mDir: Int = 0
     var mP: Double = 0
     var mDy0: Double = 0, mDy1: Double = 0 // month-turn PIXEL offsets (band-frame deltas; see caller)
-    var sDx0: Double = 0, sDx1: Double = 0 // scope-zoom PIXEL x-offsets (live-panel-width based)
+    // Per-panel scope geometry from dashScopePanels, frame-local px (frame left = labelW):
+    var maskX: Double = 0, maskW: Double = 0 // the clip region (dashboardLeftAnimated → right edge)
+    var aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0 // current/outgoing panel
+    var bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0 // incoming (transitions)
     func makeNSView(context: Context) -> NSView {
         NSView()
     }
@@ -287,7 +311,9 @@ struct CarouselDriver: NSViewRepresentable {
         carousel.tick(from: from, to: to, dir: dir, p: p, reveal: reveal, slide: slide,
                       scopeA: scopeA, scopeB: scopeB, scopeT: scopeT,
                       dy: webDy, mFrom: mFrom, mTo: mTo, mDy0: mDy0, mDy1: mDy1, mP: mP,
-                      sDx0: sDx0, sDx1: sDx1)
+                      maskX: maskX, maskW: maskW,
+                      aName: aName, aX: aX, aW: aW, aOp: aOp,
+                      bName: bName, bX: bX, bW: bW, bOp: bOp)
         anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
                  headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
                  monthP: mP, monthDir: mDir, scopeT: scopeT)
@@ -547,20 +573,11 @@ struct DailyDashboardOverlay: View {
     var onNavTab: (Bool) -> Void = { _ in }
 
     var body: some View {
-        let contentW = max(1, vp.w - Layout.labelW)
-        // Day view: the daily split. Pinned month/week: the narrower pinned panel edge. (The frame
-        // snaps between the two at the level boundary; the in-page CSS slide covers the reveal —
-        // a per-frame frame animation across the week→day widening is a phase-2 refinement.)
-        let dayLeftGeo = Layout.labelW + frac * contentW // mirrors SceneRenderer.dashboardLeft
-        // dashPresented (not dashPinned): the frame stays parked at the pinned edge through the
-        // ⌘B retract tween — the CSS slide carries the content off-right with the departing panel
-        // (keying on dashPinned teleported the frame to the day split mid-retract).
-        let dashLeftGeo = (engine.chrome.level < 3 && engine.chrome.dashPresented)
-            ? (engine.chrome.level <= 1
-                ? vp.w - dashMonthPanelW(vp, frac: engine.chrome.dashMonthFrac)
-                : vp.w - engine.chrome.dashWeekFrac * contentW)
-            : dayLeftGeo
-        let left = Layout.padLeft + dashLeftGeo // full panel: no gutter inset (CSS pads it)
+        // The frame spans the FULL content region (labelW → right edge) and NEVER moves — panels
+        // are positioned inside in pixels (dashScopePanels geometry via the tick), so there is no
+        // frame snap at any level boundary. Clicks left of the live mask pass through to the
+        // calendar via PassThroughWebView's hit gate.
+        let left = Layout.padLeft + Layout.labelW
         let right = containerWidth - Layout.padRight
         let top = Layout.topPad + Layout.monthH + 14 // below the title + date rows
         let w = max(1, right - left)

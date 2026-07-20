@@ -485,6 +485,11 @@ public struct CalendarView: View {
                             (0 ... 11).contains(toM) ? MONTH_LONG[toM] : "",
                             a.dir, Double(a.p))
                 }()
+                // Per-panel geometry from the SAME function the Canvas header draws with
+                // (dashScopePanels) — mask + each panel's own (left, width, opacity), converted to
+                // the webview's frame-local coordinates (the frame spans the full content region,
+                // left edge at labelW, and never moves — no level-boundary snap).
+                let scopeGeom = dashScopePanels(input)
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
                                dir: c.dir, p: c.p, reveal: c.reveal, slide: slide,
                                scopeA: sA, scopeB: sB, scopeT: sT,
@@ -499,11 +504,16 @@ public struct CalendarView: View {
                                // same asymmetric travel as the Canvas header. Native is the standard.
                                mDy0: Double(fHeader.bandY - fRest.bandY),
                                mDy1: Double(fHeader2.bandY - fRest.bandY),
-                               // Scope-zoom PIXEL x-offsets from the LIVE panel width (it morphs while
-                               // zooming — a %-of-frame slide in the webview would run at a different
-                               // speed than the Canvas header panels).
-                               sDx0: sT * Double(vp.w - dashboardLeftAnimated(input)),
-                               sDx1: (sT - 1) * Double(vp.w - dashboardLeftAnimated(input)))
+                               maskX: Double((scopeGeom?.mask ?? vp.w) - Layout.labelW),
+                               maskW: Double(vp.w - (scopeGeom?.mask ?? vp.w)),
+                               aName: scopeGeom?.a.name ?? "",
+                               aX: Double((scopeGeom?.a.x ?? 0) - Layout.labelW),
+                               aW: Double(scopeGeom?.a.w ?? 0),
+                               aOp: Double(scopeGeom?.a.op ?? 0),
+                               bName: scopeGeom?.b?.name ?? "",
+                               bX: Double((scopeGeom?.b?.x ?? 0) - Layout.labelW),
+                               bW: Double(scopeGeom?.b?.w ?? 0),
+                               bOp: Double(scopeGeom?.b?.op ?? 0))
                     .frame(width: 0, height: 0)
             }
         }

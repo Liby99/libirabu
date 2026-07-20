@@ -233,6 +233,55 @@ func pinnedDashLeft(_ g: SceneInput) -> CGFloat? {
     return lerp(monthRight, weekRight, easeInOut(clamp(g.z - 1, 0, 1)))
 }
 
+/// One dashboard scope panel's placement this frame: its OWN target width, absolute screen-x of
+/// its left border, and cross-fade opacity. Computed by dashScopePanels — the SINGLE source both
+/// the Canvas header and the webview consume, so their panels align by construction.
+public struct DashPanel: Sendable, Equatable {
+    public var name: String // "month" | "week" | "day"
+    public var x: CGFloat // screen-x of the panel's left border
+    public var w: CGFloat // the panel's OWN (target) width
+    public var op: CGFloat // cross-fade opacity
+}
+
+/// The scope panels visible this frame (a = current/outgoing, b = incoming mid-transition), plus
+/// the mask edge (dashboardLeftAnimated) that clips them. Continuous in z EVERYWHERE — nothing
+/// keys on the rounded `level`, so there is no z=1.5 (or any) snap:
+///   z ≤ 1  pinned: the month panel rides the entering mask (accordion).
+///   1→2    pinned: month exits right from its rest (lerp(mL, vp.w, t)); week slides in under the
+///          mask from the LEFT (wL − (1−t)·W_w) — each at its OWN width, cross-fading.
+///   2→3    pinned: week exits right; the day panel slides in from the left the same way.
+///   2→3  unpinned: the classic single day panel, glued to the sliding mask edge.
+public func dashScopePanels(_ g: SceneInput) -> (mask: CGFloat, a: DashPanel, b: DashPanel?)? {
+    let mask = dashboardLeftAnimated(g)
+    guard mask < g.vp.w - 0.5 else { return nil }
+    let wMonth = dashMonthPanelW(g.vp, frac: g.dashMonthFrac)
+    let wWeek = g.dashWeekFrac * (g.vp.w - Layout.labelW)
+    let dayL = dashboardLeft(g)
+    let wDay = g.vp.w - dayL
+    let mL = g.vp.w - wMonth
+    let wL = g.vp.w - wWeek
+    let pinned = g.dashPin > 0.0001
+    if g.z <= 1 {
+        // Accordion: the single month panel rides the entering mask edge.
+        return (mask, DashPanel(name: "month", x: mask, w: wMonth, op: 1), nil)
+    }
+    if g.z <= 2 {
+        guard pinned else { return nil }
+        let t = easeInOut(clamp(g.z - 1, 0, 1))
+        return (mask,
+                DashPanel(name: "month", x: lerp(mL, g.vp.w, t), w: wMonth, op: 1 - t),
+                DashPanel(name: "week", x: wL - (1 - t) * wWeek, w: wWeek, op: t))
+    }
+    let t = easeInOut(clamp(g.z - 2, 0, 1))
+    if pinned {
+        return (mask,
+                DashPanel(name: "week", x: lerp(wL, g.vp.w, t), w: wWeek, op: 1 - t),
+                DashPanel(name: "day", x: dayL - (1 - t) * wDay, w: wDay, op: t))
+    }
+    // Unpinned: the classic day-only reveal — the panel is glued to the sliding mask edge.
+    return (mask, DashPanel(name: "day", x: mask, w: wDay, op: 1), nil)
+}
+
 /// The panel's TOTAL reveal this frame, 0…1 of "some panel is out" (chrome + webview alpha key on
 /// this): the day-forced reveal (z 2→3), or — pinned — the panel's on-screen PRESENCE (how much of
 /// its resting width has entered), so content fades in exactly as the panel edge enters the window

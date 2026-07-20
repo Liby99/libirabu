@@ -55713,8 +55713,18 @@
     mDy0: 0,
     mDy1: 0,
     mP: 0,
-    sDx0: 0,
-    sDx1: 0
+    // Per-panel scope geometry from Swift's dashScopePanels (frame-local px):
+    // the mask (clip) region + each panel's own left/width/opacity.
+    maskX: 0,
+    maskW: 0,
+    aName: "",
+    aX: 0,
+    aW: 0,
+    aOp: 0,
+    bName: "",
+    bX: 0,
+    bW: 0,
+    bOp: 0
   };
   var last = { ...TICK_DEFAULTS };
   var root5 = document.getElementById("dash");
@@ -56039,8 +56049,16 @@
       mDy0,
       mDy1,
       mP,
-      sDx0,
-      sDx1
+      maskX,
+      maskW,
+      aName,
+      aX,
+      aW,
+      aOp,
+      bName,
+      bX,
+      bW,
+      bOp
     } = last;
     if (reveal < 0.02) {
       if (dayViewShown) {
@@ -56054,24 +56072,26 @@
       P0.scroll.scrollTop = 0;
       P1.scroll.scrollTop = 0;
     }
-    root5.style.transform = `translate(${(slide * 100).toFixed(3)}%, ${dy.toFixed(1)}px)`;
+    root5.style.left = `${maskX.toFixed(1)}px`;
+    root5.style.width = `${Math.max(0, maskW).toFixed(1)}px`;
+    root5.style.transform = `translateY(${dy.toFixed(1)}px)`;
     root5.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
     const layers = { day: panelsEl, week: weekLayer, month: monthLayer };
     const t2 = scopeT;
     for (const [name2, el] of Object.entries(layers)) {
-      let x = 0, op2 = 0;
-      if (name2 === scopeB) {
-        x = sDx1;
-        op2 = t2;
-      } else if (name2 === scopeA) {
-        x = sDx0;
-        op2 = 1 - t2;
+      let x = 0, w = 0, op2 = 0;
+      if (name2 === aName) {
+        x = aX;
+        w = aW;
+        op2 = aOp;
+      } else if (name2 === bName) {
+        x = bX;
+        w = bW;
+        op2 = bOp;
       }
-      if (scopeA === scopeB && name2 === scopeA) {
-        x = 0;
-        op2 = 1;
-      }
-      el.style.transform = `translateX(${x.toFixed(1)}px)`;
+      el.style.left = `${(x - maskX).toFixed(1)}px`;
+      el.style.width = `${Math.max(0, w).toFixed(1)}px`;
+      el.style.transform = "none";
       el.style.opacity = op2.toFixed(3);
       el.style.pointerEvents = op2 > 0.999 ? "auto" : "none";
     }

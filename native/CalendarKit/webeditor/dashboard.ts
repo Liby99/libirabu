@@ -43,7 +43,11 @@ function ensureTodos() {
 const TICK_DEFAULTS = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
                         scopeA: "day", scopeB: "day", scopeT: 1,
                         dy: 0, mFrom: "", mTo: "", mDy0: 0, mDy1: 0, mP: 0,
-                        sDx0: 0, sDx1: 0 };
+                        // Per-panel scope geometry from Swift's dashScopePanels (frame-local px):
+                        // the mask (clip) region + each panel's own left/width/opacity.
+                        maskX: 0, maskW: 0,
+                        aName: "", aX: 0, aW: 0, aOp: 0,
+                        bName: "", bX: 0, bW: 0, bOp: 0 };
 let last = { ...TICK_DEFAULTS };
 
 const root = document.getElementById("dash")!;                 // reveal wrapper (zoom slide + fade)
@@ -400,7 +404,7 @@ let liveShown = false, liveMode = "";
 let dayViewShown = false;   // true once the dashboard is revealed (day view); reset when hidden
 function apply() {
   const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDy0, mDy1, mP,
-          sDx0, sDx1 } = last;
+          maskX, maskW, aName, aX, aW, aOp, bName, bX, bW, bOp } = last;
   // Leaving day view (reveal fell to hidden) forgets every day's scroll, so re-entering day view always
   // starts at the top — the scroll doesn't carry across a trip out to week/month view. The reset on
   // re-entry restores from the (now-empty) map, i.e. 0, without re-rendering the unchanged panels.
@@ -413,25 +417,26 @@ function apply() {
     isoOf.delete(p0); isoOf.delete(p1);
     P0.scroll.scrollTop = 0; P1.scroll.scrollTop = 0;
   }
-  // Zoom reveal slide + accordion dy in CSS (the #dash transition glides between ticks); the
-  // reveal FADE is native (view alphaValue — see setPanelAlpha; transforming the WKWebView's
-  // layer natively flickered against WebKit's remote-layer commits).
-  root.style.transform = `translate(${(slide * 100).toFixed(3)}%, ${dy.toFixed(1)}px)`;
+  // #dash IS the mask: positioned + sized to the live clip region (frame-local px from Swift's
+  // dashScopePanels — the SAME numbers the Canvas header clips with). The accordion dy rides as
+  // a transform; the reveal FADE is native (view alphaValue — see setPanelAlpha).
+  root.style.left = `${maskX.toFixed(1)}px`;
+  root.style.width = `${Math.max(0, maskW).toFixed(1)}px`;
+  root.style.transform = `translateY(${dy.toFixed(1)}px)`;
   root.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
-  // ── Zoom-scope carousel: place the three scope layers (day = #panels, week, month) with the
-  // Canvas scopePair math. Offsets arrive in PIXELS from Swift (sDx0 = lower/outgoing,
-  // sDx1 = upper/incoming) computed against the LIVE panel width — the panel morphs while
-  // zooming, so a %-of-frame-width slide here would run at a different speed than the Canvas
-  // header. Native is the correctness standard.
+  // ── Zoom-scope carousel: each panel is placed at its OWN target width and absolute position
+  // (dashScopePanels' numbers, frame-local → mask-local by subtracting maskX) — exactly the
+  // geometry the Canvas header draws with, so the two align by construction and stay continuous
+  // in z (nothing keys on the rounded level; no z=1.5 snap).
   const layers: Record<string, HTMLElement> = { day: panelsEl, week: weekLayer, month: monthLayer };
   const t = scopeT;
   for (const [name, el] of Object.entries(layers)) {
-    let x = 0, op = 0;
-    if (name === scopeB) { x = sDx1; op = t; }
-    else if (name === scopeA) { x = sDx0; op = 1 - t; }
-    // scopeA === scopeB (rest at month tail): the single active layer sits centered, opaque.
-    if (scopeA === scopeB && name === scopeA) { x = 0; op = 1; }
-    el.style.transform = `translateX(${x.toFixed(1)}px)`;
+    let x = 0, w = 0, op = 0;
+    if (name === aName) { x = aX; w = aW; op = aOp; }
+    else if (name === bName) { x = bX; w = bW; op = bOp; }
+    el.style.left = `${(x - maskX).toFixed(1)}px`;
+    el.style.width = `${Math.max(0, w).toFixed(1)}px`;
+    el.style.transform = "none";
     el.style.opacity = op.toFixed(3);
     el.style.pointerEvents = op > 0.999 ? "auto" : "none";
   }

@@ -525,16 +525,12 @@ import SwiftUI
         //    only reveals with the zoom (`reveal`, slid in from the right via dashboardLeftAnimated).
         //  • per-day PANELS (bars + name + date, and future content) that slide a full panel-width and
         //    cross-fade like a carousel as you page days — the whole panel moves together, not just the date.
-        let dashLeft = dashboardLeftAnimated(input)
-        if dashLeft >= input.vp.w - 1 {
-            return
-        }
-        let barX = dashLeft + 25 // matches the web's --dd-pad: 25px
-        let barRight = input.vp.w - 18
-        let lowerBarY = Layout.topPad + Layout.monthH
-        let w = barRight - barX
-        let panelW = max(1, input.vp.w - dashLeft) // one panel = the full dashboard width
-        let clipRect = Path(CGRect(x: dashLeft, y: 0, width: panelW, height: input.vp.h))
+        // Every panel's absolute (left, width, opacity) comes from dashScopePanels — the SAME
+        // function the webview tick consumes — so the two render trees align by construction and
+        // stay continuous in z (nothing keys on the rounded level; no z=1.5 snap).
+        guard let scope = dashScopePanels(input) else { return }
+        let clipRect = Path(CGRect(x: scope.mask, y: 0,
+                                   width: max(1, input.vp.w - scope.mask), height: input.vp.h))
 
         let cal = Calendar.current
         let today = cal.dateComponents([.year, .month, .day], from: input.now)
@@ -545,11 +541,13 @@ import SwiftUI
         /// the header borders aligned with the month track borders BY CONSTRUCTION — through the
         /// year→month accordion (the header rides up with the band) and month page-turns (it
         /// carousels vertically with the outgoing/incoming bands).
-        func drawPanelChrome(_ title: String, _ headline: String, _ x: CGFloat,
-                             topY: CGFloat = Layout.topPad, opMul: CGFloat = 1) {
-            let op = max(0, 1 - abs(x) / panelW) * opMul
+        func drawPanelChrome(_ title: String, _ headline: String, left: CGFloat, width: CGFloat,
+                             topY: CGFloat = Layout.topPad, op: CGFloat) {
             guard op > 0.01 else { return }
             let botY = topY + Layout.monthH
+            let bx = left + 25 // matches the web's --dd-pad: 25px
+            let br = left + width - 18
+            let tw = max(1, br - bx)
             var layer = ctx
             layer.opacity = Double(reveal * op)
             layer.clip(to: clipRect)
@@ -558,21 +556,21 @@ import SwiftUI
             // these up 1px to line up exactly with the timeline track's borders across the boundary.
             for y in [topY - 0.5, botY - 0.5] {
                 var p = Path()
-                p.move(to: CGPoint(x: barX + x, y: y)); p.addLine(to: CGPoint(x: barRight + x, y: y))
+                p.move(to: CGPoint(x: bx, y: y)); p.addLine(to: CGPoint(x: br, y: y))
                 layer.stroke(
                     p,
                     with: .color(theme.sep.opacity(Layout.bandEdgeOpacity)),
                     lineWidth: Layout.bandEdgeWidth
                 )
             }
-            drawText(title, CGRect(x: barX + x, y: botY - 46, width: w, height: 14),
+            drawText(title, CGRect(x: bx, y: botY - 46, width: tw, height: 14),
                      size: 10, align: .left, color: theme.textMuted, tracking: 1.5, into: &layer)
-            drawText(headline, CGRect(x: barX + x, y: botY - 33, width: w, height: 26),
+            drawText(headline, CGRect(x: bx, y: botY - 33, width: tw, height: 26),
                      size: 19, align: .left, color: theme.text, weight: .medium, into: &layer)
         }
 
-        /// One DAY panel (with the Today/Yesterday/Tomorrow suffix), at slide-offset `x`.
-        func drawDayPanel(_ dom: Int, _ x: CGFloat, opMul: CGFloat = 1) {
+        /// One DAY panel (with the Today/Yesterday/Tomorrow suffix), at absolute left/width.
+        func drawDayPanel(_ dom: Int, left: CGFloat, width: CGFloat, op: CGFloat) {
             guard let r = resolveDate(input.year, input.focus, dom) else { return }
             let base = "\(WD_LONG[dayOfWeek(r.year, r.month, r.day)]), \(MONTH_LONG[r.month]) \(r.day)"
             var special = ""
@@ -583,22 +581,25 @@ import SwiftUI
                     " (Tomorrow)"; default: break
                 }
             }
-            drawPanelChrome("DAILY DASHBOARD", base + special, x, opMul: opMul)
+            drawPanelChrome("DAILY DASHBOARD", base + special, left: left, width: width, op: op)
         }
 
-        /// The DAY scope at slide-offset `baseX`: composes the inner day-to-day paging carousel.
-        func drawDayScope(_ baseX: CGFloat, opMul: CGFloat = 1) {
+        /// The DAY scope: composes the inner day-to-day paging carousel within the panel's
+        /// own width (slides a full own-width, fades by progress).
+        func drawDayScope(_ p: DashPanel) {
             if let a = input.daily.anim {
                 let dir = CGFloat(a.dir)
-                drawDayPanel(input.daily.dom, baseX - dir * a.p * panelW, opMul: opMul)
-                drawDayPanel(input.daily.dom + a.dir, baseX + dir * (1 - a.p) * panelW, opMul: opMul)
+                drawDayPanel(input.daily.dom, left: p.x - dir * a.p * p.w, width: p.w,
+                             op: p.op * (1 - a.p))
+                drawDayPanel(input.daily.dom + a.dir, left: p.x + dir * (1 - a.p) * p.w, width: p.w,
+                             op: p.op * a.p)
             } else {
-                drawDayPanel(input.daily.dom, baseX, opMul: opMul)
+                drawDayPanel(input.daily.dom, left: p.x, width: p.w, op: p.op)
             }
         }
 
         /// The WEEK scope: the focused week's date range ("Jul 13 – 19, 2026").
-        func drawWeekScope(_ baseX: CGFloat, opMul: CGFloat = 1) {
+        func drawWeekScope(_ p: DashPanel) {
             let startDOM = 1 - firstDOW(input.year, input.focus) + Int(input.week.rounded()) * 7
             let s = resolveDate(input.year, input.focus, startDOM)
             let e = resolveDate(input.year, input.focus, startDOM + 6)
@@ -608,20 +609,20 @@ import SwiftUI
                     ? "\(MONTH_NAMES[s.month]) \(s.day) – \(e.day), \(e.year)"
                     : "\(MONTH_NAMES[s.month]) \(s.day) – \(MONTH_NAMES[e.month]) \(e.day), \(e.year)"
             }
-            drawPanelChrome("WEEKLY DASHBOARD", range, baseX, opMul: opMul)
+            drawPanelChrome("WEEKLY DASHBOARD", range, left: p.x, width: p.w, op: p.op)
         }
 
         /// The MONTH scope: one header per (visible) month, each VERTICALLY anchored to its month
         /// band's animated frame — so the header borders stay flush with the track borders through
         /// the year→month accordion, and a month page-turn carousels the header vertically WITH the
         /// bands (outgoing rides up/down and the incoming header follows its band in).
-        func drawMonthScope(_ baseX: CGFloat, opMul: CGFloat = 1) {
+        func drawMonthScope(_ p: DashPanel) {
             func panel(_ m: Int) {
                 guard m >= 0, m <= 11 else { return }
                 let f = frameFor(m, input, anim: input.monthAnim)
                 guard f.bandY > -Layout.monthH * 2, f.bandY < input.vp.h + Layout.monthH else { return }
-                drawPanelChrome("MONTHLY DASHBOARD", "\(MONTH_LONG[m]) \(input.year)", baseX,
-                                topY: f.bandY, opMul: opMul)
+                drawPanelChrome("MONTHLY DASHBOARD", "\(MONTH_LONG[m]) \(input.year)",
+                                left: p.x, width: p.w, topY: f.bandY, op: p.op)
             }
             panel(input.focus)
             if let a = input.monthAnim {
@@ -629,30 +630,18 @@ import SwiftUI
             }
         }
 
-        // ── Scope carousel along the zoom axis ────────────────────────────────────────────────
-        // Position is a pure function of z. Between adjacent scopes (LOWER = coarser, UPPER =
-        // finer), t = eased fraction: the UPPER scope enters from the LEFT as you zoom in
-        // (x −panelW→0) while the LOWER exits right (0→+panelW); zooming out runs the same path
-        // backwards, so the target "returns from the right to center" — the day-paging carousel's
-        // exact look, applied to month↔week↔day.
-        func scopePair(_ t: CGFloat, lower: (CGFloat, CGFloat) -> Void, upper: (CGFloat, CGFloat) -> Void) {
-            if t <= 0.001 {
-                lower(0, 1)
-            } else if t >= 0.999 {
-                upper(0, 1)
-            } else {
-                upper(-(1 - t) * panelW, 1)
-                lower(t * panelW, 1)
+        // ── Scope carousel along the zoom axis: dashScopePanels placed each panel at its OWN
+        // target width and absolute position; dispatch by name.
+        func draw(_ p: DashPanel) {
+            switch p.name {
+            case "month": drawMonthScope(p)
+            case "week": drawWeekScope(p)
+            default: drawDayScope(p)
             }
         }
-        if input.z >= 2 {
-            scopePair(easeInOut(clamp(input.z - 2, 0, 1)),
-                      lower: { drawWeekScope($0, opMul: $1) }, upper: { drawDayScope($0, opMul: $1) })
-        } else if input.z >= 1 {
-            scopePair(easeInOut(clamp(input.z - 1, 0, 1)),
-                      lower: { drawMonthScope($0, opMul: $1) }, upper: { drawWeekScope($0, opMul: $1) })
-        } else {
-            drawMonthScope(0, opMul: 1) // year→month tail: the whole panel is still sliding in
+        draw(scope.a)
+        if let b = scope.b {
+            draw(b)
         }
     }
 
