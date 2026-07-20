@@ -55706,7 +55706,12 @@
     slide: 1,
     scopeA: "day",
     scopeB: "day",
-    scopeT: 1
+    scopeT: 1,
+    dy: 0,
+    mFrom: "",
+    mTo: "",
+    mDir: 0,
+    mP: 0
   };
   var root5 = document.getElementById("dash");
   var panelsEl = document.getElementById("panels");
@@ -55727,7 +55732,27 @@
     return el;
   }
   var weekLayer = makeScopeLayer("scope-week", "WEEKLY", ["Weekly item", "Weekly item", "Weekly item", "Weekly item"]);
-  var monthLayer = makeScopeLayer("scope-month", "MONTHLY", ["Monthly item", "Monthly item", "Monthly item"]);
+  var monthLayer = document.createElement("div");
+  monthLayer.className = "cc-dd-panel";
+  monthLayer.id = "scope-month";
+  root5.appendChild(monthLayer);
+  function monthPH() {
+    const el = document.createElement("div");
+    el.className = "cc-dd-panel";
+    monthLayer.appendChild(el);
+    return el;
+  }
+  var mp0 = monthPH();
+  var mp1 = monthPH();
+  var mpLabel = /* @__PURE__ */ new Map();
+  function renderMonthPH(el, label) {
+    if (mpLabel.get(el) === label) return;
+    mpLabel.set(el, label);
+    el.innerHTML = `<div class="cc-dd-scroll"><div style="opacity:.55;font-size:11px;letter-spacing:1.5px;margin:4px 0 10px">MONTHLY \xB7 ${label.toUpperCase()} \xB7 PLACEHOLDER</div>` + [1, 2, 3].map((i3) => `<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.18)">
+         <span style="width:14px;height:14px;border:1.5px solid rgba(128,128,128,.55);border-radius:4px;flex:none"></span>
+         <span>${label} item ${i3}</span>
+       </div>`).join("") + `<div style="margin-top:14px;opacity:.5;font-size:12px">${label} note \u2014 placeholder text.</div></div>`;
+  }
   function post(m) {
     window.webkit?.messageHandlers?.ck?.postMessage(m);
   }
@@ -55994,7 +56019,7 @@
   var liveMode = "";
   var dayViewShown = false;
   function apply() {
-    const { from, to, dir, p: p3, reveal, slide, scopeA, scopeB, scopeT } = last;
+    const { from, to, dir, p: p3, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDir, mP } = last;
     if (reveal < 0.02) {
       if (dayViewShown) {
         dayViewShown = false;
@@ -56007,7 +56032,7 @@
       P0.scroll.scrollTop = 0;
       P1.scroll.scrollTop = 0;
     }
-    root5.style.transform = `translateX(${(slide * 100).toFixed(3)}%)`;
+    root5.style.transform = `translate(${(slide * 100).toFixed(3)}%, ${dy.toFixed(1)}px)`;
     root5.style.opacity = reveal.toFixed(3);
     root5.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
     const layers = { day: panelsEl, week: weekLayer, month: monthLayer };
@@ -56030,6 +56055,18 @@
       el.style.pointerEvents = op2 > 0.999 ? "auto" : "none";
     }
     const scopeIsDay = (t2 > 0.5 ? scopeB : scopeA) === "day";
+    renderMonthPH(mp0, mFrom || "Month");
+    if (mP > 1e-4 && mTo) {
+      renderMonthPH(mp1, mTo);
+      mp0.style.transform = `translateY(${(-mDir * mP * 100).toFixed(3)}%)`;
+      mp0.style.opacity = (1 - mP).toFixed(3);
+      mp1.style.transform = `translateY(${(mDir * (1 - mP) * 100).toFixed(3)}%)`;
+      mp1.style.opacity = mP.toFixed(3);
+    } else {
+      mp0.style.transform = "translateY(0)";
+      mp0.style.opacity = "1";
+      mp1.style.opacity = "0";
+    }
     if (isoOf.get(p0) !== from) renderPanel(p0, from);
     const atRest = !to || p3 <= 1e-4;
     if (atRest) {

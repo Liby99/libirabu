@@ -39,7 +39,8 @@ function ensureTodos() {
 // reveal alone). `reveal` starts at 0 (hidden) so a freshly-mounted web view stays invisible until
 // the first real tick — else setData would paint it fully opaque for a frame at week level (a flash).
 let last = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
-             scopeA: "day", scopeB: "day", scopeT: 1 };
+             scopeA: "day", scopeB: "day", scopeT: 1,
+             dy: 0, mFrom: "", mTo: "", mDir: 0, mP: 0 };
 
 const root = document.getElementById("dash")!;                 // reveal wrapper (zoom slide + fade)
 const panelsEl = document.getElementById("panels")!;           // carousel content (todo OR note preview)
@@ -70,7 +71,32 @@ function makeScopeLayer(id: string, title: string, items: string[]): HTMLElement
   return el;
 }
 const weekLayer = makeScopeLayer("scope-week", "WEEKLY", ["Weekly item", "Weekly item", "Weekly item", "Weekly item"]);
-const monthLayer = makeScopeLayer("scope-month", "MONTHLY", ["Monthly item", "Monthly item", "Monthly item"]);
+// The MONTH layer holds TWO stacked sub-panels that carousel VERTICALLY during a month page-turn
+// (jan→feb), mirroring the calendar's vertical month paging — labeled by month name so the motion
+// is unmistakable while tuning.
+const monthLayer = document.createElement("div");
+monthLayer.className = "cc-dd-panel"; monthLayer.id = "scope-month";
+root.appendChild(monthLayer);
+function monthPH(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "cc-dd-panel";           // absolute-fill inside the month layer
+  monthLayer.appendChild(el);
+  return el;
+}
+const mp0 = monthPH(), mp1 = monthPH();
+const mpLabel = new Map<HTMLElement, string>();
+function renderMonthPH(el: HTMLElement, label: string) {
+  if (mpLabel.get(el) === label) return;
+  mpLabel.set(el, label);
+  el.innerHTML = `<div class="cc-dd-scroll">` +
+    `<div style="opacity:.55;font-size:11px;letter-spacing:1.5px;margin:4px 0 10px">MONTHLY · ${label.toUpperCase()} · PLACEHOLDER</div>` +
+    [1, 2, 3].map(i =>
+      `<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.18)">
+         <span style="width:14px;height:14px;border:1.5px solid rgba(128,128,128,.55);border-radius:4px;flex:none"></span>
+         <span>${label} item ${i}</span>
+       </div>`).join("") +
+    `<div style="margin-top:14px;opacity:.5;font-size:12px">${label} note — placeholder text.</div></div>`;
+}
 function post(m: any) { (window as any).webkit?.messageHandlers?.ck?.postMessage(m); }
 
 // The WKWebView is a separate compositing layer, so the app's SwiftUI blur/scrim can't touch it and
@@ -366,7 +392,7 @@ let liveShown = false, liveMode = "";
 // editor over the centered panel at rest.
 let dayViewShown = false;   // true once the dashboard is revealed (day view); reset when hidden
 function apply() {
-  const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT } = last;
+  const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDir, mP } = last;
   // Leaving day view (reveal fell to hidden) forgets every day's scroll, so re-entering day view always
   // starts at the top — the scroll doesn't carry across a trip out to week/month view. The reset on
   // re-entry restores from the (now-empty) map, i.e. 0, without re-rendering the unchanged panels.
@@ -381,7 +407,8 @@ function apply() {
   }
   // Zoom reveal: `slide` positions the left edge to match the Canvas dashboardLeftAnimated exactly;
   // `reveal` fades it in. (The panel stays put when the drawer opens — the scrim dims it in place.)
-  root.style.transform = `translateX(${(slide * 100).toFixed(3)}%)`;
+  // `dy` rides the year→month accordion: the content top tracks the (moving) header bottom.
+  root.style.transform = `translate(${(slide * 100).toFixed(3)}%, ${dy.toFixed(1)}px)`;
   root.style.opacity = reveal.toFixed(3);
   root.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
   // ── Zoom-scope carousel: place the three scope layers (day = #panels, week, month) with the
@@ -400,6 +427,19 @@ function apply() {
     el.style.pointerEvents = op > 0.999 ? "auto" : "none";
   }
   const scopeIsDay = (t > 0.5 ? scopeB : scopeA) === "day";
+  // Month page-turn: vertical carousel of the month sub-panels, matching the calendar's paging
+  // (next month rises from below; previous descends from above) with a cross-fade.
+  renderMonthPH(mp0, mFrom || "Month");
+  if (mP > 0.0001 && mTo) {
+    renderMonthPH(mp1, mTo);
+    mp0.style.transform = `translateY(${(-mDir * mP * 100).toFixed(3)}%)`;
+    mp0.style.opacity = (1 - mP).toFixed(3);
+    mp1.style.transform = `translateY(${(mDir * (1 - mP) * 100).toFixed(3)}%)`;
+    mp1.style.opacity = mP.toFixed(3);
+  } else {
+    mp0.style.transform = "translateY(0)"; mp0.style.opacity = "1";
+    mp1.style.opacity = "0";
+  }
   if (isoOf.get(p0) !== from) renderPanel(p0, from);
   const atRest = !to || p <= 0.0001;
   if (atRest) {                                   // single centered panel

@@ -126,13 +126,14 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     /// Push a frame of the day carousel + the zoom-scope carousel (month/week/day panels sliding
     /// along z); skips the JS round-trip when nothing visible changed.
     func tick(from: String, to: String, dir: Int, p: Double, reveal: Double, slide: Double,
-              scopeA: String = "day", scopeB: String = "day", scopeT: Double = 1) {
-        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))"
+              scopeA: String = "day", scopeB: String = "day", scopeT: Double = 1,
+              dy: Double = 0, mFrom: String = "", mTo: String = "", mDir: Int = 0, mP: Double = 0) {
+        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(mDir)|\(Int((mP * 1000).rounded()))"
         if key == lastKey {
             return
         }
         lastKey = key
-        let call = "CK.tick(\(js(from)),\(js(to)),\(dir),\(String(format: "%.4f", p)),\(String(format: "%.4f", reveal)),\(String(format: "%.4f", slide)),\(js(scopeA)),\(js(scopeB)),\(String(format: "%.4f", scopeT)))"
+        let call = "CK.tick(\(js(from)),\(js(to)),\(dir),\(String(format: "%.4f", p)),\(String(format: "%.4f", reveal)),\(String(format: "%.4f", slide)),\(js(scopeA)),\(js(scopeB)),\(String(format: "%.4f", scopeT)),\(String(format: "%.1f", dy)),\(js(mFrom)),\(js(mTo)),\(mDir),\(String(format: "%.4f", mP)))"
         lastCall = call
         if ready {
             web?.evaluateJavaScript(call)
@@ -187,7 +188,11 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     var p = 0.0
     var reveal = 1.0
     var slide = 0.0
-    func set(dir: Int, p: Double, reveal: Double, slide: Double) {
+    var headerTopY = Double(Layout.topPad) // the focused band's ANIMATED top (accordion / page-turn)
+    var panelLeft = 0.0 // dashboardLeftAnimated — the panel's live left edge (pinned width morphs)
+    var monthP = 0.0 // month page-turn progress (native overlays fade out during a turn)
+    func set(dir: Int, p: Double, reveal: Double, slide: Double,
+             headerTopY: Double, panelLeft: Double, monthP: Double) {
         if self.dir != dir {
             self.dir = dir
         }
@@ -199,6 +204,15 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         }
         if self.slide != slide {
             self.slide = slide
+        }
+        if self.headerTopY != headerTopY {
+            self.headerTopY = headerTopY
+        }
+        if self.panelLeft != panelLeft {
+            self.panelLeft = panelLeft
+        }
+        if self.monthP != monthP {
+            self.monthP = monthP
         }
     }
 }
@@ -212,14 +226,22 @@ struct CarouselDriver: NSViewRepresentable {
     let dir: Int, p: Double, reveal: Double, slide: Double
     var scopeA: String = "day", scopeB: String = "day" // zoom-scope carousel (month/week/day)
     var scopeT: Double = 1 // eased fraction between scopeA (lower) and scopeB (upper)
+    var headerTopY: Double = Double(Layout.topPad) // focused band's animated top (canvas-anchored)
+    var panelLeft: Double = 0 // dashboardLeftAnimated (for the native tab overlay)
+    var webDy: Double = 0 // vertical shift of the webview CONTENT (accordion; excludes page-turns)
+    var mFrom: String = "", mTo: String = "" // month page-turn labels (webview vertical carousel)
+    var mDir: Int = 0
+    var mP: Double = 0
     func makeNSView(context: Context) -> NSView {
         NSView()
     }
 
     func updateNSView(_ v: NSView, context: Context) {
         carousel.tick(from: from, to: to, dir: dir, p: p, reveal: reveal, slide: slide,
-                      scopeA: scopeA, scopeB: scopeB, scopeT: scopeT)
-        anim.set(dir: dir, p: p, reveal: reveal, slide: slide)
+                      scopeA: scopeA, scopeB: scopeB, scopeT: scopeT,
+                      dy: webDy, mFrom: mFrom, mTo: mTo, mDir: mDir, mP: mP)
+        anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
+                 headerTopY: headerTopY, panelLeft: panelLeft, monthP: mP)
     }
 }
 
@@ -541,13 +563,16 @@ struct DashTabsOverlay: View {
 
     var body: some View {
         if engine.chrome.level >= 2 || (engine.chrome.dashPinned && engine.chrome.level >= 1) {
-            let contentW = max(1, vp.w - Layout.labelW)
-            let left = Layout.padLeft + Layout.labelW + frac * contentW
+            // Anchor to the LIVE panel edge (pinned widths morph) and the ANIMATED header bottom —
+            // the tabs keep a fixed gap to the big title through the accordion and page-turns
+            // (they ride with the header, fading out while a month turn is in flight).
+            let left = Layout.padLeft + CGFloat(anim.panelLeft)
             let right = containerWidth - Layout.padRight
             let w = max(1, right - left)
-            let titleY = Layout.topPad + Layout.monthH - 14
+            let titleY = CGFloat(anim.headerTopY) + Layout.monthH - 14
             DashTabs(tab: $tab, theme: theme, anim: anim, w: w)
                 .position(x: left + w / 2, y: titleY)
+                .opacity(anim.monthP > 0.01 ? 0 : 1)
         }
     }
 }

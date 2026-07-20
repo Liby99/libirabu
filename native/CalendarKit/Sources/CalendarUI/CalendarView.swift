@@ -465,9 +465,26 @@ public struct CalendarView: View {
                     : (input.z >= 1
                         ? ("month", "week", Double(easeInOut(clamp(input.z - 1, 0, 1))))
                         : ("month", "month", 0))
+                // Header anchor: the focused band's animated frame (accordion + page-turns) keeps
+                // the Canvas header, native tabs, and webview content vertically in lock-step.
+                let fHeader = frameFor(input.focus, input, anim: input.monthAnim)
+                // The webview's own vertical shift excludes page-turns (its month LAYER carousels
+                // those internally) — so compute the accordion-only frame.
+                let fRest = frameFor(input.focus, input)
+                let (mFrom, mTo, mDir, mP): (String, String, Int, Double) = {
+                    guard let a = input.monthAnim else { return (MONTH_LONG[input.focus], "", 0, 0) }
+                    let toM = input.focus + a.dir
+                    return (MONTH_LONG[input.focus],
+                            (0 ... 11).contains(toM) ? MONTH_LONG[toM] : "",
+                            a.dir, Double(a.p))
+                }()
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
                                dir: c.dir, p: c.p, reveal: c.reveal, slide: slide,
-                               scopeA: sA, scopeB: sB, scopeT: sT)
+                               scopeA: sA, scopeB: sB, scopeT: sT,
+                               headerTopY: Double(fHeader.bandY),
+                               panelLeft: Double(dashboardLeftAnimated(input)),
+                               webDy: Double(fRest.bandY - Layout.topPad),
+                               mFrom: mFrom, mTo: mTo, mDir: mDir, mP: mP)
                     .frame(width: 0, height: 0)
             }
         }

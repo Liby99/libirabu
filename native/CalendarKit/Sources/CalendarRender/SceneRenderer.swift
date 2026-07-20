@@ -539,18 +539,24 @@ import SwiftUI
         let cal = Calendar.current
         let today = cal.dateComponents([.year, .month, .day], from: input.now)
 
-        /// The shared panel skeleton at slide-offset `x`: top/bottom bars + eyebrow title + big
-        /// headline, faded by distance from center (web: opacity = 1 − |x|/width).
-        func drawPanelChrome(_ title: String, _ headline: String, _ x: CGFloat, opMul: CGFloat = 1) {
+        /// The shared panel skeleton at slide-offset `x`, VERTICALLY anchored at `topY` (the owning
+        /// month band's animated top): top/bottom bars + eyebrow title + big headline, faded by
+        /// distance from center (web: opacity = 1 − |x|/width). Anchoring at the band's frame keeps
+        /// the header borders aligned with the month track borders BY CONSTRUCTION — through the
+        /// year→month accordion (the header rides up with the band) and month page-turns (it
+        /// carousels vertically with the outgoing/incoming bands).
+        func drawPanelChrome(_ title: String, _ headline: String, _ x: CGFloat,
+                             topY: CGFloat = Layout.topPad, opMul: CGFloat = 1) {
             let op = max(0, 1 - abs(x) / panelW) * opMul
             guard op > 0.01 else { return }
+            let botY = topY + Layout.monthH
             var layer = ctx
             layer.opacity = Double(reveal * op)
             layer.clip(to: clipRect)
             // top + bottom bars — matching the band's emphasized edge; slide rigidly with the panel.
             // The band's top/bottom borders draw at bandY − 1 (see buildMonthBands ftopg/msep), so shift
             // these up 1px to line up exactly with the timeline track's borders across the boundary.
-            for y in [Layout.topPad - 0.5, lowerBarY - 0.5] {
+            for y in [topY - 0.5, botY - 0.5] {
                 var p = Path()
                 p.move(to: CGPoint(x: barX + x, y: y)); p.addLine(to: CGPoint(x: barRight + x, y: y))
                 layer.stroke(
@@ -559,9 +565,9 @@ import SwiftUI
                     lineWidth: Layout.bandEdgeWidth
                 )
             }
-            drawText(title, CGRect(x: barX + x, y: lowerBarY - 46, width: w, height: 14),
+            drawText(title, CGRect(x: barX + x, y: botY - 46, width: w, height: 14),
                      size: 10, align: .left, color: theme.textMuted, tracking: 1.5, into: &layer)
-            drawText(headline, CGRect(x: barX + x, y: lowerBarY - 33, width: w, height: 26),
+            drawText(headline, CGRect(x: barX + x, y: botY - 33, width: w, height: 26),
                      size: 19, align: .left, color: theme.text, weight: .medium, into: &layer)
         }
 
@@ -605,9 +611,22 @@ import SwiftUI
             drawPanelChrome("WEEKLY DASHBOARD", range, baseX, opMul: opMul)
         }
 
-        /// The MONTH scope: "July 2026".
+        /// The MONTH scope: one header per (visible) month, each VERTICALLY anchored to its month
+        /// band's animated frame — so the header borders stay flush with the track borders through
+        /// the year→month accordion, and a month page-turn carousels the header vertically WITH the
+        /// bands (outgoing rides up/down and the incoming header follows its band in).
         func drawMonthScope(_ baseX: CGFloat, opMul: CGFloat = 1) {
-            drawPanelChrome("MONTHLY DASHBOARD", "\(MONTH_LONG[input.focus]) \(input.year)", baseX, opMul: opMul)
+            func panel(_ m: Int) {
+                guard m >= 0, m <= 11 else { return }
+                let f = frameFor(m, input, anim: input.monthAnim)
+                guard f.bandY > -Layout.monthH * 2, f.bandY < input.vp.h + Layout.monthH else { return }
+                drawPanelChrome("MONTHLY DASHBOARD", "\(MONTH_LONG[m]) \(input.year)", baseX,
+                                topY: f.bandY, opMul: opMul)
+            }
+            panel(input.focus)
+            if let a = input.monthAnim {
+                panel(input.focus + a.dir)
+            }
         }
 
         // ── Scope carousel along the zoom axis ────────────────────────────────────────────────
