@@ -458,8 +458,16 @@ public struct CalendarView: View {
                 let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPinned) ? pinLOpen : dayLOpen
                 let wvW = max(1, vp.w - lOpen)
                 let slide = min(1, max(0, Double((dashboardLeftAnimated(input) - lOpen) / wvW)))
+                // Zoom-scope carousel: pure function of z (mirrors SceneRenderer's scopePair) —
+                // the finer scope enters from the LEFT zooming in, returns from the RIGHT out.
+                let (sA, sB, sT): (String, String, Double) = input.z >= 2
+                    ? ("week", "day", Double(easeInOut(clamp(input.z - 2, 0, 1))))
+                    : (input.z >= 1
+                        ? ("month", "week", Double(easeInOut(clamp(input.z - 1, 0, 1))))
+                        : ("month", "month", 0))
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
-                               dir: c.dir, p: c.p, reveal: c.reveal, slide: slide)
+                               dir: c.dir, p: c.p, reveal: c.reveal, slide: slide,
+                               scopeA: sA, scopeB: sB, scopeT: sT)
                     .frame(width: 0, height: 0)
             }
         }

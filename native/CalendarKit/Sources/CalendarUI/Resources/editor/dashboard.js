@@ -55697,10 +55697,37 @@
     ];
     todosDirty = false;
   }
-  var last = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1 };
+  var last = {
+    from: "",
+    to: "",
+    dir: 0,
+    p: 0,
+    reveal: 0,
+    slide: 1,
+    scopeA: "day",
+    scopeB: "day",
+    scopeT: 1
+  };
   var root5 = document.getElementById("dash");
   var panelsEl = document.getElementById("panels");
   var noteLive = document.getElementById("note-live");
+  function makeScopeLayer(id2, title, items) {
+    const el = document.createElement("div");
+    el.className = "cc-dd-panel";
+    el.id = id2;
+    const scroll = document.createElement("div");
+    scroll.className = "cc-dd-scroll";
+    scroll.innerHTML = `<div style="opacity:.55;font-size:11px;letter-spacing:1.5px;margin:4px 0 10px">${title} \xB7 PLACEHOLDER</div>` + items.map((t2, i3) => `<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.18)">
+         <span style="width:14px;height:14px;border:1.5px solid rgba(128,128,128,.55);border-radius:4px;flex:none"></span>
+         <span>${t2} ${i3 + 1}</span>
+       </div>`).join("") + `<div style="margin-top:14px;opacity:.5;font-size:12px">${title.toLowerCase()} note \u2014 placeholder text.
+      Lorem calendar sit amet, styling and animation tuning only.</div>`;
+    el.appendChild(scroll);
+    root5.appendChild(el);
+    return el;
+  }
+  var weekLayer = makeScopeLayer("scope-week", "WEEKLY", ["Weekly item", "Weekly item", "Weekly item", "Weekly item"]);
+  var monthLayer = makeScopeLayer("scope-month", "MONTHLY", ["Monthly item", "Monthly item", "Monthly item"]);
   function post(m) {
     window.webkit?.messageHandlers?.ck?.postMessage(m);
   }
@@ -55967,7 +55994,7 @@
   var liveMode = "";
   var dayViewShown = false;
   function apply() {
-    const { from, to, dir, p: p3, reveal, slide } = last;
+    const { from, to, dir, p: p3, reveal, slide, scopeA, scopeB, scopeT } = last;
     if (reveal < 0.02) {
       if (dayViewShown) {
         dayViewShown = false;
@@ -55983,6 +56010,26 @@
     root5.style.transform = `translateX(${(slide * 100).toFixed(3)}%)`;
     root5.style.opacity = reveal.toFixed(3);
     root5.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
+    const layers = { day: panelsEl, week: weekLayer, month: monthLayer };
+    const t2 = scopeT;
+    for (const [name2, el] of Object.entries(layers)) {
+      let x = 0, op2 = 0;
+      if (name2 === scopeB) {
+        x = -(1 - t2) * 100;
+        op2 = t2;
+      } else if (name2 === scopeA) {
+        x = t2 * 100;
+        op2 = 1 - t2;
+      }
+      if (scopeA === scopeB && name2 === scopeA) {
+        x = 0;
+        op2 = 1;
+      }
+      el.style.transform = `translateX(${x.toFixed(3)}%)`;
+      el.style.opacity = op2.toFixed(3);
+      el.style.pointerEvents = op2 > 0.999 ? "auto" : "none";
+    }
+    const scopeIsDay = (t2 > 0.5 ? scopeB : scopeA) === "day";
     if (isoOf.get(p0) !== from) renderPanel(p0, from);
     const atRest = !to || p3 <= 1e-4;
     if (atRest) {
@@ -56000,7 +56047,7 @@
       p0.style.pointerEvents = "none";
       p1.style.pointerEvents = "none";
     }
-    const showLive = tab2 === "note" && atRest && reveal > 0.999;
+    const showLive = tab2 === "note" && atRest && reveal > 0.999 && scopeIsDay && t2 % 1 === 0;
     noteLive.style.display = showLive ? "" : "none";
     p0.style.visibility = showLive ? "hidden" : "";
     if (showLive) {
@@ -56160,8 +56207,8 @@
       isoOf.delete(p1);
       apply();
     },
-    tick(from, to, dir, p3, reveal, slide) {
-      last = { from, to: to || "", dir, p: p3, reveal, slide };
+    tick(from, to, dir, p3, reveal, slide, scopeA = "day", scopeB = "day", scopeT = 1) {
+      last = { from, to: to || "", dir, p: p3, reveal, slide, scopeA, scopeB, scopeT };
       apply();
     },
     setTab(t2) {

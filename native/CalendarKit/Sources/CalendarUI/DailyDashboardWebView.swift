@@ -123,14 +123,16 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         }
     }
 
-    /// Push a frame of the day carousel; skips the JS round-trip when nothing visible changed.
-    func tick(from: String, to: String, dir: Int, p: Double, reveal: Double, slide: Double) {
-        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))"
+    /// Push a frame of the day carousel + the zoom-scope carousel (month/week/day panels sliding
+    /// along z); skips the JS round-trip when nothing visible changed.
+    func tick(from: String, to: String, dir: Int, p: Double, reveal: Double, slide: Double,
+              scopeA: String = "day", scopeB: String = "day", scopeT: Double = 1) {
+        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))"
         if key == lastKey {
             return
         }
         lastKey = key
-        let call = "CK.tick(\(js(from)),\(js(to)),\(dir),\(String(format: "%.4f", p)),\(String(format: "%.4f", reveal)),\(String(format: "%.4f", slide)))"
+        let call = "CK.tick(\(js(from)),\(js(to)),\(dir),\(String(format: "%.4f", p)),\(String(format: "%.4f", reveal)),\(String(format: "%.4f", slide)),\(js(scopeA)),\(js(scopeB)),\(String(format: "%.4f", scopeT)))"
         lastCall = call
         if ready {
             web?.evaluateJavaScript(call)
@@ -208,12 +210,15 @@ struct CarouselDriver: NSViewRepresentable {
     let anim: DashCarouselAnim
     let from: String, to: String
     let dir: Int, p: Double, reveal: Double, slide: Double
+    var scopeA: String = "day", scopeB: String = "day" // zoom-scope carousel (month/week/day)
+    var scopeT: Double = 1 // eased fraction between scopeA (lower) and scopeB (upper)
     func makeNSView(context: Context) -> NSView {
         NSView()
     }
 
     func updateNSView(_ v: NSView, context: Context) {
-        carousel.tick(from: from, to: to, dir: dir, p: p, reveal: reveal, slide: slide)
+        carousel.tick(from: from, to: to, dir: dir, p: p, reveal: reveal, slide: slide,
+                      scopeA: scopeA, scopeB: scopeB, scopeT: scopeT)
         anim.set(dir: dir, p: p, reveal: reveal, slide: slide)
     }
 }

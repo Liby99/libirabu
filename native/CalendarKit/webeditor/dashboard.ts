@@ -38,11 +38,39 @@ function ensureTodos() {
 // the Canvas `dashboardLeftAnimated` EXACTLY (which also depends on the growing day-column width, not
 // reveal alone). `reveal` starts at 0 (hidden) so a freshly-mounted web view stays invisible until
 // the first real tick — else setData would paint it fully opaque for a frame at week level (a flash).
-let last = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1 };
+let last = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
+             scopeA: "day", scopeB: "day", scopeT: 1 };
 
 const root = document.getElementById("dash")!;                 // reveal wrapper (zoom slide + fade)
 const panelsEl = document.getElementById("panels")!;           // carousel content (todo OR note preview)
 const noteLive = document.getElementById("note-live")!;        // live editor overlay (rest + note only)
+
+// ── Zoom-scope layers (weekly / monthly) ────────────────────────────────────────────────────────
+// PHASE-1 PLACEHOLDERS: unmistakably labeled content per scope, so the month↔week↔day zoom
+// carousel (Swift ticks scopeA/scopeB/scopeT) can be tuned visually before the real weekly/monthly
+// dashboards land. The DAY layer is the existing #panels (+ note editor); these two are siblings
+// that slide/fade with the same math.
+function makeScopeLayer(id: string, title: string, items: string[]): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "cc-dd-panel";
+  el.id = id;
+  const scroll = document.createElement("div");
+  scroll.className = "cc-dd-scroll";
+  scroll.innerHTML =
+    `<div style="opacity:.55;font-size:11px;letter-spacing:1.5px;margin:4px 0 10px">${title} · PLACEHOLDER</div>` +
+    items.map((t, i) =>
+      `<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.18)">
+         <span style="width:14px;height:14px;border:1.5px solid rgba(128,128,128,.55);border-radius:4px;flex:none"></span>
+         <span>${t} ${i + 1}</span>
+       </div>`).join("") +
+    `<div style="margin-top:14px;opacity:.5;font-size:12px">${title.toLowerCase()} note — placeholder text.
+      Lorem calendar sit amet, styling and animation tuning only.</div>`;
+  el.appendChild(scroll);
+  root.appendChild(el);
+  return el;
+}
+const weekLayer = makeScopeLayer("scope-week", "WEEKLY", ["Weekly item", "Weekly item", "Weekly item", "Weekly item"]);
+const monthLayer = makeScopeLayer("scope-month", "MONTHLY", ["Monthly item", "Monthly item", "Monthly item"]);
 function post(m: any) { (window as any).webkit?.messageHandlers?.ck?.postMessage(m); }
 
 // The WKWebView is a separate compositing layer, so the app's SwiftUI blur/scrim can't touch it and
@@ -338,7 +366,7 @@ let liveShown = false, liveMode = "";
 // editor over the centered panel at rest.
 let dayViewShown = false;   // true once the dashboard is revealed (day view); reset when hidden
 function apply() {
-  const { from, to, dir, p, reveal, slide } = last;
+  const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT } = last;
   // Leaving day view (reveal fell to hidden) forgets every day's scroll, so re-entering day view always
   // starts at the top — the scroll doesn't carry across a trip out to week/month view. The reset on
   // re-entry restores from the (now-empty) map, i.e. 0, without re-rendering the unchanged panels.
@@ -356,6 +384,22 @@ function apply() {
   root.style.transform = `translateX(${(slide * 100).toFixed(3)}%)`;
   root.style.opacity = reveal.toFixed(3);
   root.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
+  // ── Zoom-scope carousel: place the three scope layers (day = #panels, week, month) with the
+  // Canvas scopePair math — the finer (upper) scope enters from the LEFT as z rises (x −100%→0),
+  // the coarser (lower) exits right (0→+100%); zooming out runs the same path backwards.
+  const layers: Record<string, HTMLElement> = { day: panelsEl, week: weekLayer, month: monthLayer };
+  const t = scopeT;
+  for (const [name, el] of Object.entries(layers)) {
+    let x = 0, op = 0;
+    if (name === scopeB) { x = -(1 - t) * 100; op = t; }
+    else if (name === scopeA) { x = t * 100; op = 1 - t; }
+    // scopeA === scopeB (rest at month tail): the single active layer sits centered, opaque.
+    if (scopeA === scopeB && name === scopeA) { x = 0; op = 1; }
+    el.style.transform = `translateX(${x.toFixed(3)}%)`;
+    el.style.opacity = op.toFixed(3);
+    el.style.pointerEvents = op > 0.999 ? "auto" : "none";
+  }
+  const scopeIsDay = (t > 0.5 ? scopeB : scopeA) === "day";
   if (isoOf.get(p0) !== from) renderPanel(p0, from);
   const atRest = !to || p <= 0.0001;
   if (atRest) {                                   // single centered panel
@@ -370,7 +414,7 @@ function apply() {
   }
   // Live editor: NOTE tab, fully open, at rest → overlay the centered panel (which is hidden so its
   // static preview doesn't peek through). During a swipe/zoom the panels' note previews carousel.
-  const showLive = tab === "note" && atRest && reveal > 0.999;
+  const showLive = tab === "note" && atRest && reveal > 0.999 && scopeIsDay && t % 1 === 0;
   noteLive.style.display = showLive ? "" : "none";
   p0.style.visibility = showLive ? "hidden" : "";
   if (showLive) {
@@ -526,8 +570,9 @@ root.addEventListener("click", (e) => {
     isoOf.delete(p0); isoOf.delete(p1);   // force a re-render with the new data
     apply();
   },
-  tick(from: string, to: string, dir: number, p: number, reveal: number, slide: number) {
-    last = { from, to: to || "", dir, p, reveal, slide };
+  tick(from: string, to: string, dir: number, p: number, reveal: number, slide: number,
+       scopeA: string = "day", scopeB: string = "day", scopeT: number = 1) {
+    last = { from, to: to || "", dir, p, reveal, slide, scopeA, scopeB, scopeT };
     apply();
   },
   setTab(t: "todo" | "note") { applyTab(t); },               // Swift (native tabs) drives the tab
