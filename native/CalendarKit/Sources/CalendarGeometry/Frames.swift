@@ -53,9 +53,10 @@ public func focusGeom(_ vp: Viewport, mx: CGFloat = 0, pin: CGFloat = 0,
 }
 
 /// Month-view day-cell width: the full-window width (== yearDayW) normally; squeezed left of the
-/// pinned dashboard (at its MONTH width) when it's out. The phone's min-width clamp applies.
+/// pinned dashboard (at its MONTH width, floored at dashMonthMinW) when it's out. The phone's
+/// min-width clamp applies.
 public func monthDayW(_ vp: Viewport, pin: CGFloat, frac: CGFloat) -> CGFloat {
-    let right = lerp(vp.w, dashPinLeft(vp, frac: frac), pin)
+    let right = lerp(vp.w, vp.w - dashMonthPanelW(vp, frac: frac), pin)
     return max((right - Layout.labelW) / 31, Layout.yearMinDayW)
 }
 
@@ -207,6 +208,11 @@ public func dashboardLeft(_ g: SceneInput) -> CGFloat {
 /// A pinned panel's resting left edge for a given width fraction of the content area.
 @inlinable public func dashPinLeft(_ vp: Viewport, frac: CGFloat) -> CGFloat {
     vp.w - frac * (vp.w - Layout.labelW)
+}
+
+/// The pinned MONTHLY panel's width in px: the persisted fraction, floored at dashMonthMinW.
+@inlinable public func dashMonthPanelW(_ vp: Viewport, frac: CGFloat) -> CGFloat {
+    max(Layout.dashMonthMinW, frac * (vp.w - Layout.labelW))
 }
 
 /// The PINNED panel's left edge for this z — defined as the GRID'S RIGHT EDGE, so the gap between

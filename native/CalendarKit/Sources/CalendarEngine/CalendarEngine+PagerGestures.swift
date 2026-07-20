@@ -55,8 +55,13 @@ extension CalendarEngine {
         wake()
         let v = clamp(f, 0.15, 0.55)
         if level(z) <= 1 {
-            dashMonthFrac = v; chrome.dashMonthFrac = v
-            UserDefaults.standard.set(Double(v), forKey: PrefKeys.dashMonthFrac)
+            // The month panel is FLOORED at dashMonthMinW px (geometry-side); clamp the stored
+            // fraction to the same floor so the handle can't drag below it and detach from the
+            // (floored) panel edge.
+            let minFrac = Layout.dashMonthMinW / max(1, viewport.w - Layout.labelW)
+            let mv = max(v, min(0.55, minFrac))
+            dashMonthFrac = mv; chrome.dashMonthFrac = mv
+            UserDefaults.standard.set(Double(mv), forKey: PrefKeys.dashMonthFrac)
         } else {
             dashWeekFrac = v; chrome.dashWeekFrac = v
             UserDefaults.standard.set(Double(v), forKey: PrefKeys.dashWeekFrac)

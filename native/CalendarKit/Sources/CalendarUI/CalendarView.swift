@@ -453,8 +453,9 @@ public struct CalendarView: View {
                 // The webview frame sits at the DAY split in day view, at the narrower PINNED edge
                 // at month/week — normalize the CSS slide against whichever frame is in use.
                 let dayLOpen = Layout.labelW + dashFrac * max(1, vp.w - Layout.labelW)
-                let pinFrac = engine.chrome.level <= 1 ? engine.chrome.dashMonthFrac : engine.chrome.dashWeekFrac
-                let pinLOpen = vp.w - pinFrac * (vp.w - Layout.labelW)
+                let pinLOpen = engine.chrome.level <= 1
+                    ? vp.w - dashMonthPanelW(vp, frac: engine.chrome.dashMonthFrac)
+                    : vp.w - engine.chrome.dashWeekFrac * (vp.w - Layout.labelW)
                 let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPinned) ? pinLOpen : dayLOpen
                 let wvW = max(1, vp.w - lOpen)
                 let slide = min(1, max(0, Double((dashboardLeftAnimated(input) - lOpen) / wvW)))

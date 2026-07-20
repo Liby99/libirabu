@@ -55,10 +55,12 @@ struct DashboardSplitHandle: View {
         // scope's PANEL width (dashMonth/WeekFrac = PANEL fraction; boundary at w − frac·content,
         // so dragging right SHRINKS the panel). Both persist.
         let pinned = engine.chrome.level < 3
-        let scopeFrac = engine.chrome.level <= 1 ? engine.chrome.dashMonthFrac : engine.chrome.dashWeekFrac
+        let isMonth = engine.chrome.level <= 1
+        let scopeFrac = isMonth ? engine.chrome.dashMonthFrac : engine.chrome.dashWeekFrac
         let frac = dragFrac ?? (pinned ? scopeFrac : engine.daily.frac)
+        // Month panel width floors at dashMonthMinW — the handle sits on the FLOORED edge.
         let gapLeftX = pinned
-            ? Layout.padLeft + vp.w - frac * contentW
+            ? Layout.padLeft + vp.w - (isMonth ? dashMonthPanelW(vp, frac: frac) : frac * contentW)
             : Layout.padLeft + Layout.labelW + frac * contentW
         let centerX = gapLeftX + gapInset / 2
         let active = onGrip || dragFrac != nil
