@@ -78,13 +78,18 @@ struct BandDraw {
     let badges: EventBadges
 }
 
-/// Flat-rendering payload for a plain TIMED sticker at month zoom (showText=false: no title/time —
-/// mirrors EventSticker's month-view rendering: fill + accent bar + in-flow badge row).
+/// Flat-rendering payload for a plain TIMED sticker. At month zoom showText=false (fill + accent
+/// bar + in-flow badge row). During a zoom TRANSITION (see zoomTransient) week/day stickers are
+/// also canvas-drawn WITH text — title/time/subline per eventTextLayout — so the view-mount storm
+/// waits for the settled frame; at settled week/day the SwiftUI text path owns rendering.
 struct TimedDraw {
     let ev: TimedEvent
     let clipTop: Bool // cross-midnight: continues from the previous day
     let clipBottom: Bool // …into the next day
     let badges: EventBadges
+    var showText: Bool = false // week/day zoom: title + time (+subline), badges top-right
+    var timeText: String? = nil // the WHOLE event's range ("23:00 – 06:00")
+    var subTimeText: String? = nil // anchor-zone range when it differs from the view tz
 }
 
 enum StickerDraw { case band(BandDraw), timed(TimedDraw) }
@@ -206,7 +211,54 @@ struct CanvasSticker {
                 with: .color(barColor)
             )
         }
-        if !t.badges.isEmpty {
+        if t.showText {
+            // Week/day text block (transition frames only — mirrors EventSticker's VStack layout):
+            // title (Comic Sans 13 / 10 tiny, up to titleLines wrapped lines), then the time range
+            // (8.5pt @0.72), then the anchor-tz subline (8pt @0.5) when the block is tall enough.
+            let lay = eventTextLayout(rect.height, hasSubline: t.subTimeText != nil)
+            let lead = BandStyle.accentInset + barWidth + BandStyle.barTextGap
+            let textX = rect.minX + lead
+            let textW = max(0, rect.width - lead - BandStyle.titleTrailing)
+            let lineH: CGFloat = lay.tiny ? 12 : 16.5
+            if textW > 4 {
+                let titleFont = Font.custom(BandStyle.titleFontName, size: lay.tiny ? 10 : 13)
+                let titleRect = CGRect(x: textX, y: rect.minY + 3, width: textW,
+                                       height: min(rect.height - 4, CGFloat(lay.titleLines) * lineH))
+                layer.draw(Text(t.ev.title).font(titleFont).foregroundStyle(theme.text), in: titleRect)
+                if !(lay.short || lay.tiny), let time = t.timeText {
+                    // Time sits under the actually-used title height (measured, capped at titleLines).
+                    let m = layer.resolve(Text(t.ev.title).font(titleFont))
+                    let usedH = min(m.measure(in: CGSize(width: textW, height: 1000)).height,
+                                    titleRect.height)
+                    var ty = rect.minY + 3 + usedH + 1
+                    layer.draw(Text(time).font(.system(size: 8.5))
+                        .foregroundStyle(theme.text.opacity(0.72)),
+                        in: CGRect(x: textX, y: ty, width: textW, height: 12))
+                    ty += 11
+                    if let sub = t.subTimeText, lay.subLine {
+                        layer.draw(Text(sub).font(.system(size: 8))
+                            .foregroundStyle(theme.text.opacity(0.5)),
+                            in: CGRect(x: textX, y: ty, width: textW, height: 11))
+                    }
+                }
+            }
+            if !t.badges.isEmpty {
+                // Week/day: badges pinned top-right (the view uses a topTrailing overlay).
+                let font = Font.system(size: 6.5, weight: .bold)
+                var w: CGFloat = 0
+                var glyphs: [GraphicsContext.ResolvedText] = []
+                for sym in badgeSymbols(t.badges) {
+                    let g = layer.resolve(Text(Image(systemName: sym)).font(font).foregroundStyle(border))
+                    glyphs.append(g)
+                    w += g.measure(in: CGSize(width: 100, height: 100)).width + 2
+                }
+                var x = rect.maxX - 4 - w + 2
+                for g in glyphs {
+                    layer.draw(g, at: CGPoint(x: x, y: rect.minY + 7), anchor: .leading)
+                    x += g.measure(in: CGSize(width: 100, height: 100)).width + 2
+                }
+            }
+        } else if !t.badges.isEmpty {
             // In-flow at the top (the month-view EventSticker layout: leading pad after the bar, 3px top).
             let x = rect.minX + BandStyle.accentInset + barWidth + BandStyle.barTextGap
             drawBadges(t.badges, at: CGPoint(x: x, y: rect.minY + 3 + 4), color: border, ctx: &layer)

@@ -84,7 +84,21 @@ public struct EventsOverlay: View {
     /// glass, borders, animations), week/day zoom (rich text, few boxes), and the lifted-copy overlay
     /// (onlyBox). CC_CANVAS_OFF=1 disables the fast path for A/B benchmarking.
     private static let canvasKill = ProcessInfo.processInfo.environment["CC_CANVAS_OFF"] != nil
-    private var canvasFastOn: Bool { plainEff && input.z < 1.5 && onlyBox == nil && !Self.canvasKill }
+
+    /// A zoom/scroll transition is in flight: mid-pinch (fractional z) or any settle tween. While
+    /// true, plain stickers stay CANVAS-drawn at EVERY zoom (including week/day, with text) so the
+    /// view-mount storm lands on the settled frame instead of mid-gesture — with the dense payload
+    /// (3000 events) that storm was 10 hitches of ≤66.7ms per pinch cycle. On settle this flips
+    /// false and the views mount on a static frame (the neighbor pre-mount trick, generalized).
+    /// CC_ZOOMCANVAS_OFF=1 restores the settled-zoom-only fast path for same-binary A/B.
+    private static let zoomCanvasKill = ProcessInfo.processInfo.environment["CC_ZOOMCANVAS_OFF"] != nil
+    private var zoomTransient: Bool {
+        !Self.zoomCanvasKill && (input.animating || input.z != input.z.rounded())
+    }
+
+    private var canvasFastOn: Bool {
+        plainEff && onlyBox == nil && !Self.canvasKill && (input.z < 1.5 || zoomTransient)
+    }
 
     /// A box belongs to the clicked event's series (same source: recurrence occurrence / promoted
     /// bar / original), so it shares the accompanied style.
@@ -601,14 +615,17 @@ public struct EventsOverlay: View {
                 editingRect
             )
             let badges = eventBadges[id] ?? []
-            // Month zoom (no text) + plain + not-editing/dragging → the Canvas fast path draws it.
-            // The !showText gate keeps the rich week/day text rendering on the view path for good.
-            let fast: StickerDraw? = (canvasFastOn && a == .plain && !showText && !isEditing && id != draggingId)
-                ? .timed(TimedDraw(ev: ev, clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
-                                   badges: badges))
-                : nil
             let (timeText, subText, plain) =
                 (fmtHourRange(p.seg.fullStart, p.seg.fullEnd), subLabels[id], plainEff)
+            // Plain + not-editing/dragging → the Canvas fast path draws it. Text rendering
+            // (week/day zoom) is canvas-drawn ONLY mid-transition (zoomTransient); at settled
+            // week/day the rich SwiftUI text path owns it (canvasFastOn is false past z 1.5).
+            let fast: StickerDraw? = (canvasFastOn && a == .plain && !isEditing && id != draggingId
+                && (!showText || zoomTransient))
+                ? .timed(TimedDraw(ev: ev, clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
+                                   badges: badges, showText: showText,
+                                   timeText: timeText, subTimeText: subText))
+                : nil
             return Item2(id: segKey + keyTag, rect: p.rect, fade: p.fade, z: z, makeView: {
                 AnyView(EventSticker(ev: ev, height: p.rect.height, showText: showText,
                                      clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
