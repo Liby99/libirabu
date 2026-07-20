@@ -58,8 +58,15 @@ struct WeekPager: View {
             .frame(width: gridW, height: 8) // viewport = one 7-day window
             // liveDay reads the engine's CURRENT week (updated every frame by onScrollGeometryChange)
             // — the true position even mid-animation. Read on the main actor (updateTarget runs there).
-            .scrollTargetBehavior(WeekScrollBehavior(dayW: dayW, maxDay: maxDay,
-                                                     liveDay: { MainActor.assumeIsolated { engine.week * 7 } }))
+            .scrollTargetBehavior(WeekScrollBehavior(
+                dayW: dayW, maxDay: maxDay,
+                liveDay: { MainActor.assumeIsolated { engine.week * 7 } },
+                // The snap decision drives the weekly-dashboard carousel: a hard fling cruises
+                // it over the whole glide; a small landing settles a frozen (caught) carousel.
+                onTarget: { day, jump in
+                    MainActor.assumeIsolated { engine.weekGlideWillLand(atDay: day, weekJump: jump) }
+                }
+            ))
             .scrollBounceBehavior(.always)
             .scrollIndicators(.hidden)
             .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.x }) { _, x in

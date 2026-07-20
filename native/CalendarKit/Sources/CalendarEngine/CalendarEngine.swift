@@ -82,6 +82,21 @@ public final class CalendarEngine {
     public internal(set) var dashMonthFrac: CGFloat = {
         let v = UserDefaults.standard.double(forKey: PrefKeys.dashMonthFrac); return v > 0 ? v : 0.25
     }()
+
+    /// ── Weekly-dashboard carousel override (big-fling cruise / catch-freeze / release-settle) ──
+    /// nil hold → the pure wed→thu band mapping of `week` drives the carousel (the default).
+    /// A hard fling arms a CRUISE (progress rides the whole glide, proportionally); catching the
+    /// glide freezes the hold; releasing settles it back onto the band. See weekGlideWillLand.
+    struct WeekDashHold {
+        var from: Int // week index of panel A
+        var to: Int // week index of panel B
+        var q: CGFloat // live carousel progress
+    }
+
+    var weekDashHold: WeekDashHold?
+    var weekDashCruise: (wStart: CGFloat, wTarget: CGFloat, qStart: CGFloat, qTarget: CGFloat)?
+    var weekDashSettle: Tween?
+    var weekDashIdleAt = Date.distantPast // last time `week` moved (idle-settle fallback)
     func fireDayLand() {
         if let cb = anim.dayLandDone {
             anim.dayLandDone = nil; cb()
@@ -550,6 +565,7 @@ public final class CalendarEngine {
         g.dashPin = dashPin
         g.dashWeekFrac = dashWeekFrac
         g.dashMonthFrac = dashMonthFrac
+        g.weekDash = weekDashHold.map { SceneInput.WeekDashOverride(from: $0.from, to: $0.to, p: $0.q) }
         return g
     }
 
@@ -638,6 +654,19 @@ public final class CalendarEngine {
                     anim.weekTweenDone = nil; cb()
                 } // sequenced next phase (go-to-today)
             }
+        }
+        // Weekly-dashboard carousel: advance a settle tween; or, if a caught (frozen) hold is
+        // left over and everything week-related has come to rest without a snap decision (e.g.
+        // a zero-movement release), settle it to the band as a fallback.
+        if let st = weekDashSettle {
+            weekDashHold?.q = st.value(at: date)
+            if st.isComplete(at: date) {
+                weekDashSettle = nil
+                weekDashHold = nil // the settled endpoint matches the band's rest → follow it
+            }
+        } else if weekDashHold != nil, weekDashCruise == nil, !scroll.liveWeekScrolling,
+                  anim.weekTween == nil, date.timeIntervalSince(weekDashIdleAt) > 0.3 {
+            settleWeekDash(restWeek: (week * 7).rounded() / 7)
         }
         if let dt = anim.dayTween {
             // Fractional-day glide: floor → the anchor day, the fraction → a ±1 day-page so the day column

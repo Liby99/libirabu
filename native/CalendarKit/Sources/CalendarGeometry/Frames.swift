@@ -254,6 +254,13 @@ public struct WeekTurn: Equatable, Sendable {
 private let weekTurnAnchor: CGFloat = 3
 
 public func weekDashTurn(_ g: SceneInput) -> WeekTurn {
+    // Engine override: a big-fling glide CRUISES the carousel over its whole travel, a caught
+    // glide freezes it, and a release settles it — the engine owns that state; we just render.
+    if let o = g.weekDash {
+        return WeekTurn(from: weekRangeLabel(g.year, g.focus, weekStartDOM(g.year, g.focus, o.from)),
+                        to: weekRangeLabel(g.year, g.focus, weekStartDOM(g.year, g.focus, o.to)),
+                        p: clamp(o.p, 0, 1))
+    }
     let base = floor(g.week)
     let o = (g.week - base) * 7 // left-border day offset past the base week's Sunday
     let s0 = weekStartDOM(g.year, g.focus, Int(base))

@@ -18,14 +18,20 @@ public struct WeekScrollBehavior: ScrollTargetBehavior {
     var liveDay: () -> CGFloat // the CURRENT content position in day-units (from the engine)
     var weekVelocity: CGFloat = 1100 // |velocity| above this → a week jump (deliberate only)
     var maxDayStep: CGFloat = 3 // a small scroll moves at most this many days per gesture
+    /// Reports each snap decision: the landing day index + whether it was a week jump. The
+    /// engine uses it to drive the weekly-dashboard carousel (cruise on a jump, settle after
+    /// a catch) — the policy's classification IS the big/small-scroll distinction.
+    var onTarget: ((_ day: CGFloat, _ weekJump: Bool) -> Void)?
 
     public init(dayW: CGFloat, maxDay: CGFloat, liveDay: @escaping () -> CGFloat,
-                weekVelocity: CGFloat = 1100, maxDayStep: CGFloat = 3) {
+                weekVelocity: CGFloat = 1100, maxDayStep: CGFloat = 3,
+                onTarget: ((_ day: CGFloat, _ weekJump: Bool) -> Void)? = nil) {
         self.dayW = dayW
         self.maxDay = maxDay
         self.liveDay = liveDay
         self.weekVelocity = weekVelocity
         self.maxDayStep = maxDayStep
+        self.onTarget = onTarget
     }
 
     public func updateTarget(_ target: inout ScrollTarget, context: ScrollTargetBehaviorContext) {
@@ -47,6 +53,8 @@ public struct WeekScrollBehavior: ScrollTargetBehavior {
             let step = min(maxDayStep, max(-maxDayStep, proposedDay - cur))
             landed = (cur + step).rounded() // nearest day near the live position
         }
-        target.rect.origin.x = min(max(0, landed), maxDay) * dayW
+        let bounded = min(max(0, landed), maxDay)
+        target.rect.origin.x = bounded * dayW
+        onTarget?(bounded, abs(v) > weekVelocity)
     }
 }
