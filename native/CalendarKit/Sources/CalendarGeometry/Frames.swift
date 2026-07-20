@@ -209,29 +209,46 @@ public func dashboardLeft(_ g: SceneInput) -> CGFloat {
     vp.w - frac * (vp.w - Layout.labelW)
 }
 
-/// The panel's TOTAL reveal this frame, 0…1 of "some panel is out" (chrome + carousel drivers key
-/// on this): the day-forced reveal (z 2→3) or the pinned reveal (slides out across the tail of the
-/// year→month zoom, holds through month/week), whichever is stronger.
+/// The PINNED panel's left edge for this z — defined as the GRID'S RIGHT EDGE, so the gap between
+/// the canvas's right border and the panel is 0 by construction:
+///   • z ≤ 1 (year→month accordion): labelW + 31·dayW(z) — the same eased column width the
+///     accordion animates (yearToMonthFrame), so the panel starts EXACTLY outside the right
+///     border (31 year columns fill the window) and enters at the grid's own contraction rate.
+///   • z 1→2: month grid-right → week grid-right (the frames blend on the same eased ramp).
+/// nil when the pin is (effectively) 0.
+func pinnedDashLeft(_ g: SceneInput) -> CGFloat? {
+    guard g.dashPin > 0.0001 else { return nil }
+    let monthRight = Layout.labelW + 31 * monthDayW(g.vp, pin: g.dashPin, frac: g.dashMonthFrac)
+    if g.z <= 1 {
+        let yearRight = Layout.labelW + 31 * yearDayW(g.vp)
+        return lerp(yearRight, monthRight, easeInOut(clamp(g.z, 0, 1)))
+    }
+    let weekRight = lerp(g.vp.w, dashPinLeft(g.vp, frac: g.dashWeekFrac), g.dashPin)
+    return lerp(monthRight, weekRight, easeInOut(clamp(g.z - 1, 0, 1)))
+}
+
+/// The panel's TOTAL reveal this frame, 0…1 of "some panel is out" (chrome + webview alpha key on
+/// this): the day-forced reveal (z 2→3), or — pinned — the panel's on-screen PRESENCE (how much of
+/// its resting width has entered), so content fades in exactly as the panel edge enters the window
+/// rather than on a separate timetable.
 public func dashRevealTotal(_ g: SceneInput) -> CGFloat {
-    max(easeInOut(clamp(g.z - 2, 0, 1)),
-        g.dashPin * easeInOut(clamp((g.z - 0.4) / 0.6, 0, 1)))
+    let day = easeInOut(clamp(g.z - 2, 0, 1))
+    guard let left = pinnedDashLeft(g) else { return day }
+    let restingW = g.vp.w - (Layout.labelW + 31 * monthDayW(g.vp, pin: g.dashPin, frac: g.dashMonthFrac))
+    let presence = clamp((g.vp.w - left) / max(1, restingW), 0, 1)
+    return max(day, presence)
 }
 
 /// The dashboard's left edge, ANIMATED — every panel-region clip (content, bands, deadlines,
 /// chrome) uses this so they reveal together. Three regimes, composed:
 ///   • unpinned: flush right until day opens; eases to the daily split across z 2→3 (classic).
-///   • pinned: slides in from the right across the year→month zoom tail, HOLDS at the narrower
-///     pinned width through month/week, then WIDENS into the daily split as the day opens.
+///   • pinned: GLUED to the grid's right edge (see pinnedDashLeft) — enters with the accordion,
+///     morphs month→week width with the frame blend, then WIDENS into the daily split as the
+///     day opens.
 public func dashboardLeftAnimated(_ g: SceneInput) -> CGFloat {
     var left = g.vp.w
-    let pinReveal = g.dashPin * easeInOut(clamp((g.z - 0.4) / 0.6, 0, 1))
-    if pinReveal > 0.0001 {
-        // Pinned: the panel's resting width MORPHS per scope — month → week across z 1→2 (the
-        // day morph is the dayReveal blend below, which targets the daily split).
-        let monthLeft = dashPinLeft(g.vp, frac: g.dashMonthFrac)
-        let weekLeft = dashPinLeft(g.vp, frac: g.dashWeekFrac)
-        let pinnedLeft = lerp(monthLeft, weekLeft, easeInOut(clamp(g.z - 1, 0, 1)))
-        left = lerp(left, pinnedLeft, pinReveal)
+    if let pinned = pinnedDashLeft(g) {
+        left = pinned
     }
     let dayReveal = easeInOut(clamp(g.z - 2, 0, 1))
     if dayReveal > 0.0001 {
