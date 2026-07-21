@@ -926,7 +926,9 @@ root.addEventListener("click", (e) => {
     last = { ...TICK_DEFAULTS, ...t, to: t.to || "" };
     apply();
   },
-  setTab(t: "todo" | "note") { applyTab(t); },               // Swift (native tabs) drives the tab
+  // Swift drives the tab. Idempotent: the un-adopted echo push (see the coordinator's noteMode/tab
+  // handling) re-sends the current value — a full re-render for a no-op change would be wasteful.
+  setTab(t: "todo" | "note") { if (t !== tab) applyTab(t); },
   setNoteMode(m: "edit" | "preview") {                       // native edit/preview toggle (no echo back)
     if (noteMode !== m) { noteMode = m; liveMode = ""; apply(); }
   },

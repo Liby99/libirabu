@@ -56645,10 +56645,11 @@
       last = { ...TICK_DEFAULTS, ...t2, to: t2.to || "" };
       apply();
     },
+    // Swift drives the tab. Idempotent: the un-adopted echo push (see the coordinator's noteMode/tab
+    // handling) re-sends the current value — a full re-render for a no-op change would be wasteful.
     setTab(t2) {
-      applyTab(t2);
+      if (t2 !== tab2) applyTab(t2);
     },
-    // Swift (native tabs) drives the tab
     setNoteMode(m) {
       if (noteMode !== m) {
         noteMode = m;

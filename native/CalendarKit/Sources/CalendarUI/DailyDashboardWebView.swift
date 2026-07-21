@@ -549,14 +549,15 @@ struct DailyDashboardWebView: NSViewRepresentable {
                 }
             case "deselect":
                 onDeselect() // clicked empty dashboard space → clear the calendar selection
+            // JS-driven tab/mode changes are NOT adopted into lastTab/lastMode: adopting could eat a
+            // legitimate diff when the post crossed a simultaneous Swift push in flight (each side
+            // ends on the other's stale value with the guard satisfied → toggle says edit, preview
+            // shows, forever). Instead the binding round-trips and the next updateNSView re-pushes;
+            // the JS setters are idempotent and never post back, so it converges without a loop.
             case "tab":
-                let t: DashTab = (body["tab"] as? String) == "note" ? .note : .todo
-                lastTab = t == .note ? "note" : "todo" // adopt the JS-driven value (avoid an echo)
-                onTab(t)
+                onTab((body["tab"] as? String) == "note" ? .note : .todo)
             case "noteMode":
-                let m: NotesMode = (body["mode"] as? String) == "preview" ? .preview : .edit
-                lastMode = m == .preview ? "preview" : "edit" // adopt (WebView-driven) → no echo push
-                onNoteMode(m)
+                onNoteMode((body["mode"] as? String) == "preview" ? .preview : .edit)
             case "noteChange":
                 if let date = body["date"] as? String, let v = body["value"] as? String {
                     onNoteChange(date, v)
