@@ -117,7 +117,7 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
    when folded. Everything is expanded by default (see `collapsed`). */
 .cc-dtodo-fold {
   flex: none; margin-left: auto; align-self: flex-start;
-  width: 24px; height: 24px; margin-top: -2px; padding: 0; border: none; background: none;
+  width: 20px; height: 20px; padding: 0; border: none; background: none;
   display: grid; place-items: center; color: var(--accent-grey); cursor: pointer;
   transform: rotate(90deg); transition: transform 0.15s ease, color 0.12s ease;
 }

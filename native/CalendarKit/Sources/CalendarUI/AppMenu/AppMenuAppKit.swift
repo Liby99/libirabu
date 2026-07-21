@@ -176,12 +176,11 @@ import CalendarEngine
         if let box = item.representedObject as? IDBox, box.id == .removeCalendar {
             return ctx.engine()?.canRemoveCalendar ?? false
         }
-        // Weekly/Monthly Dashboard: checkmark tracks the pin; enabled only where the toggle is
-        // meaningful (month/week — day forces the panel, year has none).
-        if let box = item.representedObject as? IDBox, box.id == .toggleDashboard {
-            item.state = UserDefaults.standard.bool(forKey: PrefKeys.dashPinned) ? .on : .off
-            let lv = ctx.engine()?.chrome.level ?? 0
-            return lv == 1 || lv == 2
+        // TODO List / Note Editor (⌘B/⌘E): dashboard tab focus — enabled wherever the dashboard
+        // is reachable (day always; month/week can open it), never at year or under the drawer.
+        if let box = item.representedObject as? IDBox, box.id == .todoList || box.id == .noteEditor {
+            guard let e = ctx.engine() else { return false }
+            return e.chrome.level >= 1 && !e.drawerOpen
         }
         return true
     }

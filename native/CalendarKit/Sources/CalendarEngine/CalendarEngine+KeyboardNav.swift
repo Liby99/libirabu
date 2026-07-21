@@ -8,6 +8,23 @@ import Foundation
 
 extension CalendarEngine {
     /// ── Day-view dashboard keyboard stops (TODO / NOTE) — dispatched to the WebView bridge ─────────
+    /// ⌘B / ⌘E at day view: land keyboard focus directly on a dashboard stop. These stops are NOT
+    /// part of the Tab cycle (their interactions are self-contained; Tab exits back to the
+    /// timeline's block cursor — see navTab). ⌘E goes straight into the markdown editor.
+    public func dashFocusEntry(_ stop: DashStop) {
+        guard level(z) == 3 else { return }
+        wake(); enterKeyboardMode()
+        if selectedId != nil {
+            deselect()
+        }
+        cursor.dashStop = stop
+        onDashCommand?(.focus(stop))
+        if stop == .note {
+            cursor.dashNoteEditing = true
+            onDashCommand?(.activate) // .note stop → focus the live editor (see the bridge)
+        }
+    }
+
     /// Move the TODO row cursor (↑/↓). No-op unless the TODO stop is focused.
     public func dashMove(_ d: Int) {
         guard cursor.dashStop == .todo else { return }; enterKeyboardMode(); onDashCommand?(.move(d))
@@ -603,45 +620,13 @@ extension CalendarEngine {
                 cursor.trackNameCursor = 3; return
             } // block ← track 3
         }
-        // Day view inserts 2 dashboard stops (TODO, then NOTE) between Event and Block.
-        let inDay = level(z) == 3
-        if let s = cursor.dashStop {
-            if forward {
-                if s == .todo {
-                    cursor.dashStop = .note; onDashCommand?(.focus(.note))
-                } else {
-                    cursor.dashStop = nil; onDashCommand?(.focus(nil)); cursor.blockDay = daily
-                        .dom
-                } // note → block (wrap)
-            } else {
-                if s == .note {
-                    cursor.dashStop = .todo; onDashCommand?(.focus(.todo))
-                } else { // todo → event (back)
-                    cursor.dashStop = nil; onDashCommand?(.focus(nil))
-                    if let eid = cursor.dashReturnEvent, isVisibleEvent(eid) {
-                        selectedId = eid
-                    } else if let eid = nearestEventToBlock() {
-                        selectedId = eid
-                    }
-                    if selectedId != nil {
-                        scrollToSelected()
-                    } else {
-                        cursor.bandCursorActive = true; cursor
-                            .bandCurTrack = 0
-                    } // no event in view → skip the empty stop to band
-                }
-            }
+        // The dashboard stops (TODO / NOTE) are OUT of the Tab cycle — ⌘B/⌘E own them
+        // (dashFocusEntry) and their interactions are self-contained. Any Tab while one holds
+        // focus recenters onto the timeline's block cursor.
+        if cursor.dashStop != nil {
+            clearDashStop()
+            cursor.blockDay = daily.dom
             return
-        }
-        if inDay {
-            if selectedId != nil && forward { // event → TODO stop (remember it for the round-trip)
-                cursor.dashReturnEvent = selectedId; deselect(); cursor
-                    .dashStop = .todo; onDashCommand?(.focus(.todo)); return
-            }
-            if currentDomain == .block &&
-                !forward {
-                cursor.dashStop = .note; onDashCommand?(.focus(.note)); return
-            } // block ← NOTE
         }
         let from = currentDomain
         let to: NavDomain = forward
@@ -721,11 +706,11 @@ extension CalendarEngine {
 
     /// Forward Tab reached the event stop but found nothing to select → advance to the stop that follows
     /// the (empty) event stop in this view, so Tab never lands on a dead event cursor: month → the first
-    /// track-name stop, day → the TODO stop, week/year → the block cursor (already the state here).
+    /// track-name stop; week/day/year → the block cursor (already the state here — the dashboard
+    /// stops left the cycle; ⌘B/⌘E reach them directly).
     private func skipEventForward() {
         switch level(z) {
         case 1: cursor.trackNameCursor = 0
-        case 3: cursor.dashReturnEvent = nil; cursor.dashStop = .todo; onDashCommand?(.focus(.todo))
         default: break
         }
     }

@@ -24,6 +24,9 @@ public final class CalendarChrome {
     public internal(set) var dashMonthFrac: CGFloat = {
         let v = UserDefaults.standard.double(forKey: PrefKeys.dashMonthFrac); return v > 0 ? v : 0.25
     }()
+    /// The event drawer is open — observable mirror of `engine.drawerOpen` (menus gray out
+    /// the dashboard tab commands under it).
+    public var drawerOpen = false
     public internal(set) var year = 2026
     public internal(set) var focus = 0 // month 0–11 — the RENDER anchor (also sizes the week/day pagers)
     public internal(set) var week = 0.0

@@ -812,6 +812,7 @@ public struct CalendarView: View {
                     .onChange(of: geo.size) { _, s in engine.setViewport(s) }
                     .onChange(of: ui.openEventId) { _, v in
                         engine.drawerOpen = v != nil
+                        engine.chrome.drawerOpen = v != nil
                         if let id = v {
                             engine.onHoverExit() // clear any lingering highlight now
                             engine.openDrawerShift(id: id, drawerWidth: drawerWidth)
@@ -867,7 +868,8 @@ public struct CalendarView: View {
                     }
                     // View-menu prefs (show-hidden / timezone pickers), the prefs-changed notification, and
                     // the tag-filter toggle — bundled into one modifier (see the type-check note above).
-                    .modifier(ViewPrefObservers(engine: engine, showTagFilter: $showTagFilter))
+                    .modifier(ViewPrefObservers(engine: engine, showTagFilter: $showTagFilter,
+                                                ui: ui, dashTab: $dashTab))
             }
             .ignoresSafeArea()
             // Search overlays — siblings inside the ZStack, so they respect the toolbar safe-area inset
@@ -977,6 +979,8 @@ public struct CalendarView: View {
 private struct ViewPrefObservers: ViewModifier {
     let engine: CalendarEngine
     @Binding var showTagFilter: Bool
+    var ui: CalendarUIState
+    @Binding var dashTab: DashTab
     @AppStorage(PrefKeys.showHiddenImported) private var showHidden = false
     @AppStorage(PrefKeys.mainTz) private var mainTz = "auto"
     @AppStorage(PrefKeys.altTz) private var altTz = "none"
@@ -991,5 +995,36 @@ private struct ViewPrefObservers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .toggleTagFilter)) { _ in
                 showTagFilter.toggle()   // View ▸ Filter by Tags (menu item, either shell)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .focusDashTodo)) { _ in
+                dashHotkey(.todo)        // View ▸ TODO List (⌘B)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .focusDashNote)) { _ in
+                dashHotkey(.note)        // View ▸ Note Editor (⌘E)
+            }
+    }
+
+    /// ⌘B / ⌘E — two sides of one coin: focus the dashboard's TODO / NOTE tab.
+    /// Day view: switch + keyboard-focus the tab (⌘E lands in the markdown editor).
+    /// Month/week: closed → open the panel on that tab; open on the other tab → flip to it;
+    /// already open on that tab → retract the panel. No-op at year or under the drawer.
+    private func dashHotkey(_ stop: DashTab) {
+        guard ui.openEventId == nil else { return }
+        switch engine.chrome.level {
+        case 3:
+            dashTab = stop
+            engine.dashFocusEntry(stop == .todo ? .todo : .note)
+        case 1, 2:
+            if !engine.dashPinned {
+                engine.toggleDashPin()
+                dashTab = stop
+            } else if dashTab != stop {
+                dashTab = stop
+                engine.wake()
+            } else {
+                engine.toggleDashPin()
+            }
+        default:
+            break
+        }
     }
 }

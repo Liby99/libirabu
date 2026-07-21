@@ -346,6 +346,68 @@ function setFolded(t: ParsedTodo, folded: boolean) {
   else collapsed.delete(foldKey(t));
 }
 
+// ── Fold/unfold with motion ─────────────────────────────────────────────────────────────────────
+// The chevron rotates; revealed sub-rows DROP IN (height grows + fade + slight rise, staggered top
+// to bottom so the drop cascades); collapsing runs the same in reverse (bottom rows retract first)
+// before the fold is committed. Expand re-renders FIRST (the rows must exist to animate in — the
+// fresh chevron is then spun from its folded pose); collapse animates the live rows OUT and only
+// re-renders once they're gone. Row height/padding animate through layout, so the rows below glide
+// instead of teleporting. `folding` guards a parent whose collapse is still in flight.
+const FOLD_MS = 170;
+const folding = new Set<string>();
+/** The currently-VISIBLE rows of `t`'s subtree (excluding `t` itself) inside `panel`. */
+function rowsOfSubtree(panel: HTMLElement, t: ParsedTodo): HTMLElement[] {
+  const flat = flatOf.get(panel) ?? [];
+  const inSub = new Set(subtree(t, childrenIndex(allTodos)).slice(1));
+  return Array.from(panel.querySelectorAll<HTMLElement>(".cc-dtodo"))
+    .filter((r) => inSub.has(flat[Number(r.dataset.idx ?? -1)]));
+}
+/** One row's drop-in / retract keyframes. `.cc-dtodo` is content-box with 3px vertical padding,
+ *  so the content height and the paddings animate as separate properties. */
+function foldFrames(r: HTMLElement) {
+  const ch = Math.max(0, r.offsetHeight - 6);
+  return [
+    { height: "0px", paddingTop: "0px", paddingBottom: "0px", opacity: 0, transform: "translateY(-8px)" },
+    { height: `${ch}px`, paddingTop: "3px", paddingBottom: "3px", opacity: 1, transform: "translateY(0px)" },
+  ];
+}
+function toggleFold(panel: HTMLElement, t: ParsedTodo, open: boolean) {
+  const k = foldKey(t);
+  const iso = isoOf.get(panel);
+  if (folding.has(k) || !iso) return;
+  if (open) {
+    setFolded(t, false);
+    renderPanel(panel, iso);
+    applyNav();
+    const flat = flatOf.get(panel) ?? [];
+    const btn = panel.querySelector(`.cc-dtodo-fold[data-fold="${flat.indexOf(t)}"]`);
+    btn?.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(90deg)" }], { duration: FOLD_MS, easing: "ease" });
+    rowsOfSubtree(panel, t).forEach((r, i) => {
+      r.style.overflow = "hidden";
+      const a = r.animate(foldFrames(r), {
+        duration: FOLD_MS, delay: Math.min(i * 26, 130), easing: "ease-out", fill: "backwards",
+      });
+      a.onfinish = () => { r.style.overflow = ""; };
+    });
+  } else {
+    const rows = rowsOfSubtree(panel, t);
+    // Spin the still-live chevron via its CSS transition; the post-render one is statically folded.
+    const flat = flatOf.get(panel) ?? [];
+    panel.querySelector(`.cc-dtodo-fold[data-fold="${flat.indexOf(t)}"]`)?.setAttribute("aria-expanded", "false");
+    const finish = () => { folding.delete(k); setFolded(t, true); renderPanel(panel, iso); applyNav(); };
+    if (!rows.length) { finish(); return; }
+    folding.add(k);
+    let pending = rows.length;
+    rows.forEach((r, i) => {
+      r.style.overflow = "hidden";
+      const a = r.animate(foldFrames(r).slice().reverse(), {
+        duration: FOLD_MS, delay: Math.min((rows.length - 1 - i) * 26, 130), easing: "ease-in", fill: "forwards",
+      });
+      a.onfinish = () => { if (--pending === 0) finish(); };
+    });
+  }
+}
+
 // ── Rendering ───────────────────────────────────────────────────────────────────────────────────
 interface RowFold { foldable: boolean; folded: boolean; hidden: number; }
 function rowHTML(t: ParsedTodo, idx: number, viewIso: string, fold?: RowFold): string {
@@ -367,7 +429,7 @@ function rowHTML(t: ParsedTodo, idx: number, viewIso: string, fold?: RowFold): s
   // A folded parent shows how many sub-items it's hiding.
   if (fold?.folded && fold.hidden > 0) meta += `<span class="cc-dtodo-foldn">+${fold.hidden} sub</span>`;
   const chevron = fold?.foldable
-    ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M8 1.5 L17 12 L8 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+    ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M6.75 1.5 L17.25 12 L6.75 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : "";
   // data-idx on the row itself: with folding, the visible rows are a SUBSET of the flat list, so
   // keyboard nav resolves a row → todo through this instead of assuming row order == flat order.
@@ -505,8 +567,10 @@ function rangeTodoSections(startIso: string, endIso: string, word: string): Sect
     return d !== 0 ? d : cmpTie(a, b);
   };
   const open = allTodos.filter((t) => !t.done && inR(opDate(t))).sort(byOp);
+  // Top-level items only: a finished SUB-item is detail of its parent's progress, not its own
+  // accomplishment row — it still shows (struck) under the parent in the daily subtree view.
   const completed = allTodos
-    .filter((t) => t.done && t.doneDate && inR(t.doneDate.slice(0, 10)))
+    .filter((t) => t.done && t.parentLine == null && t.doneDate && inR(t.doneDate.slice(0, 10)))
     .sort((a, b) => { const d = a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0; return d !== 0 ? d : cmpTie(a, b); });
   return [
     { title: `TODOs ${word}`, items: open },
@@ -797,17 +861,11 @@ root.addEventListener("change", (e) => {
 });
 root.addEventListener("click", (e) => {
   const panel = panelOf(e);
-  // Disclosure chevron → fold/unfold that row's subtree and re-render the panel in place (renderPanel
-  // restores the day's scroll, so nothing jumps; the nav ring is re-applied after).
+  // Disclosure chevron → animated fold/unfold of that row's subtree (see toggleFold).
   const foldEl = (e.target as HTMLElement).closest("[data-fold]") as HTMLElement | null;
   if (foldEl && panel) {
     const t = (flatOf.get(panel) ?? [])[Number(foldEl.dataset.fold)];
-    if (t) {
-      setFolded(t, !collapsed.has(foldKey(t)));
-      const iso = isoOf.get(panel);
-      if (iso) renderPanel(panel, iso);
-      applyNav();
-    }
+    if (t) toggleFold(panel, t, collapsed.has(foldKey(t)));
     return;
   }
   const openEl = (e.target as HTMLElement).closest("[data-open]") as HTMLElement | null;
@@ -887,10 +945,7 @@ root.addEventListener("click", (e) => {
     if (!row || !row.querySelector("[data-fold]")) return;   // a leaf row has nothing to fold
     const t = (flatOf.get(p0) ?? [])[Number(row.dataset.idx ?? -1)];
     if (!t || collapsed.has(foldKey(t)) === !open) return;   // already there (held key auto-repeats)
-    setFolded(t, !open);
-    const iso = isoOf.get(p0);
-    if (iso) renderPanel(p0, iso);
-    applyNav();   // children were BELOW the cursor, so the same index still points at this row
+    toggleFold(p0, t, open);   // same animated path as the chevron click
   },
   noteEdit() {                                 // Enter on the NOTE stop → focus the live editor
     editingNote = true; applyNav();

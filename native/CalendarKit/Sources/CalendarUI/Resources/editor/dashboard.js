@@ -56081,6 +56081,73 @@
     if (folded) collapsed.add(foldKey(t2));
     else collapsed.delete(foldKey(t2));
   }
+  var FOLD_MS = 170;
+  var folding = /* @__PURE__ */ new Set();
+  function rowsOfSubtree(panel, t2) {
+    const flat = flatOf.get(panel) ?? [];
+    const inSub = new Set(subtree(t2, childrenIndex(allTodos)).slice(1));
+    return Array.from(panel.querySelectorAll(".cc-dtodo")).filter((r) => inSub.has(flat[Number(r.dataset.idx ?? -1)]));
+  }
+  function foldFrames(r) {
+    const ch2 = Math.max(0, r.offsetHeight - 6);
+    return [
+      { height: "0px", paddingTop: "0px", paddingBottom: "0px", opacity: 0, transform: "translateY(-8px)" },
+      { height: `${ch2}px`, paddingTop: "3px", paddingBottom: "3px", opacity: 1, transform: "translateY(0px)" }
+    ];
+  }
+  function toggleFold(panel, t2, open2) {
+    const k = foldKey(t2);
+    const iso = isoOf.get(panel);
+    if (folding.has(k) || !iso) return;
+    if (open2) {
+      setFolded(t2, false);
+      renderPanel(panel, iso);
+      applyNav();
+      const flat = flatOf.get(panel) ?? [];
+      const btn = panel.querySelector(`.cc-dtodo-fold[data-fold="${flat.indexOf(t2)}"]`);
+      btn?.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(90deg)" }], { duration: FOLD_MS, easing: "ease" });
+      rowsOfSubtree(panel, t2).forEach((r, i3) => {
+        r.style.overflow = "hidden";
+        const a = r.animate(foldFrames(r), {
+          duration: FOLD_MS,
+          delay: Math.min(i3 * 26, 130),
+          easing: "ease-out",
+          fill: "backwards"
+        });
+        a.onfinish = () => {
+          r.style.overflow = "";
+        };
+      });
+    } else {
+      const rows = rowsOfSubtree(panel, t2);
+      const flat = flatOf.get(panel) ?? [];
+      panel.querySelector(`.cc-dtodo-fold[data-fold="${flat.indexOf(t2)}"]`)?.setAttribute("aria-expanded", "false");
+      const finish = () => {
+        folding.delete(k);
+        setFolded(t2, true);
+        renderPanel(panel, iso);
+        applyNav();
+      };
+      if (!rows.length) {
+        finish();
+        return;
+      }
+      folding.add(k);
+      let pending = rows.length;
+      rows.forEach((r, i3) => {
+        r.style.overflow = "hidden";
+        const a = r.animate(foldFrames(r).slice().reverse(), {
+          duration: FOLD_MS,
+          delay: Math.min((rows.length - 1 - i3) * 26, 130),
+          easing: "ease-in",
+          fill: "forwards"
+        });
+        a.onfinish = () => {
+          if (--pending === 0) finish();
+        };
+      });
+    }
+  }
   function rowHTML(t2, idx, viewIso, fold) {
     const date = opDate(t2), overdue = date < viewIso;
     const prefix = t2.parentLine == null && t2.eventTitle && !(t2.source === "daily" && t2.dailyDate === viewIso) ? `<span class="cc-dtodo-event">${esc(t2.eventTitle)} \xB7 </span>` : "";
@@ -56095,7 +56162,7 @@
       meta2 += t2.tags.slice(0, 3).map((tag) => `<span class="cc-dtodo-tag">#${esc(tag)}</span>`).join("");
     }
     if (fold?.folded && fold.hidden > 0) meta2 += `<span class="cc-dtodo-foldn">+${fold.hidden} sub</span>`;
-    const chevron = fold?.foldable ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M8 1.5 L17 12 L8 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : "";
+    const chevron = fold?.foldable ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M6.75 1.5 L17.25 12 L6.75 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : "";
     return `<li class="cc-dtodo${t2.done ? " cc-dtodo-is-done" : ""}" style="--nest:${Math.min(t2.indent ?? 0, 6)}" data-idx="${idx}">
     <input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t2.done ? " checked" : ""}>
     <span class="cc-dtodo-main" data-open="${idx}" role="button" tabindex="0" title="Go to event">
@@ -56197,7 +56264,7 @@
       return d !== 0 ? d : cmpTie(a, b);
     };
     const open2 = allTodos.filter((t2) => !t2.done && inR(opDate(t2))).sort(byOp);
-    const completed = allTodos.filter((t2) => t2.done && t2.doneDate && inR(t2.doneDate.slice(0, 10))).sort((a, b) => {
+    const completed = allTodos.filter((t2) => t2.done && t2.parentLine == null && t2.doneDate && inR(t2.doneDate.slice(0, 10))).sort((a, b) => {
       const d = a.doneDate < b.doneDate ? 1 : a.doneDate > b.doneDate ? -1 : 0;
       return d !== 0 ? d : cmpTie(a, b);
     });
@@ -56519,12 +56586,7 @@
     const foldEl = e.target.closest("[data-fold]");
     if (foldEl && panel) {
       const t2 = (flatOf.get(panel) ?? [])[Number(foldEl.dataset.fold)];
-      if (t2) {
-        setFolded(t2, !collapsed.has(foldKey(t2)));
-        const iso = isoOf.get(panel);
-        if (iso) renderPanel(panel, iso);
-        applyNav();
-      }
+      if (t2) toggleFold(panel, t2, collapsed.has(foldKey(t2)));
       return;
     }
     const openEl = e.target.closest("[data-open]");
@@ -56624,10 +56686,7 @@
       if (!row2 || !row2.querySelector("[data-fold]")) return;
       const t2 = (flatOf.get(p0) ?? [])[Number(row2.dataset.idx ?? -1)];
       if (!t2 || collapsed.has(foldKey(t2)) === !open2) return;
-      setFolded(t2, !open2);
-      const iso = isoOf.get(p0);
-      if (iso) renderPanel(p0, iso);
-      applyNav();
+      toggleFold(p0, t2, open2);
     },
     noteEdit() {
       editingNote = true;

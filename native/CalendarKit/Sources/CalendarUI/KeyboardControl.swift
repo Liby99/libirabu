@@ -27,6 +27,7 @@ enum KeyToken: Equatable {
     case cmdEqual, cmdMinus // ⌘= / ⌘− → zoom in / out (keeps the current focus)
     case cmdUp, cmdDown, cmdLeft, cmdRight // ⌘+arrows → move the selected event
     case optUp, optDown // ⌥↑ / ⌥↓ — guide display only (the note editor owns them: move line)
+    case cmdB, cmdE // ⌘B / ⌘E — guide display only (the View-menu key equivalents own the keystroke)
     case shiftUp, shiftDown, shiftLeft, shiftRight // ⇧+arrows → resize the selected event
     case char(Character)
 
@@ -63,6 +64,8 @@ enum KeyToken: Equatable {
         case .cmdMinus: "⌘−"
         case .optUp: "⌥↑"
         case .optDown: "⌥↓"
+        case .cmdB: "⌘B"
+        case .cmdE: "⌘E"
         case .cmdUp: "⌘↑"
         case .cmdDown: "⌘↓"
         case .cmdLeft: "⌘←"
@@ -241,6 +244,14 @@ enum AppKeyState: Equatable {
         ]
     }
 
+    /// ⌘B / ⌘E — dashboard tab focus (display only; the View-menu key equivalents run the action).
+    /// Listed wherever the dashboard is reachable (month/week/day — never at year).
+    private var dashHotkeyBindings: [KeyBinding] {
+        engine.chrome.level >= 1
+            ? [KeyBinding(.cmdB, "To-do list"), KeyBinding(.cmdE, "Note editor")]
+            : []
+    }
+
     /// Tab cycles the cursor DOMAIN. For now: event cursor → block cursor (band cursor is a later step).
     private var eventTabBindings: [KeyBinding] {
         [
@@ -411,7 +422,7 @@ enum AppKeyState: Equatable {
                 KeyBinding(.cmdL, "New deadline") { engine.createDeadlineViaShortcut() },
                 KeyBinding(.tab, "Band cursor") { engine.tabCursor(true) },
                 KeyBinding(.backTab, "Event cursor") { engine.tabCursor(false) },
-            ] + selectBinding + zoomBindings
+            ] + selectBinding + dashHotkeyBindings + zoomBindings
         case .bandCursor:
             return [
                 KeyBinding(.up, "Prev lane") { engine.bandArrow(dx: 0, dy: -1) },
@@ -450,15 +461,19 @@ enum AppKeyState: Equatable {
                 KeyBinding(.space, "Toggle done") { engine.dashActivate() },
                 KeyBinding(.enter, "Open") { engine.dashOpen() },
                 KeyBinding(.escape, "Zoom out") { engine.onEscape() },
-                KeyBinding(.tab, "Daily note") { engine.tabCursor(true) },
-                KeyBinding(.backTab, "Event cursor") { engine.tabCursor(false) },
+                // The dashboard stops left the Tab cycle — Tab hands focus back to the timeline;
+                // ⌘E (the menu key equivalent) flips to the NOTE tab.
+                KeyBinding(.tab, "Timeline cursor") { engine.tabCursor(true) },
+                KeyBinding(.backTab, "Timeline cursor") { engine.tabCursor(false) },
+                KeyBinding(.cmdE, "Note editor"),
             ] + zoomBindings
         case .dashNote:
             return [
                 KeyBinding(.enter, "Edit note") { engine.dashActivate() },
                 KeyBinding(.escape, "Zoom out") { engine.onEscape() },
-                KeyBinding(.tab, "Block cursor") { engine.tabCursor(true) },
-                KeyBinding(.backTab, "To-dos") { engine.tabCursor(false) },
+                KeyBinding(.tab, "Timeline cursor") { engine.tabCursor(true) },
+                KeyBinding(.backTab, "Timeline cursor") { engine.tabCursor(false) },
+                KeyBinding(.cmdB, "To-do list"),
             ] + zoomBindings
         case .dashNoteEditing:
             // The daily-note WebView editor owns these (CodeMirror bindings) — listed for the guide.
