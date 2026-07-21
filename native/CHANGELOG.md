@@ -19,6 +19,11 @@ each release.
 - Fixed: event marker symbols (recurring/promoted/AI/imported) no longer overflow small event
   boxes — markers that don't fit are dropped, and boxes too small for the row hide it entirely
   (month bands re-center their title when the row hides).
+- Added: dashboard TODO layering — each dashboard (daily/weekly/monthly) can choose which
+  sources feed its list (event notes / daily / weekly / monthly notes), which collections show,
+  and whether deadlines display; configured via a ⚙ cog (bottom-right of the TODO panel) or
+  right-click in the list, both popping the same native menu. Defaults: each scope collects
+  down to its own granularity (daily skips weekly/monthly notes; weekly skips monthly).
 
 ## [0.1.0] — 2026-07-21
 

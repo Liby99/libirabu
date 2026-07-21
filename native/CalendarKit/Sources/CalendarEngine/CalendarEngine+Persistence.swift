@@ -135,14 +135,25 @@ extension CalendarEngine {
         // Rich-field changes that DIDN'T move a body (a note/tag/promote/color edit) still need to sync:
         //   • a normal item id → re-save its body record (rich rides on it)
         //   • an imported SERIES key → its own standalone "Overlay" record (no body of ours to ride on)
-        //   • an imported PER-OCCURRENCE key (the `hidden` dedup flag) → local-only, never synced
+        //   • an imported PER-OCCURRENCE key → the `hidden` dedup flag alone is local churn, but a
+        //     USER-authored exclusion (userHidden — the make-local-copy "exdate") must reach other
+        //     devices too, as its own Overlay record, or the occurrence resurrects there.
         let oldRich = old?.rich ?? [:], newRich = new.rich ?? [:]
-        for k in Set(oldRich.keys).union(newRich.keys) where !isApplePerOccurrenceKey(k) {
+        for k in Set(oldRich.keys).union(newRich.keys) {
             let o = oldRich[k], n = newRich[k]
             if o == n {
                 continue
             }
-            if isAppleSeriesKey(k) {
+            if isApplePerOccurrenceKey(k) {
+                let keepO = o.map(hasUserOverlay) ?? false
+                let keepN = n.map(hasUserOverlay) ?? false
+                guard keepO || keepN else { continue } // dedup-only churn stays local
+                if keepN {
+                    upserts.append(k)
+                } else {
+                    deletes.append(k)
+                }
+            } else if isAppleSeriesKey(k) {
                 // Only user-authored overlays are worth an iCloud record (skip managed-note-only churn).
                 let keep = n.map(hasUserOverlay) ?? false
                 if keep {

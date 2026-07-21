@@ -112,6 +112,19 @@ extension CalendarEngine {
         wake(); cancelTween(); scroll.liveDayScrolling = true
     }
 
+    /// The `week` value that keeps the week window aligned with day `dom` while DAY-level
+    /// navigation moves it (paging, glides, drills): a full-week window (desktop) snaps to the
+    /// day's whole week; a partial window (phone) centers on the day, clamped to the month-
+    /// bounded travel range — so zooming back out always lands on a legal window showing `dom`.
+    func weekFor(dom: Int) -> CGFloat {
+        if Layout.weekDaysVisible < 7 {
+            let slot = CGFloat(dom - 1 + firstDOW(year, focus))
+            let b = weekBounds
+            return clamp((slot + 0.5 - Layout.weekDaysVisible / 2).rounded() / 7, b.min, b.max)
+        }
+        return CGFloat(weekOfDate(year, focus, dom))
+    }
+
     /// Project the day pager's horizontal offset onto (daily.dom, daily.anim). Each day cell is `dayW`
     /// wide (the day column's own width), so `offsetX / dayW` is a continuous day index: `daily.dom` is
     /// the anchored day and the fractional remainder becomes the slide progress. Past a month edge the
@@ -135,9 +148,10 @@ extension CalendarEngine {
         let overRight = offsetX > maxOff ? offsetX - maxOff : 0
         // At the edges, map the rubber-band to a day-page PREVIEW: the neighbor month's day (day dim+1
         // resolves to next month's 1st; day 0 to prev month's last) slides in via the spillover day-page.
-        if daily.dom >= dim, overRight > 0 {
+        // (Flip disabled — phone: no preview either; the strip just rubber-bands at the month's days.)
+        if dayMonthFlipEnabled, daily.dom >= dim, overRight > 0 {
             norm = min(0.999, overRight / dayW * Motion.dayOverMul)
-        } else if daily.dom <= 1, overLeft > 0 {
+        } else if dayMonthFlipEnabled, daily.dom <= 1, overLeft > 0 {
             norm = -min(0.999, overLeft / dayW * Motion.dayOverMul)
         } else {
             if daily.dom >= dim {
@@ -149,7 +163,7 @@ extension CalendarEngine {
         }
         daily.anim = abs(norm) < 0.001 ? nil : PageAnim(dir: norm > 0 ? 1 : -1, p: min(1, abs(norm)))
         // Arm a boundary flip while the overscroll is live.
-        if scroll.liveDayScrolling, overLeft > 2 || overRight > 2 {
+        if scroll.liveDayScrolling, dayMonthFlipEnabled, overLeft > 2 || overRight > 2 {
             let dir = overRight > 0 ? 1 : -1
             let over = dir > 0 ? overRight : overLeft
             let tm = dir > 0 ? (focus + 1) % 12 : (focus + 11) % 12
@@ -166,7 +180,7 @@ extension CalendarEngine {
         }
         // Keep `week` on the week that contains the day we scrolled to, so zooming back out lands on
         // THAT week (not the one we entered day view from).
-        week = CGFloat(weekOfDate(year, focus, daily.dom))
+        week = weekFor(dom: daily.dom)
         pushChrome()
         scheduleDaySettle()
     }
@@ -198,7 +212,7 @@ extension CalendarEngine {
             }
         }
         daily.anim = nil // clear the residual → back to "at rest"
-        week = CGFloat(weekOfDate(year, focus, daily.dom))
+        week = weekFor(dom: daily.dom)
         pushChrome(); chrome.dailyResync &+= 1 // re-sync the pager strip to the snapped day
     }
 
@@ -210,7 +224,7 @@ extension CalendarEngine {
         scroll.liveDayScrolling = false
         let pull = scroll.dayPull
         scroll.dayPull = nil
-        if let pull, pull.armed, !isDayFlipping, isDayLevel {
+        if let pull, pull.armed, dayMonthFlipEnabled, !isDayFlipping, isDayLevel {
             let toDom = pull.dir > 0 ? 1 : daysInMonth(pull.targetYear, pull.targetMonth)
             anim.dayFlip = DayFlip(dir: pull.dir, toYear: pull.targetYear, toFocus: pull.targetMonth,
                                    toDom: toDom, startP: daily.anim?.p ?? 0, start: Date())
@@ -229,7 +243,7 @@ extension CalendarEngine {
         if t >= 1 {
             year = df.toYear; focus = df.toFocus; daily.dom = df.toDom
             daily.anim = nil; daily.over = 0; anim.dayFlip = nil // END the flip (else it re-commits every frame)
-            week = CGFloat(weekOfDate(year, focus, daily.dom))
+            week = weekFor(dom: daily.dom)
             scrollY = clamp(centerScroll(for: focus), 0, yearMaxScroll(viewport))
             onSetYearScroll?(scrollY)
             pushChrome()
@@ -549,7 +563,7 @@ extension CalendarEngine {
             if let a = daily.anim {
                 let to = daily.dom + a.dir
                 if a.p >= 0.5, to >= 1, to <= daysInMonth(year, focus) {
-                    daily.dom = to; week = CGFloat(weekOfDate(year, focus, daily.dom))
+                    daily.dom = to; week = weekFor(dom: daily.dom)
                 }
                 daily.anim = nil
             }

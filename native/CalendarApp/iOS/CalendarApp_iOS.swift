@@ -55,7 +55,9 @@ struct CalendarPhoneApp: App {
         let e = CalendarEngine(cloudReadOnly: true)
         e.monthYearFlipEnabled = false
         e.weekMonthFlipEnabled = false // week window rubber-bands at month edges, no silent month change
-        e.maxZ = 2 // pinch zoom reaches week view — the day touch driver isn't mounted yet
+        e.dayMonthFlipEnabled = false // day paging rubber-bands at day 1 / last day, same policy
+        e.maxZ = 3 // pinch zoom reaches every level — all four touch drivers are mounted
+        e.hasDailyDashboard = false // no dashboard webview → day view is a full-width day column
         return e
     }()
 

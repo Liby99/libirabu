@@ -56030,8 +56030,21 @@
   var RECENT_DONE_DAYS = 7;
   var tieKey = (t2) => `${t2.source}\0${t2.eventId}\0${t2.occurrenceKey ?? ""}\0${t2.dailyDate ?? ""}\0${String(t2.line).padStart(6, "0")}\0${t2.raw}`;
   var cmpTie = (a, b) => tieKey(a) < tieKey(b) ? -1 : tieKey(a) > tieKey(b) ? 1 : 0;
+  var todoPrefs = {
+    day: { deadlines: true, sections: ["dueDay", "overdue", "followup", "highSoon", "dueSoon", "done"], sources: ["event", "daily"] },
+    week: { deadlines: true, sections: ["open", "done"], sources: ["event", "daily", "weekly"] },
+    month: { deadlines: true, sections: ["open", "done"], sources: ["event", "daily", "weekly", "monthly"] }
+  };
+  function todoLayer(t2) {
+    if (t2.source === "event") return "event";
+    const d = t2.dailyDate ?? "";
+    return d.startsWith("week:") ? "weekly" : d.startsWith("month:") ? "monthly" : "daily";
+  }
+  var emptyListHTML = (p3) => `<div class="cc-dtodo-empty">${p3.sources.length ? "Nothing on the list \u2014 you\u2019re clear." : "All sources hidden \u2014 pick some in the \u2699 menu."}</div>`;
   function sectionsForDay(todos, viewIso) {
     const isToday = viewIso === today;
+    const p3 = todoPrefs.day;
+    todos = todos.filter((t2) => p3.sources.includes(todoLayer(t2)));
     const roots = todos.filter((t2) => t2.parentLine == null);
     const shown = roots.filter((t2) => !t2.done && (!t2.start || t2.start <= viewIso));
     const soonEnd = addDays(viewIso, SOON_DAYS), followEnd = addDays(viewIso, FOLLOWUP_WINDOW);
@@ -56051,13 +56064,13 @@
       return d !== 0 ? d : cmpTie(a, b);
     }).slice(0, 12);
     return [
-      { title: isToday ? "Today\u2019s Items" : "Due This Day", items: dueThisDay },
-      { title: "Overdue", items: overdue },
-      { title: "Remember to Followup", items: followups },
-      { title: "High Priority \xB7 Due Soon", items: highSoon },
-      { title: "Due Soon", items: lowSoon },
-      { title: "Recently Completed", items: completed, done: true }
-    ].filter((s2) => s2.items.length > 0);
+      { key: "dueDay", title: isToday ? "Today\u2019s Items" : "Due This Day", items: dueThisDay },
+      { key: "overdue", title: "Overdue", items: overdue },
+      { key: "followup", title: "Remember to Followup", items: followups },
+      { key: "highSoon", title: "High Priority \xB7 Due Soon", items: highSoon },
+      { key: "dueSoon", title: "Due Soon", items: lowSoon },
+      { key: "done", title: "Recently Completed", items: completed, done: true }
+    ].filter((s2) => s2.items.length > 0 && p3.sections.includes(s2.key));
   }
   var scopeKey = (t2) => `${t2.source}\0${t2.eventId}\0${t2.occurrenceKey ?? ""}\0${t2.dailyDate ?? ""}`;
   function childrenIndex(todos) {
@@ -56245,8 +56258,8 @@
       return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span></div><ul class="cc-dtodo-list">${out.join("")}</ul></section>`;
     }).join("");
     flatOf.set(el, flat);
-    const body3 = sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list \u2014 you\u2019re clear.</div>`;
-    scroll.innerHTML = deadlineHTML(viewIso) + body3;
+    const body3 = sections.length ? secHTML : emptyListHTML(todoPrefs.day);
+    scroll.innerHTML = (todoPrefs.day.deadlines ? deadlineHTML(viewIso) : "") + body3;
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;
   }
   function rangeDeadlineHTML(title, startIso, endIso) {
@@ -56258,22 +56271,24 @@
           <span class="cc-dd-ddl-when">${esc(relDue(today, iso))} \xB7 ${hhmm(d.hour)}</span></li>`).join("")}</ul>` : `<div class="cc-dd-free">No deadlines in this range.</div>`;
     return `<section class="cc-dd-sec">${head2}${body3}</section>`;
   }
-  function rangeTodoSections(startIso, endIso, word) {
+  function rangeTodoSections(startIso, endIso, word, scope) {
     ensureTodos();
+    const p3 = todoPrefs[scope];
+    const pool = allTodos.filter((t2) => p3.sources.includes(todoLayer(t2)));
     const inR = (d) => d >= startIso && d <= endIso;
     const byOp = (a, b) => {
       const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
       return d !== 0 ? d : cmpTie(a, b);
     };
-    const open2 = allTodos.filter((t2) => !t2.done && inR(opDate(t2))).sort(byOp);
-    const completed = allTodos.filter((t2) => t2.done && t2.parentLine == null && t2.doneDate && inR(t2.doneDate.slice(0, 10))).sort((a, b) => {
+    const open2 = pool.filter((t2) => !t2.done && inR(opDate(t2))).sort(byOp);
+    const completed = pool.filter((t2) => t2.done && t2.parentLine == null && t2.doneDate && inR(t2.doneDate.slice(0, 10))).sort((a, b) => {
       const d = a.doneDate < b.doneDate ? 1 : a.doneDate > b.doneDate ? -1 : 0;
       return d !== 0 ? d : cmpTie(a, b);
     });
     return [
-      { title: `TODOs ${word}`, items: open2 },
-      { title: `Completed ${word}`, items: completed, done: true }
-    ].filter((s2) => s2.items.length > 0);
+      { key: "open", title: `TODOs ${word}`, items: open2 },
+      { key: "done", title: `Completed ${word}`, items: completed, done: true }
+    ].filter((s2) => s2.items.length > 0 && p3.sections.includes(s2.key));
   }
   function renderScopePanel(el, scope, key2) {
     const sig = `${scope}|${key2}|${tab2}`;
@@ -56294,7 +56309,7 @@
     const start = scope === "week" ? key2 : `${key2}-01`;
     const end = scope === "week" ? addDays(key2, 6) : monthEndIso(key2);
     const word = scope === "week" ? "this week" : "this month";
-    const sections = rangeTodoSections(start, end, word).map((s2) => ({
+    const sections = rangeTodoSections(start, end, word, scope).map((s2) => ({
       ...s2,
       items: s2.items.map((t2) => t2.dailyDate === noteKey ? { ...t2, eventTitle: "" } : t2)
     }));
@@ -56302,7 +56317,8 @@
     flatOf.set(el, flat);
     let i3 = -1;
     const secHTML = sections.map((s2) => `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span></div><ul class="cc-dtodo-list">${s2.items.map((t2) => rowHTML(t2, ++i3, today)).join("")}</ul></section>`).join("");
-    scroll.innerHTML = rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end) + (sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list \u2014 you\u2019re clear.</div>`);
+    const pr = todoPrefs[scope];
+    scroll.innerHTML = (pr.deadlines ? rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end) : "") + (sections.length ? secHTML : emptyListHTML(pr));
   }
   var liveShown = false;
   var liveMode = "";
@@ -56665,6 +56681,19 @@
     setTheme(vars) {
       const s2 = document.documentElement.style;
       for (const k in vars) s2.setProperty(k, vars[k]);
+    },
+    // Per-scope layering (sources / collections / deadlines) from the native cog + context menu.
+    // Merged over the in-page defaults, then a full re-render (todo lists AND scope panels).
+    setTodoPrefs(json) {
+      try {
+        todoPrefs = { ...todoPrefs, ...JSON.parse(json) };
+      } catch {
+        return;
+      }
+      isoOf.delete(p0);
+      isoOf.delete(p1);
+      scopeSig.clear();
+      apply();
     },
     // ── Keyboard nav bridge (driven by the calendar's key system) ──
     navSet(stop) {

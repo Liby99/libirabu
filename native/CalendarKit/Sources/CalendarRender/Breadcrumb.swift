@@ -57,7 +57,9 @@ public struct Breadcrumb: View {
 
     private func yearLabel(atYear: Bool) -> some View {
         HStack(spacing: 0) {
-            crumb("Year \(chrome.year)", active: atYear).fixedSize()
+            // At the yearly view the crumb names the level ("Year 2026"); deeper in, the level
+            // is implied by the trail (2026 › July › …) so the bare number keeps the crumb tight.
+            crumb(atYear ? "Year \(chrome.year)" : "\(chrome.year)", active: atYear).fixedSize()
             if atYear {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .semibold))

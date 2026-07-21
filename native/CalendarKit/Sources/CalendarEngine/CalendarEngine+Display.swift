@@ -374,6 +374,7 @@ extension CalendarEngine {
         let revealHidden = showHiddenImported
         for e in imported.events where e.year == year && items.richById[e.id]?.hidden != true {
             let userHidden = items.richById[Self.appleSeriesKey(e.id)]?.userHidden == true
+                || items.richById[e.id]?.userHidden == true // per-occurrence exdate (make-local-copy)
             if userHidden && !revealHidden {
                 continue
             }
@@ -522,9 +523,10 @@ extension CalendarEngine {
                 continue
             } // deduped shadow of the user's own event → not drawn
             let userHidden = items.richById[Self.appleSeriesKey(e.id)]?.userHidden == true
+                || items.richById[e.id]?.userHidden == true // per-occurrence exdate (make-local-copy)
             if userHidden && !revealHidden {
                 continue
-            } // user hid this series → hidden unless "Show Hidden" is on
+            } // user hid this series/occurrence → hidden unless "Show Hidden" is on
             var ev = e
             ev.color = importedDisplayColor(e) // apply the user's color override, if any
             var b = itemBadges(e.id, recurrent: false, promoted: false)

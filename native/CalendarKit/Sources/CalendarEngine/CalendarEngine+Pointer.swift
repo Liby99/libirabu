@@ -223,7 +223,10 @@ extension CalendarEngine {
             // Only focus-month days drill into day view; spillover days aren't zoomable.
             if let d = dayAtPointInWeek(p.x, g), let rd = relDomOf(year, focus, d.year, d.month, d.day),
                rd >= 1, rd <= daysInMonth(year, focus) {
-                daily.dom = rd; week = CGFloat(d.week); tweenZ(to: 3)
+                // weekFor keeps the week window aligned with the drilled day (whole week on
+                // desktop; day-centered + month-bounded on the phone's partial window), so
+                // zooming back out lands on a legal window showing it.
+                daily.dom = rd; week = weekFor(dom: rd); tweenZ(to: 3)
             }
         default: break
         }

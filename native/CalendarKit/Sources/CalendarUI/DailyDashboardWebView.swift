@@ -124,6 +124,19 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             super.cursorUpdate(with: event)
         }
     }
+
+    /// TODO-tab layering menu (the cog's menu): set by the host while the TODO panel is active.
+    /// Right-clicking inside the panel pops it instead of WebKit's default context menu; clicks
+    /// left of the panel never reach here (hitTest gates on interactiveLeftX). nil → default menu
+    /// (kept on the NOTE tab, where copy/paste in the editor is genuinely useful).
+    var todoContextMenu: (() -> NSMenu?)?
+    override func rightMouseDown(with event: NSEvent) {
+        if let m = todoContextMenu?() {
+            NSMenu.popUpContextMenu(m, with: event, for: self)
+            return
+        }
+        super.rightMouseDown(with: event)
+    }
 }
 
 /// Shared conduit: the web view registers itself here; the per-frame driver pushes carousel ticks.
@@ -397,6 +410,8 @@ struct DailyDashboardWebView: NSViewRepresentable {
     var noteMode: NotesMode // note edit/preview (the native toggle mirrors the WebView)
     var inactive: Bool // drawer open → in-page scrim blurs + blocks the dashboard
     var interactive: Bool // the active day view → the web view may drive the cursor
+    var todoPrefs: String = "{}" // per-scope layering prefs JSON (DashTodoSettings.jsJSON)
+    var todoMenu: DashTodoMenuController? = nil // shared cog/context menu (nil → no menu)
     var theme: Theme
     var onToggle: (_ eventId: String, _ occKey: String?, _ value: String) -> Void
     var onOpen: (_ eventId: String) -> Void
@@ -436,10 +451,16 @@ struct DailyDashboardWebView: NSViewRepresentable {
         c.onToggle = onToggle; c.onOpen = onOpen; c.onDeselect = onDeselect
         c.onTab = onTab; c.onNoteMode = onNoteMode; c.onNoteChange = onNoteChange; c.onOpenLink = onOpenLink
         c.onJumpDay = onJumpDay; c.onCloseDrawer = onCloseDrawer; c.onNoteExit = onNoteExit; c.onNavTab = onNavTab
-        c.apply(data: data, tab: tab, noteMode: noteMode, inactive: inactive, theme: themeVars())
+        c.apply(data: data, tab: tab, noteMode: noteMode, inactive: inactive, theme: themeVars(),
+                todoPrefs: todoPrefs)
         // Only own the cursor as the active day view; at week level (slid out) yield so the calendar's
         // grab/i-beam cursor over the timeline doesn't flicker against the web view's arrow.
         (web as? PassThroughWebView)?.cursorActive = interactive && !inactive
+        // Right-click inside the TODO panel → the layering menu (the cog's), not WebKit's default.
+        if let ptw = web as? PassThroughWebView {
+            let menu = todoMenu
+            ptw.todoContextMenu = (tab == .todo && !inactive && menu != nil) ? { menu?.menu() } : nil
+        }
         // Drawer open → the dashboard is blocked; make sure it isn't holding keyboard focus so Tab
         // navigation in the drawer can't cycle into its list items.
         if inactive {
@@ -489,7 +510,9 @@ struct DailyDashboardWebView: NSViewRepresentable {
         private var ready = false
         private var lastData = "", lastTab = "", lastMode = "" // sentinels force first push
         private var lastInactive: Bool?
-        private var want: (data: String, tab: DashTab, noteMode: NotesMode, inactive: Bool, theme: [String: String])?
+        private var lastTodoPrefs = ""
+        private var want: (data: String, tab: DashTab, noteMode: NotesMode, inactive: Bool,
+                           theme: [String: String], todoPrefs: String)?
         init(carousel: DashboardCarousel,
              onToggle: @escaping (String, String?, String) -> Void, onOpen: @escaping (String) -> Void,
              onDeselect: @escaping () -> Void, onTab: @escaping (DashTab) -> Void,
@@ -504,10 +527,16 @@ struct DailyDashboardWebView: NSViewRepresentable {
                 .onNavTab = onNavTab
         }
 
-        func apply(data: String, tab: DashTab, noteMode: NotesMode, inactive: Bool, theme: [String: String]) {
-            want = (data, tab, noteMode, inactive, theme)
+        func apply(data: String, tab: DashTab, noteMode: NotesMode, inactive: Bool, theme: [String: String],
+                   todoPrefs: String) {
+            want = (data, tab, noteMode, inactive, theme, todoPrefs)
             guard ready else { return }
             push(theme)
+            // Prefs BEFORE data: both re-render, but data's echo-suppression window (setData) should
+            // see the final filter state so the panels never paint one frame with stale layering.
+            if todoPrefs != lastTodoPrefs {
+                lastTodoPrefs = todoPrefs; eval("CK.setTodoPrefs(\(jsString(todoPrefs)))")
+            }
             if data != lastData {
                 lastData = data; eval("CK.setData(\(jsString(data)))")
             }
@@ -537,7 +566,9 @@ struct DailyDashboardWebView: NSViewRepresentable {
             case "ready":
                 ready = true
                 if let w = want {
-                    push(w.theme); lastData = w.data; eval("CK.setData(\(jsString(w.data)))")
+                    push(w.theme)
+                    lastTodoPrefs = w.todoPrefs; eval("CK.setTodoPrefs(\(jsString(w.todoPrefs)))")
+                    lastData = w.data; eval("CK.setData(\(jsString(w.data)))")
                     pushState(tab: w.tab, noteMode: w.noteMode, inactive: w.inactive)
                 }
                 carousel.markReady() // replay the latest tick so reveal/carousel state lands post-load
@@ -641,6 +672,8 @@ struct DailyDashboardOverlay: View {
     var onCloseDrawer: () -> Void
     var onNoteExit: () -> Void = {}
     var onNavTab: (Bool) -> Void = { _ in }
+    var todoSettings: DashTodoSettings? = nil // per-scope TODO layering prefs (pushed as JSON)
+    var todoMenu: DashTodoMenuController? = nil // shared cog/right-click callout menu
 
     var body: some View {
         // The frame spans the FULL content region (labelW → right edge) and NEVER moves — panels
@@ -659,6 +692,8 @@ struct DailyDashboardOverlay: View {
             // Day view owns the cursor; a PINNED panel at month/week is interactive too.
             interactive: engine.chrome.level == 3
                 || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)),
+            todoPrefs: todoSettings?.jsJSON ?? "{}",
+            todoMenu: todoMenu,
             theme: theme,
             onToggle: { id, occKey, value in engine.applyTodoNote(eventId: id, occKey: occKey, value: value) },
             onOpen: onOpen, onDeselect: { engine.deselect() },
@@ -776,6 +811,70 @@ struct NoteModeToggleOverlay: View {
             .opacity(atRest ? 1 : 0) // hide during swipe / while zooming
             .position(x: right - 46, y: bottom - 2)
             .animation(.easeOut(duration: 0.12), value: atRest)
+        }
+    }
+}
+
+/// The TODO layering cog — bottom-right of the dashboard panel on the TODO tab (the NOTE tab's
+/// edit/preview toggle sibling, same placement + rest gating). Left-click pops the native callout
+/// menu (Display Deadlines / Show Collections ▸ / Collect from… ▸); right-clicking inside the
+/// TODO panel pops the SAME menu (PassThroughWebView.todoContextMenu). The menu targets whichever
+/// dashboard scope is currently visible (day / pinned week / pinned month).
+struct TodoCogOverlay: View {
+    let engine: CalendarEngine
+    let anim: DashCarouselAnim
+    let tab: DashTab
+    let controller: DashTodoMenuController
+    let containerWidth: CGFloat
+    let height: CGFloat
+    let theme: Theme
+
+    var body: some View {
+        if tab == .todo,
+           engine.chrome.level == 3 || (engine.chrome.dashPresented && engine.chrome.level >= 1) {
+            let right = containerWidth - Layout.padRight
+            let bottom = height - Layout.bottomPad
+            // Visible only at FULL rest — same gating as the note edit/preview toggle.
+            let atRest = anim.reveal > 0.5 && anim.p < 0.01
+                && (anim.scopeT < 0.01 || anim.scopeT > 0.99) && anim.monthP < 0.01
+                && (anim.weekP < 0.01 || anim.weekP > 0.99)
+            CogMenuButton(controller: controller, color: NSColor(theme.textMuted))
+                .frame(width: 24, height: 24)
+                .opacity(atRest ? 1 : 0)
+                .allowsHitTesting(atRest)
+                .position(x: right - 22, y: bottom - 2)
+                .animation(.easeOut(duration: 0.12), value: atRest)
+        }
+    }
+}
+
+/// AppKit gear button: NSViewRepresentable because popping the shared NSMenu needs a real NSView
+/// anchor (NSMenu.popUp), and the menu itself is AppKit so the right-click path can share it.
+private struct CogMenuButton: NSViewRepresentable {
+    let controller: DashTodoMenuController
+    let color: NSColor
+
+    func makeNSView(context: Context) -> NSButton {
+        let img = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "TODO list options")!
+        let b = NSButton(image: img, target: context.coordinator, action: #selector(Coord.pop(_:)))
+        b.isBordered = false
+        b.contentTintColor = color
+        context.coordinator.controller = controller
+        return b
+    }
+
+    func updateNSView(_ b: NSButton, context: Context) {
+        b.contentTintColor = color
+        context.coordinator.controller = controller
+    }
+
+    func makeCoordinator() -> Coord { Coord() }
+
+    @MainActor final class Coord: NSObject {
+        var controller: DashTodoMenuController?
+        @objc func pop(_ sender: NSButton) {
+            guard let m = controller?.menu() else { return }
+            m.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 4), in: sender)
         }
     }
 }

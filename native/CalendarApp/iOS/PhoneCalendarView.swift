@@ -97,8 +97,7 @@ struct PhoneCalendarView: View {
     ///   • DOUBLE tap an event → select it AND open its bottom sheet (the Mac's double-click-
     ///     opens-drawer, translated).
     ///   • DOUBLE tap empty space → drill one level in: year → the tapped month, month → the
-    ///     week window centered on the tapped day. (Week level stays pinch-only — day view
-    ///     isn't mounted.)
+    ///     week window centered on the tapped day, week → the tapped day's daily view.
     ///   • SINGLE tap an event → just select it (highlight, no sheet).
     ///   • SINGLE tap empty space → clear the selection.
     private var taps: some Gesture {
@@ -108,8 +107,8 @@ struct PhoneCalendarView: View {
                 if let id = engine.itemId(at: p) {
                     engine.select(id)
                     sheetItem = SheetItem(id: id)
-                } else if engine.isYearLevel || engine.isMonthLevel {
-                    engine.navigate(at: p) // week level: no drill — day view isn't mounted
+                } else if !engine.isDayLevel {
+                    engine.navigate(at: p) // day level: nothing deeper to drill into
                 }
             }
             .exclusively(before: SpatialTapGesture()
@@ -118,10 +117,10 @@ struct PhoneCalendarView: View {
                 })
     }
 
-    /// Two-finger pinch = semantic zoom (year ⇄ month ⇄ week), the Mac trackpad pinch's touch
-    /// twin: per-event magnification deltas feed the engine's REAL pinch path (`onMagnify`) —
-    /// captureFocus anchors the target and seeds the zoom-out carries — and fingers-up snaps
-    /// to the nearest level (z clamped to the phone's maxZ = 2).
+    /// Two-finger pinch = semantic zoom (year ⇄ month ⇄ week ⇄ day), the Mac trackpad pinch's
+    /// touch twin: per-event magnification deltas feed the engine's REAL pinch path
+    /// (`onMagnify`) — captureFocus anchors the target and seeds the zoom-out carries — and
+    /// fingers-up snaps to the nearest level.
     /// `pinchPrev` turns SwiftUI's cumulative magnification into the per-event deltas the
     /// engine accumulates; the @GestureState reset (fires on END and CANCEL alike) closes the
     /// engine gesture, so a cancelled pinch can't strand z mid-zoom without its settle tween.

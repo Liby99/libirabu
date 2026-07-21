@@ -406,14 +406,22 @@ extension CalendarEngine {
         caches.deadlineGen &+= 1; wake()
     }
 
-    /// Reverse a hide — clear the series' `userHidden` overlay so it draws normally again.
+    /// Reverse a hide — clear the series' `userHidden` overlay so it draws normally again. Also
+    /// clears a per-OCCURRENCE exclusion (the make-local-copy "exdate") when this box carries one,
+    /// so Unhide on a revealed excluded occurrence brings that occurrence back.
     public func unhideImportedSeries(_ id: String) {
-        mutateRich(Self.appleSeriesKey(sourceId(of: id))) { $0.userHidden = false }
+        let sid = sourceId(of: id)
+        if items.richById[sid]?.userHidden == true {
+            mutateRich(sid) { $0.userHidden = false }
+        }
+        mutateRich(Self.appleSeriesKey(sid)) { $0.userHidden = false }
         caches.deadlineGen &+= 1; wake()
     }
 
-    /// Whether an imported box's series is currently user-hidden (drives the drawer's Unhide button).
+    /// Whether an imported box is user-hidden — its series OR the occurrence itself (the
+    /// make-local-copy exclusion). Drives the drawer's Unhide button.
     public func isUserHidden(_ id: String) -> Bool {
         items.richById[Self.appleSeriesKey(sourceId(of: id))]?.userHidden == true
+            || items.richById[sourceId(of: id)]?.userHidden == true
     }
 }

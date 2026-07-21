@@ -46,11 +46,23 @@ public struct CalendarView: View {
     private let windowAssistant: AssistantState?
     @State private var showAssistantCallout = false
 
+    // Dashboard TODO layering (sources / collections / deadlines per scope) + its callout menu.
+    // The menu controller is long-lived state (NSMenuItem.target is weak) and resolves the CURRENT
+    // dashboard scope at pop time from the engine's chrome level.
+    @State private var todoSettings: DashTodoSettings
+    @State private var todoMenu: DashTodoMenuController
+
     /// Inject a shared engine so another scene (the standalone Calendar AI window) can read the
     /// same live calendar state. Defaults to a fresh engine when hosted standalone.
     @MainActor public init(engine: CalendarEngine? = nil, assistant: AssistantState? = nil,
                            windowAssistant: AssistantState? = nil) {
-        _engine = State(initialValue: engine ?? CalendarEngine())
+        let e = engine ?? CalendarEngine()
+        _engine = State(initialValue: e)
+        let settings = DashTodoSettings()
+        _todoSettings = State(initialValue: settings)
+        _todoMenu = State(initialValue: DashTodoMenuController(settings: settings, scope: {
+            e.chrome.level == 3 ? .day : (e.chrome.level == 2 ? .week : .month)
+        }))
         self.assistant = assistant
         self.windowAssistant = windowAssistant
     }
@@ -653,7 +665,9 @@ public struct CalendarView: View {
                                                   onOpen: { ui.openEventId = sourceId(of: $0) },
                                                   onCloseDrawer: { ui.openEventId = nil },
                                                   onNoteExit: { engine.dashNoteExit() },
-                                                  onNavTab: { fwd in engine.tabCursor(fwd) })
+                                                  onNavTab: { fwd in engine.tabCursor(fwd) },
+                                                  todoSettings: todoSettings,
+                                                  todoMenu: todoMenu)
                                 // Stay hit-testable while the drawer is open so the in-page scrim can intercept +
                                 // close (the WKWebView layer ignores the SwiftUI scrim/allowsHitTesting anyway).
                                 .allowsHitTesting(engine.chrome.level == 3
@@ -672,6 +686,13 @@ public struct CalendarView: View {
                         if ui.openEventId == nil {
                             NoteModeToggleOverlay(engine: engine, anim: dashAnim, tab: dashTab, noteMode: $noteMode,
                                                   containerWidth: geo.size.width, height: geo.size.height, theme: theme)
+                        }
+                    }
+                    // TODO layering cog (bottom-right on the TODO tab) → the native callout menu.
+                    .overlay {
+                        if ui.openEventId == nil {
+                            TodoCogOverlay(engine: engine, anim: dashAnim, tab: dashTab, controller: todoMenu,
+                                           containerWidth: geo.size.width, height: geo.size.height, theme: theme)
                         }
                     }
                     // Day-view split handle: drag the timeline↔dashboard boundary to resize. Above the catcher

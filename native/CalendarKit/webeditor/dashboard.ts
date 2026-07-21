@@ -271,7 +271,7 @@ function finishedLabel(viewIso: string, stamp: string): string {
 
 // ── Day-relative grouping (ported) ──────────────────────────────────────────────────────────────
 const HIGH_PRIORITY = 3, SOON_DAYS = 7, FOLLOWUP_WINDOW = 7, RECENT_DONE_DAYS = 7;
-interface Section { title: string; items: ParsedTodo[]; done?: boolean; }
+interface Section { key: string; title: string; items: ParsedTodo[]; done?: boolean; }
 // A fully deterministic identity for a todo, so items that tie on the primary sort keys keep a STABLE
 // order across renders. `allTodos` is re-derived from the events list + the notes map, whose iteration
 // order can shift between rebuilds — without a total tiebreak, tied items visibly swap places.
@@ -282,8 +282,32 @@ interface Section { title: string; items: ParsedTodo[]; done?: boolean; }
 const tieKey = (t: ParsedTodo) =>
   `${t.source}\0${t.eventId}\0${t.occurrenceKey ?? ""}\0${t.dailyDate ?? ""}\0${String(t.line).padStart(6, "0")}\0${t.raw}`;
 const cmpTie = (a: ParsedTodo, b: ParsedTodo) => (tieKey(a) < tieKey(b) ? -1 : tieKey(a) > tieKey(b) ? 1 : 0);
+// ── Layering prefs (pushed from Swift via CK.setTodoPrefs; keys sync with DashTodoPrefs.swift) ──
+// Per dashboard scope: which SOURCES feed the list, which COLLECTIONS render, deadlines on/off.
+// Defaults mirror the Swift side (each scope collects down to its own granularity) so a fresh
+// webview renders sensibly before the first push lands.
+interface TodoPrefs { deadlines: boolean; sections: string[]; sources: string[] }
+let todoPrefs: Record<"day" | "week" | "month", TodoPrefs> = {
+  day:   { deadlines: true, sections: ["dueDay", "overdue", "followup", "highSoon", "dueSoon", "done"], sources: ["event", "daily"] },
+  week:  { deadlines: true, sections: ["open", "done"], sources: ["event", "daily", "weekly"] },
+  month: { deadlines: true, sections: ["open", "done"], sources: ["event", "daily", "weekly", "monthly"] },
+};
+/** Which layer a todo came from: event notes, or the note kind its dailyDate key encodes. */
+function todoLayer(t: ParsedTodo): string {
+  if (t.source === "event") return "event";
+  const d = t.dailyDate ?? "";
+  return d.startsWith("week:") ? "weekly" : d.startsWith("month:") ? "monthly" : "daily";
+}
+// Empty list: distinguish "nothing due" from "you filtered every source away".
+const emptyListHTML = (p: TodoPrefs) =>
+  `<div class="cc-dtodo-empty">${p.sources.length
+    ? "Nothing on the list — you’re clear."
+    : "All sources hidden — pick some in the ⚙ menu."}</div>`;
+
 function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
   const isToday = viewIso === today;
+  const p = todoPrefs.day;
+  todos = todos.filter((t) => p.sources.includes(todoLayer(t)));
   // NESTED todos: only ROOT items are sectioned/sorted. Each root then renders with its full
   // subtree beneath it — done and not-done children alike — so a child never appears as its own
   // top-level row (see renderPanel + subtree()).
@@ -307,13 +331,13 @@ function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
     .filter((t) => t.done && t.doneDate && t.doneDate.slice(0, 10) >= recentStart && t.doneDate.slice(0, 10) <= viewIso)
     .sort((a, b) => { const d = a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0; return d !== 0 ? d : cmpTie(a, b); }).slice(0, 12);
   return [
-    { title: isToday ? "Today’s Items" : "Due This Day", items: dueThisDay },
-    { title: "Overdue", items: overdue },
-    { title: "Remember to Followup", items: followups },
-    { title: "High Priority · Due Soon", items: highSoon },
-    { title: "Due Soon", items: lowSoon },
-    { title: "Recently Completed", items: completed, done: true },
-  ].filter((s) => s.items.length > 0);
+    { key: "dueDay", title: isToday ? "Today’s Items" : "Due This Day", items: dueThisDay },
+    { key: "overdue", title: "Overdue", items: overdue },
+    { key: "followup", title: "Remember to Followup", items: followups },
+    { key: "highSoon", title: "High Priority · Due Soon", items: highSoon },
+    { key: "dueSoon", title: "Due Soon", items: lowSoon },
+    { key: "done", title: "Recently Completed", items: completed, done: true },
+  ].filter((s) => s.items.length > 0 && p.sections.includes(s.key));
 }
 
 // ── Nesting: group children under their parent via the (note-scope, parentLine) soft link ────────
@@ -535,8 +559,8 @@ function renderPanel(el: HTMLElement, viewIso: string) {
     return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${out.join("")}</ul></section>`;
   }).join("");
   flatOf.set(el, flat);
-  const body = sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list — you’re clear.</div>`;
-  scroll.innerHTML = deadlineHTML(viewIso) + body;
+  const body = sections.length ? secHTML : emptyListHTML(todoPrefs.day);
+  scroll.innerHTML = (todoPrefs.day.deadlines ? deadlineHTML(viewIso) : "") + body;
   // The two panels are RECYCLED across days and `daily.dom` advances mid-swipe (setDayProgress), so a
   // panel is re-rendered for a new day WHILE it's on screen. Restore THIS day's own remembered scroll
   // (0 for a day we haven't scrolled) — keyed by iso, so it never inherits the other panel's offset and
@@ -563,23 +587,25 @@ function rangeDeadlineHTML(title: string, startIso: string, endIso: string): str
     : `<div class="cc-dd-free">No deadlines in this range.</div>`;
   return `<section class="cc-dd-sec">${head}${body}</section>`;
 }
-function rangeTodoSections(startIso: string, endIso: string, word: string): Section[] {
+function rangeTodoSections(startIso: string, endIso: string, word: string, scope: "week" | "month"): Section[] {
   ensureTodos();
+  const p = todoPrefs[scope];
+  const pool = allTodos.filter((t) => p.sources.includes(todoLayer(t)));   // layering: enabled sources only
   const inR = (d: string) => d >= startIso && d <= endIso;
   const byOp = (a: ParsedTodo, b: ParsedTodo) => {
     const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
     return d !== 0 ? d : cmpTie(a, b);
   };
-  const open = allTodos.filter((t) => !t.done && inR(opDate(t))).sort(byOp);
+  const open = pool.filter((t) => !t.done && inR(opDate(t))).sort(byOp);
   // Top-level items only: a finished SUB-item is detail of its parent's progress, not its own
   // accomplishment row — it still shows (struck) under the parent in the daily subtree view.
-  const completed = allTodos
+  const completed = pool
     .filter((t) => t.done && t.parentLine == null && t.doneDate && inR(t.doneDate.slice(0, 10)))
     .sort((a, b) => { const d = a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0; return d !== 0 ? d : cmpTie(a, b); });
   return [
-    { title: `TODOs ${word}`, items: open },
-    { title: `Completed ${word}`, items: completed, done: true },
-  ].filter((s) => s.items.length > 0);
+    { key: "open", title: `TODOs ${word}`, items: open },
+    { key: "done", title: `Completed ${word}`, items: completed, done: true },
+  ].filter((s) => s.items.length > 0 && p.sections.includes(s.key));
 }
 // Render one scope sub-panel for its machine key (week: the Sunday iso; month: "YYYY-MM").
 // Signature-cached; callers bust via scopeSig.clear() on data / tab changes.
@@ -606,7 +632,7 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
   const word = scope === "week" ? "this week" : "this month";
   // The scope note's OWN todos drop their "Weekly/Monthly note · …" prefix inside their own
   // panel (shallow clones — the soft-link fields still point at the right note line).
-  const sections = rangeTodoSections(start, end, word).map((s) => ({
+  const sections = rangeTodoSections(start, end, word, scope).map((s) => ({
     ...s, items: s.items.map((t) => t.dailyDate === noteKey ? { ...t, eventTitle: "" } : t),
   }));
   const flat = sections.flatMap((s) => s.items);
@@ -614,9 +640,12 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
   let i = -1;
   const secHTML = sections.map((s) =>
     `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${s.items.map((t) => rowHTML(t, ++i, today)).join("")}</ul></section>`).join("");
+  const pr = todoPrefs[scope];
   scroll.innerHTML =
-    rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end) +
-    (sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list — you’re clear.</div>`);
+    (pr.deadlines
+      ? rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end)
+      : "") +
+    (sections.length ? secHTML : emptyListHTML(pr));
 }
 
 let liveShown = false, liveMode = "";
@@ -937,6 +966,14 @@ root.addEventListener("click", (e) => {
   },
   setInactive(on: boolean) { scrim.classList.toggle("on", on); },   // drawer open → blur + block the dashboard
   setTheme(vars: Record<string, string>) { const s = document.documentElement.style; for (const k in vars) s.setProperty(k, vars[k]); },
+  // Per-scope layering (sources / collections / deadlines) from the native cog + context menu.
+  // Merged over the in-page defaults, then a full re-render (todo lists AND scope panels).
+  setTodoPrefs(json: string) {
+    try { todoPrefs = { ...todoPrefs, ...JSON.parse(json) }; } catch { return; }
+    isoOf.delete(p0); isoOf.delete(p1);
+    scopeSig.clear();
+    apply();
+  },
   // ── Keyboard nav bridge (driven by the calendar's key system) ──
   navSet(stop: "todo" | "note" | "none") {   // Tab focus in/out of the dashboard stops
     navStop = stop === "none" ? null : stop;

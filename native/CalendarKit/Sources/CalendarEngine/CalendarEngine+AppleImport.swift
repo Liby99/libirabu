@@ -103,7 +103,7 @@ extension CalendarEngine {
         return true
     }
 
-    private func mergeAppleEvents(_ fetched: [FetchedAppleEvent]) {
+    func mergeAppleEvents(_ fetched: [FetchedAppleEvent]) { // internal for tests (re-import survival)
         let cal = Calendar.current
         // Dedup: the user's OWN timed events (exact key), so an imported event that shadows one can be
         // hidden. displayEvents includes recurrence occurrences; exclude imported ids so we compare only
@@ -198,6 +198,9 @@ extension CalendarEngine {
         }
         // Prune imported overlays no longer backed upstream: per-occurrence `hidden` flags whose occurrence
         // is gone; series overlays only when NO live occurrence remains AND they carry no user-authored data.
+        // USER-authored per-occurrence entries (the make-local-copy exclusion) are NEVER pruned here:
+        // this device's fetch window/calendar selection may simply not see that occurrence, and the
+        // prune would sync as a DELETE that resurrects the event on every other device.
         let live = Set(events.map(\.id))
         let liveSeries = Set(events.map { Self.appleSeriesKey($0.id) })
         for id in items.richById.keys where id.hasPrefix("apple-") {
@@ -206,7 +209,7 @@ extension CalendarEngine {
                    !hasUserOverlay(rf) {
                     items.richById[id] = nil; richChanged = true
                 }
-            } else if !live.contains(id) {
+            } else if !live.contains(id), let rf = items.richById[id], !hasUserOverlay(rf) {
                 items.richById[id] = nil; richChanged = true
             }
         }
@@ -252,7 +255,15 @@ extension CalendarEngine {
         if let src = items.richById[overlayKey(id)] {
             items.richById[newId] = RichFields(notes: src.notes, tags: src.tags, promoteTrack: src.promoteTrack)
         }
-        _ = setImportedHidden(id, true) // remove the read-only original from view (dedup keeps it hidden after)
+        // The copied occurrence gets a STICKY per-occurrence exclusion — userHidden on the FULL
+        // occurrence id, i.e. an exdate in our system. The dedup `hidden` flag is NOT enough: it is
+        // recomputed on every import, so as soon as the copy is deleted (the documented way to
+        // "delete an occurrence" of an imported series!) or edited off its exact title+day+start,
+        // the next re-import would UN-hide the original — deleted events resurrected on relaunch.
+        // The sticky flag survives re-imports; only an explicit Unhide clears it.
+        var rf = items.richById[id] ?? RichFields()
+        rf.userHidden = true
+        items.richById[id] = rf
         selectedId = newId
         commitTxn()
         return newId

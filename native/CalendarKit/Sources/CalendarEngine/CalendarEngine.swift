@@ -66,10 +66,14 @@ public final class CalendarEngine {
 
     // View state
     public internal(set) var z: CGFloat = 0
-    /// Upper semantic-zoom bound for this client (year 0 … day 3). The Mac exposes all four
-    /// levels; the iPhone client caps at month (1) while its week/day drivers stay unmounted —
-    /// the pinch path clamps here so a zoom can't land on a level with no touch driver.
+    /// Upper semantic-zoom bound for this client (year 0 … day 3): the pinch path clamps here
+    /// so a zoom can't land on a level whose touch driver isn't mounted. Both platforms
+    /// currently expose all four levels.
     public var maxZ: CGFloat = 3
+    /// The daily DASHBOARD panel exists on this client (Mac: notes/todos webview beside the
+    /// day timeline). The iPhone mounts none — it pins the daily split to 1 (full-width day
+    /// column) and skips the first-layout "roomier dashboard" default (see setViewport).
+    public var hasDailyDashboard = true
     public internal(set) var focus: Int
     public internal(set) var week: CGFloat = 0
     public internal(set) var scrollY: CGFloat = 0
@@ -253,6 +257,9 @@ public final class CalendarEngine {
     /// window). Off on the phone — the window just rubber-bands at the month edges, so an
     /// energetic swipe can't silently land you in the neighbor month.
     public var weekMonthFlipEnabled = true
+    /// Gate the DAY view's month-edge flip (overscroll past day 1 / the last day, incl. the
+    /// neighbor-day slide-in preview). Off on the phone — same no-silent-month-change policy.
+    public var dayMonthFlipEnabled = true
     // Year-flip transition: outgoing year scrolls out + fades, then the incoming year
     // slides in from the opposite edge + fades in. Driven by the per-frame clock.
     struct FlipAnim {
@@ -687,7 +694,7 @@ public final class CalendarEngine {
             let dim = daysInMonth(year, focus)
             if dt.isComplete(at: date) {
                 daily.dom = max(1, min(dim, Int(dt.to.rounded()))); daily.anim = nil; anim.dayTween = nil
-                week = CGFloat(weekOfDate(year, focus, daily.dom))
+                week = weekFor(dom: daily.dom)
                 pushChrome(); chrome.dailyResync &+= 1
                 fireDayLand() // a same-month jumpToDay glide landed
             } else {
@@ -696,7 +703,7 @@ public final class CalendarEngine {
                 let frac = f - CGFloat(dom)
                 daily.dom = dom
                 daily.anim = frac > 0.001 ? PageAnim(dir: 1, p: min(0.999, frac)) : nil
-                week = CGFloat(weekOfDate(year, focus, dom))
+                week = weekFor(dom: dom)
                 pushChrome()
             }
         }
@@ -736,8 +743,11 @@ public final class CalendarEngine {
             scroll.didInitialScroll = true // once: center today's month (clamped to top/bottom).
             scrollY = clamp(centerScroll(for: focus), 0, yearMaxScroll(viewport))
             // Default the day-view timeline ~180px narrower (a roomier dashboard) — computed here,
-            // once, now that the content width is known; the user can still drag the split.
-            daily.frac = clamp(daily.frac - 180 / max(1, viewport.w - Layout.labelW), 0.28, 0.82)
+            // once, now that the content width is known; the user can still drag the split. A
+            // client with NO dashboard (iPhone) instead pins the split to 1: full-width day column.
+            daily.frac = hasDailyDashboard
+                ? clamp(daily.frac - 180 / max(1, viewport.w - Layout.labelW), 0.28, 0.82)
+                : 1
             // The driver is synced by CatcherView.layout after it sizes the document view.
         } else {
             scrollY = clamp(scrollY, 0, yearMaxScroll(viewport))

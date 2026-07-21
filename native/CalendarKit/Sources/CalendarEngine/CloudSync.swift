@@ -119,8 +119,10 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
             let snap = engine.syncSnapshot()
             // Standalone overlay records for imported events the user has customized (color/promote/notes/tags).
+            // Series overlays AND per-occurrence exclusions (the make-local-copy "exdate") — any
+            // imported-key rich entry carrying user-authored data.
             let overlayIDs = (snap.rich ?? [:])
-                .filter { CalendarEngine.isAppleSeriesKey($0.key) && CalendarEngine.hasUserOverlay($0.value) }
+                .filter { CalendarEngine.hasImportedPrefix($0.key) && CalendarEngine.hasUserOverlay($0.value) }
                 .map(\.key)
             let ids = snap.events.map(\.id) + snap.bands.map(\.id) + snap.deadlines.map(\.id)
                 + overlayIDs + [CalendarEngine.trackNamesRecordID]
@@ -404,9 +406,10 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             r["anchorTz"] = d.anchorTz as CKRecordValue? // timezone anchor — must round-trip or it stops converting
             writeRich(r, snap.rich?[name]); return r
         }
-        // No body of ours: a user overlay on an imported event (color / promote / notes / tags), keyed by
-        // the imported series id. Sync it as a standalone "Overlay" record so it reaches the other devices.
-        if CalendarEngine.isAppleSeriesKey(name), let rf = snap.rich?[name] {
+        // No body of ours: a user overlay on an imported event — the SERIES key (color / promote /
+        // notes / tags / hide) or a PER-OCCURRENCE key (the make-local-copy exclusion, userHidden).
+        // Sync it as a standalone "Overlay" record so it reaches the other devices.
+        if CalendarEngine.hasImportedPrefix(name), let rf = snap.rich?[name] {
             let r = base(name, "Overlay")
             writeRich(r, rf); return r
         }

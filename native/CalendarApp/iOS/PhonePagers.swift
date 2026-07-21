@@ -17,12 +17,12 @@ import SwiftUI
 
 /// Mounts the right driver for the current zoom level.
 ///
-/// PHONE V1.3: year + month + week. Year = vertical scroll with per-quarter horizontal
-/// strips; month = vertical month↕month pager nested with the focused month's horizontal
-/// day strip; week = one two-axis window over the month's own days. Level navigation is the
-/// two-finger pinch (PhoneCalendarView.pinch → engine.onMagnify, clamped to maxZ = 2) plus
-/// empty-space double-taps; the breadcrumb zooms out. The day driver waits below; extend
-/// the switch (and maxZ) to enable it.
+/// PHONE V1.4: all four levels. Year = vertical scroll with per-quarter horizontal strips;
+/// month = vertical month↕month pager nested with the focused month's horizontal day strip;
+/// week = a two-axis window over the month's own days; day = a two-axis full-width day pager
+/// (no dashboard panel on the phone — engine.hasDailyDashboard = false pins the split to 1).
+/// Level navigation is the two-finger pinch (PhoneCalendarView.pinch → engine.onMagnify)
+/// plus empty-space double-taps; the breadcrumb zooms out.
 struct PhoneDriverLayer: View {
     let engine: CalendarEngine
     let vp: Viewport
@@ -35,8 +35,8 @@ struct PhoneDriverLayer: View {
             switch engine.chrome.level {
             case 0: PhoneYearDriver(engine: engine, vp: vp)
             case 1: PhoneMonthDriver(engine: engine, vp: vp)
-            default: PhoneWeekDriver(engine: engine, vp: vp, frozen: frozen)
-            // case 3: PhoneDayDriver(engine: engine, vp: vp)
+            case 2: PhoneWeekDriver(engine: engine, vp: vp, frozen: frozen)
+            default: PhoneDayDriver(engine: engine, vp: vp, frozen: frozen)
             }
         }
         // Two fingers down for the pinch must NOT also pan the drivers. A driver that mounts
@@ -425,36 +425,61 @@ private struct PhoneWeekDriver: View {
 }
 
 /// Day view: x pages day↔day (one page = the day column), y scrolls the hour timeline.
+/// Hardened like PhoneWeekDriver (its two-axis twin): pendingRestore guard with re-pin,
+/// drag-only guard clears, pinch freeze, and BOTH axes named on every programmatic pin
+/// (a single-axis scrollTo on a two-axis ScrollView zeroes the other axis).
 private struct PhoneDayDriver: View {
     let engine: CalendarEngine
     let vp: Viewport
+    var frozen = false // pinch in flight — scrolling is disabled by PhoneDriverLayer
     @State private var pos = ScrollPosition()
+    @State private var pendingRestore: CGPoint? // see PhoneYearDriver — same remount race
 
     var body: some View {
         let gridW = max(1, vp.w - Layout.labelW)
         let dayW = max(1, engine.daily.frac * gridW)
         let days = max(1, daysInMonth(engine.chrome.year, engine.chrome.focus))
+        let maxX = CGFloat(days - 1) * dayW
+        let maxY = max(0, engine.timelineMaxScroll)
         ScrollView([.horizontal, .vertical]) {
             Color.clear
                 .frame(width: CGFloat(days) * dayW,
-                       height: vp.h + max(0, engine.timelineMaxScroll))
+                       height: vp.h + maxY)
                 .scrollTargetLayout()
         }
         .scrollPosition($pos)
+        // Initial-layout restore of the landing day (see PhoneYearDriver: the imperative
+        // scrollTo alone races the attachment and can silently drop).
+        .defaultScrollAnchor(UnitPoint(
+            x: maxX > 0 ? min(max(CGFloat(engine.daily.dom - 1) * dayW / maxX, 0), 1) : 0,
+            y: maxY > 0 ? min(max(engine.tlScroll / maxY, 0), 1) : 0
+        ))
         .scrollTargetBehavior(DayScrollBehavior(dayW: dayW, maxDay: CGFloat(days - 1)))
         .scrollBounceBehavior(.always)
         .scrollIndicators(.hidden)
         // The strip must be able to park every day at the window's left edge — pad the tail by
         // the viewport-vs-page difference so offsets reach (days−1)·dayW (the Mac driver's
-        // viewport IS one page wide, ours is the whole grid).
+        // viewport IS one page wide, ours is the whole grid). Zero when the day column fills
+        // the grid (the phone's full-width split).
         .contentMargins(.trailing, max(0, gridW - dayW), for: .scrollContent)
         .frame(width: gridW, height: vp.h)
         .offset(x: Layout.padLeft + Layout.labelW)
         .onScrollGeometryChange(for: CGPoint.self, of: { CGPoint(x: $0.contentOffset.x, y: $0.contentOffset.y) }) { _, o in
+            if let t = pendingRestore {
+                if abs(o.x - t.x) < 1, abs(o.y - t.y) < 1 {
+                    pendingRestore = nil // restore landed → mirror live
+                } else {
+                    pos.scrollTo(x: t.x, y: t.y) // re-pin until landed (see PhoneYearDriver)
+                    return
+                }
+            }
             engine.setDayProgress(o.x)
             engine.setTlScroll(o.y)
         }
         .onScrollPhaseChange { old, new in
+            if new == .interacting { // drag only — see PhoneYearDriver
+                pendingRestore = nil
+            }
             if new == .interacting || new == .tracking {
                 engine.beginDayGesture()
             } else if old == .interacting || old == .tracking {
@@ -463,12 +488,25 @@ private struct PhoneDayDriver: View {
         }
         .onAppear {
             let p = $pos
-            p.wrappedValue.scrollTo(x: CGFloat(engine.daily.dom - 1) * dayW, y: engine.tlScroll)
-            engine.onSetTlScroll = { y in p.wrappedValue.scrollTo(y: y) }
+            let target = CGPoint(x: min(max(CGFloat(engine.daily.dom - 1) * dayW, 0), maxX),
+                                 y: min(max(engine.tlScroll, 0), maxY))
+            pendingRestore = target
+            p.wrappedValue.scrollTo(x: target.x, y: target.y)
+            // BOTH axes on every pin — a single-axis scrollTo zeroes the other on this
+            // two-axis ScrollView (the week driver's traced bug, same shape here).
+            engine.onSetTlScroll = { y in
+                p.wrappedValue.scrollTo(x: min(max(CGFloat(engine.daily.dom - 1) * dayW, 0), maxX), y: y)
+            }
         }
         // Jump-to-today / zoom-in landing / split change — re-sync the strip.
         .onChange(of: engine.chrome.dailyResync) { _, _ in
-            pos.scrollTo(x: CGFloat(engine.daily.dom - 1) * dayW)
+            pos.scrollTo(x: CGFloat(engine.daily.dom - 1) * dayW, y: max(0, engine.tlScroll))
+        }
+        // Restore retry once a pinch's freeze lifts (see PhoneWeekDriver).
+        .onChange(of: frozen) { _, f in
+            if !f, let t = pendingRestore {
+                pos.scrollTo(x: t.x, y: t.y)
+            }
         }
     }
 }
