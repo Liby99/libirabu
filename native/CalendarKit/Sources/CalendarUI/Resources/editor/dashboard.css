@@ -46,7 +46,14 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
     linear-gradient(to bottom, transparent, #000 var(--f), #000 calc(100% - var(--f)), transparent);
   mask-composite: intersect;
 }
-#panels, #note-live { position: absolute; inset: 0; }
+#panels { position: absolute; inset: 0; }
+/* The live editor takes the ACTIVE scope panel's OWN geometry (left/width set per tick by JS,
+   defaulting to the full mask): its width is the panel's stable target width, so mask resizes
+   during pin rides/zooms never reflow CodeMirror (a resize while display:none left it laid out
+   against a stale — even zero — width, which read as the left margin vanishing). z-index lifts
+   it above the dynamically-appended week/month layers (DOM-later would otherwise stack them
+   over the editor, eating its clicks at week/month rest). */
+#note-live { position: absolute; top: 0; bottom: 0; left: 0; width: 100%; z-index: 10; }
 /* A day's note rendered statically inside a carousel panel (the .cc-dd-scroll is the scroller).
    Top-aligned; bottom padding clears the native edit/preview toggle at the bottom-right. */
 .cc-dd-note-md { height: auto; overflow: visible; padding: 0 0 24px; }

@@ -56360,6 +56360,8 @@
     root5.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
     const layers = { day: panelsEl, week: weekLayer, month: monthLayer };
     const t2 = scopeT;
+    const scopeName = t2 > 0.5 ? scopeB : scopeA;
+    let liveL = 0, liveW = 0;
     for (const [name2, el] of Object.entries(layers)) {
       let x = 0, w = 0, op2 = 0;
       if (name2 === aName) {
@@ -56376,8 +56378,15 @@
       el.style.transform = "none";
       el.style.opacity = op2.toFixed(3);
       el.style.pointerEvents = op2 > 0.999 ? "auto" : "none";
+      if (name2 === scopeName) {
+        liveL = x - maskX;
+        liveW = Math.max(0, w);
+      }
     }
-    const scopeName = t2 > 0.5 ? scopeB : scopeA;
+    if (liveW > 1) {
+      noteLive.style.left = `${liveL.toFixed(1)}px`;
+      noteLive.style.width = `${liveW.toFixed(1)}px`;
+    }
     if (mKeyA && scopeKeyOf.get(mpB) === mKeyA) {
       const t22 = mpA;
       mpA = mpB;

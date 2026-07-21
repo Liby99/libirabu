@@ -653,6 +653,8 @@ function apply() {
   // in z (nothing keys on the rounded level; no z=1.5 snap).
   const layers: Record<string, HTMLElement> = { day: panelsEl, week: weekLayer, month: monthLayer };
   const t = scopeT;
+  const scopeName = t > 0.5 ? scopeB : scopeA;
+  let liveL = 0, liveW = 0; // the active scope panel's own geometry → sizes the live editor
   for (const [name, el] of Object.entries(layers)) {
     let x = 0, w = 0, op = 0;
     if (name === aName) { x = aX; w = aW; op = aOp; }
@@ -662,8 +664,16 @@ function apply() {
     el.style.transform = "none";
     el.style.opacity = op.toFixed(3);
     el.style.pointerEvents = op > 0.999 ? "auto" : "none";
+    if (name === scopeName) { liveL = x - maskX; liveW = Math.max(0, w); }
   }
-  const scopeName = t > 0.5 ? scopeB : scopeA;
+  // The live editor rides the ACTIVE panel's own (stable) width, NOT the mask: resizing with the
+  // mask reflowed CodeMirror against transient — even zero — widths while hidden, and it came
+  // back laid out without its left gutter. The panel's target width only changes on a real
+  // split-handle drag, so the editor's layout is steady across every open/close/zoom.
+  if (liveW > 1) {
+    noteLive.style.left = `${liveL.toFixed(1)}px`;
+    noteLive.style.width = `${liveW.toFixed(1)}px`;
+  }
   // Month page-turn: the sub-panels ride their bands' frames in PIXELS (mDy0/mDy1 are the
   // band-frame deltas Swift computes — same staggered easing, same asymmetric travel as the
   // Canvas header) and fade by TURN PROGRESS (the day-carousel house rule).
