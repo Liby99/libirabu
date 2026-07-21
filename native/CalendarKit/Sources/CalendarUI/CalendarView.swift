@@ -485,6 +485,13 @@ public struct CalendarView: View {
                             (0 ... 11).contains(toM) ? MONTH_LONG[toM] : "",
                             a.dir, Double(a.p))
                 }()
+                // Machine keys for the monthly-note store + content filters ("YYYY-MM").
+                let mKeyA = String(format: "%04d-%02d", input.year, input.focus + 1)
+                let mKeyB: String = {
+                    guard let a = input.monthAnim, (0 ... 11).contains(input.focus + a.dir)
+                    else { return "" }
+                    return String(format: "%04d-%02d", input.year, input.focus + a.dir + 1)
+                }()
                 // Week-to-week carousel (weekly dashboard): driven by the continuous week
                 // scroll — the SAME function the Canvas week header draws with.
                 let wt = weekDashTurn(input)
@@ -507,7 +514,9 @@ public struct CalendarView: View {
                                // same asymmetric travel as the Canvas header. Native is the standard.
                                mDy0: Double(fHeader.bandY - fRest.bandY),
                                mDy1: Double(fHeader2.bandY - fRest.bandY),
+                               mKeyA: mKeyA, mKeyB: mKeyB,
                                wFrom: wt.from, wTo: wt.to, wP: Double(wt.p),
+                               wKeyA: wt.fromKey, wKeyB: wt.toKey,
                                maskX: Double((scopeGeom?.mask ?? vp.w) - Layout.labelW),
                                maskW: Double(vp.w - (scopeGeom?.mask ?? vp.w)),
                                aName: scopeGeom?.a.name ?? "",

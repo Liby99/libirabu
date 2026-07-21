@@ -154,11 +154,13 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
               scopeA: String = "day", scopeB: String = "day", scopeT: Double = 1,
               dy: Double = 0, mFrom: String = "", mTo: String = "",
               mDy0: Double = 0, mDy1: Double = 0, mP: Double = 0,
+              mKeyA: String = "", mKeyB: String = "",
               wFrom: String = "", wTo: String = "", wP: Double = 0,
+              wKeyA: String = "", wKeyB: String = "",
               maskX: Double = 0, maskW: Double = 0,
               aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0,
               bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0) {
-        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(wFrom)|\(wTo)|\(Int((wP * 1000).rounded()))|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))"
+        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(mKeyA)|\(mKeyB)|\(wFrom)|\(wTo)|\(Int((wP * 1000).rounded()))|\(wKeyA)|\(wKeyB)|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))"
         if key == lastKey {
             return
         }
@@ -177,8 +179,8 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             "dy": (dy * 10).rounded() / 10,
             "mFrom": mFrom, "mTo": mTo,
             "mDy0": (mDy0 * 10).rounded() / 10, "mDy1": (mDy1 * 10).rounded() / 10,
-            "mP": r4(mP),
-            "wFrom": wFrom, "wTo": wTo, "wP": r4(wP),
+            "mP": r4(mP), "mKeyA": mKeyA, "mKeyB": mKeyB,
+            "wFrom": wFrom, "wTo": wTo, "wP": r4(wP), "wKeyA": wKeyA, "wKeyB": wKeyB,
             "maskX": (maskX * 10).rounded() / 10, "maskW": (maskW * 10).rounded() / 10,
             "aName": aName, "aX": (aX * 10).rounded() / 10, "aW": (aW * 10).rounded() / 10,
             "aOp": r4(aOp),
@@ -341,8 +343,10 @@ struct CarouselDriver: NSViewRepresentable {
     var mDir: Int = 0
     var mP: Double = 0
     var mDy0: Double = 0, mDy1: Double = 0 // month-turn PIXEL offsets (band-frame deltas; see caller)
+    var mKeyA: String = "", mKeyB: String = "" // month machine keys "YYYY-MM" (notes + filters)
     var wFrom: String = "", wTo: String = "" // week-turn labels (weekly-dashboard carousel)
     var wP: Double = 0 // week-turn progress (0 = base week at rest … 1 = next week at rest)
+    var wKeyA: String = "", wKeyB: String = "" // week machine keys: the Sunday, "YYYY-MM-DD"
     // Per-panel scope geometry from dashScopePanels, frame-local px (frame left = labelW):
     var maskX: Double = 0, maskW: Double = 0 // the clip region (dashboardLeftAnimated → right edge)
     var aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0 // current/outgoing panel
@@ -355,7 +359,8 @@ struct CarouselDriver: NSViewRepresentable {
         carousel.tick(from: from, to: to, dir: dir, p: p, reveal: reveal, slide: slide,
                       scopeA: scopeA, scopeB: scopeB, scopeT: scopeT,
                       dy: webDy, mFrom: mFrom, mTo: mTo, mDy0: mDy0, mDy1: mDy1, mP: mP,
-                      wFrom: wFrom, wTo: wTo, wP: wP,
+                      mKeyA: mKeyA, mKeyB: mKeyB,
+                      wFrom: wFrom, wTo: wTo, wP: wP, wKeyA: wKeyA, wKeyB: wKeyB,
                       maskX: maskX, maskW: maskW,
                       aName: aName, aX: aX, aW: aW, aOp: aOp,
                       bName: bName, bX: bX, bW: bW, bOp: bOp)
@@ -734,18 +739,25 @@ struct NoteModeToggleOverlay: View {
     let theme: Theme
 
     var body: some View {
-        if engine.chrome.level == 3, tab == .note {
+        // Day view, or the pinned weekly/monthly dashboard — every scope has a live note editor.
+        if tab == .note,
+           engine.chrome.level == 3 || (engine.chrome.dashPresented && engine.chrome.level >= 1) {
             let right = containerWidth - Layout.padRight
             let bottom = height - Layout.bottomPad
+            // Visible only at FULL rest: revealed, no day-page, no scope-zoom, no month/week turn
+            // (the week turn rests at 1 as well as 0).
+            let atRest = anim.reveal > 0.5 && anim.p < 0.01
+                && (anim.scopeT < 0.01 || anim.scopeT > 0.99) && anim.monthP < 0.01
+                && (anim.weekP < 0.01 || anim.weekP > 0.99)
             Picker("", selection: $noteMode) {
                 Image(systemName: "pencil").tag(NotesMode.edit)
                 Image(systemName: "eye").tag(NotesMode.preview)
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
             .tint(Theme.accent)
-            .opacity(anim.reveal > 0.5 && anim.p < 0.01 ? 1 : 0) // hide during swipe / while zooming
+            .opacity(atRest ? 1 : 0) // hide during swipe / while zooming
             .position(x: right - 46, y: bottom - 2)
-            .animation(.easeOut(duration: 0.12), value: anim.p < 0.01)
+            .animation(.easeOut(duration: 0.12), value: atRest)
         }
     }
 }

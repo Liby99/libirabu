@@ -241,10 +241,18 @@ func pinnedDashLeft(_ g: SceneInput) -> CGFloat? {
 public struct WeekTurn: Equatable, Sendable {
     public var from: String // base week's headline ("Jul 13 – 19, 2026")
     public var to: String // next week's headline
+    public var fromKey: String // machine key: the base week's Sunday, "YYYY-MM-DD"
+    public var toKey: String // next week's Sunday
     public var p: CGFloat // carousel progress: 0 = from at rest … 1 = to at rest
-    public init(from: String, to: String, p: CGFloat) {
-        self.from = from; self.to = to; self.p = p
+    public init(from: String, to: String, fromKey: String, toKey: String, p: CGFloat) {
+        self.from = from; self.to = to; self.fromKey = fromKey; self.toKey = toKey; self.p = p
     }
+}
+
+/// ISO "YYYY-MM-DD" of the week's Sunday (spill-resolving, like weekRangeLabel).
+public func weekSundayIso(_ year: Int, _ focus: Int, _ startDOM: Int) -> String {
+    guard let s = resolveDate(year, focus, startDOM) else { return "" }
+    return String(format: "%04d-%02d-%02d", s.year, s.month + 1, s.day)
 }
 
 /// Left-border day offset (days past the base Sunday) where the week turn runs: p ramps 0→1 over
@@ -257,8 +265,12 @@ public func weekDashTurn(_ g: SceneInput) -> WeekTurn {
     // Engine override: a big-fling glide CRUISES the carousel over its whole travel, a caught
     // glide freezes it, and a release settles it — the engine owns that state; we just render.
     if let o = g.weekDash {
-        return WeekTurn(from: weekRangeLabel(g.year, g.focus, weekStartDOM(g.year, g.focus, o.from)),
-                        to: weekRangeLabel(g.year, g.focus, weekStartDOM(g.year, g.focus, o.to)),
+        let sf = weekStartDOM(g.year, g.focus, o.from)
+        let st = weekStartDOM(g.year, g.focus, o.to)
+        return WeekTurn(from: weekRangeLabel(g.year, g.focus, sf),
+                        to: weekRangeLabel(g.year, g.focus, st),
+                        fromKey: weekSundayIso(g.year, g.focus, sf),
+                        toKey: weekSundayIso(g.year, g.focus, st),
                         p: clamp(o.p, 0, 1))
     }
     let base = floor(g.week)
@@ -266,6 +278,8 @@ public func weekDashTurn(_ g: SceneInput) -> WeekTurn {
     let s0 = weekStartDOM(g.year, g.focus, Int(base))
     return WeekTurn(from: weekRangeLabel(g.year, g.focus, s0),
                     to: weekRangeLabel(g.year, g.focus, s0 + 7),
+                    fromKey: weekSundayIso(g.year, g.focus, s0),
+                    toKey: weekSundayIso(g.year, g.focus, s0 + 7),
                     p: clamp(o - weekTurnAnchor, 0, 1))
 }
 

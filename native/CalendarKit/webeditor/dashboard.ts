@@ -24,12 +24,41 @@ let today = "";
 // per render. Everything's already in memory here, so this is a cheap flatMap over a few hundred notes.
 let allTodos: ParsedTodo[] = [];
 let todosDirty = true;                     // set on any note/event change; rebuilt lazily when shown
+// Weekly/monthly notes live in the SAME persisted notes map under prefixed keys — the storage,
+// backup, and sync layers treat keys as opaque, so scope notes ride the daily-note pipeline.
+const weekNoteKey = (sunIso: string) => `week:${sunIso}`;       // sunIso = the week's Sunday
+const monthNoteKey = (ym: string) => `month:${ym}`;             // ym = "YYYY-MM"
+function monthEndIso(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+}
+// A scope note's `- [ ]` lines join the global TODO index like daily-note lines do — parsed
+// against the range START (so relative `due:` tokens resolve inside the range), then re-anchored:
+// the soft-link key becomes the scope note's storage key (toggling rewrites the right note), and
+// undated items default their due date to the range END ("finish within the week/month").
+function scopeNoteTodos(key: string, anchorIso: string, endIso: string, title: string, text: string): ParsedTodo[] {
+  const ts = parseDailyNoteTodos(anchorIso, text, today);
+  for (const t of ts) {
+    t.dailyDate = key;
+    t.eventTitle = title;
+    if (t.dueSource !== "line") t.due = endIso;
+  }
+  return ts;
+}
 function ensureTodos() {
   if (!todosDirty) return;
-  allTodos = [
-    ...indexTodos(events, today),
-    ...Object.entries(notes).flatMap(([date, text]) => parseDailyNoteTodos(date, text, today)),
-  ];
+  allTodos = [...indexTodos(events, today)];
+  for (const [key, text] of Object.entries(notes)) {
+    if (key.startsWith("week:")) {
+      const sun = key.slice(5);
+      allTodos.push(...scopeNoteTodos(key, sun, addDays(sun, 6), `Weekly note · ${sun}`, text));
+    } else if (key.startsWith("month:")) {
+      const ym = key.slice(6);
+      allTodos.push(...scopeNoteTodos(key, `${ym}-01`, monthEndIso(ym), `Monthly note · ${ym}`, text));
+    } else {
+      allTodos.push(...parseDailyNoteTodos(key, text, today));
+    }
+  }
   todosDirty = false;
 }
 // The last tick, re-applied after a data change so the visible panels refresh in place.
@@ -43,7 +72,9 @@ function ensureTodos() {
 const TICK_DEFAULTS = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
                         scopeA: "day", scopeB: "day", scopeT: 1,
                         dy: 0, mFrom: "", mTo: "", mDy0: 0, mDy1: 0, mP: 0,
+                        mKeyA: "", mKeyB: "",   // month machine keys "YYYY-MM" (notes + filters)
                         wFrom: "", wTo: "", wP: 0,
+                        wKeyA: "", wKeyB: "",   // week machine keys: the Sunday "YYYY-MM-DD"
                         // Per-panel scope geometry from Swift's dashScopePanels (frame-local px):
                         // the mask (clip) region + each panel's own left/width/opacity.
                         maskX: 0, maskW: 0,
@@ -56,86 +87,30 @@ const panelsEl = document.getElementById("panels")!;           // carousel conte
 const noteLive = document.getElementById("note-live")!;        // live editor overlay (rest + note only)
 
 // ── Zoom-scope layers (weekly / monthly) ────────────────────────────────────────────────────────
-// PHASE-1 PLACEHOLDERS: unmistakably labeled content per scope, so the month↔week↔day zoom
-// carousel (Swift ticks scopeA/scopeB/scopeT) can be tuned visually before the real weekly/monthly
-// dashboards land. The DAY layer is the existing #panels (+ note editor); these two are siblings
-// that slide/fade with the same math.
-function makeScopeLayer(id: string, title: string, items: string[]): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "cc-dd-panel";
-  el.id = id;
-  const scroll = document.createElement("div");
-  scroll.className = "cc-dd-scroll";
-  scroll.innerHTML =
-    `<div style="opacity:.55;font-size:11px;letter-spacing:1.5px;margin:4px 0 10px">${title} · PLACEHOLDER</div>` +
-    items.map((t, i) =>
-      `<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.18)">
-         <span style="width:14px;height:14px;border:1.5px solid rgba(128,128,128,.55);border-radius:4px;flex:none"></span>
-         <span>${t} ${i + 1}</span>
-       </div>`).join("") +
-    `<div style="margin-top:14px;opacity:.5;font-size:12px">${title.toLowerCase()} note — placeholder text.
-      Lorem calendar sit amet, styling and animation tuning only.</div>`;
-  el.appendChild(scroll);
-  root.appendChild(el);
-  return el;
+// The WEEK layer holds two side-by-side sub-panels that carousel HORIZONTALLY during a week turn
+// (Swift ticks wKeyA/wKeyB/wP from the continuous week scroll); the MONTH layer's pair carousels
+// VERTICALLY with month page-turns. The DAY layer is the existing #panels (+ note editor); all
+// three are siblings that slide/fade with the same math. Content: renderScopePanel below.
+function makeScopeLayer(id: string): { layer: HTMLElement; a: HTMLElement; b: HTMLElement } {
+  const layer = document.createElement("div");
+  layer.className = "cc-dd-panel"; layer.id = id;
+  root.appendChild(layer);
+  const sub = () => {
+    const el = document.createElement("div");
+    el.className = "cc-dd-panel";         // absolute-fill inside the layer
+    layer.appendChild(el);
+    return el;
+  };
+  return { layer, a: sub(), b: sub() };
 }
-// The WEEK layer holds TWO side-by-side sub-panels that carousel HORIZONTALLY during a
-// week-to-week turn (Swift ticks wFrom/wTo/wP from the continuous week scroll) — labeled by
-// date range so the motion is unmistakable while tuning.
-const weekLayer = document.createElement("div");
-weekLayer.className = "cc-dd-panel"; weekLayer.id = "scope-week";
-root.appendChild(weekLayer);
-function weekPH(): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "cc-dd-panel";           // absolute-fill inside the week layer
-  weekLayer.appendChild(el);
-  return el;
-}
-// Identity-keyed by week label (same rule as the month panels): when the week base advances
-// and from/to re-base, each panel KEEPS its week — positions stay continuous across the flip.
-let wpA = weekPH(), wpB = weekPH();
-const wpLabel = new Map<HTMLElement, string>();
-function renderWeekPH(el: HTMLElement, label: string) {
-  if (wpLabel.get(el) === label) return;
-  wpLabel.set(el, label);
-  el.innerHTML = `<div class="cc-dd-scroll">` +
-    `<div style="opacity:.55;font-size:11px;letter-spacing:1.5px;margin:4px 0 10px">WEEKLY · ${label.toUpperCase()} · PLACEHOLDER</div>` +
-    [1, 2, 3, 4].map(i =>
-      `<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.18)">
-         <span style="width:14px;height:14px;border:1.5px solid rgba(128,128,128,.55);border-radius:4px;flex:none"></span>
-         <span>${label} item ${i}</span>
-       </div>`).join("") +
-    `<div style="margin-top:14px;opacity:.5;font-size:12px">${label} note — placeholder text.</div></div>`;
-}
-// The MONTH layer holds TWO stacked sub-panels that carousel VERTICALLY during a month page-turn
-// (jan→feb), mirroring the calendar's vertical month paging — labeled by month name so the motion
-// is unmistakable while tuning.
-const monthLayer = document.createElement("div");
-monthLayer.className = "cc-dd-panel"; monthLayer.id = "scope-month";
-root.appendChild(monthLayer);
-function monthPH(): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "cc-dd-panel";           // absolute-fill inside the month layer
-  monthLayer.appendChild(el);
-  return el;
-}
-// Role panels are IDENTITY-KEYED by month label (mirroring the day panels' isoOf): when the
-// pager re-bases mid-turn (focus flips, from/to swap), each panel KEEPS its month — positions
+const W = makeScopeLayer("scope-week"), M = makeScopeLayer("scope-month");
+const weekLayer = W.layer, monthLayer = M.layer;
+// Role panels are IDENTITY-KEYED by machine key (mirroring the day panels' isoOf): when the
+// pager/scroll re-bases mid-turn (from/to swap), each panel KEEPS its week/month — positions
 // stay continuous across the flip instead of two panels teleport-swapping contents.
-let mpA = monthPH(), mpB = monthPH();
-const mpLabel = new Map<HTMLElement, string>();
-function renderMonthPH(el: HTMLElement, label: string) {
-  if (mpLabel.get(el) === label) return;
-  mpLabel.set(el, label);
-  el.innerHTML = `<div class="cc-dd-scroll">` +
-    `<div style="opacity:.55;font-size:11px;letter-spacing:1.5px;margin:4px 0 10px">MONTHLY · ${label.toUpperCase()} · PLACEHOLDER</div>` +
-    [1, 2, 3].map(i =>
-      `<div style="display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid rgba(128,128,128,.18)">
-         <span style="width:14px;height:14px;border:1.5px solid rgba(128,128,128,.55);border-radius:4px;flex:none"></span>
-         <span>${label} item ${i}</span>
-       </div>`).join("") +
-    `<div style="margin-top:14px;opacity:.5;font-size:12px">${label} note — placeholder text.</div></div>`;
-}
+let wpA = W.a, wpB = W.b, mpA = M.a, mpB = M.b;
+const scopeKeyOf = new Map<HTMLElement, string>();   // sub-panel → machine key (role identity)
+const scopeSig = new Map<HTMLElement, string>();     // sub-panel → rendered signature (render cache)
 function post(m: any) { (window as any).webkit?.messageHandlers?.ck?.postMessage(m); }
 
 // The WKWebView is a separate compositing layer, so the app's SwiftUI blur/scrim can't touch it and
@@ -216,7 +191,7 @@ function applyNav() {
   noteLive.classList.toggle("cc-nav-on", navStop === "note" && !editingNote);
   applyTodoCursor();
 }
-function applyTab(t: "todo" | "note") { tab = t; isoOf.delete(p0); isoOf.delete(p1); apply(); }
+function applyTab(t: "todo" | "note") { tab = t; isoOf.delete(p0); isoOf.delete(p1); scopeSig.clear(); apply(); }
 // A user action IN the webview (⌘S / ⌘-click) → change mode + tell Swift so the native toggle updates.
 function noteModeUser(m: "edit" | "preview") {
   if (noteMode === m) return;
@@ -425,6 +400,79 @@ function renderPanel(el: HTMLElement, viewIso: string) {
   scroll.scrollTop = scrollByIso[viewIso] ?? 0;
 }
 
+// ── Weekly / monthly panel content ──────────────────────────────────────────────────────────────
+// Same template as the daily panel, scoped to a date range: "Deadlines in this week/month" (all
+// deadlines inside the range), "TODOs this week/month" (open todos whose operative date falls in
+// the range), "Completed this week/month", and — on the NOTE tab — the scope's own persisted note.
+function rangeDeadlineHTML(title: string, startIso: string, endIso: string): string {
+  const list = deadlines
+    .map((d) => ({ d, iso: `${d.year}-${pad(d.month + 1)}-${pad(d.day)}` }))
+    .filter((x) => x.iso >= startIso && x.iso <= endIso)
+    .sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : a.d.hour - b.d.hour) || (a.d.id < b.d.id ? -1 : a.d.id > b.d.id ? 1 : 0));
+  const head = `<div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(title)}</span>${list.length ? `<span class="cc-dd-sec-count">${list.length}</span>` : ""}</div>`;
+  const body = list.length
+    ? `<ul class="cc-dd-ddl-list">${list.map(({ d, iso }) =>
+        `<li class="cc-dd-ddl cc-ev-${esc(d.color)}" data-ddl="${esc(d.id)}" role="button" tabindex="0" title="Go to deadline">
+          <span class="cc-dd-ddl-dot"></span>
+          <span class="cc-dd-ddl-title">${d.title ? esc(d.title) : "<em>(untitled)</em>"}</span>
+          <span class="cc-dd-ddl-when">${esc(relDue(today, iso))} · ${hhmm(d.hour)}</span></li>`).join("")}</ul>`
+    : `<div class="cc-dd-free">No deadlines in this range.</div>`;
+  return `<section class="cc-dd-sec">${head}${body}</section>`;
+}
+function rangeTodoSections(startIso: string, endIso: string, word: string): Section[] {
+  ensureTodos();
+  const inR = (d: string) => d >= startIso && d <= endIso;
+  const byOp = (a: ParsedTodo, b: ParsedTodo) => {
+    const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
+    return d !== 0 ? d : cmpTie(a, b);
+  };
+  const open = allTodos.filter((t) => !t.done && inR(opDate(t))).sort(byOp);
+  const completed = allTodos
+    .filter((t) => t.done && t.doneDate && inR(t.doneDate.slice(0, 10)))
+    .sort((a, b) => { const d = a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0; return d !== 0 ? d : cmpTie(a, b); });
+  return [
+    { title: `TODOs ${word}`, items: open },
+    { title: `Completed ${word}`, items: completed, done: true },
+  ].filter((s) => s.items.length > 0);
+}
+// Render one scope sub-panel for its machine key (week: the Sunday iso; month: "YYYY-MM").
+// Signature-cached; callers bust via scopeSig.clear() on data / tab changes.
+function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string) {
+  const sig = `${scope}|${key}|${tab}`;
+  if (scopeSig.get(el) === sig) return;
+  scopeSig.set(el, sig);
+  let scroll = el.firstElementChild as HTMLElement | null;
+  if (!scroll || !scroll.classList.contains("cc-dd-scroll")) {
+    el.innerHTML = `<div class="cc-dd-scroll"></div>`;
+    scroll = el.firstElementChild as HTMLElement;
+  }
+  const noteKey = scope === "week" ? weekNoteKey(key) : monthNoteKey(key);
+  if (tab === "note") {
+    const text = notes[noteKey] || "";
+    scroll.innerHTML = text.trim()
+      ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text)}</div>`
+      : `<div class="cc-dd-note-empty">${scope === "week" ? "Weekly" : "Monthly"} Note</div>`;
+    flatOf.delete(el);
+    return;
+  }
+  const start = scope === "week" ? key : `${key}-01`;
+  const end = scope === "week" ? addDays(key, 6) : monthEndIso(key);
+  const word = scope === "week" ? "this week" : "this month";
+  // The scope note's OWN todos drop their "Weekly/Monthly note · …" prefix inside their own
+  // panel (shallow clones — the soft-link fields still point at the right note line).
+  const sections = rangeTodoSections(start, end, word).map((s) => ({
+    ...s, items: s.items.map((t) => t.dailyDate === noteKey ? { ...t, eventTitle: "" } : t),
+  }));
+  const flat = sections.flatMap((s) => s.items);
+  flatOf.set(el, flat);
+  let i = -1;
+  const secHTML = sections.map((s) =>
+    `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${s.items.map((t) => rowHTML(t, ++i, today)).join("")}</ul></section>`).join("");
+  scroll.innerHTML =
+    rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end) +
+    (sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list — you’re clear.</div>`);
+}
+
 let liveShown = false, liveMode = "";
 // Apply the current tick: the zoom reveal (whole-panel slide-in-from-right + fade) on #dash, then
 // position + fade the two day panels within it like SceneRenderer.drawPanel; then place the live note
@@ -432,7 +480,8 @@ let liveShown = false, liveMode = "";
 let dayViewShown = false;   // true once the dashboard is revealed (day view); reset when hidden
 function apply() {
   const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDy0, mDy1, mP,
-          wFrom, wTo, wP, maskX, maskW, aName, aX, aW, aOp, bName, bX, bW, bOp } = last;
+          mKeyA, mKeyB, wFrom, wTo, wP, wKeyA, wKeyB,
+          maskX, maskW, aName, aX, aW, aOp, bName, bX, bW, bOp } = last;
   // Leaving day view (reveal fell to hidden) forgets every day's scroll, so re-entering day view always
   // starts at the top — the scroll doesn't carry across a trip out to week/month view. The reset on
   // re-entry restores from the (now-empty) map, i.e. 0, without re-rendering the unchanged panels.
@@ -468,24 +517,22 @@ function apply() {
     el.style.opacity = op.toFixed(3);
     el.style.pointerEvents = op > 0.999 ? "auto" : "none";
   }
-  const scopeIsDay = (t > 0.5 ? scopeB : scopeA) === "day";
+  const scopeName = t > 0.5 ? scopeB : scopeA;
   // Month page-turn: the sub-panels ride their bands' frames in PIXELS (mDy0/mDy1 are the
   // band-frame deltas Swift computes — same staggered easing, same asymmetric travel as the
-  // Canvas header) and FADE with displacement, the day-paging carousel's 1 − |offset|/size rule.
+  // Canvas header) and fade by TURN PROGRESS (the day-carousel house rule).
   // Identity first: if the "from" month currently lives in panel B (the pager re-based and
   // from/to swapped), swap the ROLES so each panel keeps its month — continuous positions.
-  const fromLabel = mFrom || "Month";
-  if (mpLabel.get(mpB) === fromLabel) {
+  if (mKeyA && scopeKeyOf.get(mpB) === mKeyA) {
     const t2 = mpA; mpA = mpB; mpB = t2;
   }
-  // Fade by TURN PROGRESS (1−p / p — the day-carousel house rule), not by displacement: the
-  // band-frame travel (~350px) is well short of the panel height, so a distance-based fade only
-  // reached ~50% and the exit read as clipping/occlusion instead of a fade.
-  renderMonthPH(mpA, fromLabel);
-  mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
-  mpA.style.opacity = (1 - mP).toFixed(3);
-  if (mTo) {
-    renderMonthPH(mpB, mTo);
+  if (mKeyA) {
+    renderScopePanel(mpA, "month", mKeyA); scopeKeyOf.set(mpA, mKeyA);
+    mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
+    mpA.style.opacity = (1 - mP).toFixed(3);
+  }
+  if (mKeyA && mKeyB && mP > 0.001) {
+    renderScopePanel(mpB, "month", mKeyB); scopeKeyOf.set(mpB, mKeyB);
     mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
     mpB.style.opacity = mP.toFixed(3);
   } else {
@@ -494,15 +541,16 @@ function apply() {
   // Week turn: the sub-panels carousel HORIZONTALLY, driven by the continuous week scroll
   // (wP ramps while the viewport's left border sweeps the turn band; rests at BOTH 0 and 1).
   // Same identity-keying + fade-by-progress rules as the month pair above.
-  const wFromLabel = wFrom || "Week";
-  if (wpLabel.get(wpB) === wFromLabel) {
+  if (wKeyA && scopeKeyOf.get(wpB) === wKeyA) {
     const t3 = wpA; wpA = wpB; wpB = t3;
   }
-  renderWeekPH(wpA, wFromLabel);
-  wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
-  wpA.style.opacity = (1 - wP).toFixed(3);
-  if (wTo && wP > 0.001) {
-    renderWeekPH(wpB, wTo);
+  if (wKeyA) {
+    renderScopePanel(wpA, "week", wKeyA); scopeKeyOf.set(wpA, wKeyA);
+    wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
+    wpA.style.opacity = (1 - wP).toFixed(3);
+  }
+  if (wKeyA && wKeyB && wP > 0.001) {
+    renderScopePanel(wpB, "week", wKeyB); scopeKeyOf.set(wpB, wKeyB);
     wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
     wpB.style.opacity = wP.toFixed(3);
   } else {
@@ -520,15 +568,27 @@ function apply() {
     p1.style.transform = `translateX(${(dir * (1 - p) * 100).toFixed(3)}%)`; p1.style.opacity = p.toFixed(3);
     p0.style.pointerEvents = "none"; p1.style.pointerEvents = "none";
   }
-  // Live editor: NOTE tab, fully open, at rest → overlay the centered panel (which is hidden so its
+  // Live editor: NOTE tab, fully open, at rest → overlay the resting panel (which is hidden so its
   // static preview doesn't peek through). During a swipe/zoom the panels' note previews carousel.
-  const showLive = tab === "note" && atRest && reveal > 0.999 && scopeIsDay && t % 1 === 0;
+  // Scope-aware: the day scope edits the day's note, week/month edit THEIR scope note (same
+  // persisted store, prefixed keys) — the editor re-anchors via liveIso whenever the key changes.
+  let liveKey = "", hideEl: HTMLElement | null = null;
+  if (scopeName === "day") {
+    liveKey = from; hideEl = p0;
+  } else if (scopeName === "week" && (wP <= 0.001 || wP >= 0.999)) {
+    const k = wP < 0.5 ? wKeyA : wKeyB;
+    if (k) { liveKey = weekNoteKey(k); hideEl = wP < 0.5 ? wpA : wpB; }
+  } else if (scopeName === "month" && mP <= 0.001 && mKeyA) {
+    liveKey = monthNoteKey(mKeyA); hideEl = mpA;
+  }
+  const showLive = tab === "note" && atRest && reveal > 0.999 && t % 1 === 0 && !!liveKey;
   noteLive.style.display = showLive ? "" : "none";
-  p0.style.visibility = showLive ? "hidden" : "";
+  for (const el of [p0, wpA, wpB, mpA, mpB]) el.style.visibility = "";
+  if (showLive && hideEl) hideEl.style.visibility = "hidden";
   if (showLive) {
-    const text = notes[from] || "";
-    if (liveIso !== from) {
-      liveIso = from;
+    const text = notes[liveKey] || "";
+    if (liveIso !== liveKey) {
+      liveIso = liveKey;
       // Content-based default for the day we landed on; tell Swift so the native toggle reflects it.
       const m = text.trim() ? "preview" : "edit";
       if (m !== noteMode) { noteMode = m; liveMode = ""; post({ type: "noteMode", mode: m }); }
@@ -676,6 +736,7 @@ root.addEventListener("click", (e) => {
     // Completed" on a real re-render (day swipe / zoom out+in). External changes still re-render.
     if (performance.now() - selfEditAt < SELF_ECHO_MS) return;
     isoOf.delete(p0); isoOf.delete(p1);   // force a re-render with the new data
+    scopeSig.clear();                     // scope panels too (identity keys stay — no position jump)
     apply();
   },
   tick(t: Partial<typeof TICK_DEFAULTS>) {
