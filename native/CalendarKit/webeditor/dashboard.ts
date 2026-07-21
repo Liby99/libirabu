@@ -153,8 +153,16 @@ for (const P of [P0, P1]) {
 let tab: "todo" | "note" = "todo";
 let noteMode: "edit" | "preview" = "edit";
 let notes: Record<string, string> = {};
-let liveIso = "";                                      // the day the live editor currently holds
+let liveIso = "";                                      // the note KEY the live editor currently holds
 let liveText = "";                                     // the note value currently in the editor (detects external changes)
+let liveScope: "day" | "week" | "month" = "day";       // which scope the live editor is anchored to
+const SCOPE_WORD = { day: "daily", week: "weekly", month: "monthly" } as const;
+// Empty-note preview: an invitation with a link into the markdown editor (see the root click
+// delegation — `.cc-dd-note-write` switches to edit mode). Used by the LIVE preview and the
+// static carousel previews alike.
+function emptyNoteHTML(scope: "day" | "week" | "month"): string {
+  return `<div class="cc-dd-note-empty">Empty ${SCOPE_WORD[scope]} note. <a class="cc-dd-note-write" role="button">Write something</a></div>`;
+}
 const noteEd = createNoteEditor({
   editorEl: document.getElementById("note-editor")!,
   previewEl: document.getElementById("note-preview")!,
@@ -165,6 +173,7 @@ const noteEd = createNoteEditor({
   onExit: () => post({ type: "navNoteExit" }),             // Escape in the editor → back to the NOTE ring
   onOpenLink: (url) => post({ type: "openLink", url }),
   onEditAt: (line) => { noteModeUser("edit"); noteEd.setCursorLine(line); },   // ⌘-click a preview block
+  emptyPreview: () => emptyNoteHTML(liveScope),
 });
 
 // ── Keyboard nav from the calendar (Tab into the dashboard TODO / NOTE stops) ──────────────────────
@@ -349,12 +358,13 @@ function rowHTML(t: ParsedTodo, idx: number, viewIso: string, fold?: RowFold): s
     meta += t.followup
       ? `<span class="cc-dtodo-followup${overdue ? " cc-dtodo-due-over" : ""}">↪ follow up ${esc(relDue(viewIso, t.followup))}</span>`
       : `<span class="cc-dtodo-due${overdue ? " cc-dtodo-due-over" : ""}">${esc(relDue(viewIso, date))}</span>`;
+    meta += t.projects.slice(0, 2).map((p) => `<span class="cc-dtodo-proj">${esc(p)}</span>`).join("");
     meta += t.tags.slice(0, 3).map((tag) => `<span class="cc-dtodo-tag">#${esc(tag)}</span>`).join("");
   }
   // A folded parent shows how many sub-items it's hiding.
   if (fold?.folded && fold.hidden > 0) meta += `<span class="cc-dtodo-foldn">+${fold.hidden} sub</span>`;
   const chevron = fold?.foldable
-    ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items">▸</button>`
+    ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M8 1.5 L17 12 L8 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : "";
   // data-idx on the row itself: with folding, the visible rows are a SUBSET of the flat list, so
   // keyboard nav resolves a row → todo through this instead of assuming row order == flat order.
@@ -427,7 +437,7 @@ function renderPanel(el: HTMLElement, viewIso: string) {
     const text = notes[viewIso] || "";
     scroll.innerHTML = text.trim()
       ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text)}</div>`
-      : `<div class="cc-dd-note-empty">Daily Note (Markdown)…</div>`;
+      : emptyNoteHTML("day");
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;   // restore THIS day's own scroll (see the todo branch)
     flatOf.delete(el);
     return;
@@ -516,7 +526,7 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
     const text = notes[noteKey] || "";
     scroll.innerHTML = text.trim()
       ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text)}</div>`
-      : `<div class="cc-dd-note-empty">${scope === "week" ? "Weekly" : "Monthly"} Note (Markdown)…</div>`;
+      : emptyNoteHTML(scope);
     flatOf.delete(el);
     return;
   }
@@ -663,6 +673,7 @@ function apply() {
     const text = notes[liveKey] || "";
     if (liveIso !== liveKey) {
       liveIso = liveKey;
+      liveScope = scopeName as "day" | "week" | "month";
       // The empty-note hint names the scope we're editing (matches the static previews).
       noteEd.setPlaceholder(scopeName === "day" ? "Daily Note (Markdown)…"
         : scopeName === "week" ? "Weekly Note (Markdown)…" : "Monthly Note (Markdown)…");
@@ -808,6 +819,13 @@ root.addEventListener("click", (e) => {
   }
   const ddl = (e.target as HTMLElement).closest("[data-ddl]") as HTMLElement | null;
   if (ddl) { post({ type: "open", eventId: ddl.dataset.ddl }); return; }
+  // "Write something" in an empty-note preview (live overlay or static panel) → the editor.
+  if ((e.target as HTMLElement).closest(".cc-dd-note-write")) {
+    e.preventDefault();
+    noteModeUser("edit");
+    queueMicrotask(() => { noteEd.setMode("edit"); noteEd.focus(); });
+    return;
+  }
   // A click on genuinely empty dashboard space (not a todo row, deadline, checkbox, tab, or editor)
   // deselects the current event — parity with clicking empty calendar space.
   if ((e.target as HTMLElement).closest("input,button,a,textarea,select,[contenteditable='true'],[data-open],[data-ddl],#note-live,.cm-editor")) return;

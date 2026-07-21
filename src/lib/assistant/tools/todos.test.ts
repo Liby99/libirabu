@@ -345,6 +345,23 @@ eq("first due wins", tokenizeLine("a due:2026-01-01 b due:2026-02-02").due, "202
   eq("stamp: empty note", linesNeedingCreated(""), []);
 }
 
+// ── 18. project: token (sugar for @project:) ────────────────────────────────────────────────────
+{
+  const t = tokenizeLine("wire the parser project:driving-scene_2 p:!");
+  eq("project: parsed into entities", t.entities.project, ["driving-scene_2"]);
+  eq("project: stripped from text", t.text, "wire the parser");
+  // both spellings land in the same bucket
+  eq("project: merges with @project:", tokenizeLine("x project:alpha @project:beta").entities.project, ["alpha", "beta"]);
+  // strict charset: anything outside [A-Za-z0-9_-] fails the whole token (text left untouched)
+  eq("project: dot rejected", tokenizeLine("x project:foo.bar").entities.project, undefined);
+  eq("project: dot rejected — text intact", tokenizeLine("x project:foo.bar").text, "x project:foo.bar");
+  eq("project: slash rejected", tokenizeLine("x project:a/b").entities.project, undefined);
+  // mid-word never matches (anchored to whitespace/line-start)
+  eq("project: mid-word ignored", tokenizeLine("subproject:x").entities.project, undefined);
+  // surfaces on the parsed todo's projects list
+  eq("project: on ParsedTodo", parseDailyNoteTodos("2026-06-30", "- [ ] x project:magical")[0].projects, ["magical"]);
+}
+
 // ── report ─────────────────────────────────────────────────────────────────────────────────────
 if (failures.length) {
   console.error(`FAILED ${failures.length} / ${passed + failures.length}:`);

@@ -51,6 +51,10 @@ export const CREATED_RE = /(^|\s)created:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?:
  * "Remember to Followup" — and counts as overdue once it passes. Duration units: d/w/m/y.
  */
 export const FOLLOWUP_RE = /(^|\s)followup:(\d+[dwmy]|\d{4}-\d{1,2}-\d{1,2})(?=\s|$)/;
+/** `project:name` — the project this item belongs to. The name is STRICTLY letters/digits/
+ *  underscore/dash (anything else fails the match and the text is left untouched). Sugar for
+ *  `@project:name` — both land in `entities.project` / `ParsedTodo.projects`. */
+export const PROJECT_RE = /(^|\s)project:([A-Za-z0-9_-]+)(?=\s|$)/;
 /** `#slug` — additional tag. Slug is `[\w][\w-]*`. */
 export const TAG_RE = /(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)/;
 /** `@slug` (bare = person) or `@type:slug` (project/funding/… — extensible without new sigils). */
@@ -202,7 +206,11 @@ export function tokenizeLine(input: string): LineTokens {
   text = text.replace(CREATED_RE, (_m, _l: string, v: string) => { if (created === undefined) created = v; return " "; });
   text = text.replace(FOLLOWUP_RE, (_m, _l: string, v: string) => { if (followup === undefined) followup = v; return " "; });
 
-  // 4) Multi-valued sigil refs.
+  // 4) Multi-valued refs. `project:` first (sugar for `@project:`; same bucket), then the sigils.
+  text = text.replace(new RegExp(PROJECT_RE, "g"), (_m, _l: string, slug: string) => {
+    pushEntity(entities, "project", slug);
+    return " ";
+  });
   text = text.replace(new RegExp(TAG_RE, "g"), (_m, _l: string, slug: string) => { tags.push(slug); return " "; });
   text = text.replace(new RegExp(ENTITY_RE, "g"), (_m, _l: string, type: string | undefined, slug: string) => {
     pushEntity(entities, type ?? "person", slug);

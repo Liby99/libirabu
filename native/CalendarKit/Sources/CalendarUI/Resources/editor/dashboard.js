@@ -138,6 +138,7 @@
   var DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
   var CREATED_RE = /(^|\s)created:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
   var FOLLOWUP_RE = /(^|\s)followup:(\d+[dwmy]|\d{4}-\d{1,2}-\d{1,2})(?=\s|$)/;
+  var PROJECT_RE = /(^|\s)project:([A-Za-z0-9_-]+)(?=\s|$)/;
   var TAG_RE = /(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)/;
   var ENTITY_RE = /(^|\s)@(?:([A-Za-z][\w-]*):)?([A-Za-z0-9_][\w-]*)(?=\s|$)/;
   var TASK_LINE_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
@@ -206,6 +207,10 @@
     });
     text9 = text9.replace(FOLLOWUP_RE, (_m, _l, v) => {
       if (followup === void 0) followup = v;
+      return " ";
+    });
+    text9 = text9.replace(new RegExp(PROJECT_RE, "g"), (_m, _l, slug) => {
+      pushEntity(entities, "project", slug);
       return " ";
     });
     text9 = text9.replace(new RegExp(TAG_RE, "g"), (_m, _l, slug) => {
@@ -55478,7 +55483,9 @@
     [g(COLOR_RE), (_m, b, v) => badge("color", v, b, { extra: { "data-val": v }, classes: [`cc-ev-${v}`] })],
     [g(DONE_RE), (_m, b, v) => badge("done", v, b, { extra: { "data-val": v } })],
     [g(CREATED_RE), (_m, b, v) => badge("created", v, b, { extra: { "data-val": v } })],
-    [g(FOLLOWUP_RE), (_m, b, v) => badge("followup", v, b, { extra: { "data-val": v } })]
+    [g(FOLLOWUP_RE), (_m, b, v) => badge("followup", v, b, { extra: { "data-val": v } })],
+    // `project:name` — same chip family as `@project:name` (both fill `projects`), keyed for styling.
+    [g(PROJECT_RE), (_m, b, v) => badge("project", v, b, { extra: { "data-val": v } })]
   ];
   var refReplacers = [
     [g(TAG_RE), (_m, b, slug) => badge("tag", `#${slug}`, b)],
@@ -55682,6 +55689,10 @@
     });
     function renderPreview() {
       const src = view.state.doc.toString();
+      if (!src.trim() && o.emptyPreview) {
+        previewEl.innerHTML = o.emptyPreview();
+        return;
+      }
       try {
         previewEl.innerHTML = renderMarkdown(src);
       } catch {
@@ -55892,6 +55903,11 @@
   var notes = {};
   var liveIso = "";
   var liveText = "";
+  var liveScope = "day";
+  var SCOPE_WORD = { day: "daily", week: "weekly", month: "monthly" };
+  function emptyNoteHTML(scope) {
+    return `<div class="cc-dd-note-empty">Empty ${SCOPE_WORD[scope]} note. <a class="cc-dd-note-write" role="button">Write something</a></div>`;
+  }
   var noteEd = createNoteEditor({
     editorEl: document.getElementById("note-editor"),
     previewEl: document.getElementById("note-preview"),
@@ -55913,8 +55929,9 @@
     onEditAt: (line) => {
       noteModeUser("edit");
       noteEd.setCursorLine(line);
-    }
+    },
     // ⌘-click a preview block
+    emptyPreview: () => emptyNoteHTML(liveScope)
   });
   var navStop = null;
   var todoCursor = 0;
@@ -56074,10 +56091,11 @@
     } else {
       if (t2.priority) meta2 += `<span class="cc-dtodo-prio" data-level="${t2.priority}">${"!".repeat(t2.priority)}</span>`;
       meta2 += t2.followup ? `<span class="cc-dtodo-followup${overdue ? " cc-dtodo-due-over" : ""}">\u21AA follow up ${esc(relDue(viewIso, t2.followup))}</span>` : `<span class="cc-dtodo-due${overdue ? " cc-dtodo-due-over" : ""}">${esc(relDue(viewIso, date))}</span>`;
+      meta2 += t2.projects.slice(0, 2).map((p3) => `<span class="cc-dtodo-proj">${esc(p3)}</span>`).join("");
       meta2 += t2.tags.slice(0, 3).map((tag) => `<span class="cc-dtodo-tag">#${esc(tag)}</span>`).join("");
     }
     if (fold?.folded && fold.hidden > 0) meta2 += `<span class="cc-dtodo-foldn">+${fold.hidden} sub</span>`;
-    const chevron = fold?.foldable ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items">\u25B8</button>` : "";
+    const chevron = fold?.foldable ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M8 1.5 L17 12 L8 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : "";
     return `<li class="cc-dtodo${t2.done ? " cc-dtodo-is-done" : ""}" style="--nest:${Math.min(t2.indent ?? 0, 6)}" data-idx="${idx}">
     <input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t2.done ? " checked" : ""}>
     <span class="cc-dtodo-main" data-open="${idx}" role="button" tabindex="0" title="Go to event">
@@ -56132,7 +56150,7 @@
     isoOf.set(el, viewIso);
     if (tab2 === "note") {
       const text9 = notes[viewIso] || "";
-      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : `<div class="cc-dd-note-empty">Daily Note (Markdown)\u2026</div>`;
+      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : emptyNoteHTML("day");
       scroll.scrollTop = scrollByIso[viewIso] ?? 0;
       flatOf.delete(el);
       return;
@@ -56200,7 +56218,7 @@
     const noteKey = scope === "week" ? weekNoteKey(key2) : monthNoteKey(key2);
     if (tab2 === "note") {
       const text9 = notes[noteKey] || "";
-      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : `<div class="cc-dd-note-empty">${scope === "week" ? "Weekly" : "Monthly"} Note (Markdown)\u2026</div>`;
+      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : emptyNoteHTML(scope);
       flatOf.delete(el);
       return;
     }
@@ -56374,6 +56392,7 @@
       const text9 = notes[liveKey] || "";
       if (liveIso !== liveKey) {
         liveIso = liveKey;
+        liveScope = scopeName;
         noteEd.setPlaceholder(scopeName === "day" ? "Daily Note (Markdown)\u2026" : scopeName === "week" ? "Weekly Note (Markdown)\u2026" : "Monthly Note (Markdown)\u2026");
         const m = text9.trim() ? "preview" : "edit";
         if (m !== noteMode) {
@@ -56520,6 +56539,15 @@
     const ddl = e.target.closest("[data-ddl]");
     if (ddl) {
       post({ type: "open", eventId: ddl.dataset.ddl });
+      return;
+    }
+    if (e.target.closest(".cc-dd-note-write")) {
+      e.preventDefault();
+      noteModeUser("edit");
+      queueMicrotask(() => {
+        noteEd.setMode("edit");
+        noteEd.focus();
+      });
       return;
     }
     if (e.target.closest("input,button,a,textarea,select,[contenteditable='true'],[data-open],[data-ddl],#note-live,.cm-editor")) return;

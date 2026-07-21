@@ -118,6 +118,7 @@ export interface NoteEditorOpts {
   onOpenLink: (url: string) => void;     // ⌘-click a link
   onEditAt: (line: number) => void;      // ⌘-click a preview block → edit at that line
   onExit?: () => void;                   // Escape in the editor → hand focus back to the host
+  emptyPreview?: () => string;           // HTML for preview mode when the note is empty (else blank)
 }
 
 export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
@@ -193,6 +194,7 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
 
   function renderPreview() {
     const src = view.state.doc.toString();
+    if (!src.trim() && o.emptyPreview) { previewEl.innerHTML = o.emptyPreview(); return; }
     try { previewEl.innerHTML = renderMarkdown(src); }   // managed block → key:value table (§7)
     catch { previewEl.textContent = src; return; }
     const taskLines: number[] = [];

@@ -18,7 +18,7 @@ import { visit } from "unist-util-visit";
 import { findAndReplace, type ReplaceFunction } from "mdast-util-find-and-replace";
 import type { Root, ListItem, PhrasingContent } from "mdast";
 import {
-  PRIORITY_RE, DUE_RE, START_RE, TZ_RE, COLOR_RE, DONE_RE, CREATED_RE, FOLLOWUP_RE, TAG_RE, ENTITY_RE, MAX_PRIORITY,
+  PRIORITY_RE, DUE_RE, START_RE, TZ_RE, COLOR_RE, DONE_RE, CREATED_RE, FOLLOWUP_RE, PROJECT_RE, TAG_RE, ENTITY_RE, MAX_PRIORITY,
 } from "@/lib/assistant/tools/todos";
 
 // find-and-replace needs global regexes (it iterates via lastIndex). Clone the tokenizer's
@@ -63,6 +63,8 @@ const todoReplacers: Array<[RegExp, ReplaceFunction]> = [
   [g(DONE_RE), (_m, b: string, v: string) => badge("done", v, b, { extra: { "data-val": v } })],
   [g(CREATED_RE), (_m, b: string, v: string) => badge("created", v, b, { extra: { "data-val": v } })],
   [g(FOLLOWUP_RE), (_m, b: string, v: string) => badge("followup", v, b, { extra: { "data-val": v } })],
+  // `project:name` — same chip family as `@project:name` (both fill `projects`), keyed for styling.
+  [g(PROJECT_RE), (_m, b: string, v: string) => badge("project", v, b, { extra: { "data-val": v } })],
 ];
 
 // Tags + entities — render anywhere.

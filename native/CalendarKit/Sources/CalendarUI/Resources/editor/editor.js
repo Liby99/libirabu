@@ -55182,6 +55182,7 @@
   var DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
   var CREATED_RE = /(^|\s)created:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
   var FOLLOWUP_RE = /(^|\s)followup:(\d+[dwmy]|\d{4}-\d{1,2}-\d{1,2})(?=\s|$)/;
+  var PROJECT_RE = /(^|\s)project:([A-Za-z0-9_-]+)(?=\s|$)/;
   var TAG_RE = /(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)/;
   var ENTITY_RE = /(^|\s)@(?:([A-Za-z][\w-]*):)?([A-Za-z0-9_][\w-]*)(?=\s|$)/;
   var TASK_LINE_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
@@ -55241,6 +55242,10 @@
     });
     text9 = text9.replace(FOLLOWUP_RE, (_m, _l, v) => {
       if (followup === void 0) followup = v;
+      return " ";
+    });
+    text9 = text9.replace(new RegExp(PROJECT_RE, "g"), (_m, _l, slug) => {
+      pushEntity(entities, "project", slug);
       return " ";
     });
     text9 = text9.replace(new RegExp(TAG_RE, "g"), (_m, _l, slug) => {
@@ -55321,7 +55326,9 @@
     [g(COLOR_RE), (_m, b, v) => badge("color", v, b, { extra: { "data-val": v }, classes: [`cc-ev-${v}`] })],
     [g(DONE_RE), (_m, b, v) => badge("done", v, b, { extra: { "data-val": v } })],
     [g(CREATED_RE), (_m, b, v) => badge("created", v, b, { extra: { "data-val": v } })],
-    [g(FOLLOWUP_RE), (_m, b, v) => badge("followup", v, b, { extra: { "data-val": v } })]
+    [g(FOLLOWUP_RE), (_m, b, v) => badge("followup", v, b, { extra: { "data-val": v } })],
+    // `project:name` — same chip family as `@project:name` (both fill `projects`), keyed for styling.
+    [g(PROJECT_RE), (_m, b, v) => badge("project", v, b, { extra: { "data-val": v } })]
   ];
   var refReplacers = [
     [g(TAG_RE), (_m, b, slug) => badge("tag", `#${slug}`, b)],
@@ -55525,6 +55532,10 @@
     });
     function renderPreview() {
       const src = view.state.doc.toString();
+      if (!src.trim() && o.emptyPreview) {
+        previewEl.innerHTML = o.emptyPreview();
+        return;
+      }
       try {
         previewEl.innerHTML = renderMarkdown(src);
       } catch {

@@ -52,6 +52,9 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dd-note-md { height: auto; overflow: visible; padding: 0 0 24px; }
 /* Empty day → the editor placeholder (matches CodeMirror's placeholder: mono, faint). */
 .cc-dd-note-empty { color: var(--accent-grey); font-family: var(--font-mono); font-size: 13px; }
+/* "Write something" — the empty-note invitation into the markdown editor. */
+.cc-dd-note-write { color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.cc-dd-note-write:hover { color: var(--fg); }
 /* Transform layer: carries the per-frame carousel slide + fade. It must NOT be the scroller — a
    transformed/composited scroller loses WebKit's native rubber-band. */
 .cc-dd-panel {
@@ -114,10 +117,11 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
    when folded. Everything is expanded by default (see `collapsed`). */
 .cc-dtodo-fold {
   flex: none; margin-left: auto; align-self: flex-start;
-  width: 22px; height: 20px; padding: 0; border: none; background: none;
-  font-size: 16px; line-height: 20px; text-align: center; color: var(--accent-grey); cursor: pointer;
+  width: 24px; height: 24px; margin-top: -2px; padding: 0; border: none; background: none;
+  display: grid; place-items: center; color: var(--accent-grey); cursor: pointer;
   transform: rotate(90deg); transition: transform 0.15s ease, color 0.12s ease;
 }
+.cc-dtodo-fold svg { display: block; }
 .cc-dtodo-fold:hover { color: var(--highlight); }
 .cc-dtodo-fold[aria-expanded="false"] { transform: rotate(0deg); }
 /* Hidden-descendant count shown on a folded parent. */
@@ -148,6 +152,13 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dtodo-followup { color: #4fb0b0; font-weight: 500; }
 .cc-dtodo-followup.cc-dtodo-due-over { color: var(--event-red-border); }
 .cc-dtodo-tag { color: var(--highlight); opacity: 0.85; }
+/* project:name chip — boxed outline so a project reads as belonging, not a #tag. */
+.cc-dtodo-proj {
+  color: var(--accent-dark); opacity: 0.8; font-size: 10px; line-height: 1.3;
+  padding: 0 5px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent-grey) 45%, transparent);
+  background: color-mix(in srgb, var(--accent-grey) 10%, transparent);
+}
 .cc-dtodo-is-done .cc-dtodo-text { color: var(--accent-grey); }
 .cc-dtodo-is-done .cc-dtodo-main:hover .cc-dtodo-text { color: var(--accent-dark); }
 .cc-dtodo-fin { color: var(--event-darkgreen-border); opacity: 0.85; }
