@@ -145,14 +145,19 @@ struct CanvasSticker {
         let resolved = resolvedText(b.ev.title, font, 0, theme.text, &layer)
         let tSize = resolved.measure(in: CGSize(width: 4000, height: 200))
         // Badge row (7px glyph row) sits above the title, pulled 3px into it (VStack spacing -3).
-        let badgeH: CGFloat = b.badges.isEmpty ? 0 : 8
-        let blockH = b.badges.isEmpty ? tSize.height : badgeH - 3 + tSize.height
+        // On a box too small for even ONE glyph (or too short for the row) it's hidden entirely and
+        // the title re-centers; on a partial fit the overflowing glyphs are dropped, never spilled.
+        let badgeMaxX = rect.maxX - 2
+        let showBadges = !b.badges.isEmpty && rect.height >= 12
+            && firstBadgeFits(b.badges, x: rect.minX + lead, maxX: badgeMaxX, color: border, ctx: &layer)
+        let badgeH: CGFloat = showBadges ? 8 : 0
+        let blockH = showBadges ? badgeH - 3 + tSize.height : tSize.height
         let y0 = rect.midY - blockH / 2
-        if !b.badges.isEmpty {
+        if showBadges {
             drawBadges(b.badges, at: CGPoint(x: rect.minX + lead, y: y0 + badgeH / 2),
-                       color: border, ctx: &layer)
+                       maxX: badgeMaxX, color: border, ctx: &layer)
         }
-        let titleMidY = y0 + (b.badges.isEmpty ? 0 : badgeH - 3) + tSize.height / 2
+        let titleMidY = y0 + (showBadges ? badgeH - 3 : 0) + tSize.height / 2
         if let clipW {
             // Tail-truncated inside the width limit. draw(Text, in:) would re-resolve the string
             // EVERY frame (it bypasses the resolved-text cache) — ~0.4ms/f of text resolution in
@@ -242,41 +247,64 @@ struct CanvasSticker {
                     }
                 }
             }
-            if !t.badges.isEmpty {
-                // Week/day: badges pinned top-right (the view uses a topTrailing overlay).
+            if !t.badges.isEmpty, rect.height >= 12 {
+                // Week/day: badges pinned top-right (the view uses a topTrailing overlay). Keep the
+                // LEADING prefix that fits the box's width and drop the rest — a sliver-thin event
+                // shows no markers rather than glyphs spilling outside its box.
                 let font = Font.system(size: 6.5, weight: .bold)
                 var w: CGFloat = 0
-                var glyphs: [GraphicsContext.ResolvedText] = []
+                var glyphs: [(g: GraphicsContext.ResolvedText, w: CGFloat)] = []
                 for sym in badgeSymbols(t.badges) {
                     let g = layer.resolve(Text(Image(systemName: sym)).font(font).foregroundStyle(border))
-                    glyphs.append(g)
-                    w += g.measure(in: CGSize(width: 100, height: 100)).width + 2
+                    let gw = g.measure(in: CGSize(width: 100, height: 100)).width
+                    if w + gw + 2 > rect.width - 8 {
+                        break
+                    }
+                    glyphs.append((g, gw))
+                    w += gw + 2
                 }
                 var x = rect.maxX - 4 - w + 2
-                for g in glyphs {
-                    layer.draw(g, at: CGPoint(x: x, y: rect.minY + 7), anchor: .leading)
-                    x += g.measure(in: CGSize(width: 100, height: 100)).width + 2
+                for e in glyphs {
+                    layer.draw(e.g, at: CGPoint(x: x, y: rect.minY + 7), anchor: .leading)
+                    x += e.w + 2
                 }
             }
-        } else if !t.badges.isEmpty {
+        } else if !t.badges.isEmpty, rect.height >= 12 {
             // In-flow at the top (the month-view EventSticker layout: leading pad after the bar, 3px top).
+            // Boxes too short for the row show none; glyphs past the box's width are dropped.
             let x = rect.minX + BandStyle.accentInset + barWidth + BandStyle.barTextGap
-            drawBadges(t.badges, at: CGPoint(x: x, y: rect.minY + 3 + 4), color: border, ctx: &layer)
+            drawBadges(t.badges, at: CGPoint(x: x, y: rect.minY + 3 + 4), maxX: rect.maxX - 2,
+                       color: border, ctx: &layer)
         }
     }
 
     /// The badge glyph row: 6.5pt bold SF Symbols, 2px apart, left-anchored at `at.x`, centered on `at.y`.
     /// Symbols are drawn as image-interpolated Text (Text(Image(…))) — the Canvas-idiomatic way to give
     /// an SF Symbol a font size/weight + foreground color, and it reuses the resolved-text cache.
-    private static func drawBadges(_ badges: EventBadges, at: CGPoint, color: Color,
+    /// Glyphs that would cross `maxX` are DROPPED, not clipped: a box too small for its markers shows
+    /// only the leading prefix that fits (possibly none) instead of overflowing the sticker.
+    private static func drawBadges(_ badges: EventBadges, at: CGPoint, maxX: CGFloat, color: Color,
                                    ctx: inout GraphicsContext) {
         var x = at.x
         let font = Font.system(size: 6.5, weight: .bold)
         for sym in badgeSymbols(badges) {
             let t = ctx.resolve(Text(Image(systemName: sym)).font(font).foregroundStyle(color))
             let sz = t.measure(in: CGSize(width: 100, height: 100))
+            if x + sz.width > maxX {
+                break
+            }
             ctx.draw(t, at: CGPoint(x: x, y: at.y), anchor: .leading)
             x += sz.width + 2
         }
+    }
+
+    /// Whether at least the FIRST marker glyph fits between `x` and `maxX`. When it doesn't, the
+    /// caller hides the whole row (and reclaims its layout space) instead of reserving an empty band.
+    private static func firstBadgeFits(_ badges: EventBadges, x: CGFloat, maxX: CGFloat, color: Color,
+                                       ctx: inout GraphicsContext) -> Bool {
+        guard let sym = badgeSymbols(badges).first else { return false }
+        let t = ctx.resolve(Text(Image(systemName: sym))
+            .font(Font.system(size: 6.5, weight: .bold)).foregroundStyle(color))
+        return x + t.measure(in: CGSize(width: 100, height: 100)).width <= maxX
     }
 }

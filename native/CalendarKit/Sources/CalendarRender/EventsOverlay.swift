@@ -879,7 +879,7 @@ private struct EventSticker: View {
             // Month view (no title): markers sit in-flow at the top, same as bands. Week/day view
             // shows the title starting at the top — its markers are a top-right overlay (below), so
             // they don't push the title down.
-            if !showText, !badges.isEmpty {
+            if !showText, !badges.isEmpty, height >= 12 { // too-short boxes hide the marker row
                 badgeRow(badges, border)
             }
             if showText {
@@ -911,8 +911,8 @@ private struct EventSticker: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .eventSurface(glass, plainFill: color.opacity(tint), in: boxShape, flat: plain && !active, keepFillBase: plain)
         .overlay(alignment: .topTrailing) { // week/day view: markers pinned to the top-right corner
-            if showText, !badges.isEmpty {
-                badgeRow(badges, border).padding(.top, 3).padding(.trailing, 4)
+            if showText, !badges.isEmpty, height >= 12 { // too-short boxes hide the marker row
+                badgeRow(badges, border).padding(.top, 3).padding(.trailing, 4).padding(.leading, 4)
             }
         }
         .overlay(alignment: .leading) { // left accent bar — DOTTED + the ONLY colorful part when hidden
@@ -1298,11 +1298,25 @@ private struct DottedBar: View {
     }
 }
 
+/// Marker glyph row that never overflows its box: ViewThatFits tries the full row, then each
+/// shorter LEADING prefix, and finally nothing — so a too-small event drops trailing glyphs
+/// (possibly all of them) instead of spilling outside the sticker. Mirrors the Canvas fast
+/// path's drawBadges fit rule; keep the two in sync.
 private func badgeRow(_ badges: EventBadges, _ color: Color) -> some View {
-    HStack(spacing: 2) {
-        ForEach(badgeSymbols(badges), id: \.self) { sym in
-            Image(systemName: sym).font(.system(size: 6.5, weight: .bold))
+    let syms = badgeSymbols(badges)
+    func row(_ n: Int) -> some View {
+        HStack(spacing: 2) {
+            ForEach(syms.prefix(n), id: \.self) { sym in
+                Image(systemName: sym).font(.system(size: 6.5, weight: .bold))
+            }
         }
+    }
+    return ViewThatFits(in: .horizontal) {
+        row(syms.count)
+        if syms.count > 1 { row(syms.count - 1) }
+        if syms.count > 2 { row(syms.count - 2) }
+        if syms.count > 3 { row(syms.count - 3) }
+        Color.clear.frame(width: 0, height: 0) // nothing fits → show nothing
     }
     .foregroundStyle(color)
 }
@@ -1427,13 +1441,8 @@ private struct BandSticker: View {
             .overlay(alignment: .leading) { // markers (top) + title, as one vertically-centered block
                 if !editing {
                     VStack(alignment: .leading, spacing: -3) { // negative → pull the title up tight under the icons
-                        if !badges.isEmpty {
-                            HStack(spacing: 2) {
-                                ForEach(badgeSymbols(badges), id: \.self) { sym in
-                                    Image(systemName: sym).font(.system(size: 6.5, weight: .bold))
-                                }
-                            }
-                            .foregroundStyle(border)
+                        if !badges.isEmpty, box.height >= 12 { // fitted row: overflowing glyphs drop
+                            badgeRow(badges, border)
                         }
                         titleView(clip: clip)
                     }

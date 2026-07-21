@@ -16,7 +16,9 @@ each release.
 
 ## [Unreleased]
 
-_(nothing yet — next entries go here)_
+- Fixed: event marker symbols (recurring/promoted/AI/imported) no longer overflow small event
+  boxes — markers that don't fit are dropped, and boxes too small for the row hide it entirely
+  (month bands re-center their title when the row hides).
 
 ## [0.1.0] — 2026-07-21
 
