@@ -3,7 +3,7 @@
 //   node <tmp>/todos.test.js
 // Exits non-zero on the first failure.
 
-import { tokenizeLine, parseTodos, parseDailyNoteTodos, indexTodos, toggleTodoLine, type TodoEventContext } from "./todos";
+import { tokenizeLine, parseTodos, parseDailyNoteTodos, indexTodos, toggleTodoLine, linesNeedingCreated, type TodoEventContext } from "./todos";
 
 let passed = 0;
 const failures: string[] = [];
@@ -319,6 +319,30 @@ eq("first due wins", tokenizeLine("a due:2026-01-01 b due:2026-02-02").due, "202
     notes: "- [ ] top\n  - [ ] sub",
   };
   eq("nest: event notes too", [parseTodos(ev)[1].indent, parseTodos(ev)[1].parentLine], [1, 1]);
+}
+
+// ── 17. created: token + "start time marking" (linesNeedingCreated) ────────────────────────────
+{
+  const t = tokenizeLine("call the vendor created:2026-07-20T14:33 p:!");
+  eq("created: parsed", t.created, "2026-07-20T14:33");
+  eq("created: stripped from text", t.text, "call the vendor");
+  eq("created: date-only accepted", tokenizeLine("x created:2026-07-20").created, "2026-07-20");
+  eq("created: with seconds", tokenizeLine("x created:2026-07-20T14:33:05").created, "2026-07-20T14:33:05");
+  eq("created: prose-safe (no value)", tokenizeLine("it was created: yesterday").created, undefined);
+  // surfaces on the parsed todo
+  eq("created: on ParsedTodo", parseDailyNoteTodos("2026-06-30", "- [ ] x created:2026-06-29T09:00")[0].created, "2026-06-29T09:00");
+
+  const note = [
+    "- [ ] new item",                          // 1: top-level, unstamped → needs it
+    "  - [ ] sub item",                        // 2: nested → left alone
+    "- [x] older created:2026-07-01T08:00",    // 3: already stamped
+    "- [ ] ",                                  // 4: empty checkbox → skipped
+    "prose line",
+    "- [ ] another new one",                   // 6: top-level, unstamped → needs it
+  ].join("\n");
+  eq("stamp: only unstamped top-level lines", linesNeedingCreated(note), [1, 6]);
+  eq("stamp: nothing to do", linesNeedingCreated("- [ ] a created:2026-07-01\nprose"), []);
+  eq("stamp: empty note", linesNeedingCreated(""), []);
 }
 
 // ── report ─────────────────────────────────────────────────────────────────────────────────────

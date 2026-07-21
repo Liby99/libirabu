@@ -42,6 +42,9 @@ export const TZ_RE = /(^|\s)tz:(AOE|[A-Za-z][\w/+-]*)(?=\s|$)/;
 export const COLOR_RE = /(^|\s)color:([\w-]+)(?=\s|$)/;
 /** `done:YYYY-MM-DD` — completion timestamp, with an optional `THH:MM[:SS]` (auto-stamped on tick). */
 export const DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
+/** `created:YYYY-MM-DD[THH:MM[:SS]]` — "start time marking": when the item entered the list
+ *  (auto-stamped on the top-level items of an edited note when the editing session ends). */
+export const CREATED_RE = /(^|\s)created:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
 /**
  * `followup:30d` (a duration off the event's END date) or `followup:2026-7-31` (a literal date,
  * loosely formatted). Resolves to a follow-up date that acts as a due date but is surfaced as
@@ -74,6 +77,7 @@ export interface LineTokens {
   start?: string;
   color?: string;
   done?: string; // completion date token (distinct from the checkbox state)
+  created?: string; // `created:` stamp — when the item entered the list (session-end auto-stamp)
   followup?: string; // raw followup token value: a duration ("30d") or a loose date ("2026-7-31")
   tags: string[];
   entities: Record<string, string[]>; // @type:slug refs keyed by type ("person" for bare @)
@@ -101,6 +105,7 @@ export interface ParsedTodo {
 
   done: boolean; // from the checkbox `[x]`
   doneDate?: string; // from a `done:` token, if present
+  created?: string; // from a `created:` token — when the item entered the list
 
   // provenance + soft-link anchor: which note, which line. Editing this TODO rewrites exactly this line.
   source: "event" | "daily"; // an event's note, or a day's "daily note" (the dashboard NOTE tab)
@@ -168,6 +173,7 @@ export function tokenizeLine(input: string): LineTokens {
   let start: string | undefined;
   let color: string | undefined;
   let done: string | undefined;
+  let created: string | undefined;
   let followup: string | undefined;
 
   let text = input;
@@ -193,6 +199,7 @@ export function tokenizeLine(input: string): LineTokens {
   text = text.replace(TZ_RE, (_m, _l: string, v: string) => { if (tz === undefined) tz = v; return " "; });
   text = text.replace(COLOR_RE, (_m, _l: string, v: string) => { if (color === undefined) color = v; return " "; });
   text = text.replace(DONE_RE, (_m, _l: string, v: string) => { if (done === undefined) done = v; return " "; });
+  text = text.replace(CREATED_RE, (_m, _l: string, v: string) => { if (created === undefined) created = v; return " "; });
   text = text.replace(FOLLOWUP_RE, (_m, _l: string, v: string) => { if (followup === undefined) followup = v; return " "; });
 
   // 4) Multi-valued sigil refs.
@@ -203,7 +210,7 @@ export function tokenizeLine(input: string): LineTokens {
   });
 
   text = text.replace(/\s+/g, " ").trim();
-  return { text, priority, due, tz, start, color, done, followup, tags, entities, links };
+  return { text, priority, due, tz, start, color, done, created, followup, tags, entities, links };
 }
 
 // ── followup: resolution (duration off the event end, or a literal loose date) ──────────────────
@@ -346,6 +353,7 @@ function buildTodoFrom(ctx: TodoContext, t: ScannedTask, today: string | undefin
     text: tok.text,
     done,
     doneDate: tok.done,
+    created: tok.created,
     source: ctx.source,
     eventId: ctx.eventId,
     eventTitle: ctx.eventTitle,
@@ -453,6 +461,20 @@ export function compareTodos(a: ParsedTodo, b: ParsedTodo): number {
  * no-op, or `null` on a stale anchor (line gone / no longer a task line) so the caller can reject
  * rather than corrupt the note.
  */
+/**
+ * "Start time marking": the 1-based line numbers of every TOP-LEVEL task line (with real task text)
+ * that has no `created:` token yet. When a note-editing session ends, the editor appends
+ * `created:<wall-clock stamp>` to exactly these lines. Sub-items are deliberately left alone —
+ * they belong to their parent's session.
+ */
+export function linesNeedingCreated(noteText: string): number[] {
+  const out: number[] = [];
+  scanTaskLines(noteText, (t) => {
+    if (t.depth === 0 && !t.tok.created) out.push(t.line);
+  });
+  return out;
+}
+
 export function toggleTodoLine(noteText: string, line: number, checked?: boolean, stamp?: string): string | null {
   const lines = noteText.split("\n");
   const cur = lines[line - 1];

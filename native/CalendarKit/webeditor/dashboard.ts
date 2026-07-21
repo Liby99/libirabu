@@ -158,7 +158,7 @@ let liveText = "";                                     // the note value current
 const noteEd = createNoteEditor({
   editorEl: document.getElementById("note-editor")!,
   previewEl: document.getElementById("note-preview")!,
-  placeholder: "Daily Note",
+  placeholder: "Daily Note (Markdown)…",
   onChange: (value) => { notes[liveIso] = value; liveText = value; todosDirty = true; post({ type: "noteChange", date: liveIso, value }); },
   // ⌘S → preview, and (if we were keyboard-focused via Tab) hand focus back to the calendar's NOTE ring.
   onPreview: () => { noteModeUser("preview"); post({ type: "navNoteExit" }); },
@@ -427,7 +427,7 @@ function renderPanel(el: HTMLElement, viewIso: string) {
     const text = notes[viewIso] || "";
     scroll.innerHTML = text.trim()
       ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text)}</div>`
-      : `<div class="cc-dd-note-empty">Daily Note</div>`;
+      : `<div class="cc-dd-note-empty">Daily Note (Markdown)…</div>`;
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;   // restore THIS day's own scroll (see the todo branch)
     flatOf.delete(el);
     return;
@@ -516,7 +516,7 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
     const text = notes[noteKey] || "";
     scroll.innerHTML = text.trim()
       ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text)}</div>`
-      : `<div class="cc-dd-note-empty">${scope === "week" ? "Weekly" : "Monthly"} Note</div>`;
+      : `<div class="cc-dd-note-empty">${scope === "week" ? "Weekly" : "Monthly"} Note (Markdown)…</div>`;
     flatOf.delete(el);
     return;
   }
@@ -595,13 +595,18 @@ function apply() {
     renderScopePanel(mpA, "month", mKeyA); scopeKeyOf.set(mpA, mKeyA);
     mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
     mpA.style.opacity = (1 - mP).toFixed(3);
+    // Interactive only at rest — a faded sub-panel sits ON TOP of its sibling in DOM order and
+    // would otherwise eat every click (checkboxes, deadline rows) meant for the resting panel.
+    mpA.style.pointerEvents = mP < 0.001 ? "auto" : "none";
   }
   if (mKeyA && mKeyB && mP > 0.001) {
     renderScopePanel(mpB, "month", mKeyB); scopeKeyOf.set(mpB, mKeyB);
     mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
     mpB.style.opacity = mP.toFixed(3);
+    mpB.style.pointerEvents = "none";
   } else {
     mpB.style.opacity = "0";
+    mpB.style.pointerEvents = "none";
   }
   // Week turn: the sub-panels carousel HORIZONTALLY, driven by the continuous week scroll
   // (wP ramps while the viewport's left border sweeps the turn band; rests at BOTH 0 and 1).
@@ -613,13 +618,17 @@ function apply() {
     renderScopePanel(wpA, "week", wKeyA); scopeKeyOf.set(wpA, wKeyA);
     wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
     wpA.style.opacity = (1 - wP).toFixed(3);
+    // Same at-rest gate as the month pair; the week turn rests at BOTH ends (wP 0 or 1).
+    wpA.style.pointerEvents = wP < 0.001 ? "auto" : "none";
   }
   if (wKeyA && wKeyB && wP > 0.001) {
     renderScopePanel(wpB, "week", wKeyB); scopeKeyOf.set(wpB, wKeyB);
     wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
     wpB.style.opacity = wP.toFixed(3);
+    wpB.style.pointerEvents = wP > 0.999 ? "auto" : "none";
   } else {
     wpB.style.opacity = "0";
+    wpB.style.pointerEvents = "none";
   }
   if (isoOf.get(p0) !== from) renderPanel(p0, from);
   const atRest = !to || p <= 0.0001;
@@ -654,7 +663,10 @@ function apply() {
     const text = notes[liveKey] || "";
     if (liveIso !== liveKey) {
       liveIso = liveKey;
-      // Content-based default for the day we landed on; tell Swift so the native toggle reflects it.
+      // The empty-note hint names the scope we're editing (matches the static previews).
+      noteEd.setPlaceholder(scopeName === "day" ? "Daily Note (Markdown)…"
+        : scopeName === "week" ? "Weekly Note (Markdown)…" : "Monthly Note (Markdown)…");
+      // Content-based default for the note we landed on; tell Swift so the native toggle reflects it.
       const m = text.trim() ? "preview" : "edit";
       if (m !== noteMode) { noteMode = m; liveMode = ""; post({ type: "noteMode", mode: m }); }
     }

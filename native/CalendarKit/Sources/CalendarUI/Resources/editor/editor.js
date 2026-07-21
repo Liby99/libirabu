@@ -55170,6 +55170,8 @@
   }
 
   // ../../../src/lib/assistant/tools/todos.ts
+  var MD_LINK_RE = /\[([^\]]*)\]\((https?:\/\/[^)\s]+|[^)\s]+)\)/;
+  var BARE_URL_RE = /(^|\s)(https?:\/\/[^\s]+)(?=\s|$)/;
   var PRIORITY_RE = /(^|\s)p:(!{1,})(?=\s|$)/;
   var DATE_VALUE = String.raw`today|tomorrow|yesterday|-?\d+[dwmy]|\d{4}-\d{2}-\d{2}`;
   var TIME_VALUE = String.raw`\d{1,2}(?::\d{2})?(?:am|pm)|\d{1,2}:\d{2}`;
@@ -55178,10 +55180,117 @@
   var TZ_RE = /(^|\s)tz:(AOE|[A-Za-z][\w/+-]*)(?=\s|$)/;
   var COLOR_RE = /(^|\s)color:([\w-]+)(?=\s|$)/;
   var DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
+  var CREATED_RE = /(^|\s)created:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
   var FOLLOWUP_RE = /(^|\s)followup:(\d+[dwmy]|\d{4}-\d{1,2}-\d{1,2})(?=\s|$)/;
   var TAG_RE = /(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)/;
   var ENTITY_RE = /(^|\s)@(?:([A-Za-z][\w-]*):)?([A-Za-z0-9_][\w-]*)(?=\s|$)/;
+  var TASK_LINE_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
   var MAX_PRIORITY = 5;
+  function pushEntity(entities, type, slug) {
+    const t2 = type.toLowerCase();
+    (entities[t2] ??= []).push(slug);
+  }
+  function tokenizeLine(input) {
+    const tags3 = [];
+    const entities = {};
+    const links = [];
+    let priority;
+    let due;
+    let tz;
+    let start;
+    let color2;
+    let done;
+    let created;
+    let followup;
+    let text9 = input;
+    text9 = text9.replace(new RegExp(MD_LINK_RE, "g"), (_m, label, url) => {
+      links.push(label ? { label, url } : { url });
+      return " ";
+    });
+    text9 = text9.replace(new RegExp(BARE_URL_RE, "g"), (_m, _lead, url) => {
+      links.push({ url });
+      return " ";
+    });
+    text9 = text9.replace(PRIORITY_RE, (_m, _l, bangs) => {
+      if (priority === void 0) priority = Math.min(MAX_PRIORITY, bangs.length);
+      return " ";
+    });
+    text9 = text9.replace(DUE_RE, (_m, _l, v) => {
+      if (due === void 0) due = v;
+      return " ";
+    });
+    text9 = text9.replace(START_RE, (_m, _l, v) => {
+      if (start === void 0) start = v;
+      return " ";
+    });
+    text9 = text9.replace(TZ_RE, (_m, _l, v) => {
+      if (tz === void 0) tz = v;
+      return " ";
+    });
+    text9 = text9.replace(COLOR_RE, (_m, _l, v) => {
+      if (color2 === void 0) color2 = v;
+      return " ";
+    });
+    text9 = text9.replace(DONE_RE, (_m, _l, v) => {
+      if (done === void 0) done = v;
+      return " ";
+    });
+    text9 = text9.replace(CREATED_RE, (_m, _l, v) => {
+      if (created === void 0) created = v;
+      return " ";
+    });
+    text9 = text9.replace(FOLLOWUP_RE, (_m, _l, v) => {
+      if (followup === void 0) followup = v;
+      return " ";
+    });
+    text9 = text9.replace(new RegExp(TAG_RE, "g"), (_m, _l, slug) => {
+      tags3.push(slug);
+      return " ";
+    });
+    text9 = text9.replace(new RegExp(ENTITY_RE, "g"), (_m, _l, type, slug) => {
+      pushEntity(entities, type ?? "person", slug);
+      return " ";
+    });
+    text9 = text9.replace(/\s+/g, " ").trim();
+    return { text: text9, priority, due, tz, start, color: color2, done, created, followup, tags: tags3, entities, links };
+  }
+  function indentWidth(line) {
+    let w = 0;
+    for (const ch2 of line) {
+      if (ch2 === " ") w += 1;
+      else if (ch2 === "	") w += 4;
+      else break;
+    }
+    return w;
+  }
+  function scanTaskLines(notes, visit2) {
+    const lines = notes.split("\n");
+    const stack = [];
+    for (let i3 = 0; i3 < lines.length; i3++) {
+      const m = lines[i3].match(TASK_LINE_RE);
+      if (!m) {
+        if (lines[i3].trim() === "") continue;
+        const w = indentWidth(lines[i3]);
+        while (stack.length && stack[stack.length - 1].width >= w) stack.pop();
+        continue;
+      }
+      const tok = tokenizeLine(m[3]);
+      if (tok.text === "") continue;
+      const width = indentWidth(m[1]);
+      while (stack.length && stack[stack.length - 1].width >= width) stack.pop();
+      const top2 = stack.length ? stack[stack.length - 1] : void 0;
+      const depth = top2 ? top2.depth + 1 : 0;
+      visit2({ line: i3 + 1, raw: lines[i3], done: m[2].toLowerCase() === "x", tok, depth, parentLine: top2?.line ?? null });
+      stack.push({ width, line: i3 + 1, depth });
+    }
+  }
+  function linesNeedingCreated(noteText) {
+    const out = [];
+    scanTaskLines(noteText, (t2) => {
+      if (t2.depth === 0 && !t2.tok.created) out.push(t2.line);
+    });
+    return out;
+  }
 
   // ../../../src/app/calendar/view/notes/remarkTodoTokens.ts
   var g = (re2) => new RegExp(re2.source, "g");
@@ -55211,6 +55320,7 @@
     // the color swatch reuses the calendar palette: `cc-ev-<key>` exposes `--ev-color`.
     [g(COLOR_RE), (_m, b, v) => badge("color", v, b, { extra: { "data-val": v }, classes: [`cc-ev-${v}`] })],
     [g(DONE_RE), (_m, b, v) => badge("done", v, b, { extra: { "data-val": v } })],
+    [g(CREATED_RE), (_m, b, v) => badge("created", v, b, { extra: { "data-val": v } })],
     [g(FOLLOWUP_RE), (_m, b, v) => badge("followup", v, b, { extra: { "data-val": v } })]
   ];
   var refReplacers = [
@@ -55334,9 +55444,30 @@
     return `<div class="cc-dw-mi">${rows}${desc}</div>${mdHtml(user)}`;
   }
   var TASK_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
+  function localStamp() {
+    const d = /* @__PURE__ */ new Date(), p22 = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p22(d.getMonth() + 1)}-${p22(d.getDate())}T${p22(d.getHours())}:${p22(d.getMinutes())}`;
+  }
   function createNoteEditor(o) {
     const { editorEl, previewEl } = o;
     let applyingRemote = false;
+    let sessionDirty = false;
+    const phComp = new Compartment();
+    function stampCreated() {
+      if (!sessionDirty) return;
+      const doc2 = view.state.doc;
+      const lines = linesNeedingCreated(doc2.toString());
+      if (lines.length) {
+        const stamp = ` created:${localStamp()}`;
+        view.dispatch({
+          changes: lines.map((n) => {
+            const ln = doc2.line(n);
+            return { from: ln.from + ln.text.replace(/\s+$/, "").length, to: ln.to, insert: stamp };
+          })
+        });
+      }
+      sessionDirty = false;
+    }
     const openLinks = EditorView.domEventHandlers({
       mousedown(e, view2) {
         if (!(e.metaKey || e.ctrlKey) || e.button !== 0) return false;
@@ -55367,17 +55498,27 @@
           openLinks,
           Prec.highest(keymap.of([
             { key: "Mod-s", preventDefault: true, stopPropagation: true, run: () => {
+              stampCreated();
               o.onPreview();
               return true;
             } },
             { key: "Escape", preventDefault: true, stopPropagation: true, run: () => {
+              stampCreated();
               o.onExit?.();
               return true;
             } }
           ])),
-          placeholder(o.placeholder ?? "Something to note\u2026"),
+          // Focus loss (clicking away, tabbing out, the overlay hiding) also ends the session.
+          EditorView.domEventHandlers({ blur: () => {
+            stampCreated();
+            return false;
+          } }),
+          phComp.of(placeholder(o.placeholder ?? "Something to note\u2026")),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged && !applyingRemote) o.onChange(u.state.doc.toString());
+            if (u.docChanged && !applyingRemote) {
+              sessionDirty = true;
+              o.onChange(u.state.doc.toString());
+            }
           })
         ]
       })
@@ -55422,19 +55563,25 @@
       }
     });
     return {
+      setPlaceholder(text9) {
+        view.dispatch({ effects: phComp.reconfigure(placeholder(text9)) });
+      },
       setValue(v) {
         if (v === view.state.doc.toString()) return;
         applyingRemote = true;
         view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } });
         applyingRemote = false;
+        sessionDirty = false;
         if (previewEl.style.display !== "none") renderPreview();
       },
       setMode(mode) {
         const edit = mode === "edit";
         editorEl.style.display = edit ? "" : "none";
         previewEl.style.display = edit ? "none" : "";
-        if (!edit) renderPreview();
-        else queueMicrotask(() => {
+        if (!edit) {
+          stampCreated();
+          renderPreview();
+        } else queueMicrotask(() => {
           view.requestMeasure();
           view.focus();
         });

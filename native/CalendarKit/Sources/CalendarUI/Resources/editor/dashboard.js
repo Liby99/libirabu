@@ -136,6 +136,7 @@
   var TZ_RE = /(^|\s)tz:(AOE|[A-Za-z][\w/+-]*)(?=\s|$)/;
   var COLOR_RE = /(^|\s)color:([\w-]+)(?=\s|$)/;
   var DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
+  var CREATED_RE = /(^|\s)created:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
   var FOLLOWUP_RE = /(^|\s)followup:(\d+[dwmy]|\d{4}-\d{1,2}-\d{1,2})(?=\s|$)/;
   var TAG_RE = /(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)/;
   var ENTITY_RE = /(^|\s)@(?:([A-Za-z][\w-]*):)?([A-Za-z0-9_][\w-]*)(?=\s|$)/;
@@ -164,6 +165,7 @@
     let start;
     let color2;
     let done;
+    let created;
     let followup;
     let text9 = input;
     text9 = text9.replace(new RegExp(MD_LINK_RE, "g"), (_m, label, url) => {
@@ -198,6 +200,10 @@
       if (done === void 0) done = v;
       return " ";
     });
+    text9 = text9.replace(CREATED_RE, (_m, _l, v) => {
+      if (created === void 0) created = v;
+      return " ";
+    });
     text9 = text9.replace(FOLLOWUP_RE, (_m, _l, v) => {
       if (followup === void 0) followup = v;
       return " ";
@@ -211,7 +217,7 @@
       return " ";
     });
     text9 = text9.replace(/\s+/g, " ").trim();
-    return { text: text9, priority, due, tz, start, color: color2, done, followup, tags: tags3, entities, links };
+    return { text: text9, priority, due, tz, start, color: color2, done, created, followup, tags: tags3, entities, links };
   }
   var pad2 = (n) => String(n).padStart(2, "0");
   var fmtUTC = (d) => `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
@@ -293,6 +299,7 @@
       text: tok.text,
       done,
       doneDate: tok.done,
+      created: tok.created,
       source: ctx.source,
       eventId: ctx.eventId,
       eventTitle: ctx.eventTitle,
@@ -374,6 +381,13 @@
     const bp = b.priority ?? 0;
     if (ap !== bp) return bp - ap;
     return a.text.localeCompare(b.text);
+  }
+  function linesNeedingCreated(noteText) {
+    const out = [];
+    scanTaskLines(noteText, (t2) => {
+      if (t2.depth === 0 && !t2.tok.created) out.push(t2.line);
+    });
+    return out;
   }
   function toggleTodoLine(noteText, line, checked, stamp) {
     const lines = noteText.split("\n");
@@ -55463,6 +55477,7 @@
     // the color swatch reuses the calendar palette: `cc-ev-<key>` exposes `--ev-color`.
     [g(COLOR_RE), (_m, b, v) => badge("color", v, b, { extra: { "data-val": v }, classes: [`cc-ev-${v}`] })],
     [g(DONE_RE), (_m, b, v) => badge("done", v, b, { extra: { "data-val": v } })],
+    [g(CREATED_RE), (_m, b, v) => badge("created", v, b, { extra: { "data-val": v } })],
     [g(FOLLOWUP_RE), (_m, b, v) => badge("followup", v, b, { extra: { "data-val": v } })]
   ];
   var refReplacers = [
@@ -55586,9 +55601,30 @@
     return `<div class="cc-dw-mi">${rows}${desc}</div>${mdHtml(user)}`;
   }
   var TASK_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
+  function localStamp() {
+    const d = /* @__PURE__ */ new Date(), p22 = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p22(d.getMonth() + 1)}-${p22(d.getDate())}T${p22(d.getHours())}:${p22(d.getMinutes())}`;
+  }
   function createNoteEditor(o) {
     const { editorEl, previewEl } = o;
     let applyingRemote = false;
+    let sessionDirty = false;
+    const phComp = new Compartment();
+    function stampCreated() {
+      if (!sessionDirty) return;
+      const doc2 = view.state.doc;
+      const lines = linesNeedingCreated(doc2.toString());
+      if (lines.length) {
+        const stamp = ` created:${localStamp()}`;
+        view.dispatch({
+          changes: lines.map((n) => {
+            const ln = doc2.line(n);
+            return { from: ln.from + ln.text.replace(/\s+$/, "").length, to: ln.to, insert: stamp };
+          })
+        });
+      }
+      sessionDirty = false;
+    }
     const openLinks = EditorView.domEventHandlers({
       mousedown(e, view2) {
         if (!(e.metaKey || e.ctrlKey) || e.button !== 0) return false;
@@ -55619,17 +55655,27 @@
           openLinks,
           Prec.highest(keymap.of([
             { key: "Mod-s", preventDefault: true, stopPropagation: true, run: () => {
+              stampCreated();
               o.onPreview();
               return true;
             } },
             { key: "Escape", preventDefault: true, stopPropagation: true, run: () => {
+              stampCreated();
               o.onExit?.();
               return true;
             } }
           ])),
-          placeholder(o.placeholder ?? "Something to note\u2026"),
+          // Focus loss (clicking away, tabbing out, the overlay hiding) also ends the session.
+          EditorView.domEventHandlers({ blur: () => {
+            stampCreated();
+            return false;
+          } }),
+          phComp.of(placeholder(o.placeholder ?? "Something to note\u2026")),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged && !applyingRemote) o.onChange(u.state.doc.toString());
+            if (u.docChanged && !applyingRemote) {
+              sessionDirty = true;
+              o.onChange(u.state.doc.toString());
+            }
           })
         ]
       })
@@ -55674,19 +55720,25 @@
       }
     });
     return {
+      setPlaceholder(text9) {
+        view.dispatch({ effects: phComp.reconfigure(placeholder(text9)) });
+      },
       setValue(v) {
         if (v === view.state.doc.toString()) return;
         applyingRemote = true;
         view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } });
         applyingRemote = false;
+        sessionDirty = false;
         if (previewEl.style.display !== "none") renderPreview();
       },
       setMode(mode) {
         const edit = mode === "edit";
         editorEl.style.display = edit ? "" : "none";
         previewEl.style.display = edit ? "none" : "";
-        if (!edit) renderPreview();
-        else queueMicrotask(() => {
+        if (!edit) {
+          stampCreated();
+          renderPreview();
+        } else queueMicrotask(() => {
           view.requestMeasure();
           view.focus();
         });
@@ -55843,7 +55895,7 @@
   var noteEd = createNoteEditor({
     editorEl: document.getElementById("note-editor"),
     previewEl: document.getElementById("note-preview"),
-    placeholder: "Daily Note",
+    placeholder: "Daily Note (Markdown)\u2026",
     onChange: (value) => {
       notes[liveIso] = value;
       liveText = value;
@@ -56080,7 +56132,7 @@
     isoOf.set(el, viewIso);
     if (tab2 === "note") {
       const text9 = notes[viewIso] || "";
-      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : `<div class="cc-dd-note-empty">Daily Note</div>`;
+      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : `<div class="cc-dd-note-empty">Daily Note (Markdown)\u2026</div>`;
       scroll.scrollTop = scrollByIso[viewIso] ?? 0;
       flatOf.delete(el);
       return;
@@ -56148,7 +56200,7 @@
     const noteKey = scope === "week" ? weekNoteKey(key2) : monthNoteKey(key2);
     if (tab2 === "note") {
       const text9 = notes[noteKey] || "";
-      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : `<div class="cc-dd-note-empty">${scope === "week" ? "Weekly" : "Monthly"} Note</div>`;
+      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : `<div class="cc-dd-note-empty">${scope === "week" ? "Weekly" : "Monthly"} Note (Markdown)\u2026</div>`;
       flatOf.delete(el);
       return;
     }
@@ -56249,14 +56301,17 @@
       scopeKeyOf.set(mpA, mKeyA);
       mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
       mpA.style.opacity = (1 - mP).toFixed(3);
+      mpA.style.pointerEvents = mP < 1e-3 ? "auto" : "none";
     }
     if (mKeyA && mKeyB && mP > 1e-3) {
       renderScopePanel(mpB, "month", mKeyB);
       scopeKeyOf.set(mpB, mKeyB);
       mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
       mpB.style.opacity = mP.toFixed(3);
+      mpB.style.pointerEvents = "none";
     } else {
       mpB.style.opacity = "0";
+      mpB.style.pointerEvents = "none";
     }
     if (wKeyA && scopeKeyOf.get(wpB) === wKeyA) {
       const t3 = wpA;
@@ -56268,14 +56323,17 @@
       scopeKeyOf.set(wpA, wKeyA);
       wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
       wpA.style.opacity = (1 - wP).toFixed(3);
+      wpA.style.pointerEvents = wP < 1e-3 ? "auto" : "none";
     }
     if (wKeyA && wKeyB && wP > 1e-3) {
       renderScopePanel(wpB, "week", wKeyB);
       scopeKeyOf.set(wpB, wKeyB);
       wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
       wpB.style.opacity = wP.toFixed(3);
+      wpB.style.pointerEvents = wP > 0.999 ? "auto" : "none";
     } else {
       wpB.style.opacity = "0";
+      wpB.style.pointerEvents = "none";
     }
     if (isoOf.get(p0) !== from) renderPanel(p0, from);
     const atRest = !to || p3 <= 1e-4;
@@ -56316,6 +56374,7 @@
       const text9 = notes[liveKey] || "";
       if (liveIso !== liveKey) {
         liveIso = liveKey;
+        noteEd.setPlaceholder(scopeName === "day" ? "Daily Note (Markdown)\u2026" : scopeName === "week" ? "Weekly Note (Markdown)\u2026" : "Monthly Note (Markdown)\u2026");
         const m = text9.trim() ? "preview" : "edit";
         if (m !== noteMode) {
           noteMode = m;
