@@ -247,6 +247,12 @@ public struct CalendarView: View {
                 } else if stop == .note {
                     tabBinding.wrappedValue = .note
                 }
+                // TODO focus (or focus leaving the dashboard): the arrows/keys belong to the
+                // CALENDAR's key system — if the web view holds first responder (e.g. the note
+                // editor was just being edited when ⌘B fired), keys would never reach it.
+                if stop != .note {
+                    carousel.regateWebFocus()
+                }
                 carousel.navFocus(stop)
             case let .move(d): carousel.navMove(d)
             case .activate: // Space/Enter: note → focus the editor; todo → toggle the row

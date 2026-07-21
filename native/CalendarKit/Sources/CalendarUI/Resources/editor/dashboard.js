@@ -56694,10 +56694,15 @@
       editingNote = true;
       applyNav();
       noteModeUser("edit");
-      queueMicrotask(() => {
-        noteEd.setMode("edit");
-        noteEd.focus();
-      });
+      const tryFocus = (left) => {
+        if (noteLive.style.display !== "none") {
+          noteEd.setMode("edit");
+          noteEd.focus();
+        } else if (left > 0) {
+          requestAnimationFrame(() => tryFocus(left - 1));
+        }
+      };
+      queueMicrotask(() => tryFocus(30));
     }
   };
   post({ type: "ready" });

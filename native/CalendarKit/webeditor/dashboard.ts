@@ -951,10 +951,20 @@ root.addEventListener("click", (e) => {
     if (!t || collapsed.has(foldKey(t)) === !open) return;   // already there (held key auto-repeats)
     toggleFold(p0, t, open);   // same animated path as the chevron click
   },
-  noteEdit() {                                 // Enter on the NOTE stop → focus the live editor
+  noteEdit() {                                 // Enter on the NOTE stop / ⌘E → focus the live editor
     editingNote = true; applyNav();
     noteModeUser("edit");
-    queueMicrotask(() => { noteEd.setMode("edit"); noteEd.focus(); });
+    // The live overlay may not be visible YET: ⌘E can arrive before the tab switch
+    // (CK.setTab) and the next tick reveal it — retry across a few frames until apply()
+    // has shown it, so the caret reliably lands (a hidden CodeMirror ignores focus()).
+    const tryFocus = (left: number) => {
+      if (noteLive.style.display !== "none") {
+        noteEd.setMode("edit"); noteEd.focus();
+      } else if (left > 0) {
+        requestAnimationFrame(() => tryFocus(left - 1));
+      }
+    };
+    queueMicrotask(() => tryFocus(30));
   },
 };
 post({ type: "ready" });

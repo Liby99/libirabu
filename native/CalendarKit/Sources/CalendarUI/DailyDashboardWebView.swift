@@ -136,6 +136,13 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         web = w; lastKey = ""; lastCall = nil; ready = false
     }
 
+    /// Hand keyboard focus back to the calendar catcher (and re-gate the web view) — e.g. ⌘B
+    /// while the note editor holds first responder: the TODO arrows belong to the calendar's key
+    /// system, which never sees keys while the WKWebView is first responder.
+    func regateWebFocus() {
+        (web as? PassThroughWebView)?.regateFocus()
+    }
+
     /// The page signalled ready — replay the latest tick so its reveal/carousel state lands even if
     /// the driver's earlier tick fired before CK was defined (which would otherwise be lost).
     func markReady() {

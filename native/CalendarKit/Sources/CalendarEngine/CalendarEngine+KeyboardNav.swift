@@ -18,6 +18,7 @@ extension CalendarEngine {
             deselect()
         }
         cursor.dashStop = stop
+        cursor.dashNoteEditing = false // ⌘B during note editing: the TODO state, not the editor's
         onDashCommand?(.focus(stop))
         if stop == .note {
             cursor.dashNoteEditing = true
