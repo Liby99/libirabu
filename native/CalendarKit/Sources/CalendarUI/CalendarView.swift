@@ -882,7 +882,7 @@ public struct CalendarView: View {
                     // View-menu prefs (show-hidden / timezone pickers), the prefs-changed notification, and
                     // the tag-filter toggle — bundled into one modifier (see the type-check note above).
                     .modifier(ViewPrefObservers(engine: engine, showTagFilter: $showTagFilter,
-                                                ui: ui, dashTab: $dashTab))
+                                                ui: ui, dashTab: $dashTab, carousel: dashCarousel))
             }
             .ignoresSafeArea()
             // Search overlays — siblings inside the ZStack, so they respect the toolbar safe-area inset
@@ -994,6 +994,7 @@ private struct ViewPrefObservers: ViewModifier {
     @Binding var showTagFilter: Bool
     var ui: CalendarUIState
     @Binding var dashTab: DashTab
+    var carousel: DashboardCarousel
     @AppStorage(PrefKeys.showHiddenImported) private var showHidden = false
     @AppStorage(PrefKeys.mainTz) private var mainTz = "auto"
     @AppStorage(PrefKeys.altTz) private var altTz = "none"
@@ -1030,14 +1031,28 @@ private struct ViewPrefObservers: ViewModifier {
             if !engine.dashPinned {
                 engine.toggleDashPin()
                 dashTab = stop
+                focusWeekMonthTab(stop)
             } else if dashTab != stop {
                 dashTab = stop
+                focusWeekMonthTab(stop)
                 engine.wake()
             } else {
-                engine.toggleDashPin()
+                engine.toggleDashPin() // already on that tab → retract
+                carousel.regateWebFocus()
             }
         default:
             break
+        }
+    }
+
+    /// Week/month landing focus: ⌘E puts the caret in the live note editor (CK.noteEdit retries
+    /// until the overlay is revealed, so this works through the opening tween); ⌘B hands key
+    /// focus back to the calendar (the web view must not keep eating keys).
+    private func focusWeekMonthTab(_ stop: DashTab) {
+        if stop == .note {
+            carousel.focusNoteEditor()
+        } else {
+            carousel.regateWebFocus()
         }
     }
 }
