@@ -57,8 +57,8 @@ extension CalendarEngine {
         let gridW = viewport.w - Layout.labelW
         guard 31 * dayW > gridW + 0.5 else { return false }
         let centerSlot = (monthQX + gridW / 2) / dayW + CGFloat(firstDOW(year, focus))
-        let maxWeek = max(0, CGFloat(weeksInMonth(year, focus)) - Layout.weekDaysVisible / 7)
-        week = clamp((centerSlot - Layout.weekDaysVisible / 2).rounded() / 7, 0, maxWeek)
+        let b = weekBounds // month-bounded on a partial window: no spillover-day landings
+        week = clamp((centerSlot - Layout.weekDaysVisible / 2).rounded() / 7, b.min, b.max)
         return true
     }
 
@@ -358,11 +358,11 @@ extension CalendarEngine {
 
     // (zoom anchor helpers live near sceneInput)
 
-    func scheduleWeekSnap(_ maxWeek: CGFloat) {
+    func scheduleWeekSnap(_ bounds: (min: CGFloat, max: CGFloat)) {
         snapWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            let target = clamp((self.week * 7).rounded() / 7, 0, maxWeek)
+            let target = clamp((self.week * 7).rounded() / 7, bounds.min, bounds.max)
             self.anim.weekTween = Tween(
                 from: self.week,
                 to: target,
@@ -404,11 +404,11 @@ extension CalendarEngine {
             tlScroll = min(max(0, tlScroll - dy), timelineInfo(snapshot()).maxScroll)
         } else if b == 2 {
             anim.weekTween = nil
-            let maxWeek = max(0, CGFloat(weeksInMonth(year, focus)) - Layout.weekDaysVisible / 7)
+            let bounds = weekBounds
             // px per WEEK of travel = 7·dayW (the grid is weekDaysVisible day cells wide).
             let weekSpanPx = (viewport.w - Layout.labelW) * 7 / Layout.weekDaysVisible
-            week = clamp(week - dx / weekSpanPx, 0, maxWeek) // swipe-left → later days
-            scheduleWeekSnap(maxWeek)
+            week = clamp(week - dx / weekSpanPx, bounds.min, bounds.max) // swipe-left → later days
+            scheduleWeekSnap(bounds)
         } else if b == 3 {
             scroll.wheelAccumX += dx
             if abs(scroll.wheelAccumX) > 55 {

@@ -191,8 +191,8 @@ extension CalendarEngine {
     }
 
     /// Drill one zoom level into whatever sits at point `p` (year→month→week→day) — the Mac's
-    /// empty-space click. (The iPhone client used to call this from its tap; it now zooms
-    /// exclusively through the pinch → `onMagnify` path.)
+    /// empty-space click. The iPhone calls this only from its YEAR-view empty-space double
+    /// tap; its deeper levels zoom exclusively through the pinch → `onMagnify` path.
     public func navigate(at p: CGPoint) {
         let g = snapshot()
         switch level(z) {
@@ -206,7 +206,17 @@ extension CalendarEngine {
                 tweenZ(to: 1)
             }
         case 1:
-            if let w = weekAtPointInMonth(p.x, g) {
+            if Layout.weekDaysVisible < 7 {
+                // Partial window (phone): center the window on the TAPPED day column (not its
+                // whole week), clamped to the month-bounded travel range (see weekBounds).
+                let dayW = monthDayW(viewport, pin: dashPin, frac: dashMonthFrac)
+                let slot = ((p.x - Layout.labelW + monthQX) / dayW).rounded(.down)
+                    + CGFloat(firstDOW(year, focus))
+                let b = weekBounds
+                week = clamp((slot + 0.5 - Layout.weekDaysVisible / 2).rounded() / 7, b.min, b.max)
+                captureZoomAnchor(pointerY: p.y)
+                tweenZ(to: 2)
+            } else if let w = weekAtPointInMonth(p.x, g) {
                 week = CGFloat(w); captureZoomAnchor(pointerY: p.y); tweenZ(to: 2)
             }
         case 2:

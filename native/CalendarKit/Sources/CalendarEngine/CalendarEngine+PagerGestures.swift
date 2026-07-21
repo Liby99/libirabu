@@ -83,6 +83,20 @@ extension CalendarEngine {
         week * 7 * dayW
     }
 
+    /// The week window's travel bounds for the focus month, in week units. A FULL-week window
+    /// (desktop) pages week-aligned across weeksInMonth — its boundary weeks include neighbor
+    /// spillover by design. A PARTIAL window (phone, weekDaysVisible < 7) is day-aligned and
+    /// MONTH-BOUNDED: it parks at the month's own day 1 / last day, so a neighbor-month
+    /// spillover day can never fill the view.
+    var weekBounds: (min: CGFloat, max: CGFloat) {
+        if Layout.weekDaysVisible < 7 {
+            let fdow = CGFloat(firstDOW(year, focus))
+            let hi = (fdow + CGFloat(daysInMonth(year, focus)) - Layout.weekDaysVisible) / 7
+            return (fdow / 7, max(fdow / 7, hi))
+        }
+        return (0, max(0, CGFloat(weeksInMonth(year, focus)) - 1))
+    }
+
     public func beginWeekGesture() {
         wake(); cancelTween(); anim.weekTween = nil; scroll.liveWeekScrolling = true
         // Fingers down INTERCEPT any dashboard cruise/settle: freeze the carousel exactly where
@@ -235,9 +249,10 @@ extension CalendarEngine {
         guard isWeekLevel, !isWeekFlipping, dayW > 0 else { return }
         wake()
         let span = 7 * dayW
-        // Last valid window start, in week units: the window (weekDaysVisible day cells) parks
-        // with its RIGHT edge on the month grid's last slot — weeksInMonth − 1 on desktop.
-        let maxWeek = max(0, CGFloat(weeksInMonth(year, focus)) - Layout.weekDaysVisible / 7)
+        // Window travel bounds, week units: week-aligned across weeksInMonth on desktop;
+        // day-aligned and MONTH-BOUNDED on the phone's partial window (see weekBounds).
+        let (minWeek, maxWeek) = weekBounds
+        let minOff = minWeek * span
         let maxOff = maxWeek * span
         // Elastic: follow the rubber-banded offset past each edge, AMPLIFYING the overscroll so the
         // window travels further than AppKit's (heavily damped) rubber-band alone would allow — a
@@ -247,8 +262,10 @@ extension CalendarEngine {
         // generous; with the month-edge flip disabled (phone) the window just tracks the native
         // rubber-band unamplified and bounces back.
         let raw = offsetX / span
-        if raw < 0 {
-            week = weekMonthFlipEnabled ? clamp(raw * Motion.weekOverMul, -1.6, 0) : clamp(raw, -1.6, 0)
+        if raw < minWeek {
+            week = weekMonthFlipEnabled
+                ? clamp(minWeek + (raw - minWeek) * Motion.weekOverMul, minWeek - 1.6, minWeek)
+                : clamp(raw, minWeek - 1.6, minWeek)
         } else if raw > maxWeek {
             week = weekMonthFlipEnabled
                 ? clamp(maxWeek + (raw - maxWeek) * Motion.weekOverMul, maxWeek, maxWeek + 1.6)
@@ -270,7 +287,7 @@ extension CalendarEngine {
                 weekDashHold = nil; weekDashCruise = nil
             }
         }
-        let overLeft = offsetX < 0 ? -offsetX : 0
+        let overLeft = offsetX < minOff ? minOff - offsetX : 0
         let overRight = offsetX > maxOff ? offsetX - maxOff : 0
         if scroll.liveWeekScrolling, weekMonthFlipEnabled, overLeft > 2 || overRight > 2 {
             let dir = overRight > 0 ? 1 : -1
@@ -510,6 +527,16 @@ extension CalendarEngine {
         anim.weekFlipFade = easeInOut(t) // cross-fade the events (after the text swap)
         onSetWeekScroll?(weekOffset(week)) // pin the (invisible) pager each frame so its
         // own snap/decelerate animation can't diverge → twitch
+    }
+
+    /// Convert one step of a TOUCH pinch (SwiftUI MagnifyGesture's cumulative magnification
+    /// RATIO) into an `onMagnify` delta: the LOG of the ratio, scaled so a finger-spread of
+    /// `spreadPerLevel`× crosses exactly one zoom level. The log keeps pinch-in and pinch-out
+    /// symmetric — linear ratio differences are not (doubling the spread adds +1.0 while
+    /// halving adds only −0.5, which made touch zoom-in twitchy and zoom-out unreachable).
+    public func pinchDelta(ratio: CGFloat, spreadPerLevel: CGFloat) -> CGFloat {
+        guard ratio > 0, spreadPerLevel > 1 else { return 0 }
+        return CGFloat(log(Double(ratio))) / (CGFloat(log(Double(spreadPerLevel))) * Motion.pinchSens)
     }
 
     public func onMagnify(delta: CGFloat, at p: CGPoint, began: Bool, ended: Bool) {

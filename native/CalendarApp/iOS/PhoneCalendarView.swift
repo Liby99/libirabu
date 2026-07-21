@@ -5,10 +5,11 @@
 //   render layers     — Canvas passes + glass overlays, allowsHitTesting(false), exactly the
 //                       Mac's CalendarView.calendarScene reduced to its read-only layers
 //   chrome            — Breadcrumb + calendar switcher (top), sync status (bottom)
-// Pinch (semantic zoom) and tap (select) ride as simultaneous gestures over the drivers.
-// Tapping an item opens PhoneEventSheet (read-only); the two-finger pinch is the ONLY way
-// in and out of a zoom level (year ⇄ month, like the Mac's trackpad pinch — the breadcrumb's
-// Year crumb also zooms back out). Tapping empty space does nothing.
+// Pinch (semantic zoom) and taps ride as simultaneous gestures over the drivers. A single
+// tap selects an event (empty space clears); a double tap opens the event's bottom sheet —
+// or, on empty YEAR-view space, drills into the tapped month. Otherwise the two-finger
+// pinch is the way between zoom levels (year ⇄ month ⇄ week, like the Mac's trackpad
+// pinch — the breadcrumb also zooms back out).
 
 import CalendarEngine
 import CalendarGeometry
@@ -36,13 +37,13 @@ struct PhoneCalendarView: View {
                 // idle-CPU pattern as the Mac's calendarSurface.
                 let awake = engine.renderClock.awake
                 ZStack {
-                    PhoneDriverLayer(engine: engine, vp: vp)
+                    PhoneDriverLayer(engine: engine, vp: vp, frozen: pinchActive)
                     TimelineView(.animation(paused: !awake)) { tl in
                         calendarScene(engine.sceneInput(at: tl.date, viewport: vp), vp: vp, theme: theme)
                     }
                     .allowsHitTesting(false) // presentational; touch goes to the drivers below
                 }
-                .simultaneousGesture(tap)
+                .simultaneousGesture(taps)
                 .simultaneousGesture(pinch)
                 // Fires on fingers-up AND system cancellation (the @GestureState reset covers
                 // both) — close the engine's pinch so z always gets its settle-to-level tween.
@@ -91,33 +92,49 @@ struct PhoneCalendarView: View {
 
     // ── Gestures ─────────────────────────────────────────────────────────────────────
 
-    /// Tap on an item → select + read-only sheet. Empty space does nothing — zooming is the
-    /// pinch's job now (tap-a-month drill-in was removed in favor of it).
-    private var tap: some Gesture {
-        SpatialTapGesture()
+    /// Taps, double-first (the exclusive pairing makes SwiftUI hold a single tap just long
+    /// enough to rule out a second one):
+    ///   • DOUBLE tap an event → select it AND open its bottom sheet (the Mac's double-click-
+    ///     opens-drawer, translated).
+    ///   • DOUBLE tap empty space → drill one level in: year → the tapped month, month → the
+    ///     week window centered on the tapped day. (Week level stays pinch-only — day view
+    ///     isn't mounted.)
+    ///   • SINGLE tap an event → just select it (highlight, no sheet).
+    ///   • SINGLE tap empty space → clear the selection.
+    private var taps: some Gesture {
+        SpatialTapGesture(count: 2)
             .onEnded { v in
-                if let id = engine.itemId(at: geomPoint(v.location)) {
+                let p = geomPoint(v.location)
+                if let id = engine.itemId(at: p) {
                     engine.select(id)
                     sheetItem = SheetItem(id: id)
+                } else if engine.isYearLevel || engine.isMonthLevel {
+                    engine.navigate(at: p) // week level: no drill — day view isn't mounted
                 }
             }
+            .exclusively(before: SpatialTapGesture()
+                .onEnded { v in
+                    engine.select(engine.itemId(at: geomPoint(v.location)))
+                })
     }
 
-    /// Two-finger pinch = semantic zoom (year ⇄ month), the Mac trackpad pinch's touch twin:
-    /// per-event magnification deltas feed the engine's REAL pinch path (`onMagnify`), so the
-    /// month under the fingers is what fills the screen (captureFocus anchors on the pinch
-    /// point) and fingers-up snaps to the nearest level (z clamped to the phone's maxZ = 1).
+    /// Two-finger pinch = semantic zoom (year ⇄ month ⇄ week), the Mac trackpad pinch's touch
+    /// twin: per-event magnification deltas feed the engine's REAL pinch path (`onMagnify`) —
+    /// captureFocus anchors the target and seeds the zoom-out carries — and fingers-up snaps
+    /// to the nearest level (z clamped to the phone's maxZ = 2).
     /// `pinchPrev` turns SwiftUI's cumulative magnification into the per-event deltas the
     /// engine accumulates; the @GestureState reset (fires on END and CANCEL alike) closes the
     /// engine gesture, so a cancelled pinch can't strand z mid-zoom without its settle tween.
     @GestureState private var pinchActive = false
     @State private var pinchPrev: CGFloat?
 
-    /// Phone-side damping on the pinch deltas. `Motion.pinchSens` is tuned for the Mac
-    /// trackpad, where a full-level pinch accumulates ~0.7 of magnification; finger travel on
-    /// glass sweeps a much larger scale range, so undamped it crossed levels too eagerly.
-    /// At 0.6, one level (Δz 1) needs the spread to grow ~2×— a natural, deliberate pinch.
-    private static let pinchDamp: CGFloat = 0.6
+    /// Finger-spread RATIO that crosses one zoom level: growing the spread 3× zooms exactly one
+    /// level in; shrinking to a third zooms one out. Fed through `engine.pinchDelta`, which takes
+    /// the LOG of the ratio — symmetric for in/out, unlike the raw linear deltas (doubling adds
+    /// +1.0 but halving only −0.5, which made zoom-in feel twitchier than zoom-out could ever
+    /// be). Fingers-up snaps past half a level, so the commit point is √3 ≈ 1.7× of travel.
+    /// Lower = a level needs less travel; this is THE touch-sensitivity knob.
+    private static let pinchLevelSpread: CGFloat = 3.0
 
     private var pinch: some Gesture {
         MagnifyGesture()
@@ -128,7 +145,8 @@ struct PhoneCalendarView: View {
                     engine.onMagnify(delta: 0, at: p, began: true, ended: false)
                     pinchPrev = 1
                 }
-                engine.onMagnify(delta: (v.magnification - (pinchPrev ?? 1)) * Self.pinchDamp,
+                engine.onMagnify(delta: engine.pinchDelta(ratio: v.magnification / (pinchPrev ?? 1),
+                                                          spreadPerLevel: Self.pinchLevelSpread),
                                  at: p, began: false, ended: false)
                 pinchPrev = v.magnification
             }

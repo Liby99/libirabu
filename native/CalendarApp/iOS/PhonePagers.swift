@@ -17,24 +17,34 @@ import SwiftUI
 
 /// Mounts the right driver for the current zoom level.
 ///
-/// PHONE V1.2: year + month. Year = vertical scroll with per-quarter horizontal strips;
-/// month = vertical month↕month pager nested with the focused month's horizontal day strip.
-/// Navigation between the two levels is the two-finger pinch (PhoneCalendarView.pinch →
-/// engine.onMagnify, clamped to maxZ = 1; the breadcrumb's Year crumb also zooms out).
-/// The week/day drivers below are finished and waiting; extend the switch to re-enable them.
+/// PHONE V1.3: year + month + week. Year = vertical scroll with per-quarter horizontal
+/// strips; month = vertical month↕month pager nested with the focused month's horizontal
+/// day strip; week = one two-axis window over the month's own days. Level navigation is the
+/// two-finger pinch (PhoneCalendarView.pinch → engine.onMagnify, clamped to maxZ = 2) plus
+/// empty-space double-taps; the breadcrumb zooms out. The day driver waits below; extend
+/// the switch (and maxZ) to enable it.
 struct PhoneDriverLayer: View {
     let engine: CalendarEngine
     let vp: Viewport
+    var frozen = false // a semantic-zoom pinch is in flight (see PhoneCalendarView.pinch)
 
     var body: some View {
-        // chrome.level is @Observable and set to the TARGET at tween start, so the driver
-        // swaps the moment a zoom begins.
-        switch engine.chrome.level {
-        case 0: PhoneYearDriver(engine: engine, vp: vp)
-        case 1: PhoneMonthDriver(engine: engine, vp: vp)
-        default: PhoneWeekDriver(engine: engine, vp: vp)
-        // case 3: PhoneDayDriver(engine: engine, vp: vp)
+        Group {
+            // chrome.level is @Observable and set to the TARGET at tween start, so the driver
+            // swaps the moment a zoom begins.
+            switch engine.chrome.level {
+            case 0: PhoneYearDriver(engine: engine, vp: vp)
+            case 1: PhoneMonthDriver(engine: engine, vp: vp)
+            default: PhoneWeekDriver(engine: engine, vp: vp, frozen: frozen)
+            // case 3: PhoneDayDriver(engine: engine, vp: vp)
+            }
         }
+        // Two fingers down for the pinch must NOT also pan the drivers. A driver that mounts
+        // MID-pinch (the level flips at z 1.5) captures the still-down fingers as a scroll:
+        // phase `interacting` clears its pendingRestore guard and mirrors whatever offset the
+        // fresh ScrollView happens to have — 0, the month's first days — into the engine,
+        // yanking the just-carried week window to the month start on every zoom-in.
+        .scrollDisabled(frozen)
     }
 }
 
@@ -93,16 +103,24 @@ private struct PhoneYearDriver: View {
                 if abs(y - target) < 1 {
                     pendingRestore = nil // restore landed → mirror live
                 } else {
-                    return // ignore pre-restore callbacks (the initial 0)
+                    // Not landed yet — RE-PIN rather than just ignoring: the one-shot restore
+                    // can drop silently (mount races, mid-zoom layout), and the next touch
+                    // would then clear the guard and mirror a stale offset into the engine
+                    // (the "view jumps to the start" family of bugs). Re-pinning on every
+                    // blocked callback converges the strip onto the engine before that.
+                    pos.scrollTo(y: target)
+                    return
                 }
             }
             engine.setYearScroll(y)
         }
         // NOTE: no begin/endYearScrollGesture here — those arm the overscroll year FLIP,
         // which is disabled on the phone for now (edge pulls just rubber-band back).
-        .onScrollPhaseChange { _, new in
-            if new == .interacting || new == .tracking {
-                pendingRestore = nil // the user grabbed it — whatever they do now is truth
+        .onScrollPhaseChange { old, new in
+            // An actual DRAG makes the user's offset truth. (Not .tracking — a mere touch-down
+            // grazing a freshly-mounted strip must not bless a restore that hasn't landed yet.)
+            if new == .interacting {
+                pendingRestore = nil
             }
         }
         .onAppear {
@@ -151,13 +169,14 @@ private struct QuarterStrip: View {
                 if abs(x - target) < 1 {
                     pendingRestore = nil
                 } else {
+                    pos.scrollTo(x: target) // re-pin until landed (see PhoneYearDriver)
                     return
                 }
             }
             engine.setYearQuarterScroll(q, x)
         }
-        .onScrollPhaseChange { _, new in
-            if new == .interacting || new == .tracking {
+        .onScrollPhaseChange { old, new in
+            if new == .interacting { // drag only — see PhoneYearDriver
                 pendingRestore = nil
             }
         }
@@ -215,14 +234,17 @@ private struct PhoneMonthDriver: View {
                 if abs(y - target) < 1 {
                     pendingRestore = nil
                 } else {
+                    pos.scrollTo(y: target) // re-pin until landed (see PhoneYearDriver)
                     return
                 }
             }
             engine.setMonthProgress(y, pageH: pageH)
         }
         .onScrollPhaseChange { old, new in
-            if new == .interacting || new == .tracking {
+            if new == .interacting { // drag only — see PhoneYearDriver
                 pendingRestore = nil
+            }
+            if new == .interacting || new == .tracking {
                 engine.beginMonthGesture()
             } else if old == .interacting || old == .tracking {
                 engine.endMonthGesture()
@@ -269,13 +291,17 @@ private struct MonthHStrip: View {
                 if abs(x - target) < 1 {
                     pendingRestore = nil
                 } else {
+                    // Re-pin until landed: this strip mounts MID-ZOOM (year→month), where the
+                    // one-shot restore drops most easily — a stale 0 mirrored on first touch
+                    // is exactly the "month view jumps to the start of the month" bug.
+                    pos.scrollTo(x: target)
                     return
                 }
             }
             engine.setMonthHScroll(x)
         }
         .onScrollPhaseChange { _, new in
-            if new == .interacting || new == .tracking {
+            if new == .interacting { // drag only — see PhoneYearDriver
                 pendingRestore = nil
             }
         }
@@ -294,6 +320,7 @@ private struct MonthHStrip: View {
 private struct PhoneWeekDriver: View {
     let engine: CalendarEngine
     let vp: Viewport
+    var frozen = false // pinch in flight — scrolling is disabled by PhoneDriverLayer
     @State private var pos = ScrollPosition()
     /// See PhoneYearDriver — the same remount race, and it BITES HARDER here: this driver
     /// mounts MID-ZOOM (the level flips at z 1.5, while the month↔week blend is on screen), so
@@ -305,13 +332,19 @@ private struct PhoneWeekDriver: View {
     var body: some View {
         let gridW = max(1, vp.w - Layout.labelW)
         let dayW = gridW / Layout.weekDaysVisible
-        let weeks = max(1, weeksInMonth(engine.chrome.year, engine.chrome.focus))
-        let maxDay = max(0, CGFloat(weeks * 7) - Layout.weekDaysVisible)
-        let maxX = max(0, CGFloat(weeks * 7) * dayW - gridW)
+        // MONTH-BOUNDED strip: the content is the focus month's OWN days only — no neighbor
+        // spillover slots — so the scroll physically cannot leave the month and both edges get
+        // UIKit's native rubber-band. Strip-local day 0 is the month's day 1, which sits at
+        // engine week-grid slot `fdow`; the ±fdow·dayW shift converts both ways.
+        let fdow = CGFloat(firstDOW(engine.chrome.year, engine.chrome.focus))
+        let dim = CGFloat(daysInMonth(engine.chrome.year, engine.chrome.focus))
+        let stripX = { (w: CGFloat) in w * 7 * dayW - fdow * dayW } // engine week → strip offset
+        let maxDay = max(0, dim - Layout.weekDaysVisible) // strip-local last window start
+        let maxX = max(0, dim * dayW - gridW)
         let maxY = max(0, engine.timelineMaxScroll)
         ScrollView([.horizontal, .vertical]) {
             Color.clear
-                .frame(width: CGFloat(weeks * 7) * dayW,
+                .frame(width: dim * dayW,
                        height: vp.h + maxY)
                 .scrollTargetLayout()
         }
@@ -319,11 +352,11 @@ private struct PhoneWeekDriver: View {
         // Initial-layout restore of the seeded window position (see PhoneYearDriver: the
         // imperative scrollTo alone races the attachment and can silently drop).
         .defaultScrollAnchor(UnitPoint(
-            x: maxX > 0 ? min(max(engine.week * 7 * dayW / maxX, 0), 1) : 0,
+            x: maxX > 0 ? min(max(stripX(engine.week) / maxX, 0), 1) : 0,
             y: maxY > 0 ? min(max(engine.tlScroll / maxY, 0), 1) : 0
         ))
         .scrollTargetBehavior(WeekScrollBehavior(dayW: dayW, maxDay: maxDay,
-                                                 liveDay: { MainActor.assumeIsolated { engine.week * 7 } }))
+                                                 liveDay: { MainActor.assumeIsolated { engine.week * 7 - fdow } }))
         .scrollBounceBehavior(.always)
         .scrollIndicators(.hidden)
         .frame(width: gridW, height: vp.h)
@@ -333,15 +366,18 @@ private struct PhoneWeekDriver: View {
                 if abs(o.x - t.x) < 1, abs(o.y - t.y) < 1 {
                     pendingRestore = nil // restore landed → mirror live
                 } else {
-                    return // ignore pre-restore callbacks (the initial 0,0)
+                    pos.scrollTo(x: t.x, y: t.y) // re-pin until landed (see PhoneYearDriver)
+                    return
                 }
             }
-            engine.setWeekProgress(o.x, dayW: dayW)
+            engine.setWeekProgress(o.x + fdow * dayW, dayW: dayW)
             engine.setTlScroll(o.y)
         }
         .onScrollPhaseChange { old, new in
+            if new == .interacting { // drag only — see PhoneYearDriver
+                pendingRestore = nil
+            }
             if new == .interacting || new == .tracking {
-                pendingRestore = nil // the user grabbed it — whatever they do now is truth
                 engine.beginWeekGesture()
             } else if old == .interacting || old == .tracking {
                 engine.endWeekGesture()
@@ -349,15 +385,41 @@ private struct PhoneWeekDriver: View {
         }
         .onAppear {
             let p = $pos
-            let target = CGPoint(x: engine.week * 7 * dayW, y: engine.tlScroll)
+            // Clamp into the strip's reachable range: a week seeded outside the month bounds
+            // (any non-pinch entry path) would otherwise pin to a clamped offset that never
+            // matches pendingRestore, freezing the mirror until the first touch.
+            let target = CGPoint(x: min(max(stripX(engine.week), 0), maxX),
+                                 y: min(max(engine.tlScroll, 0), maxY))
             pendingRestore = target
             p.wrappedValue.scrollTo(x: target.x, y: target.y)
-            engine.onSetWeekScroll = { x in p.wrappedValue.scrollTo(x: x) }
-            engine.onSetTlScroll = { y in p.wrappedValue.scrollTo(y: y) }
+            // On this TWO-AXIS ScrollView a single-axis scrollTo ZEROES the other axis —
+            // traced live: the pinch's per-frame zoom-anchor y-pins (applyZoomAnchor →
+            // onSetTlScroll) marched x to 0 in viewport-sized steps the moment fingers
+            // landed, yanking the window to the month start. Every pin names BOTH axes,
+            // reading the missing one from the engine's own state (which the strip mirrors).
+            // onSetWeekScroll delivers weekOffset(week) = week·7·dayW in ENGINE content space —
+            // shift into the strip's month-local space. (fdow/dayW captured at mount: on the
+            // phone the focus month can't change while week view is up — flips are disabled —
+            // and any level change remounts this driver, re-capturing both.)
+            engine.onSetWeekScroll = { x in
+                p.wrappedValue.scrollTo(x: x - fdow * dayW, y: max(0, engine.tlScroll))
+            }
+            engine.onSetTlScroll = { y in
+                p.wrappedValue.scrollTo(x: min(max(engine.week * 7 * dayW - fdow * dayW, 0), maxX), y: y)
+            }
         }
         // A month-edge flip re-anchored focus/week — re-sync the strip to the new resting week.
         .onChange(of: engine.chrome.weekResync) { _, _ in
-            pos.scrollTo(x: engine.week * 7 * dayW)
+            pos.scrollTo(x: stripX(engine.week), y: max(0, engine.tlScroll))
+        }
+        // The mount-time restore can silently drop while the zoom blend is still settling (the
+        // PhoneYearDriver race, aggravated by mounting mid-gesture). No phase change can clear
+        // the guard while the pinch holds the drivers frozen — so once the fingers lift,
+        // re-issue any unlanded restore before the first real touch mirrors a stale offset.
+        .onChange(of: frozen) { _, f in
+            if !f, let t = pendingRestore {
+                pos.scrollTo(x: t.x, y: t.y)
+            }
         }
     }
 }
