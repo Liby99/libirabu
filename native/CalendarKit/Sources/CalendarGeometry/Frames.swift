@@ -327,9 +327,15 @@ public func dashScopePanels(_ g: SceneInput) -> (mask: CGFloat, a: DashPanel, b:
     if g.z <= 2 {
         guard pinned else { return nil }
         let t = easeInOut(clamp(g.z - 1, 0, 1))
+        // Pin open/close (dashPin < 1): the panels must RIDE the mask edge on/off screen, not sit
+        // at their resting positions while the mask windows over them (that clipped the content's
+        // left padding while opening, and a ⌘B/⌘E retract left the panel visually parked). Shift
+        // the whole assembly by the mask's distance from its fully-pinned position — zero at
+        // dashPin = 1, so the zoom-transition math is untouched.
+        let off = mask - lerp(mL, wL, t) // lerp(mL, wL, t) = the mask at dashPin = 1
         return (mask,
-                DashPanel(name: "month", x: lerp(mL, g.vp.w, t), w: wMonth, op: 1 - t),
-                DashPanel(name: "week", x: wL - (1 - t) * wWeek, w: wWeek, op: t))
+                DashPanel(name: "month", x: lerp(mL, g.vp.w, t) + off, w: wMonth, op: 1 - t),
+                DashPanel(name: "week", x: wL - (1 - t) * wWeek + off, w: wWeek, op: t))
     }
     let t = easeInOut(clamp(g.z - 2, 0, 1))
     if pinned {
