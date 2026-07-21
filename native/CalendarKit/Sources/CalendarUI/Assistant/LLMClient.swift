@@ -1,9 +1,9 @@
 // A thin OpenAI-compatible chat client — the native counterpart of the web app's
-// src/lib/llm/jhuGateway.ts. It POSTs OpenAI-format JSON to `{base}/compat/chat/completions`
+// the web app's gateway client. It POSTs OpenAI-format JSON to `{base}/compat/chat/completions`
 // with the Keychain bearer key and parses the reply.
 //
 // This is NOT a LiteLLM reimplementation: the agent loop, prompts, and guardrails are our own
-// application logic (ported separately). The client just speaks OpenAI-compat, so the JHU Gateway
+// application logic (ported separately). The client just speaks OpenAI-compat, so any OpenAI-compat gateway
 // works today and an external LiteLLM proxy can be swapped in later by changing only the base URL.
 // Non-streaming (the gateway beta doesn't stream) — the UI shows a typing indicator meanwhile.
 
@@ -60,7 +60,7 @@ enum LLMError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingKey:
-            return "No AI provider is configured. Pick one and press Test Connection in Settings → API Keys."
+            return "No AI provider is configured. Pick one and add its key in Settings → API Keys."
         case let .http(status, body):
             let trimmed = body.count > 300 ? String(body.prefix(300)) + "…" : body
             return "The assistant service returned an error (\(status)). \(trimmed)"
@@ -73,20 +73,19 @@ enum LLMError: LocalizedError {
 // ── Client ──────────────────────────────────────────────────────────────────────────
 
 enum LLMClient {
-    /// Default backend: the JHU WSE AI Gateway. Overridable via UserDefaults so an external
-    /// LiteLLM proxy (or any OpenAI-compat endpoint) is a config change, not a code change.
-    static let defaultBaseURL = "https://gateway.engineering.jhu.edu/gateway"
+    /// No built-in backend: the user types their gateway's base URL in Settings ▸ API Keys.
     static let baseURLKey = "cc.assistant.baseURL"
+    /// Legacy Keychain account id for the gateway key — the string predates the multi-provider
+    /// settings and is kept verbatim so existing stored keys migrate with zero touch.
     static let keychainAccount = "jhu-gateway"
 
     private static var baseURL: String {
-        let raw = UserDefaults.standard.string(forKey: baseURLKey) ?? defaultBaseURL
-        let trimmed = raw.hasSuffix("/") ? String(raw.dropLast()) : raw
-        return trimmed.isEmpty ? defaultBaseURL : trimmed
+        let raw = UserDefaults.standard.string(forKey: baseURLKey) ?? ""
+        return raw.hasSuffix("/") ? String(raw.dropLast()) : raw
     }
 
     /// One OpenAI-compat chat completion against an arbitrary endpoint (the gateway and OpenAI
-    /// adapters both route here). Retries transient failures, mirroring jhuGateway.ts.
+    /// adapters both route here). Retries transient failures, mirroring the web client.
     static func chatOpenAICompat(url: URL, headers: [String: String],
                                  messages: [ChatMessage], model: String, tools: [ToolDef] = [],
                                  temperature: Double = 1.0, maxTokens: Int = 2048) async throws -> ChatResponse {

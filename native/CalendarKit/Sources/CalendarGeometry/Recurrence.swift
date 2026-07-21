@@ -54,11 +54,30 @@ public func occKey(_ id: String, _ p: YMD) -> String {
 /// Exchange uids routinely contain `@` (e.g. `…@google.com`); splitting on the first `@` truncated those
 /// so the item couldn't be found and its drawer immediately closed.
 public func sourceId(of boxId: String) -> String {
-    let pat = "@[0-9]+-[0-9]+-[0-9]+(\(PROMOTED_SUFFIX)|\(SEGMENT_MARKER)[0-9]+)?$"
-    if let r = boxId.range(of: pat, options: .regularExpression) {
-        return String(boxId[..<r.lowerBound])
+    // Manual parse of the trailing `@Y-M-D(~p|#segN)?` — equivalent to matching
+    // `@[0-9]+-[0-9]+-[0-9]+(~p|#seg[0-9]+)?$`. This runs per box on every display-cache rebuild;
+    // an uncached `.regularExpression` search here re-prepared its pattern each call and dominated
+    // the week-swipe frame profile (62% of the main thread).
+    var s = boxId[...]
+    if s.hasSuffix(PROMOTED_SUFFIX) {
+        s = s.dropLast(PROMOTED_SUFFIX.count)
+    } else if let t = dropTrailingDigits(s), t.hasSuffix(SEGMENT_MARKER) {
+        s = t.dropLast(SEGMENT_MARKER.count)
     }
-    return boxId
+    guard let d = dropTrailingDigits(s), d.last == "-",
+          let m = dropTrailingDigits(d.dropLast()), m.last == "-",
+          let y = dropTrailingDigits(m.dropLast()), y.last == "@"
+    else { return boxId } // no full `@Y-M-D` suffix → a base box: the id IS the source id
+    return String(y.dropLast())
+}
+
+/// The substring left after removing a trailing run of ASCII digits, or nil when there is none.
+private func dropTrailingDigits(_ s: Substring) -> Substring? {
+    var t = s
+    while let c = t.last, ("0" ... "9").contains(c) {
+        t = t.dropLast()
+    }
+    return t.endIndex == s.endIndex ? nil : t
 }
 
 /// Marker appended to a PROMOTED band box id so it's a DISTINCT box from the timeline occurrence it
@@ -72,11 +91,14 @@ public let SEGMENT_MARKER = "#seg"
 /// The occurrence-DATE key for a box (strips the promoted + segment markers) — so a promoted bar, a
 /// month-crossing tail segment, and the timeline occurrence all resolve to the same per-occurrence date.
 public func occurrenceKey(of boxId: String) -> String {
-    var s = boxId
-    if let r = s.range(of: "\(SEGMENT_MARKER)[0-9]+$", options: .regularExpression) {
-        s = String(s[..<r.lowerBound])
+    var s = boxId[...]
+    if let t = dropTrailingDigits(s), t.hasSuffix(SEGMENT_MARKER) { // `#segN$`, sans regex (hot path)
+        s = t.dropLast(SEGMENT_MARKER.count)
     }
-    return s.hasSuffix(PROMOTED_SUFFIX) ? String(s.dropLast(PROMOTED_SUFFIX.count)) : s
+    if s.hasSuffix(PROMOTED_SUFFIX) {
+        s = s.dropLast(PROMOTED_SUFFIX.count)
+    }
+    return s.endIndex == boxId.endIndex ? boxId : String(s)
 }
 
 /// Provenance/kind markers shown as tiny glyphs on an event box (see the overlay). Derived per box

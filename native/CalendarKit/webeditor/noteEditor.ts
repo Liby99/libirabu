@@ -4,8 +4,8 @@
 // rehype-katex) as NotesPreview. Host wires the callbacks to its own Swift bridge.
 
 import { EditorView, keymap, placeholder as cmPlaceholder, drawSelection } from "@codemirror/view";
-import { EditorState, Prec } from "@codemirror/state";
-import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
+import { Compartment, EditorState, Prec } from "@codemirror/state";
+import { history, defaultKeymap, historyKeymap, indentMore, indentLess } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
@@ -18,6 +18,7 @@ import remarkRehype from "remark-rehype";
 import rehypeKatex from "rehype-katex";
 import rehypeStringify from "rehype-stringify";
 import remarkTodoTokens from "../../../src/app/calendar/view/notes/remarkTodoTokens";
+import { linesNeedingCreated } from "../../../src/lib/assistant/tools/todos";
 import { splitNote, parseManaged } from "../../../src/lib/import/managedNote";
 
 const MONO = "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)";
@@ -95,11 +96,18 @@ export function renderMarkdown(src: string): string {
 
 export const TASK_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
 
+/** Wall-clock `created:` stamp — floating local time, minute precision (like the app's times). */
+function localStamp(): string {
+  const d = new Date(), p2 = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
 export interface NoteEditorHandle {
   setValue(v: string): void;
   setMode(mode: "edit" | "preview"): void;
   focus(): void;
   setCursorLine(line: number): void;
+  setPlaceholder(text: string): void;   // scope-aware empty-note hint (Daily/Weekly/Monthly)
 }
 export interface NoteEditorOpts {
   editorEl: HTMLElement;
@@ -110,11 +118,36 @@ export interface NoteEditorOpts {
   onOpenLink: (url: string) => void;     // ⌘-click a link
   onEditAt: (line: number) => void;      // ⌘-click a preview block → edit at that line
   onExit?: () => void;                   // Escape in the editor → hand focus back to the host
+  emptyPreview?: () => string;           // HTML for preview mode when the note is empty (else blank)
 }
 
 export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
   const { editorEl, previewEl } = o;
   let applyingRemote = false;   // suppress the change echo while the host sets the value
+  let sessionDirty = false;     // the user edited THIS note since it was loaded / last stamped
+  const phComp = new Compartment();   // placeholder is retargetable (setPlaceholder) per scope
+
+  // ── "Start time marking" ───────────────────────────────────────────────────────────────────────
+  // When an editing session ends (Esc / ⌘S / focus loss / switch to preview), every TOP-LEVEL task
+  // line without a `created:` token gets one, stamped with the session-end wall clock. Guarded by
+  // `sessionDirty` so merely opening or previewing a note never back-stamps old items — only notes
+  // the user actually edited. Per-line insertions through the view keep undo history + the cursor
+  // intact, and the normal updateListener → onChange path persists the rewrite.
+  function stampCreated() {
+    if (!sessionDirty) return;
+    const doc = view.state.doc;
+    const lines = linesNeedingCreated(doc.toString());
+    if (lines.length) {
+      const stamp = ` created:${localStamp()}`;
+      view.dispatch({
+        changes: lines.map((n) => {
+          const ln = doc.line(n);
+          return { from: ln.from + ln.text.replace(/\s+$/, "").length, to: ln.to, insert: stamp };
+        }),
+      });
+    }
+    sessionDirty = false;   // after the dispatch — its own change re-marks dirty, so clear last
+  }
 
   const openLinks = EditorView.domEventHandlers({
     mousedown(e, view) {
@@ -135,7 +168,10 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
       doc: "",
       extensions: [
         history(),
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        // Tab/⇧Tab indent/outdent the line(s) — never native focus traversal; nested `- [ ]` items are
+        // how sub-tasks are made. Enter already continues list/task markers (markdown()'s own keymap)
+        // and ⌥↑/⌥↓ move lines, ⌘←/→ jump line bounds (defaultKeymap).
+        keymap.of([{ key: "Tab", run: indentMore, shift: indentLess }, ...defaultKeymap, ...historyKeymap]),
         drawSelection(),
         EditorView.lineWrapping,
         markdown(),
@@ -143,12 +179,14 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
         mdHighlight,
         openLinks,
         Prec.highest(keymap.of([
-          { key: "Mod-s", preventDefault: true, stopPropagation: true, run: () => { o.onPreview(); return true; } },
-          { key: "Escape", preventDefault: true, stopPropagation: true, run: () => { o.onExit?.(); return true; } },
+          { key: "Mod-s", preventDefault: true, stopPropagation: true, run: () => { stampCreated(); o.onPreview(); return true; } },
+          { key: "Escape", preventDefault: true, stopPropagation: true, run: () => { stampCreated(); o.onExit?.(); return true; } },
         ])),
-        cmPlaceholder(o.placeholder ?? "Something to note…"),
+        // Focus loss (clicking away, tabbing out, the overlay hiding) also ends the session.
+        EditorView.domEventHandlers({ blur: () => { stampCreated(); return false; } }),
+        phComp.of(cmPlaceholder(o.placeholder ?? "Something to note…")),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged && !applyingRemote) o.onChange(u.state.doc.toString());
+          if (u.docChanged && !applyingRemote) { sessionDirty = true; o.onChange(u.state.doc.toString()); }
         }),
       ],
     }),
@@ -156,6 +194,7 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
 
   function renderPreview() {
     const src = view.state.doc.toString();
+    if (!src.trim() && o.emptyPreview) { previewEl.innerHTML = o.emptyPreview(); return; }
     try { previewEl.innerHTML = renderMarkdown(src); }   // managed block → key:value table (§7)
     catch { previewEl.textContent = src; return; }
     const taskLines: number[] = [];
@@ -188,18 +227,22 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
   });
 
   return {
+    setPlaceholder(text: string) {
+      view.dispatch({ effects: phComp.reconfigure(cmPlaceholder(text)) });
+    },
     setValue(v: string) {
       if (v === view.state.doc.toString()) return;
       applyingRemote = true;
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } });
       applyingRemote = false;
+      sessionDirty = false;   // a host-driven swap starts a fresh session for the new note
       if (previewEl.style.display !== "none") renderPreview();
     },
     setMode(mode: "edit" | "preview") {
       const edit = mode === "edit";
       editorEl.style.display = edit ? "" : "none";
       previewEl.style.display = edit ? "none" : "";
-      if (!edit) renderPreview();
+      if (!edit) { stampCreated(); renderPreview(); }
       // CodeMirror measures its scroll geometry lazily; if it was built while the tab was hidden
       // (display:none) it has stale/zero metrics and won't scroll. Re-measure whenever it's shown.
       else queueMicrotask(() => { view.requestMeasure(); view.focus(); });

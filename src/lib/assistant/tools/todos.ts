@@ -42,12 +42,19 @@ export const TZ_RE = /(^|\s)tz:(AOE|[A-Za-z][\w/+-]*)(?=\s|$)/;
 export const COLOR_RE = /(^|\s)color:([\w-]+)(?=\s|$)/;
 /** `done:YYYY-MM-DD` — completion timestamp, with an optional `THH:MM[:SS]` (auto-stamped on tick). */
 export const DONE_RE = /(^|\s)done:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
+/** `created:YYYY-MM-DD[THH:MM[:SS]]` — "start time marking": when the item entered the list
+ *  (auto-stamped on the top-level items of an edited note when the editing session ends). */
+export const CREATED_RE = /(^|\s)created:(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)(?=\s|$)/;
 /**
  * `followup:30d` (a duration off the event's END date) or `followup:2026-7-31` (a literal date,
  * loosely formatted). Resolves to a follow-up date that acts as a due date but is surfaced as
  * "Remember to Followup" — and counts as overdue once it passes. Duration units: d/w/m/y.
  */
 export const FOLLOWUP_RE = /(^|\s)followup:(\d+[dwmy]|\d{4}-\d{1,2}-\d{1,2})(?=\s|$)/;
+/** `project:name` — the project this item belongs to. The name is STRICTLY letters/digits/
+ *  underscore/dash (anything else fails the match and the text is left untouched). Sugar for
+ *  `@project:name` — both land in `entities.project` / `ParsedTodo.projects`. */
+export const PROJECT_RE = /(^|\s)project:([A-Za-z0-9_-]+)(?=\s|$)/;
 /** `#slug` — additional tag. Slug is `[\w][\w-]*`. */
 export const TAG_RE = /(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)/;
 /** `@slug` (bare = person) or `@type:slug` (project/funding/… — extensible without new sigils). */
@@ -74,6 +81,7 @@ export interface LineTokens {
   start?: string;
   color?: string;
   done?: string; // completion date token (distinct from the checkbox state)
+  created?: string; // `created:` stamp — when the item entered the list (session-end auto-stamp)
   followup?: string; // raw followup token value: a duration ("30d") or a loose date ("2026-7-31")
   tags: string[];
   entities: Record<string, string[]>; // @type:slug refs keyed by type ("person" for bare @)
@@ -101,6 +109,7 @@ export interface ParsedTodo {
 
   done: boolean; // from the checkbox `[x]`
   doneDate?: string; // from a `done:` token, if present
+  created?: string; // from a `created:` token — when the item entered the list
 
   // provenance + soft-link anchor: which note, which line. Editing this TODO rewrites exactly this line.
   source: "event" | "daily"; // an event's note, or a day's "daily note" (the dashboard NOTE tab)
@@ -110,6 +119,10 @@ export interface ParsedTodo {
   occurrenceKey: string | null; // event source: key into occurrenceNotes, else null
   dailyDate?: string; // daily source: the note's date "YYYY-MM-DD" (the soft-link anchor)
   line: number; // 1-based line number within that note
+
+  // Nesting: a task line indented under a preceding, less-indented task line is its child.
+  indent: number; // nesting depth: 0 = top-level, 1 = child, 2 = grandchild, …
+  parentLine: number | null; // 1-based line of the parent task within the same note; null for a root
 
   priority?: number; // 1–5
   due?: string; // line `due:` else the event's date
@@ -164,6 +177,7 @@ export function tokenizeLine(input: string): LineTokens {
   let start: string | undefined;
   let color: string | undefined;
   let done: string | undefined;
+  let created: string | undefined;
   let followup: string | undefined;
 
   let text = input;
@@ -189,9 +203,14 @@ export function tokenizeLine(input: string): LineTokens {
   text = text.replace(TZ_RE, (_m, _l: string, v: string) => { if (tz === undefined) tz = v; return " "; });
   text = text.replace(COLOR_RE, (_m, _l: string, v: string) => { if (color === undefined) color = v; return " "; });
   text = text.replace(DONE_RE, (_m, _l: string, v: string) => { if (done === undefined) done = v; return " "; });
+  text = text.replace(CREATED_RE, (_m, _l: string, v: string) => { if (created === undefined) created = v; return " "; });
   text = text.replace(FOLLOWUP_RE, (_m, _l: string, v: string) => { if (followup === undefined) followup = v; return " "; });
 
-  // 4) Multi-valued sigil refs.
+  // 4) Multi-valued refs. `project:` first (sugar for `@project:`; same bucket), then the sigils.
+  text = text.replace(new RegExp(PROJECT_RE, "g"), (_m, _l: string, slug: string) => {
+    pushEntity(entities, "project", slug);
+    return " ";
+  });
   text = text.replace(new RegExp(TAG_RE, "g"), (_m, _l: string, slug: string) => { tags.push(slug); return " "; });
   text = text.replace(new RegExp(ENTITY_RE, "g"), (_m, _l: string, type: string | undefined, slug: string) => {
     pushEntity(entities, type ?? "person", slug);
@@ -199,7 +218,7 @@ export function tokenizeLine(input: string): LineTokens {
   });
 
   text = text.replace(/\s+/g, " ").trim();
-  return { text, priority, due, tz, start, color, done, followup, tags, entities, links };
+  return { text, priority, due, tz, start, color, done, created, followup, tags, entities, links };
 }
 
 // ── followup: resolution (duration off the event end, or a literal loose date) ──────────────────
@@ -267,7 +286,59 @@ interface TodoContext {
   originTz?: string | null; // deadline origin tz (for the inherited due tz)
 }
 
-function buildTodoFrom(ctx: TodoContext, line: number, raw: string, done: boolean, tok: LineTokens, today: string | undefined): ParsedTodo {
+/** One checkbox line as found by `scanTaskLines`: tokens + its place in the nesting structure. */
+interface ScannedTask {
+  line: number; // 1-based line number within the note
+  raw: string; // the full source line, verbatim
+  done: boolean; // checkbox state
+  tok: LineTokens;
+  depth: number; // 0 = top-level
+  parentLine: number | null; // parent task's line, null for a root
+}
+
+/** Indent width of a line's leading whitespace, in columns (a tab counts as 4). */
+function indentWidth(line: string): number {
+  let w = 0;
+  for (const ch of line) {
+    if (ch === " ") w += 1;
+    else if (ch === "\t") w += 4;
+    else break;
+  }
+  return w;
+}
+
+/**
+ * Walk a note's checkbox lines tracking NESTING: a task line indented deeper than the nearest
+ * preceding task line is its child (`- [ ] parent` / `  - [ ] child`). The parent chain is an
+ * indent stack; a non-blank, non-task line pops the chain back to its own indent — so top-level
+ * prose between lists breaks nesting, but a wrapped continuation line indented under its item
+ * keeps it. Blank lines never break the chain (loose lists). Empty checkbox lines (`- [ ]` with
+ * no task text) are skipped and never parent anything.
+ */
+function scanTaskLines(notes: string, visit: (t: ScannedTask) => void): void {
+  const lines = notes.split("\n");
+  const stack: { width: number; line: number; depth: number }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(TASK_LINE_RE);
+    if (!m) {
+      if (lines[i].trim() === "") continue;
+      const w = indentWidth(lines[i]);
+      while (stack.length && stack[stack.length - 1].width >= w) stack.pop();
+      continue;
+    }
+    const tok = tokenizeLine(m[3]);
+    if (tok.text === "") continue; // skip empty checkbox lines (`- [ ]` with no task text)
+    const width = indentWidth(m[1]);
+    while (stack.length && stack[stack.length - 1].width >= width) stack.pop();
+    const top = stack.length ? stack[stack.length - 1] : undefined;
+    const depth = top ? top.depth + 1 : 0;
+    visit({ line: i + 1, raw: lines[i], done: m[2].toLowerCase() === "x", tok, depth, parentLine: top?.line ?? null });
+    stack.push({ width, line: i + 1, depth });
+  }
+}
+
+function buildTodoFrom(ctx: TodoContext, t: ScannedTask, today: string | undefined): ParsedTodo {
+  const { line, raw, done, tok, depth, parentLine } = t;
   const entities = tok.entities;
   // Resolve a line `due:`/`start:` (which may be a keyword/offset) to a concrete date.
   const dueTok = tok.due ? resolveDateToken(tok.due, today) : undefined;
@@ -290,6 +361,7 @@ function buildTodoFrom(ctx: TodoContext, line: number, raw: string, done: boolea
     text: tok.text,
     done,
     doneDate: tok.done,
+    created: tok.created,
     source: ctx.source,
     eventId: ctx.eventId,
     eventTitle: ctx.eventTitle,
@@ -297,6 +369,8 @@ function buildTodoFrom(ctx: TodoContext, line: number, raw: string, done: boolea
     occurrenceKey: ctx.occurrenceKey,
     dailyDate: ctx.dailyDate,
     line,
+    indent: depth,
+    parentLine,
     priority: tok.priority,
     due,
     dueTz,
@@ -325,20 +399,12 @@ export function parseTodos(event: TodoEventContext, today?: string): ParsedTodo[
 
   const scan = (notes: string | null | undefined, occurrenceKey: string | null, eventDate: string, eventEndDate: string) => {
     if (!notes) return;
-    const lines = notes.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(TASK_LINE_RE);
-      if (!m) continue;
-      const tok = tokenizeLine(m[3]);
-      if (tok.text === "") continue; // skip empty checkbox lines (`- [ ]` with no task text)
-      const done = m[2].toLowerCase() === "x";
-      const ctx: TodoContext = {
-        source: "event", eventId: event.id, eventTitle: event.title, eventKind: event.kind,
-        occurrenceKey, inheritDate: eventDate, inheritEndDate: eventEndDate,
-        inheritColor: event.color, inheritTags: event.tags, originTz: event.originTz,
-      };
-      out.push(buildTodoFrom(ctx, i + 1, lines[i], done, tok, today));
-    }
+    const ctx: TodoContext = {
+      source: "event", eventId: event.id, eventTitle: event.title, eventKind: event.kind,
+      occurrenceKey, inheritDate: eventDate, inheritEndDate: eventEndDate,
+      inheritColor: event.color, inheritTags: event.tags, originTz: event.originTz,
+    };
+    scanTaskLines(notes, (t) => out.push(buildTodoFrom(ctx, t, today)));
   };
 
   // Base note inherits the event's start date (default due) and end date (followup base); a
@@ -358,20 +424,12 @@ export function parseTodos(event: TodoEventContext, today?: string): ParsedTodo[
 export function parseDailyNoteTodos(date: string, notes: string | null | undefined, today?: string): ParsedTodo[] {
   if (!notes) return [];
   const out: ParsedTodo[] = [];
-  const lines = notes.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(TASK_LINE_RE);
-    if (!m) continue;
-    const tok = tokenizeLine(m[3]);
-    if (tok.text === "") continue;
-    const done = m[2].toLowerCase() === "x";
-    const ctx: TodoContext = {
-      source: "daily", eventId: "", eventTitle: `Daily note · ${date}`, eventKind: "daily",
-      occurrenceKey: null, dailyDate: date, inheritDate: date, inheritEndDate: date,
-      inheritColor: "default", inheritTags: [],
-    };
-    out.push(buildTodoFrom(ctx, i + 1, lines[i], done, tok, today));
-  }
+  const ctx: TodoContext = {
+    source: "daily", eventId: "", eventTitle: `Daily note · ${date}`, eventKind: "daily",
+    occurrenceKey: null, dailyDate: date, inheritDate: date, inheritEndDate: date,
+    inheritColor: "default", inheritTags: [],
+  };
+  scanTaskLines(notes, (t) => out.push(buildTodoFrom(ctx, t, today)));
   return out;
 }
 
@@ -411,6 +469,20 @@ export function compareTodos(a: ParsedTodo, b: ParsedTodo): number {
  * no-op, or `null` on a stale anchor (line gone / no longer a task line) so the caller can reject
  * rather than corrupt the note.
  */
+/**
+ * "Start time marking": the 1-based line numbers of every TOP-LEVEL task line (with real task text)
+ * that has no `created:` token yet. When a note-editing session ends, the editor appends
+ * `created:<wall-clock stamp>` to exactly these lines. Sub-items are deliberately left alone —
+ * they belong to their parent's session.
+ */
+export function linesNeedingCreated(noteText: string): number[] {
+  const out: number[] = [];
+  scanTaskLines(noteText, (t) => {
+    if (t.depth === 0 && !t.tok.created) out.push(t.line);
+  });
+  return out;
+}
+
 export function toggleTodoLine(noteText: string, line: number, checked?: boolean, stamp?: string): string | null {
   const lines = noteText.split("\n");
   const cur = lines[line - 1];

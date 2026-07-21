@@ -34,7 +34,7 @@ public func monthAtPoint(_ px: CGFloat, _ py: CGFloat, _ g: SceneInput) -> Int? 
 
 /// Month: which (Sunday-aligned) week of the focused month is under the cursor.
 public func weekAtPointInMonth(_ px: CGFloat, _ g: SceneInput) -> Int? {
-    let geo = focusGeom(g.vp, mx: g.monthQX)
+    let geo = focusGeom(g.vp, mx: g.monthQX, pin: g.dashPin, monthFrac: g.dashMonthFrac)
     let dim = daysInMonth(g.year, g.focus)
     if px < geo.x0 || px > geo.x0 + CGFloat(dim) * geo.dayW {
         return nil
@@ -71,7 +71,7 @@ public func domInMonthBand(_ px: CGFloat, _ m: Int, _ g: SceneInput) -> Int? {
 
 /// Month (hover): day-of-month under the cursor in the focused month.
 public func domInFocus(_ px: CGFloat, _ g: SceneInput) -> Int? {
-    let geo = focusGeom(g.vp, mx: g.monthQX)
+    let geo = focusGeom(g.vp, mx: g.monthQX, pin: g.dashPin, monthFrac: g.dashMonthFrac)
     let dim = daysInMonth(g.year, g.focus)
     if px < geo.x0 || px > geo.x0 + CGFloat(dim) * geo.dayW {
         return nil

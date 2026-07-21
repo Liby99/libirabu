@@ -224,6 +224,31 @@ public struct SceneInput: Sendable, Equatable {
     /// overflow into one scroll; desktop: always 0). Same shift model as yearQX.
     public var monthQX: CGFloat
 
+    /// Pinned (⌘B) weekly/monthly dashboard: 0 = retracted, 1 = out, animated on toggle. Drives
+    /// the panel reveal at month/week zoom AND the week/month grid squeeze (the whole week/month
+    /// stays visible, compressed left of the panel). Day view forces the panel regardless.
+    public var dashPin: CGFloat = 0
+    /// Per-scope pinned panel widths (fractions of the content area), persisted user prefs: the
+    /// daily split is `daily.frac`; these cover week and month. Generally day > week > month —
+    /// the panel MORPHS between them as the zoom crosses scopes (see dashboardLeftAnimated).
+    public var dashWeekFrac: CGFloat = 0.35
+    public var dashMonthFrac: CGFloat = 0.25
+    /// Engine-driven override of the weekly-dashboard carousel (big-fling cruise, interception
+    /// freeze, release settle). nil → the pure wed→thu band mapping of `week` applies.
+    public var weekDash: WeekDashOverride?
+
+    /// Weekly-dashboard carousel override: a fixed pair of week indexes + live progress, taking
+    /// over from the band mapping while a week glide cruises / a caught glide is frozen / a
+    /// release settles. Week indexes are month-relative (like `week`) and may spill outside.
+    public struct WeekDashOverride: Equatable, Sendable {
+        public var from: Int // week index of panel A
+        public var to: Int // week index of panel B
+        public var p: CGFloat // carousel progress between them (0 = A at rest … 1 = B at rest)
+        public init(from: Int, to: Int, p: CGFloat) {
+            self.from = from; self.to = to; self.p = p
+        }
+    }
+
     /// Month `m`'s quarter scroll offset (safe on a short/empty array).
     public func qx(_ m: Int) -> CGFloat {
         let q = m / 3

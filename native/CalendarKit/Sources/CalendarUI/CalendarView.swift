@@ -247,6 +247,12 @@ public struct CalendarView: View {
                 } else if stop == .note {
                     tabBinding.wrappedValue = .note
                 }
+                // TODO focus (or focus leaving the dashboard): the arrows/keys belong to the
+                // CALENDAR's key system — if the web view holds first responder (e.g. the note
+                // editor was just being edited when ⌘B fired), keys would never reach it.
+                if stop != .note {
+                    carousel.regateWebFocus()
+                }
                 carousel.navFocus(stop)
             case let .move(d): carousel.navMove(d)
             case .activate: // Space/Enter: note → focus the editor; todo → toggle the row
@@ -256,6 +262,8 @@ public struct CalendarView: View {
                     carousel.navActivate()
                 }
             case .open: carousel.navOpen()
+            case let .fold(open): carousel.navFold(open)
+            case let .editNote(ring): carousel.focusNoteEditor(ring: ring)
             }
             engine.wake()
         }
@@ -408,6 +416,11 @@ public struct CalendarView: View {
                     }
                 }
             }
+            // 4b. time tags ABOVE the chrome: the CURRENT TIME pill + cursor time tag render over the
+            // gutter hour labels/borders, so their frosted glass blurs the labels instead of the
+            // labels drawing crisp across the tag (the day-view left-gutter collision).
+            TimeTagsOverlay(input: input, theme: theme)
+                .offset(x: Layout.padLeft)
             // Keyboard-navigation cursor (dashed sliding ring).
             CursorRing(rect: engine.blockCursorRect(), theme: theme, cornerRadius: 6,
                        geometryAnimating: engine.isAnimating)
@@ -448,13 +461,89 @@ public struct CalendarView: View {
             }
             // Per-frame day-carousel driver for the dashboard WebView (invisible). Carries {from,to,dir,p}
             // for day paging and `reveal` for the panel's slide-in-from-right + fade. Week level up.
-            if input.z > 1.5 {
+            if input.z > 1.5 || input.dashPin > 0.01 {
                 let c = engine.dashboardCarousel()
-                let lOpen = Layout.labelW + dashFrac * max(1, vp.w - Layout.labelW)
+                // The webview frame sits at the DAY split in day view, at the narrower PINNED edge
+                // at month/week — normalize the CSS slide against whichever frame is in use.
+                let dayLOpen = Layout.labelW + dashFrac * max(1, vp.w - Layout.labelW)
+                let pinLOpen = engine.chrome.level <= 1
+                    ? vp.w - dashMonthPanelW(vp, frac: engine.chrome.dashMonthFrac)
+                    : vp.w - engine.chrome.dashWeekFrac * (vp.w - Layout.labelW)
+                // dashPresented (not dashPinned): stays true through the ⌘B retract tween, so the
+                // slide normalizes against the PINNED edge while the content rides off with it.
+                let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPresented) ? pinLOpen : dayLOpen
                 let wvW = max(1, vp.w - lOpen)
                 let slide = min(1, max(0, Double((dashboardLeftAnimated(input) - lOpen) / wvW)))
+                // Zoom-scope carousel: pure function of z (mirrors SceneRenderer's scopePair) —
+                // the finer scope enters from the LEFT zooming in, returns from the RIGHT out.
+                let (sA, sB, sT): (String, String, Double) = input.z >= 2
+                    ? ("week", "day", Double(easeInOut(clamp(input.z - 2, 0, 1))))
+                    : (input.z >= 1
+                        ? ("month", "week", Double(easeInOut(clamp(input.z - 1, 0, 1))))
+                        : ("month", "month", 0))
+                // Header anchor: the focused band's animated frame (accordion + page-turns) keeps
+                // the Canvas header, native tabs, and webview content vertically in lock-step.
+                let fHeader = frameFor(input.focus, input, anim: input.monthAnim)
+                // The INCOMING month's band frame during a page-turn (tabs ride both headers).
+                let fHeader2 = input.monthAnim.map { a in
+                    frameFor(input.focus + a.dir, input, anim: input.monthAnim)
+                } ?? fHeader
+                // The webview's own vertical shift excludes page-turns (its month LAYER carousels
+                // those internally) — so compute the accordion-only frame.
+                let fRest = frameFor(input.focus, input)
+                let (mFrom, mTo, mDir, mP): (String, String, Int, Double) = {
+                    guard let a = input.monthAnim else { return (MONTH_LONG[input.focus], "", 0, 0) }
+                    let toM = input.focus + a.dir
+                    return (MONTH_LONG[input.focus],
+                            (0 ... 11).contains(toM) ? MONTH_LONG[toM] : "",
+                            a.dir, Double(a.p))
+                }()
+                // Machine keys for the monthly-note store + content filters ("YYYY-MM").
+                let mKeyA = String(format: "%04d-%02d", input.year, input.focus + 1)
+                let mKeyB: String = {
+                    guard let a = input.monthAnim, (0 ... 11).contains(input.focus + a.dir)
+                    else { return "" }
+                    return String(format: "%04d-%02d", input.year, input.focus + a.dir + 1)
+                }()
+                // Week-to-week carousel (weekly dashboard): driven by the continuous week
+                // scroll — the SAME function the Canvas week header draws with.
+                let wt = weekDashTurn(input)
+                // Per-panel geometry from the SAME function the Canvas header draws with
+                // (dashScopePanels) — mask + each panel's own (left, width, opacity), converted to
+                // the webview's frame-local coordinates (the frame spans the full content region,
+                // left edge at labelW, and never moves — no level-boundary snap).
+                let scopeGeom = dashScopePanels(input)
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
-                               dir: c.dir, p: c.p, reveal: c.reveal, slide: slide)
+                               dir: c.dir, p: c.p, reveal: c.reveal, slide: slide,
+                               scopeA: sA, scopeB: sB, scopeT: sT,
+                               headerTopY: Double(fHeader.bandY),
+                               headerTopY2: Double(fHeader2.bandY),
+                               panelLeft: Double(dashboardLeftAnimated(input)),
+                               webDy: Double(fRest.bandY - Layout.topPad),
+                               mFrom: mFrom, mTo: mTo, mDir: mDir, mP: mP,
+                               // Month-turn PIXEL offsets for the webview sub-panels, relative to the
+                               // resting frame (the root already carries the accordion dy): each
+                               // sub-panel rides its band's frame EXACTLY — same staggered easing,
+                               // same asymmetric travel as the Canvas header. Native is the standard.
+                               mDy0: Double(fHeader.bandY - fRest.bandY),
+                               mDy1: Double(fHeader2.bandY - fRest.bandY),
+                               mKeyA: mKeyA, mKeyB: mKeyB,
+                               wFrom: wt.from, wTo: wt.to, wP: Double(wt.p),
+                               wKeyA: wt.fromKey, wKeyB: wt.toKey,
+                               maskX: Double((scopeGeom?.mask ?? vp.w) - Layout.labelW),
+                               maskW: Double(vp.w - (scopeGeom?.mask ?? vp.w)),
+                               aName: scopeGeom?.a.name ?? "",
+                               aX: Double((scopeGeom?.a.x ?? 0) - Layout.labelW),
+                               aW: Double(scopeGeom?.a.w ?? 0),
+                               aOp: Double(scopeGeom?.a.op ?? 0),
+                               bName: scopeGeom?.b?.name ?? "",
+                               bX: Double((scopeGeom?.b?.x ?? 0) - Layout.labelW),
+                               bW: Double(scopeGeom?.b?.w ?? 0),
+                               bOp: Double(scopeGeom?.b?.op ?? 0),
+                               // Drawer canvas-shift (week/month; 0 at day): the webview content rides
+                               // the same slide the scene gets via .offset(-drawerShift), so the pinned
+                               // panel moves WITH the canvas instead of sitting still under the drawer.
+                               shiftX: Double(engine.drawerShift))
                     .frame(width: 0, height: 0)
             }
         }
@@ -555,7 +644,10 @@ public struct CalendarView: View {
                             DailyDashboardOverlay(engine: engine, carousel: dashCarousel,
                                                   forwarder: gestureForwarder,
                                                   tab: $dashTab, noteMode: $noteMode,
-                                                  inactive: ui.openEventId != nil && engine.chrome.level == 3,
+                                                  // Drawer open → in-page scrim (SwiftUI blur can't reach the
+                                                  // WKWebView layer): day view AND the pinned week/month panels.
+                                                  inactive: ui.openEventId != nil && (engine.chrome.level == 3
+                                                      || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level))),
                                                   frac: dashFrac, vp: vp,
                                                   containerWidth: geo.size.width, height: geo.size.height, theme: theme,
                                                   onOpen: { ui.openEventId = sourceId(of: $0) },
@@ -564,7 +656,8 @@ public struct CalendarView: View {
                                                   onNavTab: { fwd in engine.tabCursor(fwd) })
                                 // Stay hit-testable while the drawer is open so the in-page scrim can intercept +
                                 // close (the WKWebView layer ignores the SwiftUI scrim/allowsHitTesting anyway).
-                                .allowsHitTesting(engine.chrome.level == 3)
+                                .allowsHitTesting(engine.chrome.level == 3
+                                    || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)))
                         }
                     }
                     // TODO/NOTE tabs + note edit/preview toggle — SEPARATE overlays ABOVE the WebView so the
@@ -585,7 +678,9 @@ public struct CalendarView: View {
                     // so it grabs the mouse in its narrow zone (the rest passes through). Shown in day view;
                     // reads chrome.level (@Observable) so it appears/disappears as you zoom.
                     .overlay {
-                        if engine.chrome.level == 3, ui.openEventId == nil {
+                        if engine.chrome.level == 3
+                            || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)),
+                            ui.openEventId == nil {
                             DashboardSplitHandle(engine: engine, vp: vp, height: geo.size.height, theme: theme,
                                                  onFrac: { dashFrac = $0 })
                         }
@@ -736,6 +831,7 @@ public struct CalendarView: View {
                     .onChange(of: geo.size) { _, s in engine.setViewport(s) }
                     .onChange(of: ui.openEventId) { _, v in
                         engine.drawerOpen = v != nil
+                        engine.chrome.drawerOpen = v != nil
                         if let id = v {
                             engine.onHoverExit() // clear any lingering highlight now
                             engine.openDrawerShift(id: id, drawerWidth: drawerWidth)
@@ -791,7 +887,8 @@ public struct CalendarView: View {
                     }
                     // View-menu prefs (show-hidden / timezone pickers), the prefs-changed notification, and
                     // the tag-filter toggle — bundled into one modifier (see the type-check note above).
-                    .modifier(ViewPrefObservers(engine: engine, showTagFilter: $showTagFilter))
+                    .modifier(ViewPrefObservers(engine: engine, showTagFilter: $showTagFilter,
+                                                ui: ui, dashTab: $dashTab, carousel: dashCarousel))
             }
             .ignoresSafeArea()
             // Search overlays — siblings inside the ZStack, so they respect the toolbar safe-area inset
@@ -901,6 +998,9 @@ public struct CalendarView: View {
 private struct ViewPrefObservers: ViewModifier {
     let engine: CalendarEngine
     @Binding var showTagFilter: Bool
+    var ui: CalendarUIState
+    @Binding var dashTab: DashTab
+    var carousel: DashboardCarousel
     @AppStorage(PrefKeys.showHiddenImported) private var showHidden = false
     @AppStorage(PrefKeys.mainTz) private var mainTz = "auto"
     @AppStorage(PrefKeys.altTz) private var altTz = "none"
@@ -915,5 +1015,50 @@ private struct ViewPrefObservers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .toggleTagFilter)) { _ in
                 showTagFilter.toggle()   // View ▸ Filter by Tags (menu item, either shell)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .focusDashTodo)) { _ in
+                dashHotkey(.todo)        // View ▸ TODO List (⌘B)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .focusDashNote)) { _ in
+                dashHotkey(.note)        // View ▸ Note Editor (⌘E)
+            }
+    }
+
+    /// ⌘B / ⌘E — two sides of one coin: focus the dashboard's TODO / NOTE tab.
+    /// Day view: switch + keyboard-focus the tab (⌘E lands in the markdown editor).
+    /// Month/week: closed → open the panel on that tab; open on the other tab → flip to it;
+    /// already open on that tab → retract the panel. No-op at year or under the drawer.
+    private func dashHotkey(_ stop: DashTab) {
+        guard ui.openEventId == nil else { return }
+        switch engine.chrome.level {
+        case 3:
+            dashTab = stop
+            engine.dashFocusEntry(stop == .todo ? .todo : .note)
+        case 1, 2:
+            if !engine.dashPinned {
+                engine.toggleDashPin()
+                dashTab = stop
+                focusWeekMonthTab(stop)
+            } else if dashTab != stop {
+                dashTab = stop
+                focusWeekMonthTab(stop)
+                engine.wake()
+            } else {
+                engine.toggleDashPin() // already on that tab → retract
+                carousel.regateWebFocus()
+            }
+        default:
+            break
+        }
+    }
+
+    /// Week/month landing focus: ⌘E puts the caret in the live note editor (CK.noteEdit retries
+    /// until the overlay is revealed, so this works through the opening tween); ⌘B hands key
+    /// focus back to the calendar (the web view must not keep eating keys).
+    private func focusWeekMonthTab(_ stop: DashTab) {
+        if stop == .note {
+            carousel.focusNoteEditor()
+        } else {
+            carousel.regateWebFocus()
+        }
     }
 }

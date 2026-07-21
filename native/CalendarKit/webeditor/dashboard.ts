@@ -24,12 +24,41 @@ let today = "";
 // per render. Everything's already in memory here, so this is a cheap flatMap over a few hundred notes.
 let allTodos: ParsedTodo[] = [];
 let todosDirty = true;                     // set on any note/event change; rebuilt lazily when shown
+// Weekly/monthly notes live in the SAME persisted notes map under prefixed keys — the storage,
+// backup, and sync layers treat keys as opaque, so scope notes ride the daily-note pipeline.
+const weekNoteKey = (sunIso: string) => `week:${sunIso}`;       // sunIso = the week's Sunday
+const monthNoteKey = (ym: string) => `month:${ym}`;             // ym = "YYYY-MM"
+function monthEndIso(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+}
+// A scope note's `- [ ]` lines join the global TODO index like daily-note lines do — parsed
+// against the range START (so relative `due:` tokens resolve inside the range), then re-anchored:
+// the soft-link key becomes the scope note's storage key (toggling rewrites the right note), and
+// undated items default their due date to the range END ("finish within the week/month").
+function scopeNoteTodos(key: string, anchorIso: string, endIso: string, title: string, text: string): ParsedTodo[] {
+  const ts = parseDailyNoteTodos(anchorIso, text, today);
+  for (const t of ts) {
+    t.dailyDate = key;
+    t.eventTitle = title;
+    if (t.dueSource !== "line") t.due = endIso;
+  }
+  return ts;
+}
 function ensureTodos() {
   if (!todosDirty) return;
-  allTodos = [
-    ...indexTodos(events, today),
-    ...Object.entries(notes).flatMap(([date, text]) => parseDailyNoteTodos(date, text, today)),
-  ];
+  allTodos = [...indexTodos(events, today)];
+  for (const [key, text] of Object.entries(notes)) {
+    if (key.startsWith("week:")) {
+      const sun = key.slice(5);
+      allTodos.push(...scopeNoteTodos(key, sun, addDays(sun, 6), `Weekly note · ${sun}`, text));
+    } else if (key.startsWith("month:")) {
+      const ym = key.slice(6);
+      allTodos.push(...scopeNoteTodos(key, `${ym}-01`, monthEndIso(ym), `Monthly note · ${ym}`, text));
+    } else {
+      allTodos.push(...parseDailyNoteTodos(key, text, today));
+    }
+  }
   todosDirty = false;
 }
 // The last tick, re-applied after a data change so the visible panels refresh in place.
@@ -38,11 +67,51 @@ function ensureTodos() {
 // the Canvas `dashboardLeftAnimated` EXACTLY (which also depends on the growing day-column width, not
 // reveal alone). `reveal` starts at 0 (hidden) so a freshly-mounted web view stays invisible until
 // the first real tick — else setData would paint it fully opaque for a frame at week level (a flash).
-let last = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1 };
+// One tick = one object merged over these defaults — a missing/new field can never arrive as
+// undefined (the positional-arity version once blanked the whole webview that way).
+const TICK_DEFAULTS = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
+                        scopeA: "day", scopeB: "day", scopeT: 1,
+                        dy: 0, mFrom: "", mTo: "", mDy0: 0, mDy1: 0, mP: 0,
+                        mKeyA: "", mKeyB: "",   // month machine keys "YYYY-MM" (notes + filters)
+                        wFrom: "", wTo: "", wP: 0,
+                        wKeyA: "", wKeyB: "",   // week machine keys: the Sunday "YYYY-MM-DD"
+                        // Per-panel scope geometry from Swift's dashScopePanels (frame-local px):
+                        // the mask (clip) region + each panel's own left/width/opacity.
+                        maskX: 0, maskW: 0,
+                        aName: "", aX: 0, aW: 0, aOp: 0,
+                        bName: "", bX: 0, bW: 0, bOp: 0,
+                        shift: 0 };   // drawer canvas-shift: content rides the canvas slide (week/month)
+let last = { ...TICK_DEFAULTS };
 
 const root = document.getElementById("dash")!;                 // reveal wrapper (zoom slide + fade)
 const panelsEl = document.getElementById("panels")!;           // carousel content (todo OR note preview)
 const noteLive = document.getElementById("note-live")!;        // live editor overlay (rest + note only)
+
+// ── Zoom-scope layers (weekly / monthly) ────────────────────────────────────────────────────────
+// The WEEK layer holds two side-by-side sub-panels that carousel HORIZONTALLY during a week turn
+// (Swift ticks wKeyA/wKeyB/wP from the continuous week scroll); the MONTH layer's pair carousels
+// VERTICALLY with month page-turns. The DAY layer is the existing #panels (+ note editor); all
+// three are siblings that slide/fade with the same math. Content: renderScopePanel below.
+function makeScopeLayer(id: string): { layer: HTMLElement; a: HTMLElement; b: HTMLElement } {
+  const layer = document.createElement("div");
+  layer.className = "cc-dd-panel"; layer.id = id;
+  root.appendChild(layer);
+  const sub = () => {
+    const el = document.createElement("div");
+    el.className = "cc-dd-panel";         // absolute-fill inside the layer
+    layer.appendChild(el);
+    return el;
+  };
+  return { layer, a: sub(), b: sub() };
+}
+const W = makeScopeLayer("scope-week"), M = makeScopeLayer("scope-month");
+const weekLayer = W.layer, monthLayer = M.layer;
+// Role panels are IDENTITY-KEYED by machine key (mirroring the day panels' isoOf): when the
+// pager/scroll re-bases mid-turn (from/to swap), each panel KEEPS its week/month — positions
+// stay continuous across the flip instead of two panels teleport-swapping contents.
+let wpA = W.a, wpB = W.b, mpA = M.a, mpB = M.b;
+const scopeKeyOf = new Map<HTMLElement, string>();   // sub-panel → machine key (role identity)
+const scopeSig = new Map<HTMLElement, string>();     // sub-panel → rendered signature (render cache)
 function post(m: any) { (window as any).webkit?.messageHandlers?.ck?.postMessage(m); }
 
 // The WKWebView is a separate compositing layer, so the app's SwiftUI blur/scrim can't touch it and
@@ -85,18 +154,27 @@ for (const P of [P0, P1]) {
 let tab: "todo" | "note" = "todo";
 let noteMode: "edit" | "preview" = "edit";
 let notes: Record<string, string> = {};
-let liveIso = "";                                      // the day the live editor currently holds
+let liveIso = "";                                      // the note KEY the live editor currently holds
 let liveText = "";                                     // the note value currently in the editor (detects external changes)
+let liveScope: "day" | "week" | "month" = "day";       // which scope the live editor is anchored to
+const SCOPE_WORD = { day: "daily", week: "weekly", month: "monthly" } as const;
+// Empty-note preview: an invitation with a link into the markdown editor (see the root click
+// delegation — `.cc-dd-note-write` switches to edit mode). Used by the LIVE preview and the
+// static carousel previews alike.
+function emptyNoteHTML(scope: "day" | "week" | "month"): string {
+  return `<div class="cc-dd-note-empty">Empty ${SCOPE_WORD[scope]} note. <a class="cc-dd-note-write" role="button">Write something</a></div>`;
+}
 const noteEd = createNoteEditor({
   editorEl: document.getElementById("note-editor")!,
   previewEl: document.getElementById("note-preview")!,
-  placeholder: "Daily Note",
+  placeholder: "Daily Note (Markdown)…",
   onChange: (value) => { notes[liveIso] = value; liveText = value; todosDirty = true; post({ type: "noteChange", date: liveIso, value }); },
   // ⌘S → preview, and (if we were keyboard-focused via Tab) hand focus back to the calendar's NOTE ring.
   onPreview: () => { noteModeUser("preview"); post({ type: "navNoteExit" }); },
   onExit: () => post({ type: "navNoteExit" }),             // Escape in the editor → back to the NOTE ring
   onOpenLink: (url) => post({ type: "openLink", url }),
   onEditAt: (line) => { noteModeUser("edit"); noteEd.setCursorLine(line); },   // ⌘-click a preview block
+  emptyPreview: () => emptyNoteHTML(liveScope),
 });
 
 // ── Keyboard nav from the calendar (Tab into the dashboard TODO / NOTE stops) ──────────────────────
@@ -106,6 +184,7 @@ const noteEd = createNoteEditor({
 let navStop: "todo" | "note" | null = null;
 let todoCursor = 0;
 let editingNote = false;
+let editingRing = false;   // ⌘E from keyboard mode: keep the dashed ring visible WHILE editing
 function todoRows(): HTMLElement[] { return Array.from(P0.scroll.querySelectorAll<HTMLElement>(".cc-dtodo")); }
 function applyTodoCursor() {
   const rows = todoRows();
@@ -120,10 +199,12 @@ function applyTodoCursor() {
   rows[todoCursor].scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 function applyNav() {
-  noteLive.classList.toggle("cc-nav-on", navStop === "note" && !editingNote);
+  // The NOTE ring shows on the focused-but-not-editing stop, AND while editing when the entry
+  // came from keyboard mode (⌘E with a ring already showing — focus visibly moved here).
+  noteLive.classList.toggle("cc-nav-on", navStop === "note" && (!editingNote || editingRing));
   applyTodoCursor();
 }
-function applyTab(t: "todo" | "note") { tab = t; isoOf.delete(p0); isoOf.delete(p1); apply(); }
+function applyTab(t: "todo" | "note") { tab = t; isoOf.delete(p0); isoOf.delete(p1); scopeSig.clear(); apply(); }
 // A user action IN the webview (⌘S / ⌘-click) → change mode + tell Swift so the native toggle updates.
 function noteModeUser(m: "edit" | "preview") {
   if (noteMode === m) return;
@@ -193,14 +274,21 @@ const HIGH_PRIORITY = 3, SOON_DAYS = 7, FOLLOWUP_WINDOW = 7, RECENT_DONE_DAYS = 
 interface Section { title: string; items: ParsedTodo[]; done?: boolean; }
 // A fully deterministic identity for a todo, so items that tie on the primary sort keys keep a STABLE
 // order across renders. `allTodos` is re-derived from the events list + the notes map, whose iteration
-// order can shift between rebuilds — without a total tiebreak, tied items visibly swap places. Order by
-// the verbatim source line, then its exact soft-link anchor (source/event/occurrence/date/line).
+// order can shift between rebuilds — without a total tiebreak, tied items visibly swap places.
+// Order by the soft-link anchor (source/event/occurrence/date) then LINE NUMBER, so tied items from
+// the SAME note keep their source order — nested sub-tasks stay under their parents. (The raw line
+// must NOT lead this key: children's leading indentation sorted before unindented parents, showing
+// scope-note lists — where undated items all tie on the range-end due date — upside down.)
 const tieKey = (t: ParsedTodo) =>
-  `${t.raw}\0${t.source}\0${t.eventId}\0${t.occurrenceKey ?? ""}\0${t.dailyDate ?? ""}\0${String(t.line).padStart(6, "0")}`;
+  `${t.source}\0${t.eventId}\0${t.occurrenceKey ?? ""}\0${t.dailyDate ?? ""}\0${String(t.line).padStart(6, "0")}\0${t.raw}`;
 const cmpTie = (a: ParsedTodo, b: ParsedTodo) => (tieKey(a) < tieKey(b) ? -1 : tieKey(a) > tieKey(b) ? 1 : 0);
 function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
   const isToday = viewIso === today;
-  const shown = todos.filter((t) => !t.done && (!t.start || t.start <= viewIso));
+  // NESTED todos: only ROOT items are sectioned/sorted. Each root then renders with its full
+  // subtree beneath it — done and not-done children alike — so a child never appears as its own
+  // top-level row (see renderPanel + subtree()).
+  const roots = todos.filter((t) => t.parentLine == null);
+  const shown = roots.filter((t) => !t.done && (!t.start || t.start <= viewIso));
   const soonEnd = addDays(viewIso, SOON_DAYS), followEnd = addDays(viewIso, FOLLOWUP_WINDOW);
   const byOp = (a: ParsedTodo, b: ParsedTodo) => {
     const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
@@ -215,7 +303,7 @@ function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
   // upcoming task doesn't vanish just because it isn't p:!!!.
   const lowSoon = plain.filter((t) => (t.priority ?? 0) < HIGH_PRIORITY && dueDate(t) > viewIso && dueDate(t) <= soonEnd).sort(byOp);
   const recentStart = addDays(viewIso, -RECENT_DONE_DAYS);
-  const completed = todos
+  const completed = roots
     .filter((t) => t.done && t.doneDate && t.doneDate.slice(0, 10) >= recentStart && t.doneDate.slice(0, 10) <= viewIso)
     .sort((a, b) => { const d = a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0; return d !== 0 ? d : cmpTie(a, b); }).slice(0, 12);
   return [
@@ -228,10 +316,108 @@ function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
   ].filter((s) => s.items.length > 0);
 }
 
+// ── Nesting: group children under their parent via the (note-scope, parentLine) soft link ────────
+// Todos from DIFFERENT notes can share line numbers, so the child index is keyed by the full note
+// scope (source + event/occurrence or daily date) plus the parent's line.
+const scopeKey = (t: ParsedTodo) => `${t.source}\0${t.eventId}\0${t.occurrenceKey ?? ""}\0${t.dailyDate ?? ""}`;
+function childrenIndex(todos: ParsedTodo[]): Map<string, ParsedTodo[]> {
+  const idx = new Map<string, ParsedTodo[]>();
+  for (const t of todos) {
+    if (t.parentLine == null) continue;
+    const k = `${scopeKey(t)}\0${t.parentLine}`;
+    const list = idx.get(k);
+    if (list) list.push(t);
+    else idx.set(k, [t]);
+  }
+  for (const list of idx.values()) list.sort((a, b) => a.line - b.line);
+  return idx;
+}
+/** A root and all its descendants, in source order (parent first, then each child's subtree). */
+function subtree(t: ParsedTodo, kids: Map<string, ParsedTodo[]>, out: ParsedTodo[] = []): ParsedTodo[] {
+  out.push(t);
+  for (const c of kids.get(`${scopeKey(t)}\0${t.line}`) ?? []) subtree(c, kids, out);
+  return out;
+}
+
+// ── Folding: any row WITH children gets a disclosure chevron; everything starts expanded ─────────
+// `collapsed` holds the folded parents (so the default for a never-touched row is open), keyed by
+// the same (note-scope, line) soft link as the child index. Session-lived, like the scroll memory —
+// editing a note can renumber lines, in which case a stale key just no-ops.
+const collapsed = new Set<string>();
+const foldKey = (t: ParsedTodo) => `${scopeKey(t)}\0${t.line}`;
+function setFolded(t: ParsedTodo, folded: boolean) {
+  if (folded) collapsed.add(foldKey(t));
+  else collapsed.delete(foldKey(t));
+}
+
+// ── Fold/unfold with motion ─────────────────────────────────────────────────────────────────────
+// The chevron rotates; revealed sub-rows DROP IN (height grows + fade + slight rise, staggered top
+// to bottom so the drop cascades); collapsing runs the same in reverse (bottom rows retract first)
+// before the fold is committed. Expand re-renders FIRST (the rows must exist to animate in — the
+// fresh chevron is then spun from its folded pose); collapse animates the live rows OUT and only
+// re-renders once they're gone. Row height/padding animate through layout, so the rows below glide
+// instead of teleporting. `folding` guards a parent whose collapse is still in flight.
+const FOLD_MS = 170;
+const folding = new Set<string>();
+/** The currently-VISIBLE rows of `t`'s subtree (excluding `t` itself) inside `panel`. */
+function rowsOfSubtree(panel: HTMLElement, t: ParsedTodo): HTMLElement[] {
+  const flat = flatOf.get(panel) ?? [];
+  const inSub = new Set(subtree(t, childrenIndex(allTodos)).slice(1));
+  return Array.from(panel.querySelectorAll<HTMLElement>(".cc-dtodo"))
+    .filter((r) => inSub.has(flat[Number(r.dataset.idx ?? -1)]));
+}
+/** One row's drop-in / retract keyframes. `.cc-dtodo` is content-box with 3px vertical padding,
+ *  so the content height and the paddings animate as separate properties. */
+function foldFrames(r: HTMLElement) {
+  const ch = Math.max(0, r.offsetHeight - 6);
+  return [
+    { height: "0px", paddingTop: "0px", paddingBottom: "0px", opacity: 0, transform: "translateY(-8px)" },
+    { height: `${ch}px`, paddingTop: "3px", paddingBottom: "3px", opacity: 1, transform: "translateY(0px)" },
+  ];
+}
+function toggleFold(panel: HTMLElement, t: ParsedTodo, open: boolean) {
+  const k = foldKey(t);
+  const iso = isoOf.get(panel);
+  if (folding.has(k) || !iso) return;
+  if (open) {
+    setFolded(t, false);
+    renderPanel(panel, iso);
+    applyNav();
+    const flat = flatOf.get(panel) ?? [];
+    const btn = panel.querySelector(`.cc-dtodo-fold[data-fold="${flat.indexOf(t)}"]`);
+    btn?.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(90deg)" }], { duration: FOLD_MS, easing: "ease" });
+    rowsOfSubtree(panel, t).forEach((r, i) => {
+      r.style.overflow = "hidden";
+      const a = r.animate(foldFrames(r), {
+        duration: FOLD_MS, delay: Math.min(i * 26, 130), easing: "ease-out", fill: "backwards",
+      });
+      a.onfinish = () => { r.style.overflow = ""; };
+    });
+  } else {
+    const rows = rowsOfSubtree(panel, t);
+    // Spin the still-live chevron via its CSS transition; the post-render one is statically folded.
+    const flat = flatOf.get(panel) ?? [];
+    panel.querySelector(`.cc-dtodo-fold[data-fold="${flat.indexOf(t)}"]`)?.setAttribute("aria-expanded", "false");
+    const finish = () => { folding.delete(k); setFolded(t, true); renderPanel(panel, iso); applyNav(); };
+    if (!rows.length) { finish(); return; }
+    folding.add(k);
+    let pending = rows.length;
+    rows.forEach((r, i) => {
+      r.style.overflow = "hidden";
+      const a = r.animate(foldFrames(r).slice().reverse(), {
+        duration: FOLD_MS, delay: Math.min((rows.length - 1 - i) * 26, 130), easing: "ease-in", fill: "forwards",
+      });
+      a.onfinish = () => { if (--pending === 0) finish(); };
+    });
+  }
+}
+
 // ── Rendering ───────────────────────────────────────────────────────────────────────────────────
-function rowHTML(t: ParsedTodo, idx: number, viewIso: string): string {
+interface RowFold { foldable: boolean; folded: boolean; hidden: number; }
+function rowHTML(t: ParsedTodo, idx: number, viewIso: string, fold?: RowFold): string {
   const date = opDate(t), overdue = date < viewIso;
-  const prefix = t.eventTitle && !(t.source === "daily" && t.dailyDate === viewIso) ? `<span class="cc-dtodo-event">${esc(t.eventTitle)} · </span>` : "";
+  // A child row sits under its parent, which already carries the provenance prefix.
+  const prefix = t.parentLine == null && t.eventTitle && !(t.source === "daily" && t.dailyDate === viewIso) ? `<span class="cc-dtodo-event">${esc(t.eventTitle)} · </span>` : "";
   const text = t.text ? esc(t.text) : "<em>(untitled)</em>";
   let meta = "";
   if (t.done) {
@@ -241,14 +427,23 @@ function rowHTML(t: ParsedTodo, idx: number, viewIso: string): string {
     meta += t.followup
       ? `<span class="cc-dtodo-followup${overdue ? " cc-dtodo-due-over" : ""}">↪ follow up ${esc(relDue(viewIso, t.followup))}</span>`
       : `<span class="cc-dtodo-due${overdue ? " cc-dtodo-due-over" : ""}">${esc(relDue(viewIso, date))}</span>`;
+    meta += t.projects.slice(0, 2).map((p) => `<span class="cc-dtodo-proj">${esc(p)}</span>`).join("");
     meta += t.tags.slice(0, 3).map((tag) => `<span class="cc-dtodo-tag">#${esc(tag)}</span>`).join("");
   }
-  return `<li class="cc-dtodo${t.done ? " cc-dtodo-is-done" : ""}">
+  // A folded parent shows how many sub-items it's hiding.
+  if (fold?.folded && fold.hidden > 0) meta += `<span class="cc-dtodo-foldn">+${fold.hidden} sub</span>`;
+  const chevron = fold?.foldable
+    ? `<button class="cc-dtodo-fold" data-fold="${idx}" aria-expanded="${!fold.folded}" title="Fold / unfold sub-items"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M6.75 1.5 L17.25 12 L6.75 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+    : "";
+  // data-idx on the row itself: with folding, the visible rows are a SUBSET of the flat list, so
+  // keyboard nav resolves a row → todo through this instead of assuming row order == flat order.
+  // The fold chevron is the LAST flex item — it rides the right edge of the row.
+  return `<li class="cc-dtodo${t.done ? " cc-dtodo-is-done" : ""}" style="--nest:${Math.min(t.indent ?? 0, 6)}" data-idx="${idx}">
     <input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t.done ? " checked" : ""}>
     <span class="cc-dtodo-main" data-open="${idx}" role="button" tabindex="0" title="Go to event">
       <span class="cc-dtodo-text${t.done ? " cc-struck" : ""}">${prefix}${text}</span>
       <span class="cc-dtodo-meta">${meta}</span>
-    </span></li>`;
+    </span>${chevron}</li>`;
 }
 
 // Upcoming-deadlines time window — a small dropdown in that section's header. Default: next 30 days.
@@ -311,18 +506,35 @@ function renderPanel(el: HTMLElement, viewIso: string) {
     const text = notes[viewIso] || "";
     scroll.innerHTML = text.trim()
       ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text)}</div>`
-      : `<div class="cc-dd-note-empty">Daily Note</div>`;
+      : emptyNoteHTML("day");
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;   // restore THIS day's own scroll (see the todo branch)
     flatOf.delete(el);
     return;
   }
   ensureTodos();                                       // lazy: rebuild only if data changed since last view
-  const sections = sectionsForDay(allTodos, viewIso);
-  const flat = sections.flatMap((s) => s.items);
+  const sections = sectionsForDay(allTodos, viewIso);  // sections hold ROOT todos only
+  const kids = childrenIndex(allTodos);
+  // Flatten each root's full subtree in render order. `flat` always holds EVERY todo — including
+  // ones hidden inside a folded parent — so data-idx values are stable regardless of fold state;
+  // only the emitted rows change. Checkbox toggles and keyboard nav resolve rows via data-idx.
+  const flat: ParsedTodo[] = [];
+  const renderTree = (t: ParsedTodo, visible: boolean, out: string[]) => {
+    flat.push(t);
+    const idx = flat.length - 1;
+    const children = kids.get(`${scopeKey(t)}\0${t.line}`) ?? [];
+    const folded = children.length > 0 && collapsed.has(foldKey(t));
+    if (visible) {
+      const fold: RowFold = { foldable: children.length > 0, folded, hidden: folded ? subtree(t, kids).length - 1 : 0 };
+      out.push(rowHTML(t, idx, viewIso, fold));
+    }
+    for (const c of children) renderTree(c, visible && !folded, out);
+  };
+  const secHTML = sections.map((s) => {
+    const out: string[] = [];
+    for (const t of s.items) renderTree(t, true, out);
+    return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${out.join("")}</ul></section>`;
+  }).join("");
   flatOf.set(el, flat);
-  let i = -1;
-  const secHTML = sections.map((s) =>
-    `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${s.items.map((t) => rowHTML(t, ++i, viewIso)).join("")}</ul></section>`).join("");
   const body = sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list — you’re clear.</div>`;
   scroll.innerHTML = deadlineHTML(viewIso) + body;
   // The two panels are RECYCLED across days and `daily.dom` advances mid-swipe (setDayProgress), so a
@@ -332,13 +544,90 @@ function renderPanel(el: HTMLElement, viewIso: string) {
   scroll.scrollTop = scrollByIso[viewIso] ?? 0;
 }
 
+// ── Weekly / monthly panel content ──────────────────────────────────────────────────────────────
+// Same template as the daily panel, scoped to a date range: "Deadlines in this week/month" (all
+// deadlines inside the range), "TODOs this week/month" (open todos whose operative date falls in
+// the range), "Completed this week/month", and — on the NOTE tab — the scope's own persisted note.
+function rangeDeadlineHTML(title: string, startIso: string, endIso: string): string {
+  const list = deadlines
+    .map((d) => ({ d, iso: `${d.year}-${pad(d.month + 1)}-${pad(d.day)}` }))
+    .filter((x) => x.iso >= startIso && x.iso <= endIso)
+    .sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : a.d.hour - b.d.hour) || (a.d.id < b.d.id ? -1 : a.d.id > b.d.id ? 1 : 0));
+  const head = `<div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(title)}</span>${list.length ? `<span class="cc-dd-sec-count">${list.length}</span>` : ""}</div>`;
+  const body = list.length
+    ? `<ul class="cc-dd-ddl-list">${list.map(({ d, iso }) =>
+        `<li class="cc-dd-ddl cc-ev-${esc(d.color)}" data-ddl="${esc(d.id)}" role="button" tabindex="0" title="Go to deadline">
+          <span class="cc-dd-ddl-dot"></span>
+          <span class="cc-dd-ddl-title">${d.title ? esc(d.title) : "<em>(untitled)</em>"}</span>
+          <span class="cc-dd-ddl-when">${esc(relDue(today, iso))} · ${hhmm(d.hour)}</span></li>`).join("")}</ul>`
+    : `<div class="cc-dd-free">No deadlines in this range.</div>`;
+  return `<section class="cc-dd-sec">${head}${body}</section>`;
+}
+function rangeTodoSections(startIso: string, endIso: string, word: string): Section[] {
+  ensureTodos();
+  const inR = (d: string) => d >= startIso && d <= endIso;
+  const byOp = (a: ParsedTodo, b: ParsedTodo) => {
+    const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
+    return d !== 0 ? d : cmpTie(a, b);
+  };
+  const open = allTodos.filter((t) => !t.done && inR(opDate(t))).sort(byOp);
+  // Top-level items only: a finished SUB-item is detail of its parent's progress, not its own
+  // accomplishment row — it still shows (struck) under the parent in the daily subtree view.
+  const completed = allTodos
+    .filter((t) => t.done && t.parentLine == null && t.doneDate && inR(t.doneDate.slice(0, 10)))
+    .sort((a, b) => { const d = a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0; return d !== 0 ? d : cmpTie(a, b); });
+  return [
+    { title: `TODOs ${word}`, items: open },
+    { title: `Completed ${word}`, items: completed, done: true },
+  ].filter((s) => s.items.length > 0);
+}
+// Render one scope sub-panel for its machine key (week: the Sunday iso; month: "YYYY-MM").
+// Signature-cached; callers bust via scopeSig.clear() on data / tab changes.
+function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string) {
+  const sig = `${scope}|${key}|${tab}`;
+  if (scopeSig.get(el) === sig) return;
+  scopeSig.set(el, sig);
+  let scroll = el.firstElementChild as HTMLElement | null;
+  if (!scroll || !scroll.classList.contains("cc-dd-scroll")) {
+    el.innerHTML = `<div class="cc-dd-scroll"></div>`;
+    scroll = el.firstElementChild as HTMLElement;
+  }
+  const noteKey = scope === "week" ? weekNoteKey(key) : monthNoteKey(key);
+  if (tab === "note") {
+    const text = notes[noteKey] || "";
+    scroll.innerHTML = text.trim()
+      ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text)}</div>`
+      : emptyNoteHTML(scope);
+    flatOf.delete(el);
+    return;
+  }
+  const start = scope === "week" ? key : `${key}-01`;
+  const end = scope === "week" ? addDays(key, 6) : monthEndIso(key);
+  const word = scope === "week" ? "this week" : "this month";
+  // The scope note's OWN todos drop their "Weekly/Monthly note · …" prefix inside their own
+  // panel (shallow clones — the soft-link fields still point at the right note line).
+  const sections = rangeTodoSections(start, end, word).map((s) => ({
+    ...s, items: s.items.map((t) => t.dailyDate === noteKey ? { ...t, eventTitle: "" } : t),
+  }));
+  const flat = sections.flatMap((s) => s.items);
+  flatOf.set(el, flat);
+  let i = -1;
+  const secHTML = sections.map((s) =>
+    `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${s.items.map((t) => rowHTML(t, ++i, today)).join("")}</ul></section>`).join("");
+  scroll.innerHTML =
+    rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end) +
+    (sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list — you’re clear.</div>`);
+}
+
 let liveShown = false, liveMode = "";
 // Apply the current tick: the zoom reveal (whole-panel slide-in-from-right + fade) on #dash, then
 // position + fade the two day panels within it like SceneRenderer.drawPanel; then place the live note
 // editor over the centered panel at rest.
 let dayViewShown = false;   // true once the dashboard is revealed (day view); reset when hidden
 function apply() {
-  const { from, to, dir, p, reveal, slide } = last;
+  const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDy0, mDy1, mP,
+          mKeyA, mKeyB, wFrom, wTo, wP, wKeyA, wKeyB,
+          maskX, maskW, aName, aX, aW, aOp, bName, bX, bW, bOp, shift } = last;
   // Leaving day view (reveal fell to hidden) forgets every day's scroll, so re-entering day view always
   // starts at the top — the scroll doesn't carry across a trip out to week/month view. The reset on
   // re-entry restores from the (now-empty) map, i.e. 0, without re-rendering the unchanged panels.
@@ -351,11 +640,90 @@ function apply() {
     isoOf.delete(p0); isoOf.delete(p1);
     P0.scroll.scrollTop = 0; P1.scroll.scrollTop = 0;
   }
-  // Zoom reveal: `slide` positions the left edge to match the Canvas dashboardLeftAnimated exactly;
-  // `reveal` fades it in. (The panel stays put when the drawer opens — the scrim dims it in place.)
-  root.style.transform = `translateX(${(slide * 100).toFixed(3)}%)`;
-  root.style.opacity = reveal.toFixed(3);
+  // #dash IS the mask: positioned + sized to the live clip region (frame-local px from Swift's
+  // dashScopePanels — the SAME numbers the Canvas header clips with). The accordion dy rides as
+  // a transform; the reveal FADE is native (view alphaValue — see setPanelAlpha).
+  root.style.left = `${maskX.toFixed(1)}px`;
+  root.style.width = `${Math.max(0, maskW).toFixed(1)}px`;
+  // `shift` = the drawer canvas-shift (engine.drawerShift). The scene slides left by the same
+  // amount (.offset(-drawerShift)), so carrying it here keeps the pinned week/month panel moving
+  // WITH the canvas while the drawer opens. 0 at day level (the dashboard owns the right there).
+  root.style.transform = `translate(${(-shift).toFixed(1)}px, ${dy.toFixed(1)}px)`;
   root.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
+  // ── Zoom-scope carousel: each panel is placed at its OWN target width and absolute position
+  // (dashScopePanels' numbers, frame-local → mask-local by subtracting maskX) — exactly the
+  // geometry the Canvas header draws with, so the two align by construction and stay continuous
+  // in z (nothing keys on the rounded level; no z=1.5 snap).
+  const layers: Record<string, HTMLElement> = { day: panelsEl, week: weekLayer, month: monthLayer };
+  const t = scopeT;
+  const scopeName = t > 0.5 ? scopeB : scopeA;
+  let liveL = 0, liveW = 0; // the active scope panel's own geometry → sizes the live editor
+  for (const [name, el] of Object.entries(layers)) {
+    let x = 0, w = 0, op = 0;
+    if (name === aName) { x = aX; w = aW; op = aOp; }
+    else if (name === bName) { x = bX; w = bW; op = bOp; }
+    el.style.left = `${(x - maskX).toFixed(1)}px`;
+    el.style.width = `${Math.max(0, w).toFixed(1)}px`;
+    el.style.transform = "none";
+    el.style.opacity = op.toFixed(3);
+    el.style.pointerEvents = op > 0.999 ? "auto" : "none";
+    if (name === scopeName) { liveL = x - maskX; liveW = Math.max(0, w); }
+  }
+  // The live editor rides the ACTIVE panel's own (stable) width, NOT the mask: resizing with the
+  // mask reflowed CodeMirror against transient — even zero — widths while hidden, and it came
+  // back laid out without its left gutter. The panel's target width only changes on a real
+  // split-handle drag, so the editor's layout is steady across every open/close/zoom.
+  if (liveW > 1) {
+    noteLive.style.left = `${liveL.toFixed(1)}px`;
+    noteLive.style.width = `${liveW.toFixed(1)}px`;
+  }
+  // Month page-turn: the sub-panels ride their bands' frames in PIXELS (mDy0/mDy1 are the
+  // band-frame deltas Swift computes — same staggered easing, same asymmetric travel as the
+  // Canvas header) and fade by TURN PROGRESS (the day-carousel house rule).
+  // Identity first: if the "from" month currently lives in panel B (the pager re-based and
+  // from/to swapped), swap the ROLES so each panel keeps its month — continuous positions.
+  if (mKeyA && scopeKeyOf.get(mpB) === mKeyA) {
+    const t2 = mpA; mpA = mpB; mpB = t2;
+  }
+  if (mKeyA) {
+    renderScopePanel(mpA, "month", mKeyA); scopeKeyOf.set(mpA, mKeyA);
+    mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
+    mpA.style.opacity = (1 - mP).toFixed(3);
+    // Interactive only at rest — a faded sub-panel sits ON TOP of its sibling in DOM order and
+    // would otherwise eat every click (checkboxes, deadline rows) meant for the resting panel.
+    mpA.style.pointerEvents = mP < 0.001 ? "auto" : "none";
+  }
+  if (mKeyA && mKeyB && mP > 0.001) {
+    renderScopePanel(mpB, "month", mKeyB); scopeKeyOf.set(mpB, mKeyB);
+    mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
+    mpB.style.opacity = mP.toFixed(3);
+    mpB.style.pointerEvents = "none";
+  } else {
+    mpB.style.opacity = "0";
+    mpB.style.pointerEvents = "none";
+  }
+  // Week turn: the sub-panels carousel HORIZONTALLY, driven by the continuous week scroll
+  // (wP ramps while the viewport's left border sweeps the turn band; rests at BOTH 0 and 1).
+  // Same identity-keying + fade-by-progress rules as the month pair above.
+  if (wKeyA && scopeKeyOf.get(wpB) === wKeyA) {
+    const t3 = wpA; wpA = wpB; wpB = t3;
+  }
+  if (wKeyA) {
+    renderScopePanel(wpA, "week", wKeyA); scopeKeyOf.set(wpA, wKeyA);
+    wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
+    wpA.style.opacity = (1 - wP).toFixed(3);
+    // Same at-rest gate as the month pair; the week turn rests at BOTH ends (wP 0 or 1).
+    wpA.style.pointerEvents = wP < 0.001 ? "auto" : "none";
+  }
+  if (wKeyA && wKeyB && wP > 0.001) {
+    renderScopePanel(wpB, "week", wKeyB); scopeKeyOf.set(wpB, wKeyB);
+    wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
+    wpB.style.opacity = wP.toFixed(3);
+    wpB.style.pointerEvents = wP > 0.999 ? "auto" : "none";
+  } else {
+    wpB.style.opacity = "0";
+    wpB.style.pointerEvents = "none";
+  }
   if (isoOf.get(p0) !== from) renderPanel(p0, from);
   const atRest = !to || p <= 0.0001;
   if (atRest) {                                   // single centered panel
@@ -368,16 +736,32 @@ function apply() {
     p1.style.transform = `translateX(${(dir * (1 - p) * 100).toFixed(3)}%)`; p1.style.opacity = p.toFixed(3);
     p0.style.pointerEvents = "none"; p1.style.pointerEvents = "none";
   }
-  // Live editor: NOTE tab, fully open, at rest → overlay the centered panel (which is hidden so its
+  // Live editor: NOTE tab, fully open, at rest → overlay the resting panel (which is hidden so its
   // static preview doesn't peek through). During a swipe/zoom the panels' note previews carousel.
-  const showLive = tab === "note" && atRest && reveal > 0.999;
+  // Scope-aware: the day scope edits the day's note, week/month edit THEIR scope note (same
+  // persisted store, prefixed keys) — the editor re-anchors via liveIso whenever the key changes.
+  let liveKey = "", hideEl: HTMLElement | null = null;
+  if (scopeName === "day") {
+    liveKey = from; hideEl = p0;
+  } else if (scopeName === "week" && (wP <= 0.001 || wP >= 0.999)) {
+    const k = wP < 0.5 ? wKeyA : wKeyB;
+    if (k) { liveKey = weekNoteKey(k); hideEl = wP < 0.5 ? wpA : wpB; }
+  } else if (scopeName === "month" && mP <= 0.001 && mKeyA) {
+    liveKey = monthNoteKey(mKeyA); hideEl = mpA;
+  }
+  const showLive = tab === "note" && atRest && reveal > 0.999 && t % 1 === 0 && !!liveKey;
   noteLive.style.display = showLive ? "" : "none";
-  p0.style.visibility = showLive ? "hidden" : "";
+  for (const el of [p0, wpA, wpB, mpA, mpB]) el.style.visibility = "";
+  if (showLive && hideEl) hideEl.style.visibility = "hidden";
   if (showLive) {
-    const text = notes[from] || "";
-    if (liveIso !== from) {
-      liveIso = from;
-      // Content-based default for the day we landed on; tell Swift so the native toggle reflects it.
+    const text = notes[liveKey] || "";
+    if (liveIso !== liveKey) {
+      liveIso = liveKey;
+      liveScope = scopeName as "day" | "week" | "month";
+      // The empty-note hint names the scope we're editing (matches the static previews).
+      noteEd.setPlaceholder(scopeName === "day" ? "Daily Note (Markdown)…"
+        : scopeName === "week" ? "Weekly Note (Markdown)…" : "Monthly Note (Markdown)…");
+      // Content-based default for the note we landed on; tell Swift so the native toggle reflects it.
       const m = text.trim() ? "preview" : "edit";
       if (m !== noteMode) { noteMode = m; liveMode = ""; post({ type: "noteMode", mode: m }); }
     }
@@ -493,8 +877,15 @@ root.addEventListener("change", (e) => {
   toggle(panel, Number((el as HTMLInputElement).dataset.idx));
 });
 root.addEventListener("click", (e) => {
-  const openEl = (e.target as HTMLElement).closest("[data-open]") as HTMLElement | null;
   const panel = panelOf(e);
+  // Disclosure chevron → animated fold/unfold of that row's subtree (see toggleFold).
+  const foldEl = (e.target as HTMLElement).closest("[data-fold]") as HTMLElement | null;
+  if (foldEl && panel) {
+    const t = (flatOf.get(panel) ?? [])[Number(foldEl.dataset.fold)];
+    if (t) toggleFold(panel, t, collapsed.has(foldKey(t)));
+    return;
+  }
+  const openEl = (e.target as HTMLElement).closest("[data-open]") as HTMLElement | null;
   if (openEl && panel) {
     const todo = (flatOf.get(panel) ?? [])[Number(openEl.dataset.open)];
     if (todo) {
@@ -506,6 +897,13 @@ root.addEventListener("click", (e) => {
   }
   const ddl = (e.target as HTMLElement).closest("[data-ddl]") as HTMLElement | null;
   if (ddl) { post({ type: "open", eventId: ddl.dataset.ddl }); return; }
+  // "Write something" in an empty-note preview (live overlay or static panel) → the editor.
+  if ((e.target as HTMLElement).closest(".cc-dd-note-write")) {
+    e.preventDefault();
+    noteModeUser("edit");
+    queueMicrotask(() => { noteEd.setMode("edit"); noteEd.focus(); });
+    return;
+  }
   // A click on genuinely empty dashboard space (not a todo row, deadline, checkbox, tab, or editor)
   // deselects the current event — parity with clicking empty calendar space.
   if ((e.target as HTMLElement).closest("input,button,a,textarea,select,[contenteditable='true'],[data-open],[data-ddl],#note-live,.cm-editor")) return;
@@ -524,13 +922,16 @@ root.addEventListener("click", (e) => {
     // Completed" on a real re-render (day swipe / zoom out+in). External changes still re-render.
     if (performance.now() - selfEditAt < SELF_ECHO_MS) return;
     isoOf.delete(p0); isoOf.delete(p1);   // force a re-render with the new data
+    scopeSig.clear();                     // scope panels too (identity keys stay — no position jump)
     apply();
   },
-  tick(from: string, to: string, dir: number, p: number, reveal: number, slide: number) {
-    last = { from, to: to || "", dir, p, reveal, slide };
+  tick(t: Partial<typeof TICK_DEFAULTS>) {
+    last = { ...TICK_DEFAULTS, ...t, to: t.to || "" };
     apply();
   },
-  setTab(t: "todo" | "note") { applyTab(t); },               // Swift (native tabs) drives the tab
+  // Swift drives the tab. Idempotent: the un-adopted echo push (see the coordinator's noteMode/tab
+  // handling) re-sends the current value — a full re-render for a no-op change would be wasteful.
+  setTab(t: "todo" | "note") { if (t !== tab) applyTab(t); },
   setNoteMode(m: "edit" | "preview") {                       // native edit/preview toggle (no echo back)
     if (noteMode !== m) { noteMode = m; liveMode = ""; apply(); }
   },
@@ -540,24 +941,46 @@ root.addEventListener("click", (e) => {
   navSet(stop: "todo" | "note" | "none") {   // Tab focus in/out of the dashboard stops
     navStop = stop === "none" ? null : stop;
     editingNote = false;
+    editingRing = false;
     if (navStop === "todo") todoCursor = 0;   // land on the first row
     applyNav();
   },
   navMove(delta: number) { if (navStop === "todo") { todoCursor += delta; applyTodoCursor(); } },   // ↑/↓ rows
   navActivate() {                              // Space on the TODO stop → toggle the focused row (in place)
-    if (navStop === "todo") toggle(p0, todoCursor);
+    if (navStop !== "todo") return;
+    const row = todoRows()[todoCursor];
+    if (row) toggle(p0, Number(row.dataset.idx ?? -1));   // rows are a subset of flat when folded
   },
   navOpen() {                                  // Enter on the TODO stop → open the focused row
     if (navStop !== "todo") return;
-    const t = (flatOf.get(p0) ?? [])[todoCursor];
+    const row = todoRows()[todoCursor];
+    const t = row ? (flatOf.get(p0) ?? [])[Number(row.dataset.idx ?? -1)] : undefined;
     if (!t) return;
     if (t.source === "daily") post({ type: "jumpDay", date: t.dailyDate });
     else post({ type: "open", eventId: t.eventId, occKey: t.occurrenceKey });
   },
-  noteEdit() {                                 // Enter on the NOTE stop → focus the live editor
-    editingNote = true; applyNav();
+  navFold(open: boolean) {                     // ←/→ on the TODO stop → fold/unfold the focused row's subtree
+    if (navStop !== "todo") return;
+    const row = todoRows()[todoCursor];
+    if (!row || !row.querySelector("[data-fold]")) return;   // a leaf row has nothing to fold
+    const t = (flatOf.get(p0) ?? [])[Number(row.dataset.idx ?? -1)];
+    if (!t || collapsed.has(foldKey(t)) === !open) return;   // already there (held key auto-repeats)
+    toggleFold(p0, t, open);   // same animated path as the chevron click
+  },
+  noteEdit(ring = false) {                     // Enter on the NOTE stop / ⌘E → focus the live editor
+    editingNote = true; editingRing = ring; applyNav();
     noteModeUser("edit");
-    queueMicrotask(() => { noteEd.setMode("edit"); noteEd.focus(); });
+    // The live overlay may not be visible YET: ⌘E can arrive before the tab switch
+    // (CK.setTab) and the next tick reveal it — retry across a few frames until apply()
+    // has shown it, so the caret reliably lands (a hidden CodeMirror ignores focus()).
+    const tryFocus = (left: number) => {
+      if (noteLive.style.display !== "none") {
+        noteEd.setMode("edit"); noteEd.focus();
+      } else if (left > 0) {
+        requestAnimationFrame(() => tryFocus(left - 1));
+      }
+    };
+    queueMicrotask(() => tryFocus(30));
   },
 };
 post({ type: "ready" });

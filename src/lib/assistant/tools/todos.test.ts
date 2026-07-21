@@ -3,7 +3,7 @@
 //   node <tmp>/todos.test.js
 // Exits non-zero on the first failure.
 
-import { tokenizeLine, parseTodos, parseDailyNoteTodos, indexTodos, toggleTodoLine, type TodoEventContext } from "./todos";
+import { tokenizeLine, parseTodos, parseDailyNoteTodos, indexTodos, toggleTodoLine, linesNeedingCreated, type TodoEventContext } from "./todos";
 
 let passed = 0;
 const failures: string[] = [];
@@ -281,6 +281,85 @@ eq("first due wins", tokenizeLine("a due:2026-01-01 b due:2026-02-02").due, "202
   eq("due:12am → midnight", at("- [ ] x due:12am").due, "2026-06-29T00:00");
   eq("due:17:00 (24h) → today 17:00", at("- [ ] x due:17:00").due, "2026-06-29T17:00");
   eq("due:5pm still due today (date part)", (at("- [ ] x due:5pm").due ?? "").slice(0, 10), "2026-06-29");
+}
+
+// ── 16. nesting: indented task lines are children of the nearest shallower task line ────────────
+{
+  const note = [
+    "- [ ] parent",         // line 1: root
+    "  - [x] child A",      // line 2: child of 1
+    "    - [ ] grandchild", // line 3: child of 2
+    "  - [ ] child B",      // line 4: pops back to child of 1
+    "- [ ] second root",    // line 5: root
+  ].join("\n");
+  const t = parseDailyNoteTodos("2026-06-30", note, "2026-06-30");
+  eq("nest: count", t.length, 5);
+  eq("nest: root", [t[0].indent, t[0].parentLine], [0, null]);
+  eq("nest: child A", [t[1].indent, t[1].parentLine], [1, 1]);
+  eq("nest: grandchild", [t[2].indent, t[2].parentLine], [2, 2]);
+  eq("nest: child B pops back", [t[3].indent, t[3].parentLine], [1, 1]);
+  eq("nest: second root", [t[4].indent, t[4].parentLine], [0, null]);
+
+  // top-level prose between lists breaks the chain…
+  const broken = parseDailyNoteTodos("2026-06-30", "- [ ] a\nsome prose\n  - [ ] b");
+  eq("nest: prose resets", [broken[1].indent, broken[1].parentLine], [0, null]);
+  // …but a wrapped continuation line indented under its item keeps it
+  const cont = parseDailyNoteTodos("2026-06-30", "- [ ] a\n  wrapped continuation\n  - [ ] b");
+  eq("nest: continuation keeps parent", [cont[1].indent, cont[1].parentLine], [1, 1]);
+  // blank lines keep the chain (loose lists)
+  const loose = parseDailyNoteTodos("2026-06-30", "- [ ] a\n\n  - [ ] b");
+  eq("nest: blank line keeps parent", [loose[1].indent, loose[1].parentLine], [1, 1]);
+  // an empty checkbox line is skipped and never parents — deeper items attach to the grandparent
+  const skip = parseDailyNoteTodos("2026-06-30", "- [ ] a\n  - [ ] \n    - [ ] c");
+  eq("nest: empty task never parents", [skip[1].indent, skip[1].parentLine], [1, 1]);
+  // event notes get the same nesting
+  const ev: TodoEventContext = {
+    id: "n", kind: "timed", title: "N", color: "default", tags: [],
+    start: "2026-06-01T09:00:00", end: "2026-06-01T10:00:00",
+    notes: "- [ ] top\n  - [ ] sub",
+  };
+  eq("nest: event notes too", [parseTodos(ev)[1].indent, parseTodos(ev)[1].parentLine], [1, 1]);
+}
+
+// ── 17. created: token + "start time marking" (linesNeedingCreated) ────────────────────────────
+{
+  const t = tokenizeLine("call the vendor created:2026-07-20T14:33 p:!");
+  eq("created: parsed", t.created, "2026-07-20T14:33");
+  eq("created: stripped from text", t.text, "call the vendor");
+  eq("created: date-only accepted", tokenizeLine("x created:2026-07-20").created, "2026-07-20");
+  eq("created: with seconds", tokenizeLine("x created:2026-07-20T14:33:05").created, "2026-07-20T14:33:05");
+  eq("created: prose-safe (no value)", tokenizeLine("it was created: yesterday").created, undefined);
+  // surfaces on the parsed todo
+  eq("created: on ParsedTodo", parseDailyNoteTodos("2026-06-30", "- [ ] x created:2026-06-29T09:00")[0].created, "2026-06-29T09:00");
+
+  const note = [
+    "- [ ] new item",                          // 1: top-level, unstamped → needs it
+    "  - [ ] sub item",                        // 2: nested → left alone
+    "- [x] older created:2026-07-01T08:00",    // 3: already stamped
+    "- [ ] ",                                  // 4: empty checkbox → skipped
+    "prose line",
+    "- [ ] another new one",                   // 6: top-level, unstamped → needs it
+  ].join("\n");
+  eq("stamp: only unstamped top-level lines", linesNeedingCreated(note), [1, 6]);
+  eq("stamp: nothing to do", linesNeedingCreated("- [ ] a created:2026-07-01\nprose"), []);
+  eq("stamp: empty note", linesNeedingCreated(""), []);
+}
+
+// ── 18. project: token (sugar for @project:) ────────────────────────────────────────────────────
+{
+  const t = tokenizeLine("wire the parser project:driving-scene_2 p:!");
+  eq("project: parsed into entities", t.entities.project, ["driving-scene_2"]);
+  eq("project: stripped from text", t.text, "wire the parser");
+  // both spellings land in the same bucket
+  eq("project: merges with @project:", tokenizeLine("x project:alpha @project:beta").entities.project, ["alpha", "beta"]);
+  // strict charset: anything outside [A-Za-z0-9_-] fails the whole token (text left untouched)
+  eq("project: dot rejected", tokenizeLine("x project:foo.bar").entities.project, undefined);
+  eq("project: dot rejected — text intact", tokenizeLine("x project:foo.bar").text, "x project:foo.bar");
+  eq("project: slash rejected", tokenizeLine("x project:a/b").entities.project, undefined);
+  // mid-word never matches (anchored to whitespace/line-start)
+  eq("project: mid-word ignored", tokenizeLine("subproject:x").entities.project, undefined);
+  // surfaces on the parsed todo's projects list
+  eq("project: on ParsedTodo", parseDailyNoteTodos("2026-06-30", "- [ ] x project:magical")[0].projects, ["magical"]);
 }
 
 // ── report ─────────────────────────────────────────────────────────────────────────────────────

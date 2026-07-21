@@ -8,6 +8,27 @@ import Foundation
 
 extension CalendarEngine {
     /// ── Day-view dashboard keyboard stops (TODO / NOTE) — dispatched to the WebView bridge ─────────
+    /// ⌘B / ⌘E at day view: land keyboard focus directly on a dashboard stop. These stops are NOT
+    /// part of the Tab cycle (their interactions are self-contained; Tab exits back to the
+    /// timeline's block cursor — see navTab). ⌘E goes straight into the markdown editor.
+    public func dashFocusEntry(_ stop: DashStop) {
+        guard level(z) == 3 else { return }
+        let wasKeyboard = cursor.keyboardActive // ring policy below — read BEFORE entering
+        wake(); enterKeyboardMode()
+        if selectedId != nil {
+            deselect()
+        }
+        cursor.dashStop = stop
+        cursor.dashNoteEditing = false // ⌘B during note editing: the TODO state, not the editor's
+        onDashCommand?(.focus(stop))
+        if stop == .note {
+            cursor.dashNoteEditing = true
+            // Focus the live editor. If keyboard mode was already on (a ring was showing), keep
+            // the dashed ring around the editor too — the focus visibly MOVED there.
+            onDashCommand?(.editNote(ring: wasKeyboard))
+        }
+    }
+
     /// Move the TODO row cursor (↑/↓). No-op unless the TODO stop is focused.
     public func dashMove(_ d: Int) {
         guard cursor.dashStop == .todo else { return }; enterKeyboardMode(); onDashCommand?(.move(d))
@@ -26,6 +47,11 @@ extension CalendarEngine {
     /// Enter on the TODO stop → open the focused row's event (or fly to its daily note).
     public func dashOpen() {
         guard cursor.dashStop == .todo else { return }; enterKeyboardMode(); onDashCommand?(.open)
+    }
+
+    /// ←/→ on the TODO stop: fold / unfold the focused row's sub-tasks (no-op on a leaf row).
+    public func dashFold(_ open: Bool) {
+        guard cursor.dashStop == .todo else { return }; enterKeyboardMode(); onDashCommand?(.fold(open))
     }
 
     /// The note editor handed focus back (Esc or ⌘S in the WebView) → return to the NOTE ring.
@@ -564,8 +590,9 @@ extension CalendarEngine {
         selectedId != nil ? .event : (cursor.bandCursorActive ? .band : .block)
     }
 
-    /// Tab / ⇧Tab cycle the cursor DOMAIN: block → band → event → block (⇧Tab reverses). Each step
-    /// carries the position over (leftmost/earliest anchor) so the cycle round-trips.
+    /// Tab / ⇧Tab cycle the cursor DOMAIN: block ⇄ event (⇧Tab reverses). The band lanes are a
+    /// SUB-STATE of the block cursor (entered/left by arrows — see blockArrow/bandArrow), not a
+    /// Tab stop of their own. Each step carries the position over so the cycle round-trips.
     public func tabCursor(_ forward: Bool) {
         enterKeyboardMode()
         // Month view inserts 4 track-name stops between Event and Block (after Event, before wrapping).
@@ -580,12 +607,10 @@ extension CalendarEngine {
             } // track 3 → block
             else if t > 0 {
                 cursor.trackNameCursor = t - 1
-            } else { // track 0 → event (⇧Tab); no event in view → skip the empty stop to the band cursor
+            } else { // track 0 → event (⇧Tab); no event in view → skip the empty stop to block
                 cursor.trackNameCursor = nil
                 if let eid = nearestEventToBlock() {
                     selectedId = eid; scrollToSelected()
-                } else {
-                    cursor.bandCursorActive = true; cursor.bandCurTrack = 0
                 }
             }
             return
@@ -594,92 +619,19 @@ extension CalendarEngine {
             if selectedId != nil && forward {
                 deselect(); cursor.trackNameCursor = 0; return
             } // event → track 0
-            if currentDomain == .block && !forward {
+            if currentDomain != .event && !forward {
                 cursor.trackNameCursor = 3; return
             } // block ← track 3
         }
-        // Day view inserts 2 dashboard stops (TODO, then NOTE) between Event and Block.
-        let inDay = level(z) == 3
-        if let s = cursor.dashStop {
-            if forward {
-                if s == .todo {
-                    cursor.dashStop = .note; onDashCommand?(.focus(.note))
-                } else {
-                    cursor.dashStop = nil; onDashCommand?(.focus(nil)); cursor.blockDay = daily
-                        .dom
-                } // note → block (wrap)
-            } else {
-                if s == .note {
-                    cursor.dashStop = .todo; onDashCommand?(.focus(.todo))
-                } else { // todo → event (back)
-                    cursor.dashStop = nil; onDashCommand?(.focus(nil))
-                    if let eid = cursor.dashReturnEvent, isVisibleEvent(eid) {
-                        selectedId = eid
-                    } else if let eid = nearestEventToBlock() {
-                        selectedId = eid
-                    }
-                    if selectedId != nil {
-                        scrollToSelected()
-                    } else {
-                        cursor.bandCursorActive = true; cursor
-                            .bandCurTrack = 0
-                    } // no event in view → skip the empty stop to band
-                }
-            }
+        // The dashboard stops (TODO / NOTE) are OUT of the Tab cycle — ⌘B/⌘E own them
+        // (dashFocusEntry) and their interactions are self-contained. Any Tab while one holds
+        // focus recenters onto the timeline's block cursor.
+        if cursor.dashStop != nil {
+            clearDashStop()
+            cursor.blockDay = daily.dom
             return
         }
-        if inDay {
-            if selectedId != nil && forward { // event → TODO stop (remember it for the round-trip)
-                cursor.dashReturnEvent = selectedId; deselect(); cursor
-                    .dashStop = .todo; onDashCommand?(.focus(.todo)); return
-            }
-            if currentDomain == .block &&
-                !forward {
-                cursor.dashStop = .note; onDashCommand?(.focus(.note)); return
-            } // block ← NOTE
-        }
-        let from = currentDomain
-        let to: NavDomain = forward
-            ? (from == .block ? .band : (from == .band ? .event : .block))
-            : (from == .block ? .event : (from == .event ? .band : .block))
-        switch (from, to) {
-        case (.block, .band), (.band, .block): // block ⇄ band: same time cell, just add/drop the lane
-            cursor.bandCursorActive = (to == .band)
-            if to == .band {
-                cursor.bandCurTrack = 0
-            }
-        case (.band, .event): // band → the band under the cell, else the nearest timed/
-            cursor.bandCursorActive = false // deadline event (week/day), else skip the empty stop
-            if let b = bandForCursor() {
-                selectedId = b.id
-            } else if let eid = nearestEventToBlock() {
-                selectedId = eid; tabLink = (
-                    cursor.blockMonth,
-                    cursor.blockDay,
-                    cursor.blockHour,
-                    eid
-                )
-            } else {
-                skipEventForward()
-            } // truly no event in view → skip the empty event stop
-        case (.event, .band): // event → its start cell (band) or (lane 0, its day)
-            if let sel = selectedId {
-                if let b = displayBands(for: year)
-                    .first(where: { $0.id == sel }) {
-                    cursor.blockMonth = b.month; cursor.bandCurTrack = b.track; cursor.blockDay = b.startDay
-                } else if let e = displayEvents(for: year)
-                    .first(where: { $0.id == sel }) {
-                    cursor.blockMonth = e.month; cursor.bandCurTrack = 0; cursor.blockDay = e.day
-                } else if let d = displayDeadlines(for: year)
-                    .first(where: { $0.id == sel }) {
-                    cursor.blockMonth = d.month; cursor.bandCurTrack = 0; cursor.blockDay = d.day
-                }
-            }
-            selectedId = nil; cursor.bandCursorActive = true
-            if level(z) == 0 {
-                ensureMonthVisible(cursor.blockMonth, animated: true)
-            }
-        case (.event, .block): // event → its earliest anchor (with inverse memory)
+        if currentDomain == .event { // event → its earliest anchor (with inverse memory)
             if let sel = selectedId {
                 if let link = tabLink,
                    link
@@ -693,19 +645,21 @@ extension CalendarEngine {
             }
             selectedId = nil; cursor.bandCursorActive = false
             syncBlockVisible()
-        case (.block, .event): // block → nearest event (with inverse memory)
-            if let link = tabLink, link.month == cursor.blockMonth, link.day == cursor.blockDay,
-               abs(link.hour - cursor.blockHour) < 0.01, isVisibleEvent(link.eventId) {
+        } else { // block (or its lane sub-state) → the band under the cell, else the nearest
+            // event (with inverse memory); truly nothing in view → skip the empty event stop.
+            let fromLane = cursor.bandCursorActive
+            cursor.bandCursorActive = false
+            if fromLane, let b = bandForCursor() {
+                selectedId = b.id
+            } else if let link = tabLink, link.month == cursor.blockMonth, link.day == cursor.blockDay,
+                      abs(link.hour - cursor.blockHour) < 0.01, isVisibleEvent(link.eventId) {
                 selectedId = link.eventId
             } else if let eid = nearestEventToBlock() {
                 selectedId = eid; tabLink = (cursor.blockMonth, cursor.blockDay, cursor.blockHour, eid)
+            } else {
+                cursor.bandCursorActive = fromLane // stay put — there is no event stop to land on
+                skipEventForward()
             }
-            if selectedId ==
-                nil {
-                cursor.bandCursorActive = true; cursor
-                    .bandCurTrack = 0
-            } // no event in view → skip the empty stop to the band cursor
-        default: break
         }
         // Scroll whatever event we landed on into view: a timed/deadline event above or below the
         // timeline viewport (week/day) glides into sight; a band scrolls to its month/day. (req 2)
@@ -716,11 +670,11 @@ extension CalendarEngine {
 
     /// Forward Tab reached the event stop but found nothing to select → advance to the stop that follows
     /// the (empty) event stop in this view, so Tab never lands on a dead event cursor: month → the first
-    /// track-name stop, day → the TODO stop, week/year → the block cursor (already the state here).
+    /// track-name stop; week/day/year → the block cursor (already the state here — the dashboard
+    /// stops left the cycle; ⌘B/⌘E reach them directly).
     private func skipEventForward() {
         switch level(z) {
         case 1: cursor.trackNameCursor = 0
-        case 3: cursor.dashReturnEvent = nil; cursor.dashStop = .todo; onDashCommand?(.focus(.todo))
         default: break
         }
     }
@@ -783,23 +737,41 @@ extension CalendarEngine {
     }
 
     /// Move the block cursor by an arrow. `dy`: up = -1, down = +1; `dx`: left = -1, right = +1.
-    /// (Year view only for now — up/down step a month, left/right are no-ops.)
+    ///
+    /// The band lanes are a SUB-STATE of the block cursor (one merged Tab stop), entered and left
+    /// by arrows at each level's natural edge — see bandArrow for the exits:
+    ///   · year  — → enters the month's lanes at the top-LEFT cell, ← at the top-RIGHT.
+    ///   · month — ↓ from a day enters its TOP lane, ↑ enters its BOTTOM lane (a vertical ring).
+    ///   · week/day — the day's vertical ring: ↑ from 12am enters the BOTTOM lane, ↓ from 11pm
+    ///     enters the TOP lane.
     public func blockArrow(dx: Int, dy: Int) {
         enterKeyboardMode()
         switch level(z) {
-        case 0: // year: up/down = month
-            let m = max(0, min(11, cursor.blockMonth + dy))
-            if m != cursor.blockMonth {
-                cursor.blockMonth = m; ensureMonthVisible(m, animated: true)
-            }
-        case 1: // month: left/right = day (wraps across weeks); up/down = no-op
-            let d = max(1, min(daysInMonth(year, focus), cursor.blockDay + dx))
-            if d != cursor.blockDay {
-                cursor.blockDay = d
-            }
-        case 2: // week: up/down = hour; left/right = day (+ glide the focus window to follow)
+        case 0: // year: up/down = month; left/right = into the month's band lanes
             if dy != 0 {
-                stepHour(dy)
+                let m = max(0, min(11, cursor.blockMonth + dy))
+                if m != cursor.blockMonth {
+                    cursor.blockMonth = m; ensureMonthVisible(m, animated: true)
+                }
+            }
+            if dx != 0 {
+                cursor.bandCursorActive = true; cursor.bandCurTrack = 0
+                cursor.blockDay = dx > 0 ? 1 : daysInMonth(year, cursor.blockMonth)
+            }
+        case 1: // month: left/right = day; up/down = into the day's band lanes (vertical ring)
+            if dx != 0 {
+                let d = max(1, min(daysInMonth(year, focus), cursor.blockDay + dx))
+                if d != cursor.blockDay {
+                    cursor.blockDay = d
+                }
+            }
+            if dy != 0 {
+                cursor.bandCursorActive = true
+                cursor.bandCurTrack = dy > 0 ? 0 : 3 // ↓ → top lane; ↑ → bottom lane (ring)
+            }
+        case 2: // week: up/down = hour (wrapping into the band lanes); left/right = day (+ glide)
+            if dy != 0 {
+                hourArrowOrBand(dy)
             }
             if dx != 0 {
                 let d = max(1, min(daysInMonth(year, focus), cursor.blockDay + dx))
@@ -807,15 +779,32 @@ extension CalendarEngine {
                     cursor.blockDay = d; ensureDayVisibleWeek(d)
                 }
             }
-        case 3: // day: up/down = hour; left/right = swipe to the prev/next day
+        case 3: // day: up/down = hour (wrapping into the band lanes); left/right = prev/next day
             if dy != 0 {
-                stepHour(dy)
+                hourArrowOrBand(dy)
             }
             if dx != 0 {
                 swipeDay(dx)
             }
         default:
             break
+        }
+    }
+
+    /// Week/day vertical ring: hours step normally, but ↑ from 12am wraps into the BOTTOM band
+    /// lane and ↓ from 11pm wraps into the TOP lane (bandArrow closes the ring on the other side).
+    private func hourArrowOrBand(_ dy: Int) {
+        let h = Int(cursor.blockHour.rounded())
+        if dy < 0, h <= 0 {
+            cursor.bandCursorActive = true; cursor.bandCurTrack = 3
+        } else if dy > 0, h >= 23 {
+            cursor.bandCursorActive = true; cursor.bandCurTrack = 0
+        } else {
+            stepHour(dy)
+            return
+        }
+        if level(z) == 3 { // day view: the lane cell sits on the VIEWED day
+            cursor.blockDay = daily.dom
         }
     }
 
@@ -837,25 +826,50 @@ extension CalendarEngine {
         editTimed(id) // open the inline title editor so the name is focused right away
     }
 
-    /// ── Band cursor (block cursor + a lane) ────────────────────────────────────────
-    /// Move the band cursor. ↑/↓ walk the 4 lanes (in year view, across month/quarter boundaries);
-    /// ←/→ walk days (week/month/year may shift the focus window; day view swipes).
+    /// ── Band cursor (the block cursor's LANE sub-state — one merged Tab stop) ──────
+    /// Move the band cursor; the edges hand back to the plain block cursor (blockArrow enters):
+    ///   · year  — ← past day 1 / → past the last day → back to the month cursor.
+    ///   · month — ↑ past the top lane / ↓ past the bottom lane → back to the day cursor (ring).
+    ///   · week/day — ↓ past the bottom lane → 12am; ↑ past the top lane → 11pm (ring).
+    /// Otherwise ↑/↓ walk the 4 lanes and ←/→ walk days (week may shift the focus window).
     public func bandArrow(dx: Int, dy: Int) {
         enterKeyboardMode()
         if dy != 0 {
-            if level(z) == 0 { // year: lanes stack across all 12 months (0…47), crossing quarters
+            switch level(z) {
+            case 0: // year: lanes stack across all 12 months (0…47), crossing quarters
                 let flat = max(0, min(11 * 4 + 3, cursor.blockMonth * 4 + cursor.bandCurTrack + dy))
                 cursor.blockMonth = flat / 4; cursor.bandCurTrack = flat % 4
                 cursor.blockDay = min(daysInMonth(year, cursor.blockMonth), max(1, cursor.blockDay))
                 ensureMonthVisible(cursor.blockMonth, animated: true)
-            } else {
-                cursor.bandCurTrack = max(0, min(3, cursor.bandCurTrack + dy))
+            case 1: // month: past either lane edge → back to the day cursor (vertical ring)
+                let t = cursor.bandCurTrack + dy
+                if t < 0 || t > 3 {
+                    cursor.bandCursorActive = false
+                } else {
+                    cursor.bandCurTrack = t
+                }
+            default: // week/day: past the bottom lane → 12am; past the top lane → 11pm (ring)
+                let t = cursor.bandCurTrack + dy
+                if t > 3 {
+                    cursor.bandCursorActive = false; cursor.blockHour = 0; ensureHourVisible()
+                } else if t < 0 {
+                    cursor.bandCursorActive = false; cursor.blockHour = 23; ensureHourVisible()
+                } else {
+                    cursor.bandCurTrack = t
+                }
             }
         }
         if dx != 0 {
             let m = level(z) == 0 ? cursor.blockMonth : focus
             switch level(z) {
-            case 0, 1: cursor.blockDay = max(1, min(daysInMonth(year, m), cursor.blockDay + dx))
+            case 0: // year: past either day edge → back to the month cursor
+                let d = cursor.blockDay + dx
+                if d < 1 || d > daysInMonth(year, m) {
+                    cursor.bandCursorActive = false
+                } else {
+                    cursor.blockDay = d
+                }
+            case 1: cursor.blockDay = max(1, min(daysInMonth(year, m), cursor.blockDay + dx))
             case 2: let d = max(1, min(daysInMonth(year, focus), cursor.blockDay + dx)); if d != cursor
                 .blockDay {
                     cursor.blockDay = d; ensureDayVisibleWeek(d)

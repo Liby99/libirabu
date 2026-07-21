@@ -218,19 +218,27 @@ public enum HelpContent {
                 shortcuts: [.init("⌘T", "Go to today")]
             ),
             HelpTopic(
-                id: "daily-dashboard", title: "The daily dashboard",
-                summary: "Day view pairs the timeline with a to-do and notes panel.",
-                keywords: ["dashboard", "day view", "todo", "notes", "panel", "notepad"],
+                id: "daily-dashboard", title: "The dashboard",
+                summary: "Day, week, and month views pair the calendar with a to-do and notes panel.",
+                keywords: ["dashboard", "day view", "week view", "month view", "todo", "notes", "panel",
+                           "notepad", "weekly note", "monthly note"],
                 blocks: [
-                    .paragraph("In Day view, the panel beside the timeline is the day's dashboard. It has two tabs:"),
+                    .paragraph(
+                        "In Day view, the panel beside the timeline is the day's dashboard; week and month views have their own (deadlines, to-dos, and a note scoped to that week or month). It has two tabs:"
+                    ),
                     .bullets([
-                        "To-Do — every checkbox from the day's notes and its events, gathered in one list.",
-                        "Note — a free-form Markdown scratchpad for that day.",
+                        "To-Do — every checkbox from the range's notes and its events, gathered in one list.",
+                        "Note — a free-form Markdown scratchpad for that day, week, or month.",
                     ]),
                     .paragraph(
                         "Check items off directly in the To-Do tab; they stay in sync with the notes they came from."
                     ),
-                ], gif: "daily-dashboard"
+                    .paragraph(
+                        "⌘B focuses the To-Do tab and ⌘E the Note editor. In week or month view they also open the panel if it's closed, flip between tabs, and — pressed again on their own tab — put it away."
+                    ),
+                ],
+                shortcuts: [.init("⌘B", "Focus the To-Do list"), .init("⌘E", "Focus the Note editor")],
+                gif: "daily-dashboard"
             ),
         ]
     )

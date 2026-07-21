@@ -67,13 +67,29 @@ else
   echo "▸ skipping notarization (NOTARIZE=0) — Gatekeeper will warn on other Macs"
 fi
 
+echo "▸ render DMG volume icon (system disk-image icon + app icon composite)"
+DMGICON="$BUILD/dmg-icon.icns"
+swift "$HERE/make-dmg-icon.swift" "$APP/Contents/Resources/AppIcon.icns" "$DMGICON" >/dev/null
+
 echo "▸ build DMG"
 STAGE="$BUILD/dmg-stage"
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
-rm -rf "$STAGE"
+cp "$DMGICON" "$STAGE/.VolumeIcon.icns"
+# Volume icon: .VolumeIcon.icns only shows once the volume ROOT carries the Finder custom-icon
+# flag, and the flag can only be set on a WRITABLE volume — so build read-write first, set the
+# flag on the mounted root, then compress to the read-only UDZO users download.
+RWDMG="$BUILD/$APP_NAME-rw.dmg"
+rm -f "$RWDMG"
+hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDRW "$RWDMG" >/dev/null
+MNT=$(hdiutil attach "$RWDMG" -nobrowse -readwrite | awk -F'\t' '/\/Volumes\//{print $3; exit}')
+[ -d "$MNT" ] || { echo "✗ could not mount RW dmg"; exit 1; }
+SetFile -a C "$MNT"
+hdiutil detach "$MNT" >/dev/null
+rm -f "$DMG"
+hdiutil convert "$RWDMG" -format UDZO -o "$DMG" >/dev/null
+rm -f "$RWDMG"; rm -rf "$STAGE"
 
 if [ "$NOTARIZE" = "1" ]; then
   # Sign the DMG too so it verifies with a real signature (not just the stapled ticket),
@@ -87,6 +103,13 @@ if [ "$NOTARIZE" = "1" ]; then
   echo "▸ staple ticket to the .dmg"
   xcrun stapler staple "$DMG"
 fi
+
+# Give the .dmg FILE itself the composite icon too (nice locally / on AirDrop; note it rides in
+# extended attributes, which a plain HTTP download strips — the VOLUME icon above is the one
+# every user sees after mounting). After signing/stapling: xattrs aren't part of either.
+swift -e 'import AppKit
+let a = CommandLine.arguments
+_ = NSWorkspace.shared.setIcon(NSImage(contentsOfFile: a[1]), forFile: a[2])' "$DMGICON" "$DMG" || true
 
 echo ""
 echo "✓ done"

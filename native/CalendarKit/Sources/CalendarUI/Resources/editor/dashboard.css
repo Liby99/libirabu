@@ -10,7 +10,7 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color-scheme: dark;
 }
-html, body { background: transparent; margin: 0; padding: 0; height: 100%; overflow: hidden;
+html, body { background: transparent; margin: 0; padding: 0; height: 100%; overflow: clip;
   color: var(--accent-dark); -webkit-font-smoothing: antialiased;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 
@@ -18,7 +18,16 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
    set by Swift), and holds two absolutely-stacked day panels that slide + cross-fade within it (Swift
    ticks them, mirroring SceneRenderer.drawPanel). Overflow hidden clips a sliding panel at the panel
    edge, just like the Canvas title bars above. */
-#dash { height: 100%; position: relative; overflow: hidden; font-size: 13px; box-sizing: border-box;
+/* #dash IS the mask: absolutely positioned; JS sets left/width per tick to the live clip region
+   (the webview frame spans the full content width and never moves). Before the first tick it has
+   zero width — and the native alphaValue starts at 0 anyway. */
+/* overflow: CLIP, not hidden — a hidden container is still a scroll container to WebKit, and a
+   focus()/scrollIntoView on content outside its box (e.g. the note editor's caret mid-open, or a
+   clicked tabindex row under a sibling's transform) AUTO-SCROLLS it. That stray scrollLeft is
+   sticky (ticks set left/width, never scroll) and shifted everything left — the "left padding
+   disappears after ⌘E toggles" bug. clip clips identically but forbids ALL scrolling. */
+#dash { position: absolute; top: 0; bottom: 0; left: 0; width: 0; overflow: clip;
+  font-size: 13px; box-sizing: border-box;
   transform-origin: left center; will-change: transform, opacity; }
 :root { --dd-pad: 25px; }
 /* Drawer-open scrim: blurs the dashboard + intercepts pointer events (the app's SwiftUI blur/scrim
@@ -42,17 +51,31 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
     linear-gradient(to bottom, transparent, #000 var(--f), #000 calc(100% - var(--f)), transparent);
   mask-composite: intersect;
 }
-#panels, #note-live { position: absolute; inset: 0; }
+#panels { position: absolute; inset: 0; }
+/* The live editor takes the ACTIVE scope panel's OWN geometry (left/width set per tick by JS,
+   defaulting to the full mask): its width is the panel's stable target width, so mask resizes
+   during pin rides/zooms never reflow CodeMirror (a resize while display:none left it laid out
+   against a stale — even zero — width, which read as the left margin vanishing). z-index lifts
+   it above the dynamically-appended week/month layers (DOM-later would otherwise stack them
+   over the editor, eating its clicks at week/month rest). */
+#note-live { position: absolute; top: 0; bottom: 0; left: 0; width: 100%; z-index: 10; }
 /* A day's note rendered statically inside a carousel panel (the .cc-dd-scroll is the scroller).
    Top-aligned; bottom padding clears the native edit/preview toggle at the bottom-right. */
 .cc-dd-note-md { height: auto; overflow: visible; padding: 0 0 24px; }
 /* Empty day → the editor placeholder (matches CodeMirror's placeholder: mono, faint). */
 .cc-dd-note-empty { color: var(--accent-grey); font-family: var(--font-mono); font-size: 13px; }
+/* "Write something" — the empty-note invitation into the markdown editor. */
+.cc-dd-note-write { color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.cc-dd-note-write:hover { color: var(--fg); }
 /* Transform layer: carries the per-frame carousel slide + fade. It must NOT be the scroller — a
    transformed/composited scroller loses WebKit's native rubber-band. */
 .cc-dd-panel {
-  position: absolute; inset: 0; box-sizing: border-box; overflow: hidden;
+  /* clip, not hidden — same focus-auto-scroll immunity as #dash (see its comment). */
+  position: absolute; inset: 0; box-sizing: border-box; overflow: clip;
   will-change: transform, opacity; opacity: 0;
+  /* NO transitions here: per-tick values include intentional DISCONTINUITIES (panel role swaps
+     at pager re-base boundaries, scope snaps) — a transition turns those into visible glides,
+     and boundary jitter makes them oscillate. Values apply directly, like the Canvas. */
 }
 /* Plain inner scroller: no transform/will-change, so WebKit gives it native elastic overscroll. */
 .cc-dd-scroll {
@@ -100,7 +123,22 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dtodo-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-dark); opacity: 0.7; }
 .cc-dtodo-sec-count { font-size: 10px; font-weight: 600; line-height: 1; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent-grey) 18%, transparent); color: var(--accent-dark); opacity: 0.7; }
 .cc-dtodo-list { list-style: none; margin: 0; padding: 0; }
-.cc-dtodo { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; }
+/* --nest (set inline per row) indents nested sub-tasks under their parent. */
+.cc-dtodo { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0 3px calc(var(--nest, 0) * 18px); }
+/* Disclosure chevron on rows with sub-tasks: the last flex item, pushed to the row's right edge
+   (margin-left auto), aligned with the first text line. Points down (rotated) when expanded, right
+   when folded. Everything is expanded by default (see `collapsed`). */
+.cc-dtodo-fold {
+  flex: none; margin-left: auto; align-self: flex-start;
+  width: 20px; height: 20px; padding: 0; border: none; background: none;
+  display: grid; place-items: center; color: var(--accent-grey); cursor: pointer;
+  transform: rotate(90deg); transition: transform 0.15s ease, color 0.12s ease;
+}
+.cc-dtodo-fold svg { display: block; }
+.cc-dtodo-fold:hover { color: var(--highlight); }
+.cc-dtodo-fold[aria-expanded="false"] { transform: rotate(0deg); }
+/* Hidden-descendant count shown on a folded parent. */
+.cc-dtodo-foldn { font-size: 10px; opacity: 0.55; }
 .cc-dtodo-check {
   appearance: none; -webkit-appearance: none; flex: none; box-sizing: border-box;
   width: 15px; height: 15px; margin-top: 2px;
@@ -127,6 +165,13 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dtodo-followup { color: #4fb0b0; font-weight: 500; }
 .cc-dtodo-followup.cc-dtodo-due-over { color: var(--event-red-border); }
 .cc-dtodo-tag { color: var(--highlight); opacity: 0.85; }
+/* project:name chip — boxed outline so a project reads as belonging, not a #tag. */
+.cc-dtodo-proj {
+  color: var(--accent-dark); opacity: 0.8; font-size: 10px; line-height: 1.3;
+  padding: 0 5px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent-grey) 45%, transparent);
+  background: color-mix(in srgb, var(--accent-grey) 10%, transparent);
+}
 .cc-dtodo-is-done .cc-dtodo-text { color: var(--accent-grey); }
 .cc-dtodo-is-done .cc-dtodo-main:hover .cc-dtodo-text { color: var(--accent-dark); }
 .cc-dtodo-fin { color: var(--event-darkgreen-border); opacity: 0.85; }

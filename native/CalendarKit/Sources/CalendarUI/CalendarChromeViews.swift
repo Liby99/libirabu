@@ -50,9 +50,18 @@ struct DashboardSplitHandle: View {
 
     var body: some View {
         let contentW = max(1, vp.w - Layout.labelW)
-        let frac = dragFrac ?? engine.daily.frac
-        // Timeline edge (gap's left) shifted by the layers' padLeft; the capsule centers in the gap.
-        let gapLeftX = Layout.padLeft + Layout.labelW + frac * contentW
+        // Two modes, one handle. DAY: drags the timeline↔dashboard split (daily.frac = TIMELINE
+        // width fraction; boundary at labelW + frac·content). PINNED month/week: drags that
+        // scope's PANEL width (dashMonth/WeekFrac = PANEL fraction; boundary at w − frac·content,
+        // so dragging right SHRINKS the panel). Both persist.
+        let pinned = engine.chrome.level < 3
+        let isMonth = engine.chrome.level <= 1
+        let scopeFrac = isMonth ? engine.chrome.dashMonthFrac : engine.chrome.dashWeekFrac
+        let frac = dragFrac ?? (pinned ? scopeFrac : engine.daily.frac)
+        // Month panel width floors at dashMonthMinW — the handle sits on the FLOORED edge.
+        let gapLeftX = pinned
+            ? Layout.padLeft + vp.w - (isMonth ? dashMonthPanelW(vp, frac: frac) : frac * contentW)
+            : Layout.padLeft + Layout.labelW + frac * contentW
         let centerX = gapLeftX + gapInset / 2
         let active = onGrip || dragFrac != nil
         // Two states: faint in the gap, lighter on the grip; invisible otherwise.
@@ -75,12 +84,19 @@ struct DashboardSplitHandle: View {
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { v in
                         if dragFrac == nil {
-                            startFrac = engine.daily.frac
+                            startFrac = pinned ? scopeFrac : engine.daily.frac
                         }
-                        let nf = min(maxFrac, max(minFrac, startFrac + v.translation.width / contentW))
-                        dragFrac = nf
-                        engine.setDailyFrac(nf)
-                        onFrac(nf)
+                        if pinned {
+                            // Panel fraction grows as the boundary moves LEFT.
+                            let nf = min(0.55, max(0.15, startFrac - v.translation.width / contentW))
+                            dragFrac = nf
+                            engine.setDashPinFrac(nf)
+                        } else {
+                            let nf = min(maxFrac, max(minFrac, startFrac + v.translation.width / contentW))
+                            dragFrac = nf
+                            engine.setDailyFrac(nf)
+                            onFrac(nf)
+                        }
                     }
                     .onEnded { _ in dragFrac = nil }
             )

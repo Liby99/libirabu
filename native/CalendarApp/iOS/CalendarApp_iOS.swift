@@ -45,7 +45,14 @@ struct CalendarPhoneApp: App {
 
     /// One engine for the process. Constructing it kicks off CloudKit sync (see
     /// CalendarEngine.enableCloudSyncIfEntitled → CloudSync.startIfAccountAvailable).
-    @State private var engine = CalendarEngine(cloudReadOnly: true)
+    /// Cross-year flips are off on the phone for now: the month pager rubber-bands at
+    /// Jan/Dec instead of flipping into the neighbor year (the year view's own flip is
+    /// disabled in PhoneYearDriver by never arming its overscroll gesture).
+    @State private var engine = {
+        let e = CalendarEngine(cloudReadOnly: true)
+        e.monthYearFlipEnabled = false
+        return e
+    }()
 
     /// Extra breathing room between the bottom of the status bar / Dynamic Island and the
     /// first content (year: day-number header; month: date row). Tune to taste.

@@ -91,13 +91,13 @@ public final class AssistantState {
         busy = true
         persistCurrent() // the conversation appears in the sidebar as soon as it starts
 
-        // Pre-flight: no tested provider → answer with a fixed, friendly pointer to Settings instead
-        // of spinning up the agent loop just to surface a transport error. A provider counts only
-        // once its Test Connection has passed (Settings ▸ API Keys).
+        // Pre-flight: no configured provider → answer with a fixed, friendly pointer to Settings
+        // instead of spinning up the agent loop just to surface a transport error. Configured =
+        // key + model (+ gateway URL); Test Connection is optional.
         if !ProviderStore.activeReady {
             let tavilyMissing = (Keychain.get(account: WebSearchTool.keychainAccount) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            var msg = "Please pick an **AI provider**, add its key, and press **Test Connection** in the Settings window (**Settings ▸ API Keys**, ⌘,) — I can answer once a provider tests OK."
+            var msg = "Please pick an **AI provider** and add its key in the Settings window (**Settings ▸ API Keys**, ⌘,) — I can answer once one is configured."
             if tavilyMissing { msg += "\n\nAdding a **Tavily** key there also enables web search." }
             finish(text: msg)
             return

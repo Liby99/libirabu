@@ -106,7 +106,21 @@ extension CalendarEngine {
     /// datestamp stripped) so they survive the event being rescheduled in Apple Calendar and apply to the
     /// whole series. `sourceId` first, so a promoted/occurrence box resolves back to its imported id.
     static func applePerOccurrenceSuffix(_ id: String) -> Range<String.Index>? {
-        id.range(of: "-[0-9]{8}-[0-9]{4}$", options: .regularExpression)
+        // Manual scan for `-[0-9]{8}-[0-9]{4}$` — called per imported event on every display-cache
+        // rebuild (overlayKey / importedDisplayColor), where an uncached regex search is a hot spot.
+        var s = id[...]
+        func eatDigits(_ n: Int) -> Bool {
+            for _ in 0 ..< n {
+                guard let c = s.last, ("0" ... "9").contains(c) else { return false }
+                s = s.dropLast()
+            }
+            return true
+        }
+        guard eatDigits(4), s.last == "-" else { return nil }
+        s = s.dropLast()
+        guard eatDigits(8), s.last == "-" else { return nil }
+        s = s.dropLast()
+        return s.endIndex ..< id.endIndex
     }
 
     /// A full per-occurrence imported id → its series key; any other id unchanged.
@@ -224,7 +238,7 @@ extension CalendarEngine {
 
     private func ensureBandCache(_ year: Int)
         -> (bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]]) {
-        if let c = caches.band, c.year == year, c.gen == caches.editGen {
+        if let c = caches.band[year], c.gen == caches.editGen {
             return (c.bands, c.badges, c.byMonth)
         }
         func repeatOf(_ id: String) -> Repeat? {
@@ -291,56 +305,101 @@ extension CalendarEngine {
                 }
             }
         }
-        func promote(_ id: String, _ y: Int, _ m: Int, _ day: Int, _ title: String, _ color: String) {
+        // Promoted bars sit on the LOCAL (main-tz) day of their source's MOMENT — an AOE deadline at
+        // 23:59 on day A lands on day A+1 in EST, and the ghost band must agree with the timeline box
+        // (which converts via displayEvent/displayDeadline the same way). Identity (occKey) and the
+        // hide/exdate checks stay on the STORED anchor-tz date, so selection sync and per-occurrence
+        // hides keep matching the source item.
+        func localYMD(_ ymd: YMD, _ hour: CGFloat, _ anchor: String?) -> YMD {
+            guard let anchor,
+                  !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(ymd.year, ymd.month, ymd.day, hour))
+            else { return ymd }
+            let w = DeadlineTZ.convertWall(ymd.year, ymd.month, ymd.day, hour, from: anchor, to: mainTz)
+            return YMD(w.year, w.month, w.day)
+        }
+        func promote(_ id: String, _ y: Int, _ m: Int, _ day: Int, _ title: String, _ color: String,
+                     hidden: Bool = false, localize: (YMD) -> YMD = { $0 }) {
             guard let track = items.richById[overlayKey(id)]?.promoteTrack, tagVisible(id, hiddenT) else { return }
             let r = repeatOf(id)
-            if y == year && !baseHidden(occDate(YMD(y, m, day)), r) {
+            func badgesP(recurrent: Bool) -> EventBadges {
+                var bg = badges(id, recurrent: recurrent, promoted: true)
+                if hidden {
+                    bg.insert(.hidden) // revealed user-hidden source → dotted, like its timed box
+                }
+                return bg
+            }
+            let base = YMD(y, m, day)
+            let w = localize(base)
+            // Gate on the DISPLAY year: a Dec-31 anchor day can land in this year's January locally
+            // (and vice versa) — the bar belongs to the year it's SEEN in.
+            if w.year == year && !baseHidden(occDate(base), r) {
                 // A distinct occurrence-key id (not the raw source id) so the promoted bar is its own
                 // box: selecting the original timeline event highlights it (same source) without also
                 // making it the focused box, and vice-versa. sourceId() maps both back to `id`.
                 // `~p` so this promoted bar is a DISTINCT box from the timeline occurrence `id@Y-M-D`.
-                let key = occKey(id, YMD(y, m, day)) + PROMOTED_SUFFIX
+                let key = occKey(id, base) + PROMOTED_SUFFIX
                 out.append(BandEvent(
                     id: key,
                     year: year,
-                    month: m,
+                    month: w.month,
                     track: track,
-                    startDay: day,
-                    endDay: day,
+                    startDay: w.day,
+                    endDay: w.day,
                     title: title,
                     color: color
                 ))
-                badgeMap[key] = badges(id, recurrent: r != nil, promoted: true)
+                badgeMap[key] = badgesP(recurrent: r != nil)
             }
-            for o in occurrenceDates(YMD(y, m, day), r, year) {
+            for o in occurrenceDates(base, r, year) {
+                let wo = localize(o)
+                guard wo.year == year else { continue }
                 let key = occKey(id, o) + PROMOTED_SUFFIX
-                out.append(BandEvent(id: key, year: year, month: o.month, track: track,
-                                     startDay: o.day, endDay: o.day, title: title, color: color))
-                badgeMap[key] = badges(id, recurrent: true, promoted: true)
+                out.append(BandEvent(id: key, year: year, month: wo.month, track: track,
+                                     startDay: wo.day, endDay: wo.day, title: title, color: color))
+                badgeMap[key] = badgesP(recurrent: true)
             }
         }
         for e in items.events {
-            promote(e.id, e.year, e.month, e.day, e.title, e.color)
+            promote(e.id, e.year, e.month, e.day, e.title, e.color,
+                    localize: { localYMD($0, e.startHour, e.anchorTz) })
         }
         for d in items.deadlines {
-            promote(d.id, d.year, d.month, d.day, d.title, d.color)
+            promote(d.id, d.year, d.month, d.day, d.title, d.color,
+                    localize: { localYMD($0, d.hour, d.anchorTz) })
         }
         // Imported events the user promoted (rich.promoteTrack on the series key) → one ghost band per
-        // visible occurrence, in its overridden color. Skip hidden (deduped-shadow) occurrences.
+        // visible occurrence, in its overridden color. Skip hidden (deduped-shadow) occurrences, and
+        // honor the user's series-level hide EXACTLY like the timed box does (hidden unless "Show
+        // Hidden Imported Events" reveals it, then dotted) — the promoted bar is the same event.
+        let revealHidden = showHiddenImported
         for e in imported.events where e.year == year && items.richById[e.id]?.hidden != true {
-            promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e))
+            let userHidden = items.richById[Self.appleSeriesKey(e.id)]?.userHidden == true
+            if userHidden && !revealHidden {
+                continue
+            }
+            promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e), hidden: userHidden,
+                    localize: { localYMD($0, e.startHour, e.anchorTz) })
         }
         for b in imported.bands where b.year == year { // Apple Calendar all-day events (read-only)
             guard tagVisible(b.id, hiddenT) else { continue }
+            let userHidden = items.richById[Self.appleSeriesKey(b.id)]?.userHidden == true
+            if userHidden && !revealHidden {
+                continue
+            } // user hid this series → hidden unless "Show Hidden" is on
             out.append(b)
-            badgeMap[b.id] = badges(b.id, recurrent: false, promoted: false)
+            var bg = badges(b.id, recurrent: false, promoted: false)
+            if userHidden {
+                bg.insert(.hidden)
+            }
+            badgeMap[b.id] = bg
         }
 
         var byMonth: [Int: [BandEvent]] = [:]
         for b in out {
             byMonth[b.month, default: []].append(b)
         }
-        caches.band = (year, caches.editGen, out, badgeMap, byMonth)
+        caches.band = caches.band.filter { $0.value.gen == caches.editGen }
+        caches.band[year] = (caches.editGen, out, badgeMap, byMonth)
         return (out, badgeMap, byMonth)
     }
 
@@ -422,7 +481,7 @@ extension CalendarEngine {
 
     private func ensureEventCache(_ year: Int)
         -> (events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]]) {
-        if let c = caches.event, c.year == year, c.gen == caches.editGen {
+        if let c = caches.event[year], c.gen == caches.editGen {
             return (c.events, c.badges, c.byDay)
         }
         func repeatOf(_ id: String) -> Repeat? {
@@ -483,7 +542,8 @@ extension CalendarEngine {
                 byDay[s.event.month * 100 + s.event.day, default: []].append(s.event)
             }
         }
-        caches.event = (year, caches.editGen, out, badgeMap, byDay)
+        caches.event = caches.event.filter { $0.value.gen == caches.editGen }
+        caches.event[year] = (caches.editGen, out, badgeMap, byDay)
         return (out, badgeMap, byDay)
     }
 
@@ -492,7 +552,7 @@ extension CalendarEngine {
     /// occurrences on their occurrence days (holes = exdates), each a copy at the same hour with a
     /// synthetic occKey id. Cached per (year, caches.editGen) — like displayEvents / displayBands.
     public func displayDeadlines(for year: Int) -> [Deadline] {
-        if let c = caches.ddl, c.year == year, c.gen == caches.editGen {
+        if let c = caches.ddl[year], c.gen == caches.editGen {
             return withPreview(
                 c.deadlines,
                 { $0.id },
@@ -527,7 +587,8 @@ extension CalendarEngine {
                 }
             }
         }
-        caches.ddl = (year, caches.editGen, out)
+        caches.ddl = caches.ddl.filter { $0.value.gen == caches.editGen }
+        caches.ddl[year] = (caches.editGen, out)
         return withPreview(out, { $0.id }, { $0.color = $1 })
     }
 

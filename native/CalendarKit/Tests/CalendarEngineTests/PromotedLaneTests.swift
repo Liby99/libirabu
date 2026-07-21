@@ -42,6 +42,22 @@ final class PromotedLaneTests: XCTestCase {
         XCTAssertEqual(moved?.startDay, 10)
     }
 
+    /// The promoted ghost sits on the LOCAL (main-tz) day of the source's moment: 23:59 AOE (UTC−12)
+    /// on Jun 20 is 07:59 ET on Jun 21 — the band must show on the 21st, not the anchor-zone day.
+    func testPromotedDeadlineLandsOnLocalDay() throws {
+        let e = CalendarEngine()
+        e.mainTz = "America/New_York"
+        let id = e.createDeadline(year: 2026, month: 5, day: 20, hour: 23.983, title: "CFP",
+                                  color: "red", anchorTz: "AOE")
+        e.setPromoteTrack(id, 1)
+        let ghost = try XCTUnwrap(e.displayBands(for: 2026).first { sourceId(of: $0.id) == id })
+        XCTAssertEqual(ghost.month, 5)
+        XCTAssertEqual(ghost.startDay, 21, "23:59 AOE Jun 20 = 07:59 ET Jun 21 — the local day")
+        XCTAssertEqual(ghost.endDay, 21)
+        // The stored deadline keeps its anchor-zone identity (only the display day localizes).
+        XCTAssertEqual(e.items.deadlines.first { $0.id == id }?.day, 20)
+    }
+
     func testNudgeVerticalOnSourceEventStillMovesTime() {
         let e = CalendarEngine()
         let id = e.createTimedEvent(year: e.year, month: 5, day: 10, startHour: 9, endHour: 10,

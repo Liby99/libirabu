@@ -71,6 +71,10 @@ public enum Layout {
     // iPhone app zeroes it before the first render (month names flush to the edge).
     public static nonisolated(unsafe) var padLeft: CGFloat = 20
     public static let padRight: CGFloat = 0
+
+    /// Minimum pinned MONTHLY dashboard width (px) — the panel never squeezes below this, no
+    /// matter the persisted fraction or window size.
+    public static let dashMonthMinW: CGFloat = 300
 }
 
 @inlinable public func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat {

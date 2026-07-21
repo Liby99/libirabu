@@ -238,26 +238,47 @@ public struct EventsOverlay: View {
                     .fixedSize()
                     .position(wm.center)
             }
-            // Current-time label(s): dark-red glass + a red caret pointing at the now-line. The line
-            // itself stays in the Canvas; only this label is SwiftUI (for real glass blur).
-            // Suppressed in the lifted copy (onlyBox) — it should show ONLY the selected event.
-            // Clip to the content region (right edge = the dashboard's animated left edge): the SwiftUI
-            // glass pill would otherwise composite ABOVE the dashboard WebView — unlike the Canvas
-            // now-line, which is clipped there — so in week view a right-side day's label leaked over
-            // the panel while the line sat under it. Clipping here keeps the two layered the same.
-            if onlyBox == nil {
-                ZStack(alignment: .topLeading) {
-                    ForEach(nowLabelSpecs(input)) { spec in
-                        nowLabelView(spec)
-                    }
+            // NOTE: the CURRENT TIME pill + cursor time tag used to render here, but the gutter
+            // chrome (hour labels, borders, the now-line) draws in a LATER Canvas — the labels sat
+            // crisp on top of the glass. They now live in TimeTagsOverlay, mounted ABOVE the chrome
+            // (see calendarScene), so the glass genuinely frosts the hour labels beneath.
+        }
+        .allowsHitTesting(false)
+    }
+
+}
+
+/// The CURRENT TIME pill + the cursor time tag, in their own layer ABOVE the chrome Canvas
+/// (which draws the gutter hour labels, borders, and the now/cursor lines themselves). Layered
+/// there, the pills' frosted glass blurs the hour labels under them — in day view the tags hug
+/// the left gutter and used to collide with "10:00"-style labels drawn crisp on top.
+public struct TimeTagsOverlay: View {
+    let input: SceneInput
+    let theme: Theme
+
+    public init(input: SceneInput, theme: Theme) {
+        self.input = input
+        self.theme = theme
+    }
+
+    public var body: some View {
+        // Clip to the content region (right edge = the dashboard's animated left edge): the SwiftUI
+        // glass pill would otherwise composite ABOVE the dashboard WebView — unlike the Canvas
+        // now-line, which is clipped there — so in week view a right-side day's label leaked over
+        // the panel while the line sat under it. Clipping here keeps the two layered the same.
+        let clipRight = dashboardLeftAnimated(input)
+        ZStack(alignment: .topLeading) {
+            ZStack(alignment: .topLeading) {
+                ForEach(nowLabelSpecs(input)) { spec in
+                    nowLabelView(spec)
                 }
-                .clipShape(RectClip(rect: CGRect(
-                    x: -Layout.labelW,
-                    y: 0,
-                    width: clipRight + Layout.labelW,
-                    height: input.vp.h
-                )))
             }
+            .clipShape(RectClip(rect: CGRect(
+                x: -Layout.labelW,
+                y: 0,
+                width: clipRight + Layout.labelW,
+                height: input.vp.h
+            )))
             // Mouse-cursor time tag: SwiftUI (not Canvas) so it isn't clipped at the gutter and its
             // side animates smoothly on a flip (e.g. the week↔day transition) instead of jumping.
             if let tag = cursorTagSpec(input) {
@@ -270,6 +291,10 @@ public struct EventsOverlay: View {
     @ViewBuilder private func cursorTagView(_ spec: CursorTagSpec) -> some View {
         let c = theme.cursor
         let shape = RoundedRectangle(cornerRadius: 5)
+        // Frosted glass like the CURRENT TIME pill: a translucent base so the frost reads clean,
+        // glass tinted with the cursor color (strong in dark mode, faint in light).
+        let baseFill: Color = (theme.dark ? Color.black : Color.white).opacity(theme.dark ? 0.55 : 0.62)
+        let glassTint = c.opacity(theme.dark ? 0.5 : 0.14)
         // Lines hug the caret (line-facing) side, like the CURRENT TIME pill: tag left of the
         // column → trailing-aligned, tag right of the column → leading-aligned.
         VStack(alignment: spec.pointsRight ? .trailing : .leading, spacing: -1) {
@@ -283,7 +308,8 @@ public struct EventsOverlay: View {
         .padding(.horizontal, 6)
         .frame(width: spec.rect.width, height: spec.rect.height,
                alignment: spec.pointsRight ? .trailing : .leading)
-            .background(shape.fill(theme.bg.opacity(0.82)))
+            .background(shape.fill(baseFill))
+            .glassEffect(.regular.tint(glassTint), in: shape)
             .overlay(shape.strokeBorder(c, lineWidth: 1))
             // Caret on the line-facing edge; on a side flip the old one retracts and the new one grows.
             .overlay { flipCaret(pointsRight: true, shown: spec.pointsRight, color: c, h: 8) }
@@ -334,7 +360,9 @@ public struct EventsOverlay: View {
         .animation(.easeInOut(duration: 0.2), value: spec.pointsRight) // slide + caret-swap on flip
         .allowsHitTesting(false)
     }
+}
 
+extension EventsOverlay {
     /// Clip a timeline layer to its own (possibly sliding) day-detail region.
     private func tlClip(_ tl: TimelineInfo, _ clipRight: CGFloat) -> CGRect {
         CGRect(x: Layout.labelW, y: tl.tlTop, width: max(0, clipRight - Layout.labelW),
@@ -1096,6 +1124,9 @@ public struct DeadlinesOverlay: View {
             ) : nil
         }
         let topId = topSpec?.id
+        // Horizontal clip limit: generous past the viewport when no panel is up, hard at the live
+        // dashboard mask edge when one is (pills must be occluded by the panel like Canvas content).
+        let rightEdge = clipRight >= input.vp.w - 0.5 ? input.vp.w + Layout.labelW : clipRight
         ZStack(alignment: .topLeading) {
             ForEach(all) { s in
                 let a = activation(s.id)
@@ -1116,11 +1147,12 @@ public struct DeadlinesOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Clip vertically to the timeline (so a deadline scrolled out of view hides its label);
-        // horizontal is generous so a side-placed pill/caret isn't cut.
+        // horizontally generous on the left (a side-placed pill/caret isn't cut), hard at
+        // `rightEdge` (see above) so pills never float over the dashboard panel.
         .clipShape(RectClip(rect: CGRect(
             x: -Layout.labelW,
             y: tl.tlTop - H,
-            width: input.vp.w + 2 * Layout.labelW,
+            width: rightEdge + Layout.labelW,
             height: (tl.tlBottom - tl.tlTop) + 2 * H
         )))
     }

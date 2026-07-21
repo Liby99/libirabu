@@ -125,7 +125,7 @@ extension CalendarEngine {
     /// drives the panel's slide-in-from-right + fade as the day view opens/closes. (The panel stays put
     /// when the drawer opens — the scrim dims it in place — so no drawer state is needed here.)
     public func dashboardCarousel() -> (from: String, to: String, dir: Int, p: Double, reveal: Double) {
-        let reveal = Double(clamp(z - 2, 0, 1))
+        let reveal = Double(dashRevealTotal(snapshot())) // day-forced OR pinned (⌘B) reveal
         let from = dayIso(daily.dom) ?? ""
         guard let a = daily.anim else { return (from, "", 0, 0, reveal) }
         return (from, dayIso(daily.dom + a.dir) ?? "", a.dir, Double(a.p), reveal)

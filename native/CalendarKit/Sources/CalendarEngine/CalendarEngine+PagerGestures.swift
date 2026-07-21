@@ -49,6 +49,25 @@ extension CalendarEngine {
         wake(); daily.frac = clamp(f, 0.22, 0.82); chrome.dailyResync &+= 1
     }
 
+    /// Split-handle drag at a PINNED month/week: adjusts (and persists) that scope's panel width.
+    /// The clamp keeps the panel usable without letting it eat the squeezed grid.
+    public func setDashPinFrac(_ f: CGFloat) {
+        wake()
+        let v = clamp(f, 0.15, 0.55)
+        if level(z) <= 1 {
+            // The month panel is FLOORED at dashMonthMinW px (geometry-side); clamp the stored
+            // fraction to the same floor so the handle can't drag below it and detach from the
+            // (floored) panel edge.
+            let minFrac = Layout.dashMonthMinW / max(1, viewport.w - Layout.labelW)
+            let mv = max(v, min(0.55, minFrac))
+            dashMonthFrac = mv; chrome.dashMonthFrac = mv
+            UserDefaults.standard.set(Double(mv), forKey: PrefKeys.dashMonthFrac)
+        } else {
+            dashWeekFrac = v; chrome.dashWeekFrac = v
+            UserDefaults.standard.set(Double(v), forKey: PrefKeys.dashWeekFrac)
+        }
+    }
+
     /// True when the current overscroll pull has passed the flip threshold — peeked on fingers-up so
     /// the catcher can withhold `.ended` from the pager (preventing a stale snap animation).
     public var weekFlipArmed: Bool {
@@ -66,6 +85,13 @@ extension CalendarEngine {
 
     public func beginWeekGesture() {
         wake(); cancelTween(); anim.weekTween = nil; scroll.liveWeekScrolling = true
+        // Fingers down INTERCEPT any dashboard cruise/settle: freeze the carousel exactly where
+        // it is (fingers may keep scrubbing the canvas; the frozen hold ignores the band). The
+        // release settles it — weekGlideWillLand on the next snap, or the idle fallback.
+        if let st = weekDashSettle {
+            weekDashHold?.q = st.value(at: Date()); weekDashSettle = nil
+        }
+        weekDashCruise = nil
     }
 
     public func beginDayGesture() {
@@ -223,6 +249,20 @@ extension CalendarEngine {
         } else {
             week = raw
         }
+        // Weekly-dashboard cruise: while a hard-fling glide is in flight, the carousel progress
+        // rides the glide's travel proportionally — the WHOLE remaining scroll maps onto the
+        // remaining carousel travel, hitting the rest state exactly as the glide lands.
+        weekDashIdleAt = Date()
+        if var hold = weekDashHold, let c = weekDashCruise {
+            let span = c.wTarget - c.wStart
+            let lo = min(c.qStart, c.qTarget), hi = max(c.qStart, c.qTarget)
+            hold.q = abs(span) < 0.0001 ? c.qTarget
+                : clamp(c.qStart + (week - c.wStart) / span * (c.qTarget - c.qStart), lo, hi)
+            weekDashHold = hold
+            if abs(week - c.wTarget) < 0.003 { // landed → the band's rest matches; follow it
+                weekDashHold = nil; weekDashCruise = nil
+            }
+        }
         let overLeft = offsetX < 0 ? -offsetX : 0
         let overRight = offsetX > maxOff ? offsetX - maxOff : 0
         if scroll.liveWeekScrolling, overLeft > 2 || overRight > 2 {
@@ -274,7 +314,7 @@ extension CalendarEngine {
         let overBot = offsetY > maxOff ? offsetY - maxOff : 0
         // Elastic: the month follows the (AppKit-rubber-banded) overscroll and snaps back with it.
         anim.monthFlipShift = overTop > 0 ? overTop : (overBot > 0 ? -overBot : 0)
-        if scroll.liveMonthScrolling, overTop > 2 || overBot > 2 {
+        if scroll.liveMonthScrolling, monthYearFlipEnabled, overTop > 2 || overBot > 2 {
             let atTop = overTop > 0
             scroll.monthPull = YearPull(targetYear: atTop ? year - 1 : year + 1, atTop: atTop,
                                         over: atTop ? overTop : overBot,
@@ -297,7 +337,7 @@ extension CalendarEngine {
         scroll.liveMonthScrolling = false
         let pull = scroll.monthPull
         scroll.monthPull = nil
-        guard let pull, pull.armed, !isMonthFlipping, isMonthLevel else { return }
+        guard let pull, pull.armed, monthYearFlipEnabled, !isMonthFlipping, isMonthLevel else { return }
         let dir = pull.atTop ? -1 : 1
         anim.monthFlip = MonthFlip(dir: dir, fromYear: year, fromFocus: focus,
                                    toYear: year + dir, toFocus: dir < 0 ? 11 : 0,
@@ -355,6 +395,9 @@ extension CalendarEngine {
         let pull = scroll.weekPull
         scroll.weekPull = nil
         guard let pull, pull.armed, !isWeekFlipping, isWeekLevel else { return false }
+        // A month-edge flip re-anchors week coordinates — drop any dashboard override; the
+        // band mapping (in the destination month's coordinates) takes over.
+        weekDashHold = nil; weekDashCruise = nil; weekDashSettle = nil
         let toFocus = pull.targetMonth, toYear = pull.targetYear
         let maxWeekFrom = CGFloat(max(0, weeksInMonth(year, focus) - 1))
         // Rest week in FROM-month coordinates that shows the boundary week:
@@ -382,6 +425,65 @@ extension CalendarEngine {
         onSetYearScroll?(scrollY)
         pushChrome()
         return true
+    }
+
+    /// ── Weekly-dashboard carousel (OBSERVES the scroll; never drives it) ─────────────────────
+    /// WeekScrollBehavior's existing snap policy already classifies every release: a hard fling
+    /// glides to a WEEK boundary, a gentle scroll steps days. This is its read-only report of
+    /// that decision. On a week jump → arm a CRUISE: the dashboard carousel's progress rides the
+    /// glide's remaining travel proportionally (the "entire week's scroll" mapping), landing at
+    /// its rest exactly as the window does. On a small landing → if a caught (frozen) carousel
+    /// is off the band, SETTLE it to the band's resting side for the landing week.
+    public func weekGlideWillLand(atDay day: CGFloat, weekJump: Bool) {
+        guard isWeekLevel else { return }
+        let wTarget = day / 7
+        guard weekJump, abs(wTarget - week) > 0.02 else {
+            if weekDashHold != nil, weekDashCruise == nil {
+                settleWeekDash(restWeek: wTarget)
+            }
+            return
+        }
+        let base = Int(floor(week))
+        let pB = clamp((week - floor(week)) * 7 - 3, 0, 1) // the band's value right now
+        var from = base, to = base + 1
+        var qStart = pB, qTarget: CGFloat = 1
+        if wTarget < week { // backward glide
+            if Int(wTarget.rounded()) <= base - 1, pB < 0.5 { // into the previous week
+                from = base - 1; to = base; qStart = 1; qTarget = 0
+            } else {
+                qTarget = 0 // back to the base week's own rest
+            }
+        }
+        // Chained flings / catch-then-refling: keep the live progress when the pair is
+        // unchanged, so the carousel continues from where it visually is (no pop).
+        if let h = weekDashHold, h.from == from, h.to == to {
+            qStart = h.q
+        }
+        weekDashHold = WeekDashHold(from: from, to: to, q: qStart)
+        weekDashCruise = (wStart: week, wTarget: wTarget, qStart: qStart, qTarget: qTarget)
+        weekDashSettle = nil
+    }
+
+    /// Tween a frozen/off-band carousel hold to the band's resting side for `restWeek`, then
+    /// hand back to the pure band mapping (the hold clears when the tween completes — see
+    /// sceneInput). Landing rests are day-aligned, so the band there is always 0 or 1.
+    func settleWeekDash(restWeek: CGFloat) {
+        guard var hold = weekDashHold else { return }
+        let baseF = floor(restWeek + 0.0001)
+        let pB = clamp((restWeek - baseF) * 7 - 3, 0, 1)
+        let rest = pB < 0.5 ? Int(baseF) : Int(baseF) + 1 // the week the band rests on
+        let target: CGFloat
+        if rest == hold.to {
+            target = 1
+        } else if rest == hold.from {
+            target = 0
+        } else { // scrubbed to a third week — re-base from the visually dominant panel
+            hold = WeekDashHold(from: hold.q < 0.5 ? hold.from : hold.to, to: rest, q: 0)
+            target = 1
+        }
+        weekDashHold = hold
+        weekDashCruise = nil
+        weekDashSettle = Tween(from: hold.q, to: target, start: Date(), duration: 0.28, ease: easeInOut)
     }
 
     /// Per-frame week-flip. The anchor already swapped to the destination month on release; here the

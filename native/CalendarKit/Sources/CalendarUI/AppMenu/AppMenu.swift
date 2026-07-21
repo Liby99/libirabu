@@ -38,6 +38,10 @@ public enum MenuItemID: Sendable {
     case importICS, importMDC, exportMDC, printCalendar
     case deselectAll
     case goToYear, goToMonth, goToWeek, goToDay
+    // View ▸ TODO List (⌘B) / Note Editor (⌘E) — two sides of one coin: focus the dashboard's
+    // TODO/NOTE tab. Day: focus the tab (⌘E lands in the editor). Month/week: closed → open on
+    // that tab; open on the other tab → flip; already on that tab → retract the panel.
+    case todoList, noteEditor
     case newConversation, currentConversation, apiKeys
     case syncNow
     case help, tutorial, keyboardShortcuts
@@ -64,6 +68,8 @@ public enum MenuItemID: Sendable {
         case .goToMonth:           return "Go to Current Month"
         case .goToWeek:            return "Go to Current Week"
         case .goToDay:             return "Go to Current Day"
+        case .todoList:            return "TODO List"
+        case .noteEditor:          return "Note Editor"
         case .newConversation:     return "New Conversation"
         case .currentConversation: return "Current Conversation"
         case .apiKeys:             return "Configure API Keys…"
@@ -85,6 +91,8 @@ public enum MenuItemID: Sendable {
         case .quit:          return MenuShortcut("q")
         case .printCalendar: return MenuShortcut("p")
         case .deselectAll:   return MenuShortcut("d")
+        case .todoList:      return MenuShortcut("b")
+        case .noteEditor:    return MenuShortcut("e")
         case .help:          return MenuShortcut("?")
         case .closeWindow:   return MenuShortcut("w")
         case .minimize:      return MenuShortcut("m")
@@ -103,6 +111,8 @@ public enum MenuItemID: Sendable {
         case .importMDC:           return "square.and.arrow.down"
         case .exportMDC:           return "square.and.arrow.up"
         case .deselectAll:         return "square.dashed"
+        case .todoList:            return "checklist"
+        case .noteEditor:          return "square.and.pencil"
         case .newConversation:     return "square.and.pencil"
         case .currentConversation: return "bubble.left"
         case .apiKeys:             return "key"
@@ -218,6 +228,7 @@ public enum AppMenu {
         // View — go-to-today, visibility toggles, timezone pickers, tag filter, full screen.
         out.append(MenuSection(.view, "View", [
             .item(.goToYear), .item(.goToMonth), .item(.goToWeek), .item(.goToDay), .separator,
+            .item(.todoList), .item(.noteEditor),
             .widget(.showHiddenToggle), .separator,
             .widget(.currentTimezone), .widget(.altTimezone), .separator,
             .widget(.tagFilter), .separator,

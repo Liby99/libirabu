@@ -209,6 +209,23 @@ extension CalendarEngine {
     /// Programmatic view navigation for the assistant's `set_view` tool. Mirrors the web set_view:
     /// optionally switch year, focus a month (0-based), and/or zoom to a named level. Unspecified
     /// arguments are left unchanged. UI-only — moves the view, never mutates data.
+    /// ⌘B: toggle the pinned weekly/monthly dashboard. Only meaningful at month/week zoom — day
+    /// view forces the panel out regardless, and the year view has no panel — so other levels
+    /// no-op (per spec) rather than silently flipping hidden state.
+    public func toggleDashPin() {
+        let lv = level(z)
+        guard lv == 1 || lv == 2 else { return }
+        dashPinned.toggle()
+        UserDefaults.standard.set(dashPinned, forKey: PrefKeys.dashPinned)
+        anim.dashPinTween = Tween(from: dashPin, to: dashPinned ? 1 : 0,
+                                  start: Date(), duration: 0.3, ease: easeInOut)
+        chrome.dashPinned = dashPinned
+        if dashPinned {
+            chrome.dashPresented = true // pin ON: present immediately (retract clears on tween end)
+        }
+        wake()
+    }
+
     public func setView(year targetYear: Int? = nil, zoom: String? = nil, focusedMonth: Int? = nil,
                         day: Int? = nil) {
         wake()

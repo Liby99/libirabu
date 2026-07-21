@@ -176,6 +176,12 @@ import CalendarEngine
         if let box = item.representedObject as? IDBox, box.id == .removeCalendar {
             return ctx.engine()?.canRemoveCalendar ?? false
         }
+        // TODO List / Note Editor (⌘B/⌘E): dashboard tab focus — enabled wherever the dashboard
+        // is reachable (day always; month/week can open it), never at year or under the drawer.
+        if let box = item.representedObject as? IDBox, box.id == .todoList || box.id == .noteEditor {
+            guard let e = ctx.engine() else { return false }
+            return e.chrome.level >= 1 && !e.drawerOpen
+        }
         return true
     }
 

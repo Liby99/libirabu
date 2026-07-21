@@ -83,6 +83,19 @@ public struct ViewMenuContent: View {
         MenuActionButton(.goToWeek, engine: engine)
         MenuActionButton(.goToDay, engine: engine)
         Divider()
+        // TODO List / Note Editor (⌘B/⌘E): focus the dashboard's tab — the open/flip/retract state
+        // machine lives in CalendarView (it owns the tab state), reached via notification in both
+        // shells. Enabled wherever the dashboard is reachable (never at year / under the drawer).
+        Button { NotificationCenter.default.post(name: .focusDashTodo, object: nil) } label: {
+            Label("TODO List", systemImage: "checklist")
+        }
+        .keyboardShortcut("b", modifiers: .command)
+        .disabled(engine.chrome.level < 1 || engine.chrome.drawerOpen)
+        Button { NotificationCenter.default.post(name: .focusDashNote, object: nil) } label: {
+            Label("Note Editor", systemImage: "square.and.pencil")
+        }
+        .keyboardShortcut("e", modifiers: .command)
+        .disabled(engine.chrome.level < 1 || engine.chrome.drawerOpen)
         Toggle(isOn: $showHidden) { Label("Show Hidden Imported Events", systemImage: "eye.slash") }
         Divider()
         Picker(selection: $mainTz) {
