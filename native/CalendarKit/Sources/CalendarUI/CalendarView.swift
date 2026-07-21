@@ -416,6 +416,11 @@ public struct CalendarView: View {
                     }
                 }
             }
+            // 4b. time tags ABOVE the chrome: the CURRENT TIME pill + cursor time tag render over the
+            // gutter hour labels/borders, so their frosted glass blurs the labels instead of the
+            // labels drawing crisp across the tag (the day-view left-gutter collision).
+            TimeTagsOverlay(input: input, theme: theme)
+                .offset(x: Layout.padLeft)
             // Keyboard-navigation cursor (dashed sliding ring).
             CursorRing(rect: engine.blockCursorRect(), theme: theme, cornerRadius: 6,
                        geometryAnimating: engine.isAnimating)

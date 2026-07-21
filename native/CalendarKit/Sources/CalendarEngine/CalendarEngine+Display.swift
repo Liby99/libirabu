@@ -305,8 +305,20 @@ extension CalendarEngine {
                 }
             }
         }
+        // Promoted bars sit on the LOCAL (main-tz) day of their source's MOMENT — an AOE deadline at
+        // 23:59 on day A lands on day A+1 in EST, and the ghost band must agree with the timeline box
+        // (which converts via displayEvent/displayDeadline the same way). Identity (occKey) and the
+        // hide/exdate checks stay on the STORED anchor-tz date, so selection sync and per-occurrence
+        // hides keep matching the source item.
+        func localYMD(_ ymd: YMD, _ hour: CGFloat, _ anchor: String?) -> YMD {
+            guard let anchor,
+                  !DeadlineTZ.sameOffset(anchor, mainTz, at: DeadlineTZ.instant(ymd.year, ymd.month, ymd.day, hour))
+            else { return ymd }
+            let w = DeadlineTZ.convertWall(ymd.year, ymd.month, ymd.day, hour, from: anchor, to: mainTz)
+            return YMD(w.year, w.month, w.day)
+        }
         func promote(_ id: String, _ y: Int, _ m: Int, _ day: Int, _ title: String, _ color: String,
-                     hidden: Bool = false) {
+                     hidden: Bool = false, localize: (YMD) -> YMD = { $0 }) {
             guard let track = items.richById[overlayKey(id)]?.promoteTrack, tagVisible(id, hiddenT) else { return }
             let r = repeatOf(id)
             func badgesP(recurrent: Bool) -> EventBadges {
@@ -316,36 +328,44 @@ extension CalendarEngine {
                 }
                 return bg
             }
-            if y == year && !baseHidden(occDate(YMD(y, m, day)), r) {
+            let base = YMD(y, m, day)
+            let w = localize(base)
+            // Gate on the DISPLAY year: a Dec-31 anchor day can land in this year's January locally
+            // (and vice versa) — the bar belongs to the year it's SEEN in.
+            if w.year == year && !baseHidden(occDate(base), r) {
                 // A distinct occurrence-key id (not the raw source id) so the promoted bar is its own
                 // box: selecting the original timeline event highlights it (same source) without also
                 // making it the focused box, and vice-versa. sourceId() maps both back to `id`.
                 // `~p` so this promoted bar is a DISTINCT box from the timeline occurrence `id@Y-M-D`.
-                let key = occKey(id, YMD(y, m, day)) + PROMOTED_SUFFIX
+                let key = occKey(id, base) + PROMOTED_SUFFIX
                 out.append(BandEvent(
                     id: key,
                     year: year,
-                    month: m,
+                    month: w.month,
                     track: track,
-                    startDay: day,
-                    endDay: day,
+                    startDay: w.day,
+                    endDay: w.day,
                     title: title,
                     color: color
                 ))
                 badgeMap[key] = badgesP(recurrent: r != nil)
             }
-            for o in occurrenceDates(YMD(y, m, day), r, year) {
+            for o in occurrenceDates(base, r, year) {
+                let wo = localize(o)
+                guard wo.year == year else { continue }
                 let key = occKey(id, o) + PROMOTED_SUFFIX
-                out.append(BandEvent(id: key, year: year, month: o.month, track: track,
-                                     startDay: o.day, endDay: o.day, title: title, color: color))
+                out.append(BandEvent(id: key, year: year, month: wo.month, track: track,
+                                     startDay: wo.day, endDay: wo.day, title: title, color: color))
                 badgeMap[key] = badgesP(recurrent: true)
             }
         }
         for e in items.events {
-            promote(e.id, e.year, e.month, e.day, e.title, e.color)
+            promote(e.id, e.year, e.month, e.day, e.title, e.color,
+                    localize: { localYMD($0, e.startHour, e.anchorTz) })
         }
         for d in items.deadlines {
-            promote(d.id, d.year, d.month, d.day, d.title, d.color)
+            promote(d.id, d.year, d.month, d.day, d.title, d.color,
+                    localize: { localYMD($0, d.hour, d.anchorTz) })
         }
         // Imported events the user promoted (rich.promoteTrack on the series key) → one ghost band per
         // visible occurrence, in its overridden color. Skip hidden (deduped-shadow) occurrences, and
@@ -357,7 +377,8 @@ extension CalendarEngine {
             if userHidden && !revealHidden {
                 continue
             }
-            promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e), hidden: userHidden)
+            promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e), hidden: userHidden,
+                    localize: { localYMD($0, e.startHour, e.anchorTz) })
         }
         for b in imported.bands where b.year == year { // Apple Calendar all-day events (read-only)
             guard tagVisible(b.id, hiddenT) else { continue }
