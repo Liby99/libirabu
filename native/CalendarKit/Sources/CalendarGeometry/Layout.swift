@@ -43,6 +43,12 @@ public enum Layout {
     /// iPhone sets 26 so cells stay legible and each QUARTER overflows into its own
     /// horizontal scroll (SceneInput.yearQX). Same write-once-at-launch contract as labelW.
     public static nonisolated(unsafe) var yearMinDayW: CGFloat = 0
+    /// Day columns visible at once in the WEEK view's window. Write-once-at-launch like
+    /// labelW: desktop keeps 7 (the whole week); the phone sets 3 so columns stay readable
+    /// on a portrait screen. `week` stays in 7-day WEEK units everywhere — this knob only
+    /// sets how many of those day cells fill the viewport (dayW = grid ÷ this), so the
+    /// window scrolls day-aligned across the month's full week grid.
+    public static nonisolated(unsafe) var weekDaysVisible: CGFloat = 7
 
     /// True when the gutter is collapsed to just the rotated month name (the phone).
     /// Year-view chrome adapts: month-name cells get full-width top/bottom rules and the

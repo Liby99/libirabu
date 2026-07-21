@@ -20,17 +20,54 @@ extension CalendarEngine {
 
     /// Zoom back out to the yearly view (breadcrumb "Year" crumb from a deeper level).
     public func zoomToYear() {
-        // Carry the month view's horizontal scroll back to its quarter (phone overflow; both
-        // stay 0 on desktop) so the year view shows the same day columns after the zoom.
+        carryMonthIntoQuarter()
+        tweenZ(to: 0)
+    }
+
+    /// ── Zoom-out scroll carries (the reverse of navigate's drill-in seeding) ───────────
+    /// Mirror the month view's horizontal scroll back to its quarter (phone overflow; both
+    /// stay 0 on desktop) so the year view shows the same day columns after a zoom-out.
+    func carryMonthIntoQuarter() {
         if yearQX.indices.contains(focus / 3) {
             yearQX[focus / 3] = clamp(monthQX, 0, yearQuarterMaxX(viewport))
         }
-        tweenZ(to: 0)
+    }
+
+    /// Seed the MONTH view's horizontal scroll so the WEEK window's center day lands at the
+    /// month viewport's horizontal center (clamped at the strip's ends). Self-neutralizes to 0
+    /// wherever the month grid doesn't overflow (desktop: 31 columns always fit), so it's safe
+    /// on every zoom-out path. `week·7` is the window's left slot in the month's week grid;
+    /// slot → day-of-month shifts by the month's leading spillover (firstDOW).
+    func carryWeekCenterIntoMonth() {
+        let dayW = monthDayW(viewport, pin: dashPin, frac: dashMonthFrac)
+        let gridW = viewport.w - Layout.labelW
+        let centerDOM = 1 - CGFloat(firstDOW(year, focus)) + week * 7 + Layout.weekDaysVisible / 2
+        monthQX = clamp((centerDOM - 1) * dayW - gridW / 2, 0, max(0, 31 * dayW - gridW))
+    }
+
+    /// The INVERSE carry, for a MONTH → WEEK zoom-in on an OVERFLOWING month grid (phone): the
+    /// week window centers on the day column at the month viewport's visible center — the zoom
+    /// keeps what you're looking at. The window start rounds to a whole day slot (the pager
+    /// rests day-aligned) and clamps to the last valid window. Returns false where the grid
+    /// FITS the viewport (desktop) — there the caller keeps the pinch-point week capture, whose
+    /// "zoom into the week under the fingers" semantic is right when the whole month is visible.
+    @discardableResult
+    func carryMonthCenterIntoWeek() -> Bool {
+        let dayW = monthDayW(viewport, pin: dashPin, frac: dashMonthFrac)
+        let gridW = viewport.w - Layout.labelW
+        guard 31 * dayW > gridW + 0.5 else { return false }
+        let centerSlot = (monthQX + gridW / 2) / dayW + CGFloat(firstDOW(year, focus))
+        let maxWeek = max(0, CGFloat(weeksInMonth(year, focus)) - Layout.weekDaysVisible / 7)
+        week = clamp((centerSlot - Layout.weekDaysVisible / 2).rounded() / 7, 0, maxWeek)
+        return true
     }
 
     /// Breadcrumb "Month" crumb: jump to the focused month's view. `focus` is already the shown month;
     /// tweenZ sets chrome.level=1 immediately, so the MonthPager re-syncs its page to `focus`.
     public func zoomToMonth() {
+        if level(z) >= 2 { // zooming OUT of week/day → keep the window's center day centered
+            carryWeekCenterIntoMonth()
+        }
         tweenZ(to: 1)
         chrome.monthResync &+= 1 // ensure the pager lands on `focus` even if the level didn't change
     }
@@ -367,8 +404,10 @@ extension CalendarEngine {
             tlScroll = min(max(0, tlScroll - dy), timelineInfo(snapshot()).maxScroll)
         } else if b == 2 {
             anim.weekTween = nil
-            let maxWeek = CGFloat(max(0, weeksInMonth(year, focus) - 1))
-            week = clamp(week - dx / (viewport.w - Layout.labelW), 0, maxWeek) // swipe-left → later days
+            let maxWeek = max(0, CGFloat(weeksInMonth(year, focus)) - Layout.weekDaysVisible / 7)
+            // px per WEEK of travel = 7·dayW (the grid is weekDaysVisible day cells wide).
+            let weekSpanPx = (viewport.w - Layout.labelW) * 7 / Layout.weekDaysVisible
+            week = clamp(week - dx / weekSpanPx, 0, maxWeek) // swipe-left → later days
             scheduleWeekSnap(maxWeek)
         } else if b == 3 {
             scroll.wheelAccumX += dx
@@ -383,10 +422,11 @@ extension CalendarEngine {
         pushChrome()
     }
 
-    /// Content-offset x of the week pager that shows fractional week `w` (= `w · 7 · dayW`, and the
-    /// week grid spans `viewport.w − labelW`, so `dayW·7 = viewport.w − labelW`).
+    /// Content-offset x of the week pager that shows fractional week `w` (= `w · 7 · dayW`, where
+    /// dayW = (viewport.w − labelW) / weekDaysVisible — the visible window is weekDaysVisible cells,
+    /// so on desktop (7 visible) this reduces to `w · (viewport.w − labelW)`).
     func weekOffset(_ w: CGFloat) -> CGFloat {
-        w * max(0, viewport.w - Layout.labelW)
+        w * max(0, viewport.w - Layout.labelW) * 7 / Layout.weekDaysVisible
     }
 
     public var timelineMaxScroll: CGFloat {

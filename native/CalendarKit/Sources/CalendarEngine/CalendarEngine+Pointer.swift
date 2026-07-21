@@ -190,9 +190,9 @@ extension CalendarEngine {
         }
     }
 
-    /// Drill one zoom level into whatever sits at point `p` (year→month→week→day). Public for the
-    /// iPhone client, whose tap gesture calls this directly instead of the pointer pipeline (which
-    /// carries create/drag paths a read-only client must never enter).
+    /// Drill one zoom level into whatever sits at point `p` (year→month→week→day) — the Mac's
+    /// empty-space click. (The iPhone client used to call this from its tap; it now zooms
+    /// exclusively through the pinch → `onMagnify` path.)
     public func navigate(at p: CGPoint) {
         let g = snapshot()
         switch level(z) {

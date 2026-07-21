@@ -85,10 +85,58 @@ swift native/CalendarApp/scripts/make-icon.swift /tmp/icon_1024.png
 
 ---
 
-## Versioning
+## Versioning & changelog
 
-Bump per alpha drop in `project.yml`: `MARKETING_VERSION` (e.g. 0.1 → 0.2) and
-`CURRENT_PROJECT_VERSION` (build number, must increase for each notarized upload).
+Two numbers, one source of truth (`project.yml`, both targets — run `xcodegen` after editing):
+
+- **`MARKETING_VERSION`** — the user-facing semver (`0.1.0`). Pre-1.0 policy: bump **MINOR**
+  for feature releases, **PATCH** for fix-only releases. Bumped only at a release, together
+  with a git tag `vX.Y.Z`.
+- **`CURRENT_PROJECT_VERSION`** — the build number. Must be unique + ascending for every
+  App Store Connect upload of a given version. Easiest: let Xcode's Organizer auto-increment
+  on upload ("Manage Version and Build Number"); then this field only matters for local builds.
+
+The changelog lives at `native/CHANGELOG.md` (private, developer-facing): every user-visible
+change lands under `[Unreleased]` as it's made; at a version bump that section becomes the
+release entry and the public TestFlight "What to Test" notes are distilled from it.
+
+---
+
+## TestFlight (self-updating testers)
+
+TestFlight replaces the manual DMG hand-off: testers install the TestFlight app, accept one
+invite (email or public link), and every new build you upload reaches them automatically.
+
+**iOS (CalendarPhone)** — straightforward; this is the only sane distribution path on iPhone.
+
+**macOS (MagiCal)** — TestFlight for Mac routes through App Store review infrastructure, so the
+build must be **App Sandbox**-ed (`com.apple.security.app-sandbox`), which this app currently is
+NOT. Sandboxing needs, at minimum: the sandbox entitlement + `network.client` (LLM/CloudKit),
+`personal-information.calendars` (already present), and user-selected-file read for `.ics`
+import. Until that migration is done, macOS testers stay on the notarized DMG (or add Sparkle
+for auto-update); iOS can go TestFlight immediately.
+
+One-time setup (both platforms):
+1. <https://appstoreconnect.apple.com> → My Apps → **+** → New App. One app record, bundle id
+   `dev.libirabu.calendar`; add both macOS and iOS platforms to the same record.
+2. Xcode → Settings → Accounts → Manage Certificates → **+** → *Apple Distribution* (this is a
+   different certificate from Developer ID; automatic signing will then mint App Store
+   provisioning profiles on archive).
+3. App Store Connect → Users and Access: add testers. **Internal testers** (your ASC team, ≤100
+   devices/member): builds reach them minutes after upload, no review. **External testers**
+   (anyone, ≤10 000, email or public link): first build of each version passes a lightweight
+   beta review (~1 day), subsequent builds are usually instant.
+
+Per release:
+1. Move `[Unreleased]` → the new version in `native/CHANGELOG.md`; bump `MARKETING_VERSION`
+   in `project.yml`; `xcodegen`; commit; tag `vX.Y.Z`.
+2. Xcode → Product → **Archive** (scheme `MagiCalRelease` / `MagiCalPhoneRelease`) → Organizer →
+   **Distribute App** → *TestFlight & App Store* (a.k.a. App Store Connect) → Upload, letting it
+   auto-manage the build number.
+3. App Store Connect → TestFlight → the build finishes processing (~10 min) → fill in
+   **What to Test** (the distilled public changelog) → assign to your tester group.
+4. Testers get a notification; TestFlight updates them in place. Builds expire after 90 days —
+   ship at least quarterly or testers go dark.
 
 ---
 

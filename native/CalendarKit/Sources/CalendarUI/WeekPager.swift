@@ -40,12 +40,12 @@ struct WeekPager: View {
 
     var body: some View {
         GeometryReader { geo in
-            // The 7-day grid width (matches the engine's dayW = (vp.w − labelW)/7).
+            // The visible window's grid width (matches the engine's dayW = (vp.w − labelW)/weekDaysVisible).
             let gridW = geo.size.width - Layout.padLeft - Layout.padRight - Layout.labelW
-            let dayW = max(1, gridW / 7)
+            let dayW = max(1, gridW / Layout.weekDaysVisible)
             // Reactive to the month via @Observable chrome, so the cell count follows weeksInMonth.
             let weeks = max(1, weeksInMonth(engine.chrome.year, engine.chrome.focus))
-            let maxDay = CGFloat((weeks - 1) * 7)
+            let maxDay = max(0, CGFloat(weeks * 7) - Layout.weekDaysVisible)
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
                     ForEach(0 ..< (weeks * 7), id: \.self) { d in

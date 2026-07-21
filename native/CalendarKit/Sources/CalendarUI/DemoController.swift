@@ -995,8 +995,8 @@ public final class DemoController {
         RenderProf.reset()
         benchActive = true
         RenderProf.mark("benchBegin")
-        // The pager's cell width — mirrors WeekPager: the 7-day grid inside the padding + hour gutter.
-        let dayW = max(1, (size.width - Layout.padLeft - Layout.padRight - Layout.labelW) / 7)
+        // The pager's cell width — mirrors WeekPager: the visible window inside the padding + gutter.
+        let dayW = max(1, (size.width - Layout.padLeft - Layout.padRight - Layout.labelW) / Layout.weekDaysVisible)
         let steps = max(2, env["CC_BENCH_SWIPE_STEPS"].flatMap { Int($0) } ?? 40)
         let gap = env["CC_BENCH_SWIPE_GAP"].flatMap { Double($0) } ?? 0.15
         // Adjacent transitions forward then backward (2→3→2), repeated — same shape as the month tour.

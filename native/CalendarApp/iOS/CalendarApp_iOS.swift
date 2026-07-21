@@ -26,6 +26,9 @@ struct CalendarPhoneApp: App {
         // Legible year cells: well above the ~12pt a 31-day month gets on a portrait screen.
         // Each quarter overflows into its own horizontal scroll (see PhoneYearDriver).
         Layout.yearMinDayW = 45
+        // Week view shows a 3-day window (7 columns are unreadably narrow in portrait); the
+        // window scrolls day-aligned across the month's full week grid (see PhoneWeekDriver).
+        Layout.weekDaysVisible = 3
         // Top insets (yearTop/topPad) are finalized in PhoneCalendarRoot once the device's
         // status-bar inset is measured — the canvas runs full-bleed under the Dynamic Island
         // and the content starts just below it. These are pre-measure fallbacks only.
@@ -51,6 +54,8 @@ struct CalendarPhoneApp: App {
     @State private var engine = {
         let e = CalendarEngine(cloudReadOnly: true)
         e.monthYearFlipEnabled = false
+        e.weekMonthFlipEnabled = false // week window rubber-bands at month edges, no silent month change
+        e.maxZ = 2 // pinch zoom reaches week view — the day touch driver isn't mounted yet
         return e
     }()
 

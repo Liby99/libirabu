@@ -66,6 +66,10 @@ public final class CalendarEngine {
 
     // View state
     public internal(set) var z: CGFloat = 0
+    /// Upper semantic-zoom bound for this client (year 0 … day 3). The Mac exposes all four
+    /// levels; the iPhone client caps at month (1) while its week/day drivers stay unmounted —
+    /// the pinch path clamps here so a zoom can't land on a level with no touch driver.
+    public var maxZ: CGFloat = 3
     public internal(set) var focus: Int
     public internal(set) var week: CGFloat = 0
     public internal(set) var scrollY: CGFloat = 0
@@ -245,6 +249,10 @@ public final class CalendarEngine {
     /// Gate the MONTH view's Dec↔Jan cross-year flip (elastic overscroll past the first/last
     /// page). Off on the phone for now — the pager just rubber-bands at the year edges.
     public var monthYearFlipEnabled = true
+    /// Gate the WEEK view's month-edge flip (elastic overscroll past the month's first/last
+    /// window). Off on the phone — the window just rubber-bands at the month edges, so an
+    /// energetic swipe can't silently land you in the neighbor month.
+    public var weekMonthFlipEnabled = true
     // Year-flip transition: outgoing year scrolls out + fades, then the incoming year
     // slides in from the opposite edge + fades in. Driven by the per-frame clock.
     struct FlipAnim {

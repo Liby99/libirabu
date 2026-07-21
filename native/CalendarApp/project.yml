@@ -31,7 +31,9 @@ targets:
       base:
         PRODUCT_NAME: MagiCal
         PRODUCT_BUNDLE_IDENTIFIER: dev.libirabu.calendar
-        MARKETING_VERSION: "0.1"
+        # Semver (see native/CHANGELOG.md): bump MARKETING_VERSION per release; CURRENT_PROJECT_VERSION
+        # is the TestFlight build number — unique + ascending per upload (Xcode can auto-manage on upload).
+        MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: MagiCal
@@ -83,7 +85,7 @@ targets:
       base:
         PRODUCT_NAME: MagiCal
         PRODUCT_BUNDLE_IDENTIFIER: dev.libirabu.calendar
-        MARKETING_VERSION: "0.1"
+        MARKETING_VERSION: "0.1.0"   # kept in lock-step with the macOS target
         CURRENT_PROJECT_VERSION: "1"
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -92,6 +94,11 @@ targets:
         DEVELOPMENT_TEAM: X84ZG75WAM
         CODE_SIGN_ENTITLEMENTS: CalendarApp-iOS.entitlements
         ENABLE_USER_SCRIPT_SANDBOXING: NO
+      configs:
+        # TestFlight/App Store builds talk to CloudKit PRODUCTION → production APNs entitlement
+        # (same Debug/Release split as the macOS target above).
+        Release:
+          CODE_SIGN_ENTITLEMENTS: CalendarApp-iOS-Release.entitlements
 
 # Explicit SHARED schemes for the macOS app (CalendarApp target, product "MagiCal"). Declared here so
 # they live in xcshareddata (version-controlled + surviving `xcodegen generate`) instead of the

@@ -18,8 +18,9 @@ import SwiftUI
 /// Mounts the right driver for the current zoom level.
 ///
 /// PHONE V1.2: year + month. Year = vertical scroll with per-quarter horizontal strips;
-/// month = vertical month↕month pager nested with the focused month's horizontal day strip
-/// (no pinch — navigation is tap-a-month in and the breadcrumb's Year crumb out).
+/// month = vertical month↕month pager nested with the focused month's horizontal day strip.
+/// Navigation between the two levels is the two-finger pinch (PhoneCalendarView.pinch →
+/// engine.onMagnify, clamped to maxZ = 1; the breadcrumb's Year crumb also zooms out).
 /// The week/day drivers below are finished and waiting; extend the switch to re-enable them.
 struct PhoneDriverLayer: View {
     let engine: CalendarEngine
@@ -30,8 +31,8 @@ struct PhoneDriverLayer: View {
         // swaps the moment a zoom begins.
         switch engine.chrome.level {
         case 0: PhoneYearDriver(engine: engine, vp: vp)
-        default: PhoneMonthDriver(engine: engine, vp: vp)
-        // case 2: PhoneWeekDriver(engine: engine, vp: vp)
+        case 1: PhoneMonthDriver(engine: engine, vp: vp)
+        default: PhoneWeekDriver(engine: engine, vp: vp)
         // case 3: PhoneDayDriver(engine: engine, vp: vp)
         }
     }
@@ -287,25 +288,40 @@ private struct MonthHStrip: View {
     }
 }
 
-/// Week view: one two-axis ScrollView — x is the 7-day window (day-aligned nudges, week-boundary
-/// flings, month-edge pulls), y is the hour timeline. UIKit's own pan physics arbitrate the axes.
+/// Week view: one two-axis ScrollView — x is the day window (day-aligned nudges, week-boundary
+/// flings, month-edge pulls; Layout.weekDaysVisible cells wide — 3 on the phone), y is the hour
+/// timeline. UIKit's own pan physics arbitrate the axes.
 private struct PhoneWeekDriver: View {
     let engine: CalendarEngine
     let vp: Viewport
     @State private var pos = ScrollPosition()
+    /// See PhoneYearDriver — the same remount race, and it BITES HARDER here: this driver
+    /// mounts MID-ZOOM (the level flips at z 1.5, while the month↔week blend is on screen), so
+    /// an unguarded initial offset-(0,0) callback stomped `week` to 0 — the render lurched to
+    /// the month's LEFT-MOST window (leading spillover) and then fought the restore pin,
+    /// flickering — and the stomped `week` poisoned the next zoom-out's centering carry too.
+    @State private var pendingRestore: CGPoint?
 
     var body: some View {
         let gridW = max(1, vp.w - Layout.labelW)
-        let dayW = gridW / 7
+        let dayW = gridW / Layout.weekDaysVisible
         let weeks = max(1, weeksInMonth(engine.chrome.year, engine.chrome.focus))
-        let maxDay = CGFloat((weeks - 1) * 7)
+        let maxDay = max(0, CGFloat(weeks * 7) - Layout.weekDaysVisible)
+        let maxX = max(0, CGFloat(weeks * 7) * dayW - gridW)
+        let maxY = max(0, engine.timelineMaxScroll)
         ScrollView([.horizontal, .vertical]) {
             Color.clear
                 .frame(width: CGFloat(weeks * 7) * dayW,
-                       height: vp.h + max(0, engine.timelineMaxScroll))
+                       height: vp.h + maxY)
                 .scrollTargetLayout()
         }
         .scrollPosition($pos)
+        // Initial-layout restore of the seeded window position (see PhoneYearDriver: the
+        // imperative scrollTo alone races the attachment and can silently drop).
+        .defaultScrollAnchor(UnitPoint(
+            x: maxX > 0 ? min(max(engine.week * 7 * dayW / maxX, 0), 1) : 0,
+            y: maxY > 0 ? min(max(engine.tlScroll / maxY, 0), 1) : 0
+        ))
         .scrollTargetBehavior(WeekScrollBehavior(dayW: dayW, maxDay: maxDay,
                                                  liveDay: { MainActor.assumeIsolated { engine.week * 7 } }))
         .scrollBounceBehavior(.always)
@@ -313,11 +329,19 @@ private struct PhoneWeekDriver: View {
         .frame(width: gridW, height: vp.h)
         .offset(x: Layout.padLeft + Layout.labelW)
         .onScrollGeometryChange(for: CGPoint.self, of: { CGPoint(x: $0.contentOffset.x, y: $0.contentOffset.y) }) { _, o in
+            if let t = pendingRestore {
+                if abs(o.x - t.x) < 1, abs(o.y - t.y) < 1 {
+                    pendingRestore = nil // restore landed → mirror live
+                } else {
+                    return // ignore pre-restore callbacks (the initial 0,0)
+                }
+            }
             engine.setWeekProgress(o.x, dayW: dayW)
             engine.setTlScroll(o.y)
         }
         .onScrollPhaseChange { old, new in
             if new == .interacting || new == .tracking {
+                pendingRestore = nil // the user grabbed it — whatever they do now is truth
                 engine.beginWeekGesture()
             } else if old == .interacting || old == .tracking {
                 engine.endWeekGesture()
@@ -325,7 +349,9 @@ private struct PhoneWeekDriver: View {
         }
         .onAppear {
             let p = $pos
-            p.wrappedValue.scrollTo(x: engine.week * 7 * dayW, y: engine.tlScroll)
+            let target = CGPoint(x: engine.week * 7 * dayW, y: engine.tlScroll)
+            pendingRestore = target
+            p.wrappedValue.scrollTo(x: target.x, y: target.y)
             engine.onSetWeekScroll = { x in p.wrappedValue.scrollTo(x: x) }
             engine.onSetTlScroll = { y in p.wrappedValue.scrollTo(y: y) }
         }

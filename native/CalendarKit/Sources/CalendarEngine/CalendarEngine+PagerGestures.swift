@@ -235,17 +235,24 @@ extension CalendarEngine {
         guard isWeekLevel, !isWeekFlipping, dayW > 0 else { return }
         wake()
         let span = 7 * dayW
-        let maxWeek = CGFloat(max(0, weeksInMonth(year, focus) - 1))
+        // Last valid window start, in week units: the window (weekDaysVisible day cells) parks
+        // with its RIGHT edge on the month grid's last slot — weeksInMonth − 1 on desktop.
+        let maxWeek = max(0, CGFloat(weeksInMonth(year, focus)) - Layout.weekDaysVisible / 7)
         let maxOff = maxWeek * span
         // Elastic: follow the rubber-banded offset past each edge, AMPLIFYING the overscroll so the
         // window travels further than AppKit's (heavily damped) rubber-band alone would allow — a
         // more generous, tactile pull. Arming/indicator use the raw px `over`, so the flip threshold
         // feel is unchanged; only the on-screen travel grows.
+        // The overscroll AMPLIFICATION (weekOverMul) exists to make the flip-arming pull feel
+        // generous; with the month-edge flip disabled (phone) the window just tracks the native
+        // rubber-band unamplified and bounces back.
         let raw = offsetX / span
         if raw < 0 {
-            week = clamp(raw * Motion.weekOverMul, -1.6, 0)
+            week = weekMonthFlipEnabled ? clamp(raw * Motion.weekOverMul, -1.6, 0) : clamp(raw, -1.6, 0)
         } else if raw > maxWeek {
-            week = clamp(maxWeek + (raw - maxWeek) * Motion.weekOverMul, maxWeek, maxWeek + 1.6)
+            week = weekMonthFlipEnabled
+                ? clamp(maxWeek + (raw - maxWeek) * Motion.weekOverMul, maxWeek, maxWeek + 1.6)
+                : clamp(raw, maxWeek, maxWeek + 1.6)
         } else {
             week = raw
         }
@@ -265,7 +272,7 @@ extension CalendarEngine {
         }
         let overLeft = offsetX < 0 ? -offsetX : 0
         let overRight = offsetX > maxOff ? offsetX - maxOff : 0
-        if scroll.liveWeekScrolling, overLeft > 2 || overRight > 2 {
+        if scroll.liveWeekScrolling, weekMonthFlipEnabled, overLeft > 2 || overRight > 2 {
             let dir = overRight > 0 ? 1 : -1
             let over = dir > 0 ? overRight : overLeft
             let fdow = firstDOW(year, focus)
@@ -394,7 +401,7 @@ extension CalendarEngine {
         scroll.liveWeekScrolling = false
         let pull = scroll.weekPull
         scroll.weekPull = nil
-        guard let pull, pull.armed, !isWeekFlipping, isWeekLevel else { return false }
+        guard let pull, pull.armed, weekMonthFlipEnabled, !isWeekFlipping, isWeekLevel else { return false }
         // A month-edge flip re-anchors week coordinates — drop any dashboard override; the
         // band mapping (in the destination month's coordinates) takes over.
         weekDashHold = nil; weekDashCruise = nil; weekDashSettle = nil
@@ -527,7 +534,7 @@ extension CalendarEngine {
             tweenZ(to: z.rounded()) // keeps the pinch's anchor through the settle
         } else {
             magAccum += delta
-            z = clamp(magStartZ + magAccum * Motion.pinchSens, 0, 3)
+            z = clamp(magStartZ + magAccum * Motion.pinchSens, 0, maxZ)
             applyZoomAnchor(at: z) // hold the centre/now hour across the pinch (no jump)
             pushChrome()
         }
@@ -612,11 +619,25 @@ extension CalendarEngine {
             // starting over the labels still focuses that month.
             if let m = monthRowAtPoint(p.x, p.y, g) {
                 focus = m
+                // Carry the quarter's horizontal scroll into the month view (phone overflow;
+                // both stay 0 on desktop) so the visible columns don't jump as the pinch
+                // crosses into month level — the same seeding `navigate(at:)` does for a tap.
+                monthQX = clamp(yearQX.indices.contains(m / 3) ? yearQX[m / 3] : 0,
+                                0, yearQuarterMaxX(viewport))
             }
         case 1:
-            if let w = weekAtPointInMonth(p.x, g) {
+            // Zoom-IN capture: an overflowing month grid (phone) centers the week window on the
+            // viewport's visible center day; a fitted grid (desktop) zooms into the week under
+            // the pinch point.
+            if !carryMonthCenterIntoWeek(), let w = weekAtPointInMonth(p.x, g) {
                 week = CGFloat(w)
             }
+            // Zoom-OUT carry (invisible unless the pinch actually leaves month level): land the
+            // year with the focus month centered and its quarter showing the same day columns
+            // the month shows now — the reverse of case 0's drill-in seeding.
+            scrollY = clamp(centerScroll(for: focus), 0, yearMaxScroll(viewport))
+            onSetYearScroll?(scrollY)
+            carryMonthIntoQuarter()
         case 2:
             // Record the day under the pinch (for a zoom-IN to day view), but DON'T snap `week` to
             // its integer — that would jump a non-aligned 7-day window to the nearest week the moment
@@ -626,6 +647,13 @@ extension CalendarEngine {
                 let rd = relDomOf(year, focus, d.year, d.month, d.day) ?? d.day
                 daily.dom = min(daysInMonth(year, focus), max(1, rd))
             }
+            // Zoom-OUT carries (invisible unless the pinch leaves week level): the month view
+            // centers on the week window's center day, and — should the same pinch continue past
+            // month — the year quarter mirrors that month scroll, vertically centered on focus.
+            carryWeekCenterIntoMonth()
+            carryMonthIntoQuarter()
+            scrollY = clamp(centerScroll(for: focus), 0, yearMaxScroll(viewport))
+            onSetYearScroll?(scrollY)
         default: break
         }
         pushChrome()

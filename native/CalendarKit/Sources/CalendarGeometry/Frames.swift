@@ -92,7 +92,7 @@ private func weekFrame(_ m: Int, _ g: SceneInput) -> Frame {
     // panel's resting WEEK width — the month↔week frame blend morphs from the month width, and
     // the week→day blend handles the widening past z 2).
     let right = lerp(g.vp.w, dashPinLeft(g.vp, frac: g.dashWeekFrac), g.dashPin)
-    let dayW = (right - Layout.labelW) / 7
+    let dayW = (right - Layout.labelW) / Layout.weekDaysVisible
     if m == g.focus {
         // fractional `week` slides the 7-day window per-day, exactly as the TS: the
         // (possibly fractional) Sunday DOM lands day-1 at LABEL_W.
