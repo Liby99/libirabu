@@ -159,17 +159,19 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
               wKeyA: String = "", wKeyB: String = "",
               maskX: Double = 0, maskW: Double = 0,
               aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0,
-              bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0) {
-        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(mKeyA)|\(mKeyB)|\(wFrom)|\(wTo)|\(Int((wP * 1000).rounded()))|\(wKeyA)|\(wKeyB)|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))"
+              bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0,
+              shiftX: Double = 0) {
+        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(mKeyA)|\(mKeyB)|\(wFrom)|\(wTo)|\(Int((wP * 1000).rounded()))|\(wKeyA)|\(wKeyB)|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))|\(Int(shiftX.rounded()))"
         if key == lastKey {
             return
         }
         lastKey = key
         // Reveal fade natively (safe: view-level alpha); motion stays in CSS — see setPanelAlpha.
-        // The hit gate tracks the live mask edge so only the panel area belongs to the webview.
+        // The hit gate tracks the live mask edge so only the panel area belongs to the webview
+        // (shifted left with the content while the drawer canvas-shift is riding).
         if let ptw = web as? PassThroughWebView {
             ptw.setPanelAlpha(CGFloat(reveal))
-            ptw.interactiveLeftX = CGFloat(maskX)
+            ptw.interactiveLeftX = CGFloat(maskX - shiftX)
         }
         func r4(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
         let payload: [String: Any] = [
@@ -186,6 +188,7 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             "aOp": r4(aOp),
             "bName": bName, "bX": (bX * 10).rounded() / 10, "bW": (bW * 10).rounded() / 10,
             "bOp": r4(bOp),
+            "shift": (shiftX * 10).rounded() / 10,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -354,6 +357,7 @@ struct CarouselDriver: NSViewRepresentable {
     var maskX: Double = 0, maskW: Double = 0 // the clip region (dashboardLeftAnimated → right edge)
     var aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0 // current/outgoing panel
     var bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0 // incoming (transitions)
+    var shiftX: Double = 0 // drawer canvas-shift (engine.drawerShift): content rides the canvas slide
     func makeNSView(context: Context) -> NSView {
         NSView()
     }
@@ -366,7 +370,8 @@ struct CarouselDriver: NSViewRepresentable {
                       wFrom: wFrom, wTo: wTo, wP: wP, wKeyA: wKeyA, wKeyB: wKeyB,
                       maskX: maskX, maskW: maskW,
                       aName: aName, aX: aX, aW: aW, aOp: aOp,
-                      bName: bName, bX: bX, bW: bW, bOp: bOp)
+                      bName: bName, bX: bX, bW: bW, bOp: bOp,
+                      shiftX: shiftX)
         anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
                  headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
                  monthP: mP, monthDir: mDir, scopeT: scopeT, weekP: wP,

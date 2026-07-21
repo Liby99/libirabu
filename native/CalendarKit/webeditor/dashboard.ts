@@ -79,7 +79,8 @@ const TICK_DEFAULTS = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1,
                         // the mask (clip) region + each panel's own left/width/opacity.
                         maskX: 0, maskW: 0,
                         aName: "", aX: 0, aW: 0, aOp: 0,
-                        bName: "", bX: 0, bW: 0, bOp: 0 };
+                        bName: "", bX: 0, bW: 0, bOp: 0,
+                        shift: 0 };   // drawer canvas-shift: content rides the canvas slide (week/month)
 let last = { ...TICK_DEFAULTS };
 
 const root = document.getElementById("dash")!;                 // reveal wrapper (zoom slide + fade)
@@ -623,7 +624,7 @@ let dayViewShown = false;   // true once the dashboard is revealed (day view); r
 function apply() {
   const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDy0, mDy1, mP,
           mKeyA, mKeyB, wFrom, wTo, wP, wKeyA, wKeyB,
-          maskX, maskW, aName, aX, aW, aOp, bName, bX, bW, bOp } = last;
+          maskX, maskW, aName, aX, aW, aOp, bName, bX, bW, bOp, shift } = last;
   // Leaving day view (reveal fell to hidden) forgets every day's scroll, so re-entering day view always
   // starts at the top — the scroll doesn't carry across a trip out to week/month view. The reset on
   // re-entry restores from the (now-empty) map, i.e. 0, without re-rendering the unchanged panels.
@@ -641,7 +642,10 @@ function apply() {
   // a transform; the reveal FADE is native (view alphaValue — see setPanelAlpha).
   root.style.left = `${maskX.toFixed(1)}px`;
   root.style.width = `${Math.max(0, maskW).toFixed(1)}px`;
-  root.style.transform = `translateY(${dy.toFixed(1)}px)`;
+  // `shift` = the drawer canvas-shift (engine.drawerShift). The scene slides left by the same
+  // amount (.offset(-drawerShift)), so carrying it here keeps the pinned week/month panel moving
+  // WITH the canvas while the drawer opens. 0 at day level (the dashboard owns the right there).
+  root.style.transform = `translate(${(-shift).toFixed(1)}px, ${dy.toFixed(1)}px)`;
   root.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
   // ── Zoom-scope carousel: each panel is placed at its OWN target width and absolute position
   // (dashScopePanels' numbers, frame-local → mask-local by subtracting maskX) — exactly the

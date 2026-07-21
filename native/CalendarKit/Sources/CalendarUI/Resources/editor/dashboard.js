@@ -55839,7 +55839,8 @@
     bName: "",
     bX: 0,
     bW: 0,
-    bOp: 0
+    bOp: 0,
+    shift: 0
   };
   var last = { ...TICK_DEFAULTS };
   var root5 = document.getElementById("dash");
@@ -56338,7 +56339,8 @@
       bName,
       bX,
       bW,
-      bOp
+      bOp,
+      shift: shift2
     } = last;
     if (reveal < 0.02) {
       if (dayViewShown) {
@@ -56354,7 +56356,7 @@
     }
     root5.style.left = `${maskX.toFixed(1)}px`;
     root5.style.width = `${Math.max(0, maskW).toFixed(1)}px`;
-    root5.style.transform = `translateY(${dy.toFixed(1)}px)`;
+    root5.style.transform = `translate(${(-shift2).toFixed(1)}px, ${dy.toFixed(1)}px)`;
     root5.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
     const layers = { day: panelsEl, week: weekLayer, month: monthLayer };
     const t2 = scopeT;

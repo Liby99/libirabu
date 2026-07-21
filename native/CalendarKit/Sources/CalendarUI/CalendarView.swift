@@ -527,7 +527,11 @@ public struct CalendarView: View {
                                bName: scopeGeom?.b?.name ?? "",
                                bX: Double((scopeGeom?.b?.x ?? 0) - Layout.labelW),
                                bW: Double(scopeGeom?.b?.w ?? 0),
-                               bOp: Double(scopeGeom?.b?.op ?? 0))
+                               bOp: Double(scopeGeom?.b?.op ?? 0),
+                               // Drawer canvas-shift (week/month; 0 at day): the webview content rides
+                               // the same slide the scene gets via .offset(-drawerShift), so the pinned
+                               // panel moves WITH the canvas instead of sitting still under the drawer.
+                               shiftX: Double(engine.drawerShift))
                     .frame(width: 0, height: 0)
             }
         }
@@ -628,7 +632,10 @@ public struct CalendarView: View {
                             DailyDashboardOverlay(engine: engine, carousel: dashCarousel,
                                                   forwarder: gestureForwarder,
                                                   tab: $dashTab, noteMode: $noteMode,
-                                                  inactive: ui.openEventId != nil && engine.chrome.level == 3,
+                                                  // Drawer open → in-page scrim (SwiftUI blur can't reach the
+                                                  // WKWebView layer): day view AND the pinned week/month panels.
+                                                  inactive: ui.openEventId != nil && (engine.chrome.level == 3
+                                                      || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level))),
                                                   frac: dashFrac, vp: vp,
                                                   containerWidth: geo.size.width, height: geo.size.height, theme: theme,
                                                   onOpen: { ui.openEventId = sourceId(of: $0) },

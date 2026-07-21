@@ -420,8 +420,10 @@ enum AppKeyState: Equatable {
                 KeyBinding(.escape, "Zoom out") { engine.onEscape() },
                 KeyBinding(.cmdN, "New event") { engine.createEventAtBlock() },
                 KeyBinding(.cmdL, "New deadline") { engine.createDeadlineViaShortcut() },
-                KeyBinding(.tab, "Band cursor") { engine.tabCursor(true) },
-                KeyBinding(.backTab, "Event cursor") { engine.tabCursor(false) },
+                // Tab cycles block ⇄ event (the band lanes are the block cursor's arrow-reachable
+                // sub-state, not a Tab stop of their own).
+                KeyBinding(.tab, "Select event") { engine.tabCursor(true) },
+                KeyBinding(.backTab, "Select event") { engine.tabCursor(false) },
             ] + selectBinding + dashHotkeyBindings + zoomBindings
         case .bandCursor:
             return [
@@ -433,7 +435,7 @@ enum AppKeyState: Equatable {
                 KeyBinding(.escape, "Zoom out") { engine.onEscape() },
                 KeyBinding(.cmdN, "New band") { engine.createBandAtCursor() },
                 KeyBinding(.tab, "Select event") { engine.tabCursor(true) },
-                KeyBinding(.backTab, "Block cursor") { engine.tabCursor(false) },
+                KeyBinding(.backTab, "Select event") { engine.tabCursor(false) },
                 KeyBinding(.enter, "Select event") { engine.selectFromCursor() },
             ] + zoomBindings
         case .trackName:
