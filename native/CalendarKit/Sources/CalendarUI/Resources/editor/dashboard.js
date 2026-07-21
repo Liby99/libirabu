@@ -55937,6 +55937,7 @@
   var navStop = null;
   var todoCursor = 0;
   var editingNote = false;
+  var editingRing = false;
   function todoRows() {
     return Array.from(P0.scroll.querySelectorAll(".cc-dtodo"));
   }
@@ -55950,7 +55951,7 @@
     rows[todoCursor].scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
   function applyNav() {
-    noteLive.classList.toggle("cc-nav-on", navStop === "note" && !editingNote);
+    noteLive.classList.toggle("cc-nav-on", navStop === "note" && (!editingNote || editingRing));
     applyTodoCursor();
   }
   function applyTab(t2) {
@@ -56669,6 +56670,7 @@
     navSet(stop) {
       navStop = stop === "none" ? null : stop;
       editingNote = false;
+      editingRing = false;
       if (navStop === "todo") todoCursor = 0;
       applyNav();
     },
@@ -56700,8 +56702,9 @@
       if (!t2 || collapsed.has(foldKey(t2)) === !open2) return;
       toggleFold(p0, t2, open2);
     },
-    noteEdit() {
+    noteEdit(ring = false) {
       editingNote = true;
+      editingRing = ring;
       applyNav();
       noteModeUser("edit");
       const tryFocus = (left) => {

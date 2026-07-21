@@ -199,7 +199,12 @@ public final class CalendarEngine {
     public enum DashStop: Equatable { case todo, note }
     /// Commands to the dashboard WebView bridge — CalendarView wires this to the native TODO/NOTE tab
     /// and the carousel's JS `CK.nav*` calls (row cursor, toggle, open, focus-the-editor).
-    public enum DashCmd: Equatable { case focus(DashStop?), move(Int), activate, open, fold(Bool) }
+    public enum DashCmd: Equatable {
+        case focus(DashStop?), move(Int), activate, open, fold(Bool)
+        /// ⌘E: enter the note editor. `ring` = keyboard mode was ALREADY active, so the dashed
+        /// nav ring stays visible around the editor while the caret blinks inside it.
+        case editNote(ring: Bool)
+    }
     public var onDashCommand: ((DashCmd) -> Void)?
     /// The timed event currently being moved/resized/created (an ACTIVE drag). The overlay floats it
     /// full-width above its day and excludes it from the others' overlap packing so they don't reflow

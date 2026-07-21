@@ -263,6 +263,7 @@ public struct CalendarView: View {
                 }
             case .open: carousel.navOpen()
             case let .fold(open): carousel.navFold(open)
+            case let .editNote(ring): carousel.focusNoteEditor(ring: ring)
             }
             engine.wake()
         }

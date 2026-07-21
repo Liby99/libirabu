@@ -13,6 +13,7 @@ extension CalendarEngine {
     /// timeline's block cursor — see navTab). ⌘E goes straight into the markdown editor.
     public func dashFocusEntry(_ stop: DashStop) {
         guard level(z) == 3 else { return }
+        let wasKeyboard = cursor.keyboardActive // ring policy below — read BEFORE entering
         wake(); enterKeyboardMode()
         if selectedId != nil {
             deselect()
@@ -22,7 +23,9 @@ extension CalendarEngine {
         onDashCommand?(.focus(stop))
         if stop == .note {
             cursor.dashNoteEditing = true
-            onDashCommand?(.activate) // .note stop → focus the live editor (see the bridge)
+            // Focus the live editor. If keyboard mode was already on (a ring was showing), keep
+            // the dashed ring around the editor too — the focus visibly MOVED there.
+            onDashCommand?(.editNote(ring: wasKeyboard))
         }
     }
 

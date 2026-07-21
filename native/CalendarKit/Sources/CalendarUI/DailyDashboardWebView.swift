@@ -237,14 +237,16 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     } // ←/→ → fold/unfold the focused TODO's subtree
     /// Enter on the NOTE stop → let the WebView own the keys (allow focus + first responder) and focus
     /// the CodeMirror editor.
-    func focusNoteEditor() {
+    /// `ring: true` (⌘E while keyboard mode was already on) keeps the dashed nav ring visible
+    /// around the editor while the caret blinks inside it.
+    func focusNoteEditor(ring: Bool = false) {
         guard let w = web as? PassThroughWebView else { return }
         // Defer to the NEXT runloop tick: this is called from within the Enter keyDown dispatch, and
         // making the web view first responder synchronously mid-keyDown routes that same Enter into the
         // freshly-focused CodeMirror as a stray newline. Letting the keyDown finish first avoids that.
         DispatchQueue.main.async { [weak self] in
             w.allowFocus(); w.window?.makeFirstResponder(w)
-            self?.eval("CK.noteEdit()")
+            self?.eval("CK.noteEdit(\(ring))")
         }
     }
 }

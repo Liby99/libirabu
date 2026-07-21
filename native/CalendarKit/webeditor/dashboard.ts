@@ -184,6 +184,7 @@ const noteEd = createNoteEditor({
 let navStop: "todo" | "note" | null = null;
 let todoCursor = 0;
 let editingNote = false;
+let editingRing = false;   // ⌘E from keyboard mode: keep the dashed ring visible WHILE editing
 function todoRows(): HTMLElement[] { return Array.from(P0.scroll.querySelectorAll<HTMLElement>(".cc-dtodo")); }
 function applyTodoCursor() {
   const rows = todoRows();
@@ -198,7 +199,9 @@ function applyTodoCursor() {
   rows[todoCursor].scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 function applyNav() {
-  noteLive.classList.toggle("cc-nav-on", navStop === "note" && !editingNote);
+  // The NOTE ring shows on the focused-but-not-editing stop, AND while editing when the entry
+  // came from keyboard mode (⌘E with a ring already showing — focus visibly moved here).
+  noteLive.classList.toggle("cc-nav-on", navStop === "note" && (!editingNote || editingRing));
   applyTodoCursor();
 }
 function applyTab(t: "todo" | "note") { tab = t; isoOf.delete(p0); isoOf.delete(p1); scopeSig.clear(); apply(); }
@@ -938,6 +941,7 @@ root.addEventListener("click", (e) => {
   navSet(stop: "todo" | "note" | "none") {   // Tab focus in/out of the dashboard stops
     navStop = stop === "none" ? null : stop;
     editingNote = false;
+    editingRing = false;
     if (navStop === "todo") todoCursor = 0;   // land on the first row
     applyNav();
   },
@@ -963,8 +967,8 @@ root.addEventListener("click", (e) => {
     if (!t || collapsed.has(foldKey(t)) === !open) return;   // already there (held key auto-repeats)
     toggleFold(p0, t, open);   // same animated path as the chevron click
   },
-  noteEdit() {                                 // Enter on the NOTE stop / ⌘E → focus the live editor
-    editingNote = true; applyNav();
+  noteEdit(ring = false) {                     // Enter on the NOTE stop / ⌘E → focus the live editor
+    editingNote = true; editingRing = ring; applyNav();
     noteModeUser("edit");
     // The live overlay may not be visible YET: ⌘E can arrive before the tab switch
     // (CK.setTab) and the next tick reveal it — retry across a few frames until apply()
