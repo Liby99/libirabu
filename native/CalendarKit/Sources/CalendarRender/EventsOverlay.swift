@@ -1096,6 +1096,9 @@ public struct DeadlinesOverlay: View {
             ) : nil
         }
         let topId = topSpec?.id
+        // Horizontal clip limit: generous past the viewport when no panel is up, hard at the live
+        // dashboard mask edge when one is (pills must be occluded by the panel like Canvas content).
+        let rightEdge = clipRight >= input.vp.w - 0.5 ? input.vp.w + Layout.labelW : clipRight
         ZStack(alignment: .topLeading) {
             ForEach(all) { s in
                 let a = activation(s.id)
@@ -1116,11 +1119,12 @@ public struct DeadlinesOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Clip vertically to the timeline (so a deadline scrolled out of view hides its label);
-        // horizontal is generous so a side-placed pill/caret isn't cut.
+        // horizontally generous on the left (a side-placed pill/caret isn't cut), hard at
+        // `rightEdge` (see above) so pills never float over the dashboard panel.
         .clipShape(RectClip(rect: CGRect(
             x: -Layout.labelW,
             y: tl.tlTop - H,
-            width: input.vp.w + 2 * Layout.labelW,
+            width: rightEdge + Layout.labelW,
             height: (tl.tlBottom - tl.tlTop) + 2 * H
         )))
     }

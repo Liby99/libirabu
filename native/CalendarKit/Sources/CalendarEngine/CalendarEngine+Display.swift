@@ -106,7 +106,21 @@ extension CalendarEngine {
     /// datestamp stripped) so they survive the event being rescheduled in Apple Calendar and apply to the
     /// whole series. `sourceId` first, so a promoted/occurrence box resolves back to its imported id.
     static func applePerOccurrenceSuffix(_ id: String) -> Range<String.Index>? {
-        id.range(of: "-[0-9]{8}-[0-9]{4}$", options: .regularExpression)
+        // Manual scan for `-[0-9]{8}-[0-9]{4}$` — called per imported event on every display-cache
+        // rebuild (overlayKey / importedDisplayColor), where an uncached regex search is a hot spot.
+        var s = id[...]
+        func eatDigits(_ n: Int) -> Bool {
+            for _ in 0 ..< n {
+                guard let c = s.last, ("0" ... "9").contains(c) else { return false }
+                s = s.dropLast()
+            }
+            return true
+        }
+        guard eatDigits(4), s.last == "-" else { return nil }
+        s = s.dropLast()
+        guard eatDigits(8), s.last == "-" else { return nil }
+        s = s.dropLast()
+        return s.endIndex ..< id.endIndex
     }
 
     /// A full per-occurrence imported id → its series key; any other id unchanged.
@@ -224,7 +238,7 @@ extension CalendarEngine {
 
     private func ensureBandCache(_ year: Int)
         -> (bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]]) {
-        if let c = caches.band, c.year == year, c.gen == caches.editGen {
+        if let c = caches.band[year], c.gen == caches.editGen {
             return (c.bands, c.badges, c.byMonth)
         }
         func repeatOf(_ id: String) -> Repeat? {
@@ -340,7 +354,8 @@ extension CalendarEngine {
         for b in out {
             byMonth[b.month, default: []].append(b)
         }
-        caches.band = (year, caches.editGen, out, badgeMap, byMonth)
+        caches.band = caches.band.filter { $0.value.gen == caches.editGen }
+        caches.band[year] = (caches.editGen, out, badgeMap, byMonth)
         return (out, badgeMap, byMonth)
     }
 
@@ -422,7 +437,7 @@ extension CalendarEngine {
 
     private func ensureEventCache(_ year: Int)
         -> (events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]]) {
-        if let c = caches.event, c.year == year, c.gen == caches.editGen {
+        if let c = caches.event[year], c.gen == caches.editGen {
             return (c.events, c.badges, c.byDay)
         }
         func repeatOf(_ id: String) -> Repeat? {
@@ -483,7 +498,8 @@ extension CalendarEngine {
                 byDay[s.event.month * 100 + s.event.day, default: []].append(s.event)
             }
         }
-        caches.event = (year, caches.editGen, out, badgeMap, byDay)
+        caches.event = caches.event.filter { $0.value.gen == caches.editGen }
+        caches.event[year] = (caches.editGen, out, badgeMap, byDay)
         return (out, badgeMap, byDay)
     }
 
@@ -492,7 +508,7 @@ extension CalendarEngine {
     /// occurrences on their occurrence days (holes = exdates), each a copy at the same hour with a
     /// synthetic occKey id. Cached per (year, caches.editGen) — like displayEvents / displayBands.
     public func displayDeadlines(for year: Int) -> [Deadline] {
-        if let c = caches.ddl, c.year == year, c.gen == caches.editGen {
+        if let c = caches.ddl[year], c.gen == caches.editGen {
             return withPreview(
                 c.deadlines,
                 { $0.id },
@@ -527,7 +543,8 @@ extension CalendarEngine {
                 }
             }
         }
-        caches.ddl = (year, caches.editGen, out)
+        caches.ddl = caches.ddl.filter { $0.value.gen == caches.editGen }
+        caches.ddl[year] = (caches.editGen, out)
         return withPreview(out, { $0.id }, { $0.color = $1 })
     }
 

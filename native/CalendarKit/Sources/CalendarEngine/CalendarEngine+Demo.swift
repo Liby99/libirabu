@@ -202,6 +202,18 @@ extension CalendarEngine {
         caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
     }
 
+    /// Snap the view to WEEK level on this year's `month`, week index `w` (0-based; deterministic
+    /// scene setup — no zoom tween). `weekResync` re-syncs the WeekPager strip to the new week.
+    public func demoGoToWeek(month: Int, week w: CGFloat) {
+        cancelTween()
+        focus = month
+        week = clamp(w, 0, CGFloat(max(0, weeksInMonth(year, month) - 1)))
+        z = 2
+        pushChrome()
+        chrome.weekResync &+= 1
+        caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
+    }
+
     /// Drive the REAL pinch path (`onMagnify`) from a view point, so the month/week/day under `v` is exactly
     /// what fills the screen (`captureFocus` anchors on the pinch point — unlike the keyboard/block zoom,
     /// which snaps to the block cursor / today). The recording's pinch visual is drawn at this same point, so

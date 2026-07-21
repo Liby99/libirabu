@@ -47,6 +47,7 @@ public enum MenuWindow: Sendable { case assistant, help, settings }
     case .goToMonth:           ctx.engine()?.goToCurrent("month")
     case .goToWeek:            ctx.engine()?.goToCurrent("week")
     case .goToDay:             ctx.engine()?.goToCurrent("day")
+    case .toggleDashboard:     ctx.engine()?.toggleDashPin()
     case .newConversation:     ctx.newChat(); ctx.open(.assistant)
     case .currentConversation: ctx.open(.assistant)
     case .apiKeys:             ctx.open(.settings)

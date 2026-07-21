@@ -30,9 +30,13 @@ struct DisplayCaches {
     var editGen = 0
     /// Bumped when the deadline-label sides must re-solve.
     var deadlineGen = 0
-    var band: (year: Int, gen: Int, bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]])?
-    var event: (year: Int, gen: Int, events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]])?
-    var ddl: (year: Int, gen: Int, deadlines: [Deadline])?
+    /// Keyed by display year, NOT a single slot: week/day view in Jan (Dec) reads the focus year AND
+    /// the boundary year every frame (`boundaryYears`), so one slot would evict one with the other and
+    /// rebuild both caches on every frame of a swipe. Writers prune entries from older generations, so
+    /// the maps only ever hold the current gen's visited years.
+    var band: [Int: (gen: Int, bands: [BandEvent], badges: [String: EventBadges], byMonth: [Int: [BandEvent]])] = [:]
+    var event: [Int: (gen: Int, events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]])] = [:]
+    var ddl: [Int: (gen: Int, deadlines: [Deadline])] = [:]
     var ddlSides: [String: Bool] = [:]
     var ddlSidesKey: (focus: Int, incoming: Int, year: Int, gen: Int, detail: Bool, dayView: Bool)?
     var search: (gen: Int, docs: [CalendarEngine.SearchDoc])?
@@ -81,6 +85,7 @@ struct AnimState {
     var weekTween: Tween?
     var dayTween: Tween? // fractional-day glide (day view "scroll to today")
     var shiftTween: Tween? // drawer canvas-shift
+    var dashPinTween: Tween? // pinned weekly/monthly dashboard slide (⌘B toggle)
     var zTweenDone: (() -> Void)?
     var weekTweenDone: (() -> Void)?
     var scrollTweenDone: (() -> Void)?

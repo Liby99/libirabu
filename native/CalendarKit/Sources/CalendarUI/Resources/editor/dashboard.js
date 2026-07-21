@@ -55709,18 +55709,102 @@
   var today = "";
   var allTodos = [];
   var todosDirty = true;
+  var weekNoteKey = (sunIso) => `week:${sunIso}`;
+  var monthNoteKey = (ym) => `month:${ym}`;
+  function monthEndIso(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+  }
+  function scopeNoteTodos(key2, anchorIso, endIso, title, text9) {
+    const ts = parseDailyNoteTodos(anchorIso, text9, today);
+    for (const t2 of ts) {
+      t2.dailyDate = key2;
+      t2.eventTitle = title;
+      if (t2.dueSource !== "line") t2.due = endIso;
+    }
+    return ts;
+  }
   function ensureTodos() {
     if (!todosDirty) return;
-    allTodos = [
-      ...indexTodos(events, today),
-      ...Object.entries(notes).flatMap(([date, text9]) => parseDailyNoteTodos(date, text9, today))
-    ];
+    allTodos = [...indexTodos(events, today)];
+    for (const [key2, text9] of Object.entries(notes)) {
+      if (key2.startsWith("week:")) {
+        const sun = key2.slice(5);
+        allTodos.push(...scopeNoteTodos(key2, sun, addDays(sun, 6), `Weekly note \xB7 ${sun}`, text9));
+      } else if (key2.startsWith("month:")) {
+        const ym = key2.slice(6);
+        allTodos.push(...scopeNoteTodos(key2, `${ym}-01`, monthEndIso(ym), `Monthly note \xB7 ${ym}`, text9));
+      } else {
+        allTodos.push(...parseDailyNoteTodos(key2, text9, today));
+      }
+    }
     todosDirty = false;
   }
-  var last = { from: "", to: "", dir: 0, p: 0, reveal: 0, slide: 1 };
+  var TICK_DEFAULTS = {
+    from: "",
+    to: "",
+    dir: 0,
+    p: 0,
+    reveal: 0,
+    slide: 1,
+    scopeA: "day",
+    scopeB: "day",
+    scopeT: 1,
+    dy: 0,
+    mFrom: "",
+    mTo: "",
+    mDy0: 0,
+    mDy1: 0,
+    mP: 0,
+    mKeyA: "",
+    mKeyB: "",
+    // month machine keys "YYYY-MM" (notes + filters)
+    wFrom: "",
+    wTo: "",
+    wP: 0,
+    wKeyA: "",
+    wKeyB: "",
+    // week machine keys: the Sunday "YYYY-MM-DD"
+    // Per-panel scope geometry from Swift's dashScopePanels (frame-local px):
+    // the mask (clip) region + each panel's own left/width/opacity.
+    maskX: 0,
+    maskW: 0,
+    aName: "",
+    aX: 0,
+    aW: 0,
+    aOp: 0,
+    bName: "",
+    bX: 0,
+    bW: 0,
+    bOp: 0
+  };
+  var last = { ...TICK_DEFAULTS };
   var root5 = document.getElementById("dash");
   var panelsEl = document.getElementById("panels");
   var noteLive = document.getElementById("note-live");
+  function makeScopeLayer(id2) {
+    const layer2 = document.createElement("div");
+    layer2.className = "cc-dd-panel";
+    layer2.id = id2;
+    root5.appendChild(layer2);
+    const sub2 = () => {
+      const el = document.createElement("div");
+      el.className = "cc-dd-panel";
+      layer2.appendChild(el);
+      return el;
+    };
+    return { layer: layer2, a: sub2(), b: sub2() };
+  }
+  var W = makeScopeLayer("scope-week");
+  var M = makeScopeLayer("scope-month");
+  var weekLayer = W.layer;
+  var monthLayer = M.layer;
+  var wpA = W.a;
+  var wpB = W.b;
+  var mpA = M.a;
+  var mpB = M.b;
+  var scopeKeyOf = /* @__PURE__ */ new Map();
+  var scopeSig = /* @__PURE__ */ new Map();
   function post(m) {
     window.webkit?.messageHandlers?.ck?.postMessage(m);
   }
@@ -55803,6 +55887,7 @@
     tab2 = t2;
     isoOf.delete(p0);
     isoOf.delete(p1);
+    scopeSig.clear();
     apply();
   }
   function noteModeUser(m) {
@@ -56025,11 +56110,99 @@
     scroll.innerHTML = deadlineHTML(viewIso) + body3;
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;
   }
+  function rangeDeadlineHTML(title, startIso, endIso) {
+    const list4 = deadlines.map((d) => ({ d, iso: `${d.year}-${pad3(d.month + 1)}-${pad3(d.day)}` })).filter((x) => x.iso >= startIso && x.iso <= endIso).sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : a.d.hour - b.d.hour) || (a.d.id < b.d.id ? -1 : a.d.id > b.d.id ? 1 : 0));
+    const head2 = `<div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(title)}</span>${list4.length ? `<span class="cc-dd-sec-count">${list4.length}</span>` : ""}</div>`;
+    const body3 = list4.length ? `<ul class="cc-dd-ddl-list">${list4.map(({ d, iso }) => `<li class="cc-dd-ddl cc-ev-${esc(d.color)}" data-ddl="${esc(d.id)}" role="button" tabindex="0" title="Go to deadline">
+          <span class="cc-dd-ddl-dot"></span>
+          <span class="cc-dd-ddl-title">${d.title ? esc(d.title) : "<em>(untitled)</em>"}</span>
+          <span class="cc-dd-ddl-when">${esc(relDue(today, iso))} \xB7 ${hhmm(d.hour)}</span></li>`).join("")}</ul>` : `<div class="cc-dd-free">No deadlines in this range.</div>`;
+    return `<section class="cc-dd-sec">${head2}${body3}</section>`;
+  }
+  function rangeTodoSections(startIso, endIso, word) {
+    ensureTodos();
+    const inR = (d) => d >= startIso && d <= endIso;
+    const byOp = (a, b) => {
+      const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
+      return d !== 0 ? d : cmpTie(a, b);
+    };
+    const open2 = allTodos.filter((t2) => !t2.done && inR(opDate(t2))).sort(byOp);
+    const completed = allTodos.filter((t2) => t2.done && t2.doneDate && inR(t2.doneDate.slice(0, 10))).sort((a, b) => {
+      const d = a.doneDate < b.doneDate ? 1 : a.doneDate > b.doneDate ? -1 : 0;
+      return d !== 0 ? d : cmpTie(a, b);
+    });
+    return [
+      { title: `TODOs ${word}`, items: open2 },
+      { title: `Completed ${word}`, items: completed, done: true }
+    ].filter((s2) => s2.items.length > 0);
+  }
+  function renderScopePanel(el, scope, key2) {
+    const sig = `${scope}|${key2}|${tab2}`;
+    if (scopeSig.get(el) === sig) return;
+    scopeSig.set(el, sig);
+    let scroll = el.firstElementChild;
+    if (!scroll || !scroll.classList.contains("cc-dd-scroll")) {
+      el.innerHTML = `<div class="cc-dd-scroll"></div>`;
+      scroll = el.firstElementChild;
+    }
+    const noteKey = scope === "week" ? weekNoteKey(key2) : monthNoteKey(key2);
+    if (tab2 === "note") {
+      const text9 = notes[noteKey] || "";
+      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : `<div class="cc-dd-note-empty">${scope === "week" ? "Weekly" : "Monthly"} Note</div>`;
+      flatOf.delete(el);
+      return;
+    }
+    const start = scope === "week" ? key2 : `${key2}-01`;
+    const end = scope === "week" ? addDays(key2, 6) : monthEndIso(key2);
+    const word = scope === "week" ? "this week" : "this month";
+    const sections = rangeTodoSections(start, end, word).map((s2) => ({
+      ...s2,
+      items: s2.items.map((t2) => t2.dailyDate === noteKey ? { ...t2, eventTitle: "" } : t2)
+    }));
+    const flat = sections.flatMap((s2) => s2.items);
+    flatOf.set(el, flat);
+    let i3 = -1;
+    const secHTML = sections.map((s2) => `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span></div><ul class="cc-dtodo-list">${s2.items.map((t2) => rowHTML(t2, ++i3, today)).join("")}</ul></section>`).join("");
+    scroll.innerHTML = rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end) + (sections.length ? secHTML : `<div class="cc-dtodo-empty">Nothing on the list \u2014 you\u2019re clear.</div>`);
+  }
   var liveShown = false;
   var liveMode = "";
   var dayViewShown = false;
   function apply() {
-    const { from, to, dir, p: p3, reveal, slide } = last;
+    const {
+      from,
+      to,
+      dir,
+      p: p3,
+      reveal,
+      slide,
+      scopeA,
+      scopeB,
+      scopeT,
+      dy,
+      mFrom,
+      mTo,
+      mDy0,
+      mDy1,
+      mP,
+      mKeyA,
+      mKeyB,
+      wFrom,
+      wTo,
+      wP,
+      wKeyA,
+      wKeyB,
+      maskX,
+      maskW,
+      aName,
+      aX,
+      aW,
+      aOp,
+      bName,
+      bX,
+      bW,
+      bOp
+    } = last;
     if (reveal < 0.02) {
       if (dayViewShown) {
         dayViewShown = false;
@@ -56042,9 +56215,68 @@
       P0.scroll.scrollTop = 0;
       P1.scroll.scrollTop = 0;
     }
-    root5.style.transform = `translateX(${(slide * 100).toFixed(3)}%)`;
-    root5.style.opacity = reveal.toFixed(3);
+    root5.style.left = `${maskX.toFixed(1)}px`;
+    root5.style.width = `${Math.max(0, maskW).toFixed(1)}px`;
+    root5.style.transform = `translateY(${dy.toFixed(1)}px)`;
     root5.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
+    const layers = { day: panelsEl, week: weekLayer, month: monthLayer };
+    const t2 = scopeT;
+    for (const [name2, el] of Object.entries(layers)) {
+      let x = 0, w = 0, op2 = 0;
+      if (name2 === aName) {
+        x = aX;
+        w = aW;
+        op2 = aOp;
+      } else if (name2 === bName) {
+        x = bX;
+        w = bW;
+        op2 = bOp;
+      }
+      el.style.left = `${(x - maskX).toFixed(1)}px`;
+      el.style.width = `${Math.max(0, w).toFixed(1)}px`;
+      el.style.transform = "none";
+      el.style.opacity = op2.toFixed(3);
+      el.style.pointerEvents = op2 > 0.999 ? "auto" : "none";
+    }
+    const scopeName = t2 > 0.5 ? scopeB : scopeA;
+    if (mKeyA && scopeKeyOf.get(mpB) === mKeyA) {
+      const t22 = mpA;
+      mpA = mpB;
+      mpB = t22;
+    }
+    if (mKeyA) {
+      renderScopePanel(mpA, "month", mKeyA);
+      scopeKeyOf.set(mpA, mKeyA);
+      mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
+      mpA.style.opacity = (1 - mP).toFixed(3);
+    }
+    if (mKeyA && mKeyB && mP > 1e-3) {
+      renderScopePanel(mpB, "month", mKeyB);
+      scopeKeyOf.set(mpB, mKeyB);
+      mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
+      mpB.style.opacity = mP.toFixed(3);
+    } else {
+      mpB.style.opacity = "0";
+    }
+    if (wKeyA && scopeKeyOf.get(wpB) === wKeyA) {
+      const t3 = wpA;
+      wpA = wpB;
+      wpB = t3;
+    }
+    if (wKeyA) {
+      renderScopePanel(wpA, "week", wKeyA);
+      scopeKeyOf.set(wpA, wKeyA);
+      wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
+      wpA.style.opacity = (1 - wP).toFixed(3);
+    }
+    if (wKeyA && wKeyB && wP > 1e-3) {
+      renderScopePanel(wpB, "week", wKeyB);
+      scopeKeyOf.set(wpB, wKeyB);
+      wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
+      wpB.style.opacity = wP.toFixed(3);
+    } else {
+      wpB.style.opacity = "0";
+    }
     if (isoOf.get(p0) !== from) renderPanel(p0, from);
     const atRest = !to || p3 <= 1e-4;
     if (atRest) {
@@ -56062,13 +56294,28 @@
       p0.style.pointerEvents = "none";
       p1.style.pointerEvents = "none";
     }
-    const showLive = tab2 === "note" && atRest && reveal > 0.999;
+    let liveKey = "", hideEl = null;
+    if (scopeName === "day") {
+      liveKey = from;
+      hideEl = p0;
+    } else if (scopeName === "week" && (wP <= 1e-3 || wP >= 0.999)) {
+      const k = wP < 0.5 ? wKeyA : wKeyB;
+      if (k) {
+        liveKey = weekNoteKey(k);
+        hideEl = wP < 0.5 ? wpA : wpB;
+      }
+    } else if (scopeName === "month" && mP <= 1e-3 && mKeyA) {
+      liveKey = monthNoteKey(mKeyA);
+      hideEl = mpA;
+    }
+    const showLive = tab2 === "note" && atRest && reveal > 0.999 && t2 % 1 === 0 && !!liveKey;
     noteLive.style.display = showLive ? "" : "none";
-    p0.style.visibility = showLive ? "hidden" : "";
+    for (const el of [p0, wpA, wpB, mpA, mpB]) el.style.visibility = "";
+    if (showLive && hideEl) hideEl.style.visibility = "hidden";
     if (showLive) {
-      const text9 = notes[from] || "";
-      if (liveIso !== from) {
-        liveIso = from;
+      const text9 = notes[liveKey] || "";
+      if (liveIso !== liveKey) {
+        liveIso = liveKey;
         const m = text9.trim() ? "preview" : "edit";
         if (m !== noteMode) {
           noteMode = m;
@@ -56231,10 +56478,11 @@
       if (performance.now() - selfEditAt < SELF_ECHO_MS) return;
       isoOf.delete(p0);
       isoOf.delete(p1);
+      scopeSig.clear();
       apply();
     },
-    tick(from, to, dir, p3, reveal, slide) {
-      last = { from, to: to || "", dir, p: p3, reveal, slide };
+    tick(t2) {
+      last = { ...TICK_DEFAULTS, ...t2, to: t2.to || "" };
       apply();
     },
     setTab(t2) {

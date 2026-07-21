@@ -59,7 +59,7 @@ public final class CalendarEngine {
     /// Anything that changes the scene frame-to-frame (so the loop must stay awake). `isAnimating`
     /// covers the z/scroll/week/day tweens + flips; add the rest of the live/elastic/drag states.
     private var needsRender: Bool {
-        isAnimating || anim.shiftTween != nil || anim.monthFlip != nil || drag != nil || daily.anim != nil
+        isAnimating || anim.shiftTween != nil || anim.dashPinTween != nil || anim.monthFlip != nil || drag != nil || daily.anim != nil
             || scroll.liveScrolling || scroll.liveMonthScrolling || scroll.liveWeekScrolling || scroll.liveDayScrolling
             || scroll.yearPull != nil || scroll.monthPull != nil || scroll.weekPull != nil || scroll.dayPull != nil
     }
@@ -70,6 +70,33 @@ public final class CalendarEngine {
     public internal(set) var week: CGFloat = 0
     public internal(set) var scrollY: CGFloat = 0
     public internal(set) var tlScroll: CGFloat = 0
+
+    /// Pinned (⌘B) weekly/monthly dashboard: the persisted user intent…
+    public internal(set) var dashPinned = UserDefaults.standard.bool(forKey: PrefKeys.dashPinned)
+    /// …and its animated presentation value (0 retracted … 1 out), tweened on toggle.
+    public internal(set) var dashPin: CGFloat = UserDefaults.standard.bool(forKey: PrefKeys.dashPinned) ? 1 : 0
+    /// Per-scope pinned panel widths (persisted; defaults month 0.25 < week 0.35 < daily.frac split).
+    public internal(set) var dashWeekFrac: CGFloat = {
+        let v = UserDefaults.standard.double(forKey: PrefKeys.dashWeekFrac); return v > 0 ? v : 0.35
+    }()
+    public internal(set) var dashMonthFrac: CGFloat = {
+        let v = UserDefaults.standard.double(forKey: PrefKeys.dashMonthFrac); return v > 0 ? v : 0.25
+    }()
+
+    /// ── Weekly-dashboard carousel override (big-fling cruise / catch-freeze / release-settle) ──
+    /// nil hold → the pure wed→thu band mapping of `week` drives the carousel (the default).
+    /// A hard fling arms a CRUISE (progress rides the whole glide, proportionally); catching the
+    /// glide freezes the hold; releasing settles it back onto the band. See weekGlideWillLand.
+    struct WeekDashHold {
+        var from: Int // week index of panel A
+        var to: Int // week index of panel B
+        var q: CGFloat // live carousel progress
+    }
+
+    var weekDashHold: WeekDashHold?
+    var weekDashCruise: (wStart: CGFloat, wTarget: CGFloat, qStart: CGFloat, qTarget: CGFloat)?
+    var weekDashSettle: Tween?
+    var weekDashIdleAt = Date.distantPast // last time `week` moved (idle-settle fallback)
     func fireDayLand() {
         if let cb = anim.dayLandDone {
             anim.dayLandDone = nil; cb()
@@ -522,7 +549,7 @@ public final class CalendarEngine {
 
     /// ── Frame snapshot ──────────────────────────────────────────────────────────
     func snapshot() -> SceneInput {
-        SceneInput(z: z, focus: focus, week: week, vp: viewport, scrollY: scrollY, tlScroll: tlScroll,
+        var g = SceneInput(z: z, focus: focus, week: week, vp: viewport, scrollY: scrollY, tlScroll: tlScroll,
                    now: now, year: year, hover: blockHoverOverride() ?? hover, weekHourH: weekHourH, daily: daily,
                    monthAnim: anim.monthAnim, altDeltaHours: altDeltaHours, altLabel: altColumnLabel,
                    yearPull: scroll.yearPull, flipFade: anim.flipFade,
@@ -535,6 +562,11 @@ public final class CalendarEngine {
                    mainTz: mainTz,
                    yearQX: yearQX,
                    monthQX: monthQX)
+        g.dashPin = dashPin
+        g.dashWeekFrac = dashWeekFrac
+        g.dashMonthFrac = dashMonthFrac
+        g.weekDash = weekDashHold.map { SceneInput.WeekDashOverride(from: $0.from, to: $0.to, p: $0.q) }
+        return g
     }
 
     /// Per-quarter horizontal scroll offsets for the year view (phone overflow; zeros on
@@ -605,6 +637,15 @@ public final class CalendarEngine {
                 tlScroll = tt.to; anim.tlScrollTween = nil; onSetTlScroll?(tlScroll)
             }
         }
+        if let pt = anim.dashPinTween {
+            dashPin = pt.value(at: date)
+            if pt.isComplete(at: date) {
+                dashPin = pt.to; anim.dashPinTween = nil
+                if dashPin <= 0 {
+                    chrome.dashPresented = false // retract finished → frames may leave the pinned edge
+                }
+            }
+        }
         if let wt = anim.weekTween {
             week = wt.value(at: date)
             if wt.isComplete(at: date) {
@@ -613,6 +654,19 @@ public final class CalendarEngine {
                     anim.weekTweenDone = nil; cb()
                 } // sequenced next phase (go-to-today)
             }
+        }
+        // Weekly-dashboard carousel: advance a settle tween; or, if a caught (frozen) hold is
+        // left over and everything week-related has come to rest without a snap decision (e.g.
+        // a zero-movement release), settle it to the band as a fallback.
+        if let st = weekDashSettle {
+            weekDashHold?.q = st.value(at: date)
+            if st.isComplete(at: date) {
+                weekDashSettle = nil
+                weekDashHold = nil // the settled endpoint matches the band's rest → follow it
+            }
+        } else if weekDashHold != nil, weekDashCruise == nil, !scroll.liveWeekScrolling,
+                  anim.weekTween == nil, date.timeIntervalSince(weekDashIdleAt) > 0.3 {
+            settleWeekDash(restWeek: (week * 7).rounded() / 7)
         }
         if let dt = anim.dayTween {
             // Fractional-day glide: floor → the anchor day, the fraction → a ±1 day-page so the day column

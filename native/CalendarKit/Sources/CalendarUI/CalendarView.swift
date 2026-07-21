@@ -449,13 +449,85 @@ public struct CalendarView: View {
             }
             // Per-frame day-carousel driver for the dashboard WebView (invisible). Carries {from,to,dir,p}
             // for day paging and `reveal` for the panel's slide-in-from-right + fade. Week level up.
-            if input.z > 1.5 {
+            if input.z > 1.5 || input.dashPin > 0.01 {
                 let c = engine.dashboardCarousel()
-                let lOpen = Layout.labelW + dashFrac * max(1, vp.w - Layout.labelW)
+                // The webview frame sits at the DAY split in day view, at the narrower PINNED edge
+                // at month/week — normalize the CSS slide against whichever frame is in use.
+                let dayLOpen = Layout.labelW + dashFrac * max(1, vp.w - Layout.labelW)
+                let pinLOpen = engine.chrome.level <= 1
+                    ? vp.w - dashMonthPanelW(vp, frac: engine.chrome.dashMonthFrac)
+                    : vp.w - engine.chrome.dashWeekFrac * (vp.w - Layout.labelW)
+                // dashPresented (not dashPinned): stays true through the ⌘B retract tween, so the
+                // slide normalizes against the PINNED edge while the content rides off with it.
+                let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPresented) ? pinLOpen : dayLOpen
                 let wvW = max(1, vp.w - lOpen)
                 let slide = min(1, max(0, Double((dashboardLeftAnimated(input) - lOpen) / wvW)))
+                // Zoom-scope carousel: pure function of z (mirrors SceneRenderer's scopePair) —
+                // the finer scope enters from the LEFT zooming in, returns from the RIGHT out.
+                let (sA, sB, sT): (String, String, Double) = input.z >= 2
+                    ? ("week", "day", Double(easeInOut(clamp(input.z - 2, 0, 1))))
+                    : (input.z >= 1
+                        ? ("month", "week", Double(easeInOut(clamp(input.z - 1, 0, 1))))
+                        : ("month", "month", 0))
+                // Header anchor: the focused band's animated frame (accordion + page-turns) keeps
+                // the Canvas header, native tabs, and webview content vertically in lock-step.
+                let fHeader = frameFor(input.focus, input, anim: input.monthAnim)
+                // The INCOMING month's band frame during a page-turn (tabs ride both headers).
+                let fHeader2 = input.monthAnim.map { a in
+                    frameFor(input.focus + a.dir, input, anim: input.monthAnim)
+                } ?? fHeader
+                // The webview's own vertical shift excludes page-turns (its month LAYER carousels
+                // those internally) — so compute the accordion-only frame.
+                let fRest = frameFor(input.focus, input)
+                let (mFrom, mTo, mDir, mP): (String, String, Int, Double) = {
+                    guard let a = input.monthAnim else { return (MONTH_LONG[input.focus], "", 0, 0) }
+                    let toM = input.focus + a.dir
+                    return (MONTH_LONG[input.focus],
+                            (0 ... 11).contains(toM) ? MONTH_LONG[toM] : "",
+                            a.dir, Double(a.p))
+                }()
+                // Machine keys for the monthly-note store + content filters ("YYYY-MM").
+                let mKeyA = String(format: "%04d-%02d", input.year, input.focus + 1)
+                let mKeyB: String = {
+                    guard let a = input.monthAnim, (0 ... 11).contains(input.focus + a.dir)
+                    else { return "" }
+                    return String(format: "%04d-%02d", input.year, input.focus + a.dir + 1)
+                }()
+                // Week-to-week carousel (weekly dashboard): driven by the continuous week
+                // scroll — the SAME function the Canvas week header draws with.
+                let wt = weekDashTurn(input)
+                // Per-panel geometry from the SAME function the Canvas header draws with
+                // (dashScopePanels) — mask + each panel's own (left, width, opacity), converted to
+                // the webview's frame-local coordinates (the frame spans the full content region,
+                // left edge at labelW, and never moves — no level-boundary snap).
+                let scopeGeom = dashScopePanels(input)
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
-                               dir: c.dir, p: c.p, reveal: c.reveal, slide: slide)
+                               dir: c.dir, p: c.p, reveal: c.reveal, slide: slide,
+                               scopeA: sA, scopeB: sB, scopeT: sT,
+                               headerTopY: Double(fHeader.bandY),
+                               headerTopY2: Double(fHeader2.bandY),
+                               panelLeft: Double(dashboardLeftAnimated(input)),
+                               webDy: Double(fRest.bandY - Layout.topPad),
+                               mFrom: mFrom, mTo: mTo, mDir: mDir, mP: mP,
+                               // Month-turn PIXEL offsets for the webview sub-panels, relative to the
+                               // resting frame (the root already carries the accordion dy): each
+                               // sub-panel rides its band's frame EXACTLY — same staggered easing,
+                               // same asymmetric travel as the Canvas header. Native is the standard.
+                               mDy0: Double(fHeader.bandY - fRest.bandY),
+                               mDy1: Double(fHeader2.bandY - fRest.bandY),
+                               mKeyA: mKeyA, mKeyB: mKeyB,
+                               wFrom: wt.from, wTo: wt.to, wP: Double(wt.p),
+                               wKeyA: wt.fromKey, wKeyB: wt.toKey,
+                               maskX: Double((scopeGeom?.mask ?? vp.w) - Layout.labelW),
+                               maskW: Double(vp.w - (scopeGeom?.mask ?? vp.w)),
+                               aName: scopeGeom?.a.name ?? "",
+                               aX: Double((scopeGeom?.a.x ?? 0) - Layout.labelW),
+                               aW: Double(scopeGeom?.a.w ?? 0),
+                               aOp: Double(scopeGeom?.a.op ?? 0),
+                               bName: scopeGeom?.b?.name ?? "",
+                               bX: Double((scopeGeom?.b?.x ?? 0) - Layout.labelW),
+                               bW: Double(scopeGeom?.b?.w ?? 0),
+                               bOp: Double(scopeGeom?.b?.op ?? 0))
                     .frame(width: 0, height: 0)
             }
         }
@@ -565,7 +637,8 @@ public struct CalendarView: View {
                                                   onNavTab: { fwd in engine.tabCursor(fwd) })
                                 // Stay hit-testable while the drawer is open so the in-page scrim can intercept +
                                 // close (the WKWebView layer ignores the SwiftUI scrim/allowsHitTesting anyway).
-                                .allowsHitTesting(engine.chrome.level == 3)
+                                .allowsHitTesting(engine.chrome.level == 3
+                                    || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)))
                         }
                     }
                     // TODO/NOTE tabs + note edit/preview toggle — SEPARATE overlays ABOVE the WebView so the
@@ -586,7 +659,9 @@ public struct CalendarView: View {
                     // so it grabs the mouse in its narrow zone (the rest passes through). Shown in day view;
                     // reads chrome.level (@Observable) so it appears/disappears as you zoom.
                     .overlay {
-                        if engine.chrome.level == 3, ui.openEventId == nil {
+                        if engine.chrome.level == 3
+                            || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)),
+                            ui.openEventId == nil {
                             DashboardSplitHandle(engine: engine, vp: vp, height: geo.size.height, theme: theme,
                                                  onFrac: { dashFrac = $0 })
                         }

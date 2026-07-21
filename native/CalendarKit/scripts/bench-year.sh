@@ -14,7 +14,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-release}"
-SCENE="${SCENE:-bench-year-scroll}"   # bench-year-scroll | bench-year-fling | bench-month-swipe
+SCENE="${SCENE:-bench-year-scroll}"   # bench-year-scroll | bench-year-fling | bench-month-swipe | bench-week-swipe
 TMP="$(mktemp -d /tmp/cc-bench.XXXXXX)"
 BIN=".build/$CONFIG/CalendarMac"
 
@@ -34,6 +34,7 @@ echo "Launching bench scene (throwaway store at $TMP; payload=${PAYLOAD:-display
 # `env` so the optional ${…:+VAR=val} expansions are still parsed as environment assignments.
 env CC_DEMO="$SCENE" CC_DEMO_DATADIR="$TMP" \
   ${WINDOW:+CC_WINDOW="$WINDOW"} ${HOVER:+CC_BENCH_HOVER=1} ${DWELL:+CC_BENCH_DWELL=1} ${MONTHS:+CC_BENCH_MONTHS="$MONTHS"} ${MOUNTALL:+CC_BENCH_MOUNT_ALL=1} \
+  ${WEEKS:+CC_BENCH_WEEKS="$WEEKS"} ${WEEK_MONTH:+CC_BENCH_WEEK_MONTH="$WEEK_MONTH"} \
   ${PROF:+CC_PROF=1} ${PERF_OFF:+CC_PERF_OFF=1} ${FLING_STEPS:+CC_BENCH_FLING_STEPS="$FLING_STEPS"} \
   ${SWIPE_STEPS:+CC_BENCH_SWIPE_STEPS="$SWIPE_STEPS"} ${SWIPE_GAP:+CC_BENCH_SWIPE_GAP="$SWIPE_GAP"} "$BIN" &
 APP_PID=$!
@@ -46,7 +47,7 @@ sleep 0.2
 
 # Tag results with the git branch (worktree-aware) so per-optimization branches compare cleanly.
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
-python3 - "$TMP/bench.json" "$BRANCH|$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}/dwell=${DWELL:-0}${MONTHS:+/m=$MONTHS}${SWIPE_STEPS:+/ss=$SWIPE_STEPS}" <<'PY'
+python3 - "$TMP/bench.json" "$BRANCH|$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}/dwell=${DWELL:-0}${MONTHS:+/m=$MONTHS}${WEEKS:+/w=$WEEKS}${WEEK_MONTH:+/wm=$WEEK_MONTH}${SWIPE_STEPS:+/ss=$SWIPE_STEPS}" <<'PY'
 import json, sys, datetime
 r = json.load(open(sys.argv[1]))
 line = (f"{datetime.datetime.now():%Y-%m-%d %H:%M} [{sys.argv[2]}] "

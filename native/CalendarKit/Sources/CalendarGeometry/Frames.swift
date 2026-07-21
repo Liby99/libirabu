@@ -47,8 +47,17 @@ public func yearFrame(_ m: Int, _ vp: Viewport, _ scrollY: CGFloat, qx: CGFloat 
 
 /// Geometry of a month's band at Month level (also used for hit-testing). `mx` is the
 /// month-view horizontal scroll offset (phone overflow; 0 on desktop) — pass g.monthQX.
-public func focusGeom(_ vp: Viewport, mx: CGFloat = 0) -> (x0: CGFloat, dayW: CGFloat, bandY: CGFloat, trackH: CGFloat) {
-    (Layout.labelW - mx, yearDayW(vp), Layout.topPad, Layout.trackH)
+public func focusGeom(_ vp: Viewport, mx: CGFloat = 0, pin: CGFloat = 0,
+                      monthFrac: CGFloat = 0.25) -> (x0: CGFloat, dayW: CGFloat, bandY: CGFloat, trackH: CGFloat) {
+    (Layout.labelW - mx, monthDayW(vp, pin: pin, frac: monthFrac), Layout.topPad, Layout.trackH)
+}
+
+/// Month-view day-cell width: the full-window width (== yearDayW) normally; squeezed left of the
+/// pinned dashboard (at its MONTH width, floored at dashMonthMinW) when it's out. The phone's
+/// min-width clamp applies.
+public func monthDayW(_ vp: Viewport, pin: CGFloat, frac: CGFloat) -> CGFloat {
+    let right = lerp(vp.w, vp.w - dashMonthPanelW(vp, frac: frac), pin)
+    return max((right - Layout.labelW) / 31, Layout.yearMinDayW)
 }
 
 private func detailFullH(_ vp: Viewport) -> CGFloat {
@@ -60,7 +69,7 @@ private func detailFullH(_ vp: Viewport) -> CGFloat {
 /// engine seeds mx from the tapped month's qx, so the columns don't jump during the zoom.
 /// Both are 0 on desktop; dayW keeps the min-width overflow at every t (yearDayW).
 private func yearToMonthFrame(_ m: Int, _ t: CGFloat, _ focus: Int, _ vp: Viewport, _ scrollY: CGFloat,
-                              qx: CGFloat = 0, mx: CGFloat = 0) -> Frame {
+                              qx: CGFloat = 0, mx: CGFloat = 0, pin: CGFloat = 0, monthFrac: CGFloat = 0.25) -> Frame {
     let yf = yearFrame(m, vp, scrollY, qx: qx)
     let yfocus = yearFrame(focus, vp, scrollY)
     let PAD: CGFloat = 80
@@ -71,12 +80,19 @@ private func yearToMonthFrame(_ m: Int, _ t: CGFloat, _ focus: Int, _ vp: Viewpo
     } else if m > focus {
         bandY += detailFullH(vp) * t + PAD * t
     }
-    return Frame(x0: lerp(yf.x0, Layout.labelW - mx, t), dayW: yf.dayW,
+    // Pinned dashboard: the year's full-width columns compress to the squeezed month width as the
+    // accordion opens (year view itself never squeezes — the panel is retracted at z 0).
+    return Frame(x0: lerp(yf.x0, Layout.labelW - mx, t),
+                 dayW: lerp(yf.dayW, monthDayW(vp, pin: pin, frac: monthFrac), t),
                  bandY: bandY, trackH: Layout.trackH, opacity: 1)
 }
 
 private func weekFrame(_ m: Int, _ g: SceneInput) -> Frame {
-    let dayW = (g.vp.w - Layout.labelW) / 7
+    // Pinned dashboard: the whole 7-day window squeezes left of the panel (evaluated at the
+    // panel's resting WEEK width — the month↔week frame blend morphs from the month width, and
+    // the week→day blend handles the widening past z 2).
+    let right = lerp(g.vp.w, dashPinLeft(g.vp, frac: g.dashWeekFrac), g.dashPin)
+    let dayW = (right - Layout.labelW) / 7
     if m == g.focus {
         // fractional `week` slides the 7-day window per-day, exactly as the TS: the
         // (possibly fractional) Sunday DOM lands day-1 at LABEL_W.
@@ -94,10 +110,10 @@ private func weekFrame(_ m: Int, _ g: SceneInput) -> Frame {
 /// the turn — otherwise the phone's overflowing month compresses to fit-width mid-swipe
 /// and re-expands on settle. Both are inert on desktop (natural width, mx = 0).
 private func monthSwipeFrame(_ m: Int, _ anim: PageAnim, _ focus: Int, _ vp: Viewport,
-                             mx: CGFloat = 0) -> Frame {
+                             mx: CGFloat = 0, pin: CGFloat = 0, monthFrac: CGFloat = 0.25) -> Frame {
     let dir = anim.dir, p = anim.p
     let to = focus + dir
-    let x0 = Layout.labelW - mx, dayW = yearDayW(vp)
+    let x0 = Layout.labelW - mx, dayW = monthDayW(vp, pin: pin, frac: monthFrac)
     let OFF_TOP = -Layout.monthH - 40
     let OFF_BOT = vp.h + 40
     // Compact (phone): the page turn is a FINGER-TRACKED drag, so both months follow `p`
@@ -182,36 +198,189 @@ private func blend(_ a: Frame, _ b: Frame, _ t: CGFloat) -> Frame {
 }
 
 /// Left edge of the daily dashboard panel = the right edge of the (one-day-wide) timeline window.
-/// Uses the day-column WIDTH, not `f.x0 + dom·dayW`, so a day-to-day slide (the `pan` carrying the
-/// current day out and the next in) doesn't drag the boundary — the dashboard frame stays put while
-/// days carousel through the fixed window to its left.
+/// Computed directly from the daily split (identical to the day frame's `daily.frac·content` day
+/// width) rather than through frameFor — the week/day frames themselves consume the ANIMATED left
+/// edge below, and going through frames here would recurse.
 public func dashboardLeft(_ g: SceneInput) -> CGFloat {
-    let f = frameFor(g.focus, g)
-    return Layout.labelW + f.dayW
+    Layout.labelW + g.daily.frac * (g.vp.w - Layout.labelW)
 }
 
-/// The daily dashboard's left edge, ANIMATED: flush with the right window edge (panel closed) at
-/// week level, easing in to `dashboardLeft` across z 2→3 — so the panel mask slides in from the
-/// right as the day opens, instead of snapping open the instant z crosses 2. Every day-view clip
-/// (content, bands, deadlines, chrome) uses this so they reveal together.
-public func dashboardLeftAnimated(_ g: SceneInput) -> CGFloat {
-    let reveal = easeInOut(clamp(g.z - 2, 0, 1))
-    if reveal <= 0.0001 {
-        return g.vp.w
+/// A pinned panel's resting left edge for a given width fraction of the content area.
+@inlinable public func dashPinLeft(_ vp: Viewport, frac: CGFloat) -> CGFloat {
+    vp.w - frac * (vp.w - Layout.labelW)
+}
+
+/// The pinned MONTHLY panel's width in px: the persisted fraction, floored at dashMonthMinW.
+@inlinable public func dashMonthPanelW(_ vp: Viewport, frac: CGFloat) -> CGFloat {
+    max(Layout.dashMonthMinW, frac * (vp.w - Layout.labelW))
+}
+
+/// The PINNED panel's left edge for this z — defined as the GRID'S RIGHT EDGE, so the gap between
+/// the canvas's right border and the panel is 0 by construction:
+///   • z ≤ 1 (year→month accordion): labelW + 31·dayW(z) — the same eased column width the
+///     accordion animates (yearToMonthFrame), so the panel starts EXACTLY outside the right
+///     border (31 year columns fill the window) and enters at the grid's own contraction rate.
+///   • z 1→2: month grid-right → week grid-right (the frames blend on the same eased ramp).
+/// nil when the pin is (effectively) 0.
+func pinnedDashLeft(_ g: SceneInput) -> CGFloat? {
+    guard g.dashPin > 0.0001 else { return nil }
+    let monthRight = Layout.labelW + 31 * monthDayW(g.vp, pin: g.dashPin, frac: g.dashMonthFrac)
+    if g.z <= 1 {
+        let yearRight = Layout.labelW + 31 * yearDayW(g.vp)
+        return lerp(yearRight, monthRight, easeInOut(clamp(g.z, 0, 1)))
     }
-    return lerp(g.vp.w, dashboardLeft(g), reveal)
+    let weekRight = lerp(g.vp.w, dashPinLeft(g.vp, frac: g.dashWeekFrac), g.dashPin)
+    return lerp(monthRight, weekRight, easeInOut(clamp(g.z - 1, 0, 1)))
+}
+
+/// Weekly-dashboard carousel state. The week window scrolls per-DAY (fractional `week`), but the
+/// dashboard shows one calendar week at a time: it rests on the MAJORITY week and transitions
+/// while the viewport's LEFT border traverses the column `weekTurnAnchor` days past the base
+/// week's Sunday — before that band p = 0 (base week at rest), past it p = 1 (next week at rest).
+/// The labels double as headline text (Canvas header) and identity keys (webview sub-panels).
+public struct WeekTurn: Equatable, Sendable {
+    public var from: String // base week's headline ("Jul 13 – 19, 2026")
+    public var to: String // next week's headline
+    public var fromKey: String // machine key: the base week's Sunday, "YYYY-MM-DD"
+    public var toKey: String // next week's Sunday
+    public var p: CGFloat // carousel progress: 0 = from at rest … 1 = to at rest
+    public init(from: String, to: String, fromKey: String, toKey: String, p: CGFloat) {
+        self.from = from; self.to = to; self.fromKey = fromKey; self.toKey = toKey; self.p = p
+    }
+}
+
+/// ISO "YYYY-MM-DD" of the week's Sunday (spill-resolving, like weekRangeLabel).
+public func weekSundayIso(_ year: Int, _ focus: Int, _ startDOM: Int) -> String {
+    guard let s = resolveDate(year, focus, startDOM) else { return "" }
+    return String(format: "%04d-%02d-%02d", s.year, s.month + 1, s.day)
+}
+
+/// Left-border day offset (days past the base Sunday) where the week turn runs: p ramps 0→1 over
+/// [anchor, anchor + 1] — 3 = the border sweeping the Wednesday column (wed→thu), which puts
+/// p = 0.5 exactly at the true visible-majority tie (3.5 days each side) and makes every rest
+/// stop show the majority week.
+private let weekTurnAnchor: CGFloat = 3
+
+public func weekDashTurn(_ g: SceneInput) -> WeekTurn {
+    // Engine override: a big-fling glide CRUISES the carousel over its whole travel, a caught
+    // glide freezes it, and a release settles it — the engine owns that state; we just render.
+    if let o = g.weekDash {
+        let sf = weekStartDOM(g.year, g.focus, o.from)
+        let st = weekStartDOM(g.year, g.focus, o.to)
+        return WeekTurn(from: weekRangeLabel(g.year, g.focus, sf),
+                        to: weekRangeLabel(g.year, g.focus, st),
+                        fromKey: weekSundayIso(g.year, g.focus, sf),
+                        toKey: weekSundayIso(g.year, g.focus, st),
+                        p: clamp(o.p, 0, 1))
+    }
+    let base = floor(g.week)
+    let o = (g.week - base) * 7 // left-border day offset past the base week's Sunday
+    let s0 = weekStartDOM(g.year, g.focus, Int(base))
+    return WeekTurn(from: weekRangeLabel(g.year, g.focus, s0),
+                    to: weekRangeLabel(g.year, g.focus, s0 + 7),
+                    fromKey: weekSundayIso(g.year, g.focus, s0),
+                    toKey: weekSundayIso(g.year, g.focus, s0 + 7),
+                    p: clamp(o - weekTurnAnchor, 0, 1))
+}
+
+/// "Jul 13 – 19, 2026" for the week whose Sunday is (possibly spilling) day-of-month `startDOM`.
+public func weekRangeLabel(_ year: Int, _ focus: Int, _ startDOM: Int) -> String {
+    guard let s = resolveDate(year, focus, startDOM),
+          let e = resolveDate(year, focus, startDOM + 6) else { return "" }
+    return s.month == e.month
+        ? "\(MONTH_NAMES[s.month]) \(s.day) – \(e.day), \(e.year)"
+        : "\(MONTH_NAMES[s.month]) \(s.day) – \(MONTH_NAMES[e.month]) \(e.day), \(e.year)"
+}
+
+/// One dashboard scope panel's placement this frame: its OWN target width, absolute screen-x of
+/// its left border, and cross-fade opacity. Computed by dashScopePanels — the SINGLE source both
+/// the Canvas header and the webview consume, so their panels align by construction.
+public struct DashPanel: Sendable, Equatable {
+    public var name: String // "month" | "week" | "day"
+    public var x: CGFloat // screen-x of the panel's left border
+    public var w: CGFloat // the panel's OWN (target) width
+    public var op: CGFloat // cross-fade opacity
+}
+
+/// The scope panels visible this frame (a = current/outgoing, b = incoming mid-transition), plus
+/// the mask edge (dashboardLeftAnimated) that clips them. Continuous in z EVERYWHERE — nothing
+/// keys on the rounded `level`, so there is no z=1.5 (or any) snap:
+///   z ≤ 1  pinned: the month panel rides the entering mask (accordion).
+///   1→2    pinned: month exits right from its rest (lerp(mL, vp.w, t)); week slides in under the
+///          mask from the LEFT (wL − (1−t)·W_w) — each at its OWN width, cross-fading.
+///   2→3    pinned: week exits right; the day panel slides in from the left the same way.
+///   2→3  unpinned: the classic single day panel, glued to the sliding mask edge.
+public func dashScopePanels(_ g: SceneInput) -> (mask: CGFloat, a: DashPanel, b: DashPanel?)? {
+    let mask = dashboardLeftAnimated(g)
+    guard mask < g.vp.w - 0.5 else { return nil }
+    let wMonth = dashMonthPanelW(g.vp, frac: g.dashMonthFrac)
+    let wWeek = g.dashWeekFrac * (g.vp.w - Layout.labelW)
+    let dayL = dashboardLeft(g)
+    let wDay = g.vp.w - dayL
+    let mL = g.vp.w - wMonth
+    let wL = g.vp.w - wWeek
+    let pinned = g.dashPin > 0.0001
+    if g.z <= 1 {
+        // Accordion: the single month panel rides the entering mask edge.
+        return (mask, DashPanel(name: "month", x: mask, w: wMonth, op: 1), nil)
+    }
+    if g.z <= 2 {
+        guard pinned else { return nil }
+        let t = easeInOut(clamp(g.z - 1, 0, 1))
+        return (mask,
+                DashPanel(name: "month", x: lerp(mL, g.vp.w, t), w: wMonth, op: 1 - t),
+                DashPanel(name: "week", x: wL - (1 - t) * wWeek, w: wWeek, op: t))
+    }
+    let t = easeInOut(clamp(g.z - 2, 0, 1))
+    if pinned {
+        return (mask,
+                DashPanel(name: "week", x: lerp(wL, g.vp.w, t), w: wWeek, op: 1 - t),
+                DashPanel(name: "day", x: dayL - (1 - t) * wDay, w: wDay, op: t))
+    }
+    // Unpinned: the classic day-only reveal — the panel is glued to the sliding mask edge.
+    return (mask, DashPanel(name: "day", x: mask, w: wDay, op: 1), nil)
+}
+
+/// The panel's TOTAL reveal this frame, 0…1 of "some panel is out" (chrome + webview alpha key on
+/// this): the day-forced reveal (z 2→3), or — pinned — the panel's on-screen PRESENCE (how much of
+/// its resting width has entered), so content fades in exactly as the panel edge enters the window
+/// rather than on a separate timetable.
+public func dashRevealTotal(_ g: SceneInput) -> CGFloat {
+    let day = easeInOut(clamp(g.z - 2, 0, 1))
+    guard let left = pinnedDashLeft(g) else { return day }
+    let restingW = g.vp.w - (Layout.labelW + 31 * monthDayW(g.vp, pin: g.dashPin, frac: g.dashMonthFrac))
+    let presence = clamp((g.vp.w - left) / max(1, restingW), 0, 1)
+    return max(day, presence)
+}
+
+/// The dashboard's left edge, ANIMATED — every panel-region clip (content, bands, deadlines,
+/// chrome) uses this so they reveal together. Three regimes, composed:
+///   • unpinned: flush right until day opens; eases to the daily split across z 2→3 (classic).
+///   • pinned: GLUED to the grid's right edge (see pinnedDashLeft) — enters with the accordion,
+///     morphs month→week width with the frame blend, then WIDENS into the daily split as the
+///     day opens.
+public func dashboardLeftAnimated(_ g: SceneInput) -> CGFloat {
+    var left = g.vp.w
+    if let pinned = pinnedDashLeft(g) {
+        left = pinned
+    }
+    let dayReveal = easeInOut(clamp(g.z - 2, 0, 1))
+    if dayReveal > 0.0001 {
+        left = lerp(left, dashboardLeft(g), dayReveal)
+    }
+    return left
 }
 
 /// Resolve month `m`'s frame at the current zoom. `anim` (month paging) overrides z when present.
 public func frameFor(_ m: Int, _ g: SceneInput, anim: PageAnim? = nil) -> Frame {
     var f: Frame
     if let anim {
-        f = monthSwipeFrame(m, anim, g.focus, g.vp, mx: g.monthQX)
+        f = monthSwipeFrame(m, anim, g.focus, g.vp, mx: g.monthQX, pin: g.dashPin, monthFrac: g.dashMonthFrac)
     } else if g.z <= 1 {
         f = yearToMonthFrame(m, easeInOut(clamp(g.z, 0, 1)), g.focus, g.vp, g.scrollY,
-                             qx: g.qx(m), mx: g.monthQX)
+                             qx: g.qx(m), mx: g.monthQX, pin: g.dashPin, monthFrac: g.dashMonthFrac)
     } else if g.z <= 2 {
-        let mf = yearToMonthFrame(m, 1, g.focus, g.vp, g.scrollY, mx: g.monthQX)
+        let mf = yearToMonthFrame(m, 1, g.focus, g.vp, g.scrollY, mx: g.monthQX, pin: g.dashPin, monthFrac: g.dashMonthFrac)
         f = blend(mf, weekFrame(m, g), easeInOut(clamp(g.z - 1, 0, 1)))
     } else {
         f = blend(weekFrame(m, g), dayFrame(m, g), easeInOut(clamp(g.z - 2, 0, 1)))

@@ -18,7 +18,11 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
    set by Swift), and holds two absolutely-stacked day panels that slide + cross-fade within it (Swift
    ticks them, mirroring SceneRenderer.drawPanel). Overflow hidden clips a sliding panel at the panel
    edge, just like the Canvas title bars above. */
-#dash { height: 100%; position: relative; overflow: hidden; font-size: 13px; box-sizing: border-box;
+/* #dash IS the mask: absolutely positioned; JS sets left/width per tick to the live clip region
+   (the webview frame spans the full content width and never moves). Before the first tick it has
+   zero width — and the native alphaValue starts at 0 anyway. */
+#dash { position: absolute; top: 0; bottom: 0; left: 0; width: 0; overflow: hidden;
+  font-size: 13px; box-sizing: border-box;
   transform-origin: left center; will-change: transform, opacity; }
 :root { --dd-pad: 25px; }
 /* Drawer-open scrim: blurs the dashboard + intercepts pointer events (the app's SwiftUI blur/scrim
@@ -53,6 +57,9 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dd-panel {
   position: absolute; inset: 0; box-sizing: border-box; overflow: hidden;
   will-change: transform, opacity; opacity: 0;
+  /* NO transitions here: per-tick values include intentional DISCONTINUITIES (panel role swaps
+     at pager re-base boundaries, scope snaps) — a transition turns those into visible glides,
+     and boundary jitter makes them oscillate. Values apply directly, like the Canvas. */
 }
 /* Plain inner scroller: no transform/will-change, so WebKit gives it native elastic overscroll. */
 .cc-dd-scroll {

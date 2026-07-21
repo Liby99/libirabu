@@ -26,6 +26,27 @@ import WebKit
 /// scroll pages days and pinch zooms — both handled by the InputCatcher underneath.
 final class PassThroughWebView: WKWebView, FocusGatedControl {
     weak var forwarder: GestureForwarder?
+
+    /// The reveal FADE, applied natively (view alphaValue — plain AppKit compositing of the hosted
+    /// layer, safe). Panel MOTION stays in CSS: transforming the WKWebView's own layer
+    /// (sublayerTransform) fought WebKit's remote-layer commits — each web-process commit
+    /// re-asserted its geometry, alternating shifted/reset frames, i.e. flicker.
+    func setPanelAlpha(_ alpha: CGFloat) {
+        if alphaValue != alpha {
+            alphaValue = alpha
+        }
+    }
+
+    /// Frame-local x of the live mask edge (set per tick): the frame spans the FULL content
+    /// region, so pointer events left of the panel must fall through to the calendar beneath.
+    var interactiveLeftX: CGFloat = .greatestFiniteMagnitude
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        if local.x < interactiveLeftX {
+            return nil
+        }
+        return super.hitTest(point)
+    }
     private enum Axis { case undecided, horizontal, vertical }
     private var axis: Axis = .undecided
     /// The pointer is over a horizontally-scrollable element (a code block with a long line). Set from
@@ -123,14 +144,52 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         }
     }
 
-    /// Push a frame of the day carousel; skips the JS round-trip when nothing visible changed.
-    func tick(from: String, to: String, dir: Int, p: Double, reveal: Double, slide: Double) {
-        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))"
+    /// Push a frame of the day carousel + the zoom-scope carousel (month/week/day panels sliding
+    /// along z); skips the JS round-trip when nothing visible changed.
+    ///
+    /// The payload is ONE JSON object (CK.tick({...})) — the JS merges it over its defaults, so
+    /// adding a field can never desynchronize a positional-argument arity again (that bug blanked
+    /// the whole webview once: dy arrived as undefined and apply() threw before painting).
+    func tick(from: String, to: String, dir: Int, p: Double, reveal: Double, slide: Double,
+              scopeA: String = "day", scopeB: String = "day", scopeT: Double = 1,
+              dy: Double = 0, mFrom: String = "", mTo: String = "",
+              mDy0: Double = 0, mDy1: Double = 0, mP: Double = 0,
+              mKeyA: String = "", mKeyB: String = "",
+              wFrom: String = "", wTo: String = "", wP: Double = 0,
+              wKeyA: String = "", wKeyB: String = "",
+              maskX: Double = 0, maskW: Double = 0,
+              aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0,
+              bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0) {
+        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(mKeyA)|\(mKeyB)|\(wFrom)|\(wTo)|\(Int((wP * 1000).rounded()))|\(wKeyA)|\(wKeyB)|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))"
         if key == lastKey {
             return
         }
         lastKey = key
-        let call = "CK.tick(\(js(from)),\(js(to)),\(dir),\(String(format: "%.4f", p)),\(String(format: "%.4f", reveal)),\(String(format: "%.4f", slide)))"
+        // Reveal fade natively (safe: view-level alpha); motion stays in CSS — see setPanelAlpha.
+        // The hit gate tracks the live mask edge so only the panel area belongs to the webview.
+        if let ptw = web as? PassThroughWebView {
+            ptw.setPanelAlpha(CGFloat(reveal))
+            ptw.interactiveLeftX = CGFloat(maskX)
+        }
+        func r4(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
+        let payload: [String: Any] = [
+            "from": from, "to": to, "dir": dir,
+            "p": r4(p), "reveal": r4(reveal), "slide": r4(slide),
+            "scopeA": scopeA, "scopeB": scopeB, "scopeT": r4(scopeT),
+            "dy": (dy * 10).rounded() / 10,
+            "mFrom": mFrom, "mTo": mTo,
+            "mDy0": (mDy0 * 10).rounded() / 10, "mDy1": (mDy1 * 10).rounded() / 10,
+            "mP": r4(mP), "mKeyA": mKeyA, "mKeyB": mKeyB,
+            "wFrom": wFrom, "wTo": wTo, "wP": r4(wP), "wKeyA": wKeyA, "wKeyB": wKeyB,
+            "maskX": (maskX * 10).rounded() / 10, "maskW": (maskW * 10).rounded() / 10,
+            "aName": aName, "aX": (aX * 10).rounded() / 10, "aW": (aW * 10).rounded() / 10,
+            "aOp": r4(aOp),
+            "bName": bName, "bX": (bX * 10).rounded() / 10, "bW": (bW * 10).rounded() / 10,
+            "bOp": r4(bOp),
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let call = "CK.tick(\(json))"
         lastCall = call
         if ready {
             web?.evaluateJavaScript(call)
@@ -188,7 +247,28 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     var p = 0.0
     var reveal = 1.0
     var slide = 0.0
-    func set(dir: Int, p: Double, reveal: Double, slide: Double) {
+    var headerTopY = Double(Layout.topPad) // the focused band's ANIMATED top (accordion / page-turn)
+    var headerTopY2 = Double(Layout.topPad) // the INCOMING month band's top during a page-turn
+    var panelLeft = 0.0 // dashboardLeftAnimated — the panel's live left edge (pinned width morphs)
+    var monthP = 0.0 // month page-turn progress
+    var monthDir = 0
+    var scopeT = 1.0 // zoom-scope carousel fraction (0 = lower scope at rest … 1 = upper at rest)
+    var weekP = 0.0 // week-turn progress (weekly dashboard; rests at BOTH 0 and 1)
+    // Per-panel scope geometry (GEOMETRY-space px, same numbers the Canvas header draws with) —
+    // the tab rows anchor to each panel's RIGHT edge and fade with its opacity.
+    var aName = ""
+    var aX = 0.0
+    var aW = 0.0
+    var aOp = 0.0
+    var bName = ""
+    var bX = 0.0
+    var bW = 0.0
+    var bOp = 0.0
+    func set(dir: Int, p: Double, reveal: Double, slide: Double,
+             headerTopY: Double, headerTopY2: Double, panelLeft: Double,
+             monthP: Double, monthDir: Int, scopeT: Double, weekP: Double,
+             aName: String, aX: Double, aW: Double, aOp: Double,
+             bName: String, bX: Double, bW: Double, bOp: Double) {
         if self.dir != dir {
             self.dir = dir
         }
@@ -201,6 +281,51 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         if self.slide != slide {
             self.slide = slide
         }
+        if self.headerTopY != headerTopY {
+            self.headerTopY = headerTopY
+        }
+        if self.panelLeft != panelLeft {
+            self.panelLeft = panelLeft
+        }
+        if self.monthP != monthP {
+            self.monthP = monthP
+        }
+        if self.headerTopY2 != headerTopY2 {
+            self.headerTopY2 = headerTopY2
+        }
+        if self.monthDir != monthDir {
+            self.monthDir = monthDir
+        }
+        if self.scopeT != scopeT {
+            self.scopeT = scopeT
+        }
+        if self.weekP != weekP {
+            self.weekP = weekP
+        }
+        if self.aName != aName {
+            self.aName = aName
+        }
+        if self.aX != aX {
+            self.aX = aX
+        }
+        if self.aW != aW {
+            self.aW = aW
+        }
+        if self.aOp != aOp {
+            self.aOp = aOp
+        }
+        if self.bName != bName {
+            self.bName = bName
+        }
+        if self.bX != bX {
+            self.bX = bX
+        }
+        if self.bW != bW {
+            self.bW = bW
+        }
+        if self.bOp != bOp {
+            self.bOp = bOp
+        }
     }
 }
 
@@ -211,13 +336,42 @@ struct CarouselDriver: NSViewRepresentable {
     let anim: DashCarouselAnim
     let from: String, to: String
     let dir: Int, p: Double, reveal: Double, slide: Double
+    var scopeA: String = "day", scopeB: String = "day" // zoom-scope carousel (month/week/day)
+    var scopeT: Double = 1 // eased fraction between scopeA (lower) and scopeB (upper)
+    var headerTopY: Double = Double(Layout.topPad) // focused band's animated top (canvas-anchored)
+    var headerTopY2: Double = Double(Layout.topPad) // incoming month band's top (page-turns)
+    var panelLeft: Double = 0 // dashboardLeftAnimated (for the native tab overlay)
+    var webDy: Double = 0 // vertical shift of the webview CONTENT (accordion; excludes page-turns)
+    var mFrom: String = "", mTo: String = "" // month page-turn labels (webview vertical carousel)
+    var mDir: Int = 0
+    var mP: Double = 0
+    var mDy0: Double = 0, mDy1: Double = 0 // month-turn PIXEL offsets (band-frame deltas; see caller)
+    var mKeyA: String = "", mKeyB: String = "" // month machine keys "YYYY-MM" (notes + filters)
+    var wFrom: String = "", wTo: String = "" // week-turn labels (weekly-dashboard carousel)
+    var wP: Double = 0 // week-turn progress (0 = base week at rest … 1 = next week at rest)
+    var wKeyA: String = "", wKeyB: String = "" // week machine keys: the Sunday, "YYYY-MM-DD"
+    // Per-panel scope geometry from dashScopePanels, frame-local px (frame left = labelW):
+    var maskX: Double = 0, maskW: Double = 0 // the clip region (dashboardLeftAnimated → right edge)
+    var aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0 // current/outgoing panel
+    var bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0 // incoming (transitions)
     func makeNSView(context: Context) -> NSView {
         NSView()
     }
 
     func updateNSView(_ v: NSView, context: Context) {
-        carousel.tick(from: from, to: to, dir: dir, p: p, reveal: reveal, slide: slide)
-        anim.set(dir: dir, p: p, reveal: reveal, slide: slide)
+        carousel.tick(from: from, to: to, dir: dir, p: p, reveal: reveal, slide: slide,
+                      scopeA: scopeA, scopeB: scopeB, scopeT: scopeT,
+                      dy: webDy, mFrom: mFrom, mTo: mTo, mDy0: mDy0, mDy1: mDy1, mP: mP,
+                      mKeyA: mKeyA, mKeyB: mKeyB,
+                      wFrom: wFrom, wTo: wTo, wP: wP, wKeyA: wKeyA, wKeyB: wKeyB,
+                      maskX: maskX, maskW: maskW,
+                      aName: aName, aX: aX, aW: aW, aOp: aOp,
+                      bName: bName, bX: bX, bW: bW, bOp: bOp)
+        anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
+                 headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
+                 monthP: mP, monthDir: mDir, scopeT: scopeT, weekP: wP,
+                 aName: aName, aX: aX, aW: aW, aOp: aOp,
+                 bName: bName, bX: bX, bW: bW, bOp: bOp)
     }
 }
 
@@ -474,9 +628,11 @@ struct DailyDashboardOverlay: View {
     var onNavTab: (Bool) -> Void = { _ in }
 
     var body: some View {
-        let contentW = max(1, vp.w - Layout.labelW)
-        let dashLeftGeo = Layout.labelW + frac * contentW // mirrors SceneRenderer.dashboardLeft
-        let left = Layout.padLeft + dashLeftGeo // full panel: no gutter inset (CSS pads it)
+        // The frame spans the FULL content region (labelW → right edge) and NEVER moves — panels
+        // are positioned inside in pixels (dashScopePanels geometry via the tick), so there is no
+        // frame snap at any level boundary. Clicks left of the live mask pass through to the
+        // calendar via PassThroughWebView's hit gate.
+        let left = Layout.padLeft + Layout.labelW
         let right = containerWidth - Layout.padRight
         let top = Layout.topPad + Layout.monthH + 14 // below the title + date rows
         let w = max(1, right - left)
@@ -485,7 +641,9 @@ struct DailyDashboardOverlay: View {
         DailyDashboardWebView(
             carousel: carousel, forwarder: forwarder, data: engine.dashboardDataJSON(),
             tab: tab, noteMode: noteMode, inactive: inactive,
-            interactive: engine.chrome.level == 3, // day view → own the cursor; week (slid out) → yield
+            // Day view owns the cursor; a PINNED panel at month/week is interactive too.
+            interactive: engine.chrome.level == 3
+                || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)),
             theme: theme,
             onToggle: { id, occKey, value in engine.applyTodoNote(eventId: id, occKey: occKey, value: value) },
             onOpen: onOpen, onDeselect: { engine.deselect() },
@@ -517,9 +675,9 @@ struct DailyDashboardOverlay: View {
 
 /// The TODO/NOTE tabs — a SEPARATE overlay (above the WebView, so the hosted WKWebView NSView can't
 /// hit-test over them). Text-only, right-aligned in the title zone (mirrors the web's `.cc-dd-tabs`).
-/// They carousel with the page via `anim` (same state the Canvas title + WebView use): the current
-/// copy slides out by −dir·p fading to 1−p, an incoming copy slides in from dir·(1−p) fading to p, the
-/// whole thing offset by the zoom `slide` and faded by `reveal` — so it moves as one with the page.
+/// Placement is per-PANEL: each scope panel from dashScopePanels (via `anim`) gets its own row,
+/// right-aligned to that panel's right edge and fading with the panel's opacity — so the tabs are
+/// glued to their sliding sheet through every scope transition, exactly like the Canvas headers.
 struct DashTabsOverlay: View {
     let engine: CalendarEngine
     let anim: DashCarouselAnim
@@ -530,14 +688,43 @@ struct DashTabsOverlay: View {
     let theme: Theme
 
     var body: some View {
-        if engine.chrome.level >= 2 {
-            let contentW = max(1, vp.w - Layout.labelW)
-            let left = Layout.padLeft + Layout.labelW + frac * contentW
-            let right = containerWidth - Layout.padRight
-            let w = max(1, right - left)
-            let titleY = Layout.topPad + Layout.monthH - 14
-            DashTabs(tab: $tab, theme: theme, anim: anim, w: w)
-                .position(x: left + w / 2, y: titleY)
+        if engine.chrome.level >= 2 || (engine.chrome.dashPresented && engine.chrome.level >= 1) {
+            // Each scope panel carries ITS OWN tabs row, right-aligned to THAT panel's right edge
+            // (`x + w` from dashScopePanels — the same numbers the Canvas header and webview place
+            // with), fading with the panel's cross-fade. So during a scope transition the rows
+            // travel glued to their sliding sheets instead of jumping between mask formulas.
+            panelTabs(name: anim.aName, x: anim.aX, w: anim.aW, op: anim.aOp)
+            if anim.bOp > 0.001 {
+                panelTabs(name: anim.bName, x: anim.bX, w: anim.bW, op: anim.bOp)
+            }
+        }
+    }
+
+    /// One panel's tabs row. `x`/`w` are the panel's own geometry (frame-local px, frame left =
+    /// labelW). The month panel rides its band's animated top — a month page-turn shows TWO copies,
+    /// each on its own band (identical rows: the pair reads as the tabs traveling with the sheets).
+    /// Rows are additionally clipped at the live mask edge so an entering panel's tabs never draw
+    /// over the calendar grid to the mask's left.
+    @ViewBuilder private func panelTabs(name: String, x: Double, w: Double, op: Double) -> some View {
+        let left = Layout.padLeft + Layout.labelW + CGFloat(x)
+        let width = max(1, CGFloat(w))
+        let opac = anim.reveal * op
+        let clipLeft = max(0, CGFloat(anim.panelLeft) - (Layout.labelW + CGFloat(x)))
+        if opac > 0.001 {
+            let y0 = name == "month" ? CGFloat(anim.headerTopY) : CGFloat(Layout.topPad)
+            // Inner horizontal paging within the panel: the day panel rides day page-turns, the
+            // week panel rides the week-to-week turn (rests at BOTH ends of its progress).
+            let (pageDir, pageP): (Int, Double) = name == "day"
+                ? (anim.dir, anim.p)
+                : (name == "week" ? (1, anim.weekP) : (0, 0))
+            DashTabs(tab: $tab, theme: theme, anim: anim, w: width, op: opac,
+                     clipLeft: clipLeft, pageDir: pageDir, pageP: pageP)
+                .position(x: left + width / 2, y: y0 + Layout.monthH - 14)
+            if name == "month", anim.monthP > 0.001 {
+                DashTabs(tab: $tab, theme: theme, anim: anim, w: width, op: opac,
+                         clipLeft: clipLeft, pageDir: 0, pageP: 0)
+                    .position(x: left + width / 2, y: CGFloat(anim.headerTopY2) + Layout.monthH - 14)
+            }
         }
     }
 }
@@ -555,18 +742,25 @@ struct NoteModeToggleOverlay: View {
     let theme: Theme
 
     var body: some View {
-        if engine.chrome.level == 3, tab == .note {
+        // Day view, or the pinned weekly/monthly dashboard — every scope has a live note editor.
+        if tab == .note,
+           engine.chrome.level == 3 || (engine.chrome.dashPresented && engine.chrome.level >= 1) {
             let right = containerWidth - Layout.padRight
             let bottom = height - Layout.bottomPad
+            // Visible only at FULL rest: revealed, no day-page, no scope-zoom, no month/week turn
+            // (the week turn rests at 1 as well as 0).
+            let atRest = anim.reveal > 0.5 && anim.p < 0.01
+                && (anim.scopeT < 0.01 || anim.scopeT > 0.99) && anim.monthP < 0.01
+                && (anim.weekP < 0.01 || anim.weekP > 0.99)
             Picker("", selection: $noteMode) {
                 Image(systemName: "pencil").tag(NotesMode.edit)
                 Image(systemName: "eye").tag(NotesMode.preview)
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
             .tint(Theme.accent)
-            .opacity(anim.reveal > 0.5 && anim.p < 0.01 ? 1 : 0) // hide during swipe / while zooming
+            .opacity(atRest ? 1 : 0) // hide during swipe / while zooming
             .position(x: right - 46, y: bottom - 2)
-            .animation(.easeOut(duration: 0.12), value: anim.p < 0.01)
+            .animation(.easeOut(duration: 0.12), value: atRest)
         }
     }
 }
@@ -575,18 +769,27 @@ private struct DashTabs: View {
     @Binding var tab: DashTab
     let theme: Theme
     let anim: DashCarouselAnim
-    let w: CGFloat
+    let w: CGFloat // the OWNING panel's width — the row right-aligns inside it
+    let op: Double // owning panel's opacity (cross-fade × reveal); the row inherits it
+    let clipLeft: CGFloat // local x below which the row is masked (the live mask edge)
+    let pageDir: Int // inner page-turn direction (day paging / week turn); 0 = none
+    let pageP: Double // inner page-turn progress; the WEEK turn rests at both 0 AND 1
     var body: some View {
-        let base = anim.slide * w
         ZStack {
-            row.offset(x: base - CGFloat(anim.dir) * anim.p * w).opacity(anim.reveal * (1 - anim.p))
-            if anim.p > 0.001 {
-                row.offset(x: base + CGFloat(anim.dir) * (1 - anim.p) * w).opacity(anim.reveal * anim.p)
+            if pageDir != 0, pageP > 0.001, pageP < 0.999 {
+                // Mid page-turn: two identical copies slide within the panel, one per sheet.
+                row.offset(x: -CGFloat(pageDir) * pageP * w).opacity(op * (1 - pageP))
+                row.offset(x: CGFloat(pageDir) * (1 - pageP) * w).opacity(op * pageP)
+            } else {
+                row.opacity(op)
             }
         }
         .frame(width: w, height: 24)
         .clipped() // clip a sliding copy at the panel edge
-        .allowsHitTesting(anim.reveal > 0.5 && anim.p < 0.01) // interactive only at rest, revealed
+        .mask(alignment: .leading) { Rectangle().padding(.leading, clipLeft) }
+        // Interactive only at rest: panel fully opaque (no scope transition), no inner page-turn
+        // mid-flight (the week turn rests at 1 too), no month-turn in flight.
+        .allowsHitTesting(op > 0.999 && (pageP < 0.01 || pageP > 0.99) && anim.monthP < 0.01)
     }
 
     private var row: some View {
