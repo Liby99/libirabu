@@ -10,7 +10,7 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color-scheme: dark;
 }
-html, body { background: transparent; margin: 0; padding: 0; height: 100%; overflow: hidden;
+html, body { background: transparent; margin: 0; padding: 0; height: 100%; overflow: clip;
   color: var(--accent-dark); -webkit-font-smoothing: antialiased;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 
@@ -21,7 +21,12 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 /* #dash IS the mask: absolutely positioned; JS sets left/width per tick to the live clip region
    (the webview frame spans the full content width and never moves). Before the first tick it has
    zero width — and the native alphaValue starts at 0 anyway. */
-#dash { position: absolute; top: 0; bottom: 0; left: 0; width: 0; overflow: hidden;
+/* overflow: CLIP, not hidden — a hidden container is still a scroll container to WebKit, and a
+   focus()/scrollIntoView on content outside its box (e.g. the note editor's caret mid-open, or a
+   clicked tabindex row under a sibling's transform) AUTO-SCROLLS it. That stray scrollLeft is
+   sticky (ticks set left/width, never scroll) and shifted everything left — the "left padding
+   disappears after ⌘E toggles" bug. clip clips identically but forbids ALL scrolling. */
+#dash { position: absolute; top: 0; bottom: 0; left: 0; width: 0; overflow: clip;
   font-size: 13px; box-sizing: border-box;
   transform-origin: left center; will-change: transform, opacity; }
 :root { --dd-pad: 25px; }
@@ -65,7 +70,8 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 /* Transform layer: carries the per-frame carousel slide + fade. It must NOT be the scroller — a
    transformed/composited scroller loses WebKit's native rubber-band. */
 .cc-dd-panel {
-  position: absolute; inset: 0; box-sizing: border-box; overflow: hidden;
+  /* clip, not hidden — same focus-auto-scroll immunity as #dash (see its comment). */
+  position: absolute; inset: 0; box-sizing: border-box; overflow: clip;
   will-change: transform, opacity; opacity: 0;
   /* NO transitions here: per-tick values include intentional DISCONTINUITIES (panel role swaps
      at pager re-base boundaries, scope snaps) — a transition turns those into visible glides,
