@@ -305,9 +305,17 @@ extension CalendarEngine {
                 }
             }
         }
-        func promote(_ id: String, _ y: Int, _ m: Int, _ day: Int, _ title: String, _ color: String) {
+        func promote(_ id: String, _ y: Int, _ m: Int, _ day: Int, _ title: String, _ color: String,
+                     hidden: Bool = false) {
             guard let track = items.richById[overlayKey(id)]?.promoteTrack, tagVisible(id, hiddenT) else { return }
             let r = repeatOf(id)
+            func badgesP(recurrent: Bool) -> EventBadges {
+                var bg = badges(id, recurrent: recurrent, promoted: true)
+                if hidden {
+                    bg.insert(.hidden) // revealed user-hidden source → dotted, like its timed box
+                }
+                return bg
+            }
             if y == year && !baseHidden(occDate(YMD(y, m, day)), r) {
                 // A distinct occurrence-key id (not the raw source id) so the promoted bar is its own
                 // box: selecting the original timeline event highlights it (same source) without also
@@ -324,13 +332,13 @@ extension CalendarEngine {
                     title: title,
                     color: color
                 ))
-                badgeMap[key] = badges(id, recurrent: r != nil, promoted: true)
+                badgeMap[key] = badgesP(recurrent: r != nil)
             }
             for o in occurrenceDates(YMD(y, m, day), r, year) {
                 let key = occKey(id, o) + PROMOTED_SUFFIX
                 out.append(BandEvent(id: key, year: year, month: o.month, track: track,
                                      startDay: o.day, endDay: o.day, title: title, color: color))
-                badgeMap[key] = badges(id, recurrent: true, promoted: true)
+                badgeMap[key] = badgesP(recurrent: true)
             }
         }
         for e in items.events {
@@ -340,14 +348,29 @@ extension CalendarEngine {
             promote(d.id, d.year, d.month, d.day, d.title, d.color)
         }
         // Imported events the user promoted (rich.promoteTrack on the series key) → one ghost band per
-        // visible occurrence, in its overridden color. Skip hidden (deduped-shadow) occurrences.
+        // visible occurrence, in its overridden color. Skip hidden (deduped-shadow) occurrences, and
+        // honor the user's series-level hide EXACTLY like the timed box does (hidden unless "Show
+        // Hidden Imported Events" reveals it, then dotted) — the promoted bar is the same event.
+        let revealHidden = showHiddenImported
         for e in imported.events where e.year == year && items.richById[e.id]?.hidden != true {
-            promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e))
+            let userHidden = items.richById[Self.appleSeriesKey(e.id)]?.userHidden == true
+            if userHidden && !revealHidden {
+                continue
+            }
+            promote(e.id, e.year, e.month, e.day, e.title, importedDisplayColor(e), hidden: userHidden)
         }
         for b in imported.bands where b.year == year { // Apple Calendar all-day events (read-only)
             guard tagVisible(b.id, hiddenT) else { continue }
+            let userHidden = items.richById[Self.appleSeriesKey(b.id)]?.userHidden == true
+            if userHidden && !revealHidden {
+                continue
+            } // user hid this series → hidden unless "Show Hidden" is on
             out.append(b)
-            badgeMap[b.id] = badges(b.id, recurrent: false, promoted: false)
+            var bg = badges(b.id, recurrent: false, promoted: false)
+            if userHidden {
+                bg.insert(.hidden)
+            }
+            badgeMap[b.id] = bg
         }
 
         var byMonth: [Int: [BandEvent]] = [:]
