@@ -270,10 +270,13 @@ const HIGH_PRIORITY = 3, SOON_DAYS = 7, FOLLOWUP_WINDOW = 7, RECENT_DONE_DAYS = 
 interface Section { title: string; items: ParsedTodo[]; done?: boolean; }
 // A fully deterministic identity for a todo, so items that tie on the primary sort keys keep a STABLE
 // order across renders. `allTodos` is re-derived from the events list + the notes map, whose iteration
-// order can shift between rebuilds — without a total tiebreak, tied items visibly swap places. Order by
-// the verbatim source line, then its exact soft-link anchor (source/event/occurrence/date/line).
+// order can shift between rebuilds — without a total tiebreak, tied items visibly swap places.
+// Order by the soft-link anchor (source/event/occurrence/date) then LINE NUMBER, so tied items from
+// the SAME note keep their source order — nested sub-tasks stay under their parents. (The raw line
+// must NOT lead this key: children's leading indentation sorted before unindented parents, showing
+// scope-note lists — where undated items all tie on the range-end due date — upside down.)
 const tieKey = (t: ParsedTodo) =>
-  `${t.raw}\0${t.source}\0${t.eventId}\0${t.occurrenceKey ?? ""}\0${t.dailyDate ?? ""}\0${String(t.line).padStart(6, "0")}`;
+  `${t.source}\0${t.eventId}\0${t.occurrenceKey ?? ""}\0${t.dailyDate ?? ""}\0${String(t.line).padStart(6, "0")}\0${t.raw}`;
 const cmpTie = (a: ParsedTodo, b: ParsedTodo) => (tieKey(a) < tieKey(b) ? -1 : tieKey(a) > tieKey(b) ? 1 : 0);
 function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
   const isToday = viewIso === today;

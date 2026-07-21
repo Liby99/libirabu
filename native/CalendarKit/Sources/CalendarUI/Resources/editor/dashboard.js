@@ -56026,7 +56026,7 @@
   var SOON_DAYS = 7;
   var FOLLOWUP_WINDOW = 7;
   var RECENT_DONE_DAYS = 7;
-  var tieKey = (t2) => `${t2.raw}\0${t2.source}\0${t2.eventId}\0${t2.occurrenceKey ?? ""}\0${t2.dailyDate ?? ""}\0${String(t2.line).padStart(6, "0")}`;
+  var tieKey = (t2) => `${t2.source}\0${t2.eventId}\0${t2.occurrenceKey ?? ""}\0${t2.dailyDate ?? ""}\0${String(t2.line).padStart(6, "0")}\0${t2.raw}`;
   var cmpTie = (a, b) => tieKey(a) < tieKey(b) ? -1 : tieKey(a) > tieKey(b) ? 1 : 0;
   function sectionsForDay(todos, viewIso) {
     const isToday = viewIso === today;
