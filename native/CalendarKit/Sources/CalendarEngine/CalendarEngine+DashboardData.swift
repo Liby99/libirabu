@@ -372,21 +372,43 @@ extension CalendarEngine {
     /// focused occurrence-box id (so a recurring occurrence can be dropped precisely), whether it recurs
     /// (→ scope choices, or the "make a local copy" note for imported series), and whether it's imported
     /// (→ the Hide flow instead of Delete). Nil only when nothing is selected.
+    /// The systematic delete classification (one function, every entry point): provenance
+    /// (local/imported), recurrence position (none / base / later occurrence), whether the clicked
+    /// box is a PROMOTED lane bar, and the already-hidden state. The delete dialog derives its
+    /// title + action list from exactly these dimensions (PendingDelete.choices) — never from
+    /// ad-hoc flags at a call site.
     public struct DeleteTarget: Equatable {
         public let id: String; public let occKey: String; public let recurring: Bool
         public let imported: Bool
-        public let alreadyHidden: Bool // imported + already user-hidden → the "can't delete / already hidden" dialog
+        public let alreadyHidden: Bool // imported + already user-hidden → the "already hidden" dialog
+        public let viaGhost: Bool // the clicked box is the promoted lane bar (offer Remove from Lane)
+        public let atBase: Bool // recurring + the clicked occurrence IS the series base (This&Future ≡ series)
+    }
+
+    /// Classify any box id (occurrence ghost / promoted bar / segment / base) for the delete dialog.
+    public func deleteTarget(for boxId: String) -> DeleteTarget {
+        let src = sourceId(of: boxId)
+        let ghost = boxId.hasSuffix(PROMOTED_SUFFIX)
+        if isImported(src) {
+            return DeleteTarget(id: src, occKey: occurrenceKey(of: boxId), recurring: isImportedSeries(src),
+                                imported: true, alreadyHidden: isUserHidden(src), viaGhost: ghost, atBase: false)
+        }
+        let rec = repeatConfig(src) != nil
+        let atBase = rec && occurrenceYMD(src, boxId) == baseYMD(src)
+        return DeleteTarget(id: src, occKey: occurrenceKey(of: boxId), recurring: rec,
+                            imported: false, alreadyHidden: false, viaGhost: ghost, atBase: atBase)
     }
 
     public func deleteTargetForSelection() -> DeleteTarget? {
-        guard let sel = selectedId else { return nil }
-        let src = sourceId(of: sel)
-        if isImported(src) {
-            return DeleteTarget(id: src, occKey: occurrenceKey(of: sel), recurring: isImportedSeries(src),
-                                imported: true, alreadyHidden: isUserHidden(src))
-        }
-        return DeleteTarget(id: src, occKey: occurrenceKey(of: sel), recurring: repeatConfig(src) != nil,
-                            imported: false, alreadyHidden: false)
+        selectedId.map { deleteTarget(for: $0) }
+    }
+
+    /// The item's own (series-base) date, kind-agnostic.
+    private func baseYMD(of id: String) -> YMD? {
+        if let e = items.events.first(where: { $0.id == id }) { return YMD(e.year, e.month, e.day) }
+        if let b = items.bands.first(where: { $0.id == id }) { return YMD(b.year, b.month, b.startDay) }
+        if let d = items.deadlines.first(where: { $0.id == id }) { return YMD(d.year, d.month, d.day) }
+        return nil
     }
 
     /// An imported event is "recurring" when the fetch window holds more than one occurrence sharing its
@@ -404,6 +426,30 @@ extension CalendarEngine {
             selectedId = nil
         }
         caches.deadlineGen &+= 1; wake()
+    }
+
+    /// Hide ONE occurrence of an imported series ("Hide Occurrence" in the delete dialog): the same
+    /// per-occurrence `userHidden` overlay the make-local-copy flow writes (the display filters
+    /// check the occurrence's own id alongside the series key), just without creating the copy.
+    /// Survives re-imports; undoable + synced like every rich overlay.
+    public func hideImportedOccurrence(_ occurrenceId: String) {
+        let oid = sourceId(of: occurrenceId)
+        mutateRich(oid) { $0.userHidden = true }
+        if let sel = selectedId, sourceId(of: sel) == oid {
+            selectedId = nil
+        }
+        caches.deadlineGen &+= 1; wake()
+    }
+
+    /// "Remove from Lane": clear the series-level promotion overlay — every ghost bar vanishes,
+    /// the source item itself is untouched.
+    public func unpromote(_ id: String) {
+        let src = sourceId(of: id)
+        setPromoteTrack(src, nil)
+        if let sel = selectedId, sel.hasSuffix(PROMOTED_SUFFIX), sourceId(of: sel) == src {
+            selectedId = nil // the selected ghost box no longer exists
+        }
+        wake()
     }
 
     /// Reverse a hide — clear the series' `userHidden` overlay so it draws normally again. Also

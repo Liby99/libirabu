@@ -29,6 +29,12 @@ extension CalendarEngine {
         }
     }
 
+    /// Drop any dashboard keyboard focus from outside the engine (⌘J switches to the PROJ tab,
+    /// which has no keyboard stop yet — a lingering TODO/NOTE ring would target hidden content).
+    public func dashExitFocus() {
+        clearDashStop()
+    }
+
     /// Move the TODO row cursor (↑/↓). No-op unless the TODO stop is focused.
     public func dashMove(_ d: Int) {
         guard cursor.dashStop == .todo else { return }; enterKeyboardMode(); onDashCommand?(.move(d))

@@ -1502,6 +1502,42 @@ public struct RectClip: Shape {
     }
 }
 
+public extension EventsOverlay {
+    /// Launch prewarm: the FIRST month/week timeline reveal pays the whole per-event
+    /// anchor-label timezone pass plus per-month segment/overlap packing in one lump — on the
+    /// phone that lump landed inside the user's first zoom-in, stalling its opening frames
+    /// (and, before the tween's first-tick rebase, consuming the whole animation). Fill both
+    /// caches for `months` while the app idles at the year view; keys match timedItems'
+    /// lookups exactly, so the first zoom finds everything hot. Safe to call repeatedly.
+    @MainActor static func prewarmTimedCaches(events: [TimedEvent], year: Int, months: [Int],
+                                              editGen: UInt64, mainTz: String) {
+        for e in events {
+            let key = SubLabelKey(id: e.id, start: e.startHour, end: e.endHour,
+                                  anchorTz: e.anchorTz ?? "", mainTz: mainTz)
+            if subLabelCache[key] == nil {
+                subLabelCache[key] = anchorRangeLabel(e, mainTz: mainTz)
+            }
+        }
+        for m in months where (0 ... 11).contains(m) {
+            let layoutKey = TimedLayoutKey(year: year, focus: m, editGen: editGen, dragging: nil)
+            if timedLayoutCache[layoutKey] != nil {
+                continue
+            }
+            var byDay: [Int: [TimedSegment]] = [:]
+            for e in events {
+                for s in timedSegments(e) {
+                    if let rd = relDomOf(year, m, s.event.year, s.event.month, s.event.day) {
+                        byDay[rd, default: []].append(s)
+                    }
+                }
+            }
+            timedLayoutCache[layoutKey] = byDay.map { rd, segs in
+                TimedDayLayout(rd: rd, segs: segs, layout: layoutDay(segs.map(\.event)))
+            }
+        }
+    }
+}
+
 /// Frame-to-frame cache of the anchor-timezone sublabels (see timedItems). The key carries
 /// everything the label depends on; a nil value ("no label") is cached too.
 @MainActor private var subLabelCache: [SubLabelKey: String?] = [:]

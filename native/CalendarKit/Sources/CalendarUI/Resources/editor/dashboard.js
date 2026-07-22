@@ -56227,9 +56227,46 @@
           <span class="cc-dd-ddl-when">${esc(relDue(viewIso, iso))} \xB7 ${hhmm(d.hour)}</span></li>`).join("")}</ul>` : `<div class="cc-dd-free">No deadlines in this window.</div>`;
     return `<section class="cc-dd-sec cc-dd-ddl-sec" data-iso="${viewIso}">${head2}${body3}</section>`;
   }
+  function projHTML() {
+    const proj = (name2, color2, rows) => `
+    <section class="cc-dd-sec cc-proj">
+      <div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(name2)}</span><span class="cc-dd-sec-count">${rows.length}</span></div>
+      <div class="cc-proj-gantt">
+        ${rows.map(([label, start, len, done]) => `
+          <div class="cc-proj-row">
+            <span class="cc-proj-task${done ? " cc-proj-task-done" : ""}">${esc(label)}</span>
+            <span class="cc-proj-track"><span class="cc-proj-bar${done ? " cc-proj-done" : ""}"
+              style="left:${start}%;width:${len}%;background:var(--event-${color2}-border)"></span></span>
+          </div>`).join("")}
+      </div>
+    </section>`;
+    return `<div class="cc-proj-ph">PROJECTS \xB7 GANTT \xB7 PLACEHOLDER</div>` + proj("Paper \u2014 CHI 2027", "blue", [
+      ["Outline", 0, 16, true],
+      ["Study design", 10, 24, true],
+      ["Data collection", 30, 28],
+      ["Analysis", 52, 22],
+      ["Writing", 62, 30],
+      ["Submission", 94, 6]
+    ]) + proj("MagiCal 0.2", "red", [
+      ["Scope dashboards", 0, 32, true],
+      ["Gantt tab", 26, 34],
+      ["Polish pass", 55, 25],
+      ["TestFlight", 78, 22]
+    ]) + proj("Grant renewal", "darkgreen", [
+      ["Budget draft", 0, 40],
+      ["Letters", 30, 30],
+      ["Final PDF", 70, 30]
+    ]);
+  }
   function renderPanel(el, viewIso) {
     const scroll = scrollOf.get(el) ?? el;
     isoOf.set(el, viewIso);
+    if (tab2 === "proj") {
+      scroll.innerHTML = projHTML();
+      scroll.scrollTop = scrollByIso[viewIso] ?? 0;
+      flatOf.delete(el);
+      return;
+    }
     if (tab2 === "note") {
       const text9 = notes[viewIso] || "";
       scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : emptyNoteHTML("day");
@@ -56300,6 +56337,11 @@
       scroll = el.firstElementChild;
     }
     const noteKey = scope === "week" ? weekNoteKey(key2) : monthNoteKey(key2);
+    if (tab2 === "proj") {
+      scroll.innerHTML = projHTML();
+      flatOf.delete(el);
+      return;
+    }
     if (tab2 === "note") {
       const text9 = notes[noteKey] || "";
       scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : emptyNoteHTML(scope);

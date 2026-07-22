@@ -85,6 +85,7 @@ struct AnimState {
     var weekTween: Tween?
     var dayTween: Tween? // fractional-day glide (day view "scroll to today")
     var shiftTween: Tween? // drawer canvas-shift
+    var gutterTween: Tween? // gutter hide/show slide (narrow window + pinned dashboard)
     var dashPinTween: Tween? // pinned weekly/monthly dashboard slide (⌘B toggle)
     var zTweenDone: (() -> Void)?
     var weekTweenDone: (() -> Void)?

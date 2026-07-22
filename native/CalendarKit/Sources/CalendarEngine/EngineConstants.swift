@@ -44,6 +44,11 @@ enum Motion {
 
     /// ── Drawer ──
     static let drawerShiftDur: TimeInterval = 0.28 // canvas slide when the detail drawer opens/closes
+
+    /// ── Gutter hide (narrow window + pinned week/month dashboard) ──
+    /// Minimum width the calendar band region (section B) keeps beside the pinned dashboard;
+    /// below it, the month-name/track gutter (section A) slides off-screen left.
+    static let gutterHideMinW: CGFloat = 520
 }
 
 /// View-behavior thresholds that aren't layout (Layout) or timing (Motion).

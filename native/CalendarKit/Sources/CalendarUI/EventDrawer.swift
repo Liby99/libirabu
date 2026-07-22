@@ -45,6 +45,8 @@ public final class CalendarUIState {
     public var pendingBatchDelete: CalendarEngine.BatchDeleteSummary?
     public var batchRenaming = false
     public var batchRenameText = ""
+    public var batchRenameTouched = false // any live rename happened → Cancel/Esc must restore
+    public var batchRenameOriginal: [String: String] = [:] // pre-rename titles (see batchTitlesSnapshot)
     // Multiple calendars (File menu): a name prompt (New / Rename) + a remove confirm.
     public enum CalendarPrompt: Equatable { case new, rename }
     public var calendarPrompt: CalendarPrompt?
@@ -84,15 +86,17 @@ public final class CalendarUIState {
 
     /// Open the floating "rename all" field (typing sets every selected title live).
     public func startBatchRename() {
-        batchRenameText = ""; batchRenaming = true
+        batchRenameText = ""; batchRenameTouched = false; batchRenaming = true
     }
 
     /// Raise the delete-confirm dialog for an event. No button is focused yet (no ring shows until the
     /// user arrows); Enter before that confirms the primary choice.
     public func requestDelete(id: String, occKey: String, recurring: Bool, imported: Bool,
-                              alreadyHidden: Bool = false, kind: CalendarEngine.ItemKind = .timed) {
+                              alreadyHidden: Bool = false, kind: CalendarEngine.ItemKind = .timed,
+                              viaGhost: Bool = false, atBase: Bool = false) {
         pendingDelete = PendingDelete(id: id, occKey: occKey, recurring: recurring, imported: imported,
-                                      alreadyHidden: alreadyHidden, kind: kind, focus: nil)
+                                      alreadyHidden: alreadyHidden, kind: kind, viaGhost: viaGhost,
+                                      atBase: atBase, focus: nil)
     }
 
     /// Move the focus ring. The first arrow reveals it by stepping off the (implicit) primary choice.
@@ -129,6 +133,9 @@ public final class CalendarUIState {
 /// one offers the three web-matching scopes plus Cancel.
 public enum DeleteChoice: Equatable {
     case cancel, thisEvent, thisAndFuture, deleteAll, hide
+    case removeFromLane // promoted ghost bar → clear the promotion (series-level), keep the item
+    case hideOccurrence // imported recurring → hide just this occurrence (per-occurrence overlay)
+    case unhide // already-hidden imported (revealed) → bring it back
     /// Button label; `deleteAll` reads "Delete" for a lone event, "All Events" for a series.
     public func label(recurring: Bool) -> String {
         switch self {
@@ -136,12 +143,24 @@ public enum DeleteChoice: Equatable {
         case .thisEvent: "This Event"
         case .thisAndFuture: "This & Future"
         case .deleteAll: recurring ? "All Events" : "Delete"
-        case .hide: "Hide"
+        case .hide: recurring ? "Hide Series" : "Hide"
+        case .removeFromLane: "Remove from Lane"
+        case .hideOccurrence: "Hide Occurrence"
+        case .unhide: "Unhide"
         }
     }
 
     public var isCancel: Bool {
         self == .cancel
+    }
+
+    /// Red (destructive) styling: the item disappears from the calendar. Lane removal and unhide
+    /// leave it visible, so they render as plain actions.
+    public var isDestructive: Bool {
+        switch self {
+        case .cancel, .removeFromLane, .unhide: false
+        default: true
+        }
     }
 }
 
@@ -152,21 +171,46 @@ public struct PendingDelete: Equatable {
     public let occKey: String // focused occurrence-box id (for This-Event / This-&-Future)
     public let recurring: Bool
     public let imported: Bool // an imported (read-only) event → Hide instead of Delete
-    public let alreadyHidden: Bool // imported + already hidden (revealed via View menu) → info-only, Cancel
+    public let alreadyHidden: Bool // imported + already hidden (revealed via View menu) → Unhide/Cancel
     public var kind: CalendarEngine.ItemKind = .timed // drives the noun in the confirm text (deadline vs event)
+    public var viaGhost: Bool = false // the clicked box is a promoted lane bar → offer Remove from Lane first
+    public var atBase: Bool = false // recurring + base occurrence → This & Future ≡ series, so it's dropped
     public var focus: Int? // nil = not navigating yet (no ring)
     private var noun: String {
         kind == .deadline ? "deadline" : "event"
     }
 
+    /// The systematic action matrix — derived from the DeleteTarget dimensions, one row per case:
+    ///   local plain            → Delete
+    ///   local recurring @base  → This Event · All Events
+    ///   local recurring @occ   → This Event · This & Future · All Events
+    ///   imported plain         → Hide
+    ///   imported recurring     → Hide Occurrence · Hide Series
+    ///   any of these via ghost → Remove from Lane first (and it's the Enter default)
+    ///   imported, hidden       → Unhide
     public var choices: [DeleteChoice] {
         if alreadyHidden {
-            return [.cancel]
-        } // nothing to do — Cancel only (no confirm button)
-        if imported {
-            return [.cancel, .hide]
+            return [.cancel, .unhide]
         }
-        return recurring ? [.cancel, .thisEvent, .thisAndFuture, .deleteAll] : [.cancel, .deleteAll]
+        var out: [DeleteChoice] = [.cancel]
+        if viaGhost {
+            out.append(.removeFromLane)
+        }
+        if imported {
+            if recurring {
+                out.append(.hideOccurrence)
+            }
+            out.append(.hide)
+        } else if recurring {
+            out.append(.thisEvent)
+            if !atBase {
+                out.append(.thisAndFuture)
+            }
+            out.append(.deleteAll)
+        } else {
+            out.append(.deleteAll)
+        }
+        return out
     }
 
     /// The default confirm target — the first non-cancel choice (Hide / Delete / This Event). Enter lands
@@ -179,21 +223,27 @@ public struct PendingDelete: Equatable {
         if alreadyHidden {
             return "This imported \(noun) is already hidden"
         }
+        if viaGhost {
+            return "Remove the promoted bar, or \(imported ? "hide" : "delete") the \(noun)?"
+        }
         if imported {
             return "This is an imported \(noun); Hide the \(noun)?"
         }
         return recurring ? "Delete recurring \(noun)?" : "Delete this \(noun)?"
     }
 
-    /// A secondary note under the title. Already-hidden imported → why + how to re-hide; imported recurring →
-    /// steer to a local copy for a single-occurrence delete.
+    /// A secondary note under the title, explaining the non-obvious action on each row.
     public var note: String? {
         if alreadyHidden {
-            return "You can't delete an imported \(noun). To hide the revealed hidden events again, turn off Menu Bar ▸ View ▸ Show Hidden Imported Events."
+            return "You can't delete an imported \(noun) — but you can Unhide it. To re-hide revealed hidden events, turn off Menu Bar ▸ View ▸ Show Hidden Imported Events."
         }
-        return (imported && recurring)
-            ? "If you want to delete this individual occurrence, try making a local copy of the imported \(noun) first."
-            : nil
+        if viaGhost {
+            return "Remove from Lane un-promotes the \(recurring ? "whole series" : noun) — the \(noun) itself stays on the calendar."
+        }
+        if imported && recurring {
+            return "Hide Occurrence hides just this one; Hide Series hides every occurrence. Both survive re-imports (reveal via Menu Bar ▸ View ▸ Show Hidden Imported Events)."
+        }
+        return nil
     }
 }
 
@@ -399,14 +449,18 @@ struct EventDrawer: View {
     /// Imported events aren't recurring in our model (rep is empty) — their "recurring" is whether the
     /// series has >1 occurrence. An already-hidden imported event gets the info-only "can't delete" dialog.
     private func requestDeleteFromDrawer() {
-        let rec = imported ? engine.isImportedSeries(id) : recurring
+        // Same systematic classification every other entry point uses (deleteTarget), keyed on the
+        // focused occurrence box when there is one (base/occurrence + ghost detection live there).
+        let t = engine.deleteTarget(for: occKey.isEmpty ? id : occKey)
         ui.requestDelete(
-            id: id,
-            occKey: occKey,
-            recurring: rec,
-            imported: imported,
-            alreadyHidden: isRevealedHidden,
-            kind: engine.kind(of: id) ?? .timed
+            id: t.id,
+            occKey: t.occKey,
+            recurring: t.recurring,
+            imported: t.imported,
+            alreadyHidden: t.alreadyHidden,
+            kind: engine.kind(of: t.id) ?? .timed,
+            viaGhost: t.viaGhost,
+            atBase: t.atBase
         )
     }
 

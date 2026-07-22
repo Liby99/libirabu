@@ -82,7 +82,8 @@ struct EventMenuOverlay: ViewModifier {
             if let t = engine.deleteTargetForSelection() {
                 ui.requestDelete(id: t.id, occKey: t.occKey, recurring: t.recurring,
                                  imported: t.imported, alreadyHidden: t.alreadyHidden,
-                                 kind: engine.kind(of: t.id) ?? .timed)
+                                 kind: engine.kind(of: t.id) ?? .timed,
+                                 viaGhost: t.viaGhost, atBase: t.atBase)
             }
         }
         a.close = { ui.eventMenu = nil }

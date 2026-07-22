@@ -49,6 +49,7 @@ public enum MenuWindow: Sendable { case assistant, help, settings }
     case .goToDay:             ctx.engine()?.goToCurrent("day")
     case .todoList:            NotificationCenter.default.post(name: .focusDashTodo, object: nil)
     case .noteEditor:          NotificationCenter.default.post(name: .focusDashNote, object: nil)
+    case .projList:            NotificationCenter.default.post(name: .focusDashProj, object: nil)
     case .newConversation:     ctx.newChat(); ctx.open(.assistant)
     case .currentConversation: ctx.open(.assistant)
     case .apiKeys:             ctx.open(.settings)

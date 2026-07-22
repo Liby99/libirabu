@@ -40,13 +40,15 @@ struct DeleteConfirmDialog: View {
                 HStack(spacing: 12) {
                     ForEach(Array(pending.choices.enumerated()), id: \.offset) { idx, choice in
                         DeleteDialogButton(label: choice.label(recurring: pending.recurring),
-                                           destructive: !choice.isCancel,
+                                           destructive: choice.isDestructive, // lane-removal/unhide stay plain
                                            focused: pending.focus == idx, // nil focus → no ring shown yet
                                            theme: theme) { onChoose(choice) }
                     }
                 }
             }
-            .padding(.horizontal, 40).padding(.vertical, 26)
+            // Content-hugging (fixedSize) → the card grows with a longer note or more buttons.
+            // Squat proportions: tighter vertically, roomier horizontally.
+            .padding(.horizontal, 52).padding(.vertical, 18)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
             .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
@@ -86,29 +88,67 @@ struct BatchDeleteDialog: View {
     }
 }
 
-/// The floating "rename all" field for a multi-selection: typing sets every selected title live.
+/// Shared dismissal for the batch-rename panel. CANCEL (Esc — routed from the key monitor so it
+/// works with the field unfocused too — or the Cancel button) reverts the live renames to the
+/// titles captured when the panel opened; COMMIT (Enter / the Rename button) keeps them.
+@MainActor func cancelBatchRename(ui: CalendarUIState, engine: CalendarEngine) {
+    if ui.batchRenameTouched {
+        engine.batchRestoreTitles(ui.batchRenameOriginal)
+    }
+    ui.batchRenaming = false
+    engine.wake()
+}
+
+@MainActor func commitBatchRename(ui: CalendarUIState, engine: CalendarEngine) {
+    ui.batchRenaming = false
+    engine.wake()
+}
+
+/// The floating "rename all" panel for a multi-selection: typing sets every selected title LIVE.
+/// Modal — a full-window scrim blocks the calendar behind it (the input catcher's modalActive
+/// also drops pointer/keys); no tap-to-close, dismissal is explicit via Cancel/Rename (or
+/// Esc/Enter).
 struct BatchRenameField: View {
     let ui: CalendarUIState
     let engine: CalendarEngine
     let theme: Theme
-    @State private var text = ""
     @FocusState private var focused: Bool
     var body: some View {
-        VStack(spacing: 8) {
-            Text("Rename \(engine.selectedIds.count) events")
-                .font(.system(size: 11, weight: .medium)).foregroundStyle(theme.textMuted)
-            TextField("Name", text: $text)
+        ZStack {
+            Color.black.opacity(0.1).ignoresSafeArea().contentShape(Rectangle()).onTapGesture {}
+            VStack(spacing: 10) {
+                Text("Rename \(engine.selectedIds.count) events")
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(theme.textMuted)
+                TextField("Name", text: Binding(
+                    get: { ui.batchRenameText },
+                    set: { v in
+                        ui.batchRenameText = v
+                        ui.batchRenameTouched = true
+                        engine.batchSetTitle(v) // live: all selected titles
+                    }
+                ))
                 .textFieldStyle(.plain).font(.custom("Comic Sans MS", size: 14)).foregroundStyle(theme.text)
                 .frame(width: 240).focused($focused)
-                .onChange(of: text) { _, v in engine.batchSetTitle(v) } // live: all selected titles
-                .onSubmit { ui.batchRenaming = false }
-                .onExitCommand { ui.batchRenaming = false }
+                .onSubmit { commitBatchRename(ui: ui, engine: engine) }
+                .onExitCommand { cancelBatchRename(ui: ui, engine: engine) }
+                HStack(spacing: 12) {
+                    DeleteDialogButton(label: "Cancel", destructive: false, focused: false, theme: theme) {
+                        cancelBatchRename(ui: ui, engine: engine)
+                    }
+                    DeleteDialogButton(label: "Rename", destructive: false, focused: true, theme: theme) {
+                        commitBatchRename(ui: ui, engine: engine)
+                    }
+                }
+            }
+            .padding(.horizontal, 24).padding(.vertical, 16)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
+            .shadow(color: .black.opacity(0.3), radius: 20, y: 6)
         }
-        .padding(.horizontal, 24).padding(.vertical, 16)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
-        .shadow(color: .black.opacity(0.3), radius: 20, y: 6)
-        .onAppear { focused = true }
+        .onAppear {
+            ui.batchRenameOriginal = engine.batchTitlesSnapshot() // Cancel restores these
+            focused = true
+        }
     }
 }
 
@@ -208,8 +248,11 @@ private struct DeleteDialogButton: View {
             Text(label)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(accent)
-                .padding(.horizontal, 18).padding(.vertical, 9)
+                .padding(.horizontal, 28).padding(.vertical, 9)
                 .frame(minWidth: 76)
+                // The WHOLE capsule is the hit target. Without this, .plain buttons hit-test only
+                // the opaque Text — clicks landing on the padding between text and border fell through.
+                .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
         .background(Capsule(style: .continuous).fill(theme.text.opacity(hover ? 0.14 : 0.07)))
@@ -365,7 +408,9 @@ struct NoticeDialog: View {
                     .fixedSize(horizontal: false, vertical: true)
                 DeleteDialogButton(label: "OK", destructive: false, focused: true, theme: theme) { onDismiss() }
             }
-            .padding(.horizontal, 40).padding(.vertical, 26)
+            // Content-hugging (fixedSize) → the card grows with a longer note or more buttons.
+            // Squat proportions: tighter vertically, roomier horizontally.
+            .padding(.horizontal, 52).padding(.vertical, 18)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
             .shadow(color: .black.opacity(0.3), radius: 24, y: 8)

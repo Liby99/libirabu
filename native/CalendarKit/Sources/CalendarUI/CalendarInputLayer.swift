@@ -30,6 +30,9 @@ struct InputCatcher: NSViewRepresentable {
     var onRequestDelete: () -> Void = {} // Delete on a selected event → raise the dialog
     var isTutorialUp: () -> Bool = { false } // the tutorial carousel is up
     var onTutorialKey: (DeleteDialogKey) -> Void = { _ in }
+    var isBatchRenaming: () -> Bool = { false } // the batch-rename panel is up (modal-with-typing)
+    var onBatchRenameCancel: () -> Void = {} // Esc anywhere → revert the live renames + close
+    var onBatchRenameCommit: () -> Void = {} // Enter (field unfocused) → keep the renames + close
 
     func makeNSView(context: Context) -> CatcherView {
         let v = CatcherView()
@@ -50,6 +53,9 @@ struct InputCatcher: NSViewRepresentable {
         v.onRequestDelete = onRequestDelete
         v.isTutorialUp = isTutorialUp
         v.onTutorialKey = onTutorialKey
+        v.isBatchRenaming = isBatchRenaming
+        v.onBatchRenameCancel = onBatchRenameCancel
+        v.onBatchRenameCommit = onBatchRenameCommit
         forwarder?.catcher = v // let the dashboard web view forward horizontal scroll + pinch here
         v.installYearScrollDriver()
         v.installTimelineScrollDriver()
@@ -64,6 +70,8 @@ struct InputCatcher: NSViewRepresentable {
         v.onKey = onKey; v.onKeyGuide = onKeyGuide; v.isEditingText = isEditingText; v.onSearch = onSearch
         v.isModalDelete = isModalDelete; v.onDeleteDialogKey = onDeleteDialogKey; v.onRequestDelete = onRequestDelete
         v.isTutorialUp = isTutorialUp; v.onTutorialKey = onTutorialKey
+        v.isBatchRenaming = isBatchRenaming; v.onBatchRenameCancel = onBatchRenameCancel
+        v.onBatchRenameCommit = onBatchRenameCommit
         forwarder?.catcher = v
     }
 }
@@ -116,10 +124,13 @@ final class CatcherView: NSView, NSMenuItemValidation {
     var onRequestDelete: (() -> Void)? // Delete on a selected event → raise the confirm dialog (no immediate delete)
     var isTutorialUp: (() -> Bool)? // the tutorial carousel is up → also a blocking modal
     var onTutorialKey: ((DeleteDialogKey) -> Void)? // route ←/→/Enter/Esc to the carousel
+    var isBatchRenaming: (() -> Bool)? // the batch-rename panel is up (modal, but typing flows to its field)
+    var onBatchRenameCancel: (() -> Void)? // Esc anywhere while renaming → revert + close
+    var onBatchRenameCommit: (() -> Void)? // Enter with the field unfocused → keep + close
     /// A blocking modal is up → the canvas ignores every mouse/scroll/pinch event (the modal's backdrop
     /// captures them) and the key monitor swallows every non-modal key.
     private var modalActive: Bool {
-        isModalDelete?() == true || isTutorialUp?() == true
+        isModalDelete?() == true || isTutorialUp?() == true || isBatchRenaming?() == true
     }
 
     private var keyGuideShown = false // Cmd+K guide currently displayed (so we hide once on release)
@@ -712,6 +723,23 @@ final class CatcherView: NSView, NSMenuItemValidation {
                     case 53: onDeleteDialogKey?(.cancel)
                     default: break
                     }
+                }
+                return nil
+            }
+            // The batch-rename panel is modal WITH typing: Esc cancels (reverting the live renames)
+            // from ANYWHERE — even when its text field isn't focused, where Esc would otherwise
+            // zoom the calendar behind the still-open panel. Typing flows to the focused field;
+            // Enter with the field unfocused still commits; every other key is swallowed
+            // (modalActive already blocks the pointer).
+            if isBatchRenaming?() == true {
+                if e.keyCode == 53 {
+                    onBatchRenameCancel?(); return nil
+                }
+                if isTextInputFocused() {
+                    return e
+                }
+                if e.keyCode == 36 || e.keyCode == 76 {
+                    onBatchRenameCommit?(); return nil
                 }
                 return nil
             }

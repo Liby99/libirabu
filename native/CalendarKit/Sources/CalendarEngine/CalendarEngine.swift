@@ -59,7 +59,7 @@ public final class CalendarEngine {
     /// Anything that changes the scene frame-to-frame (so the loop must stay awake). `isAnimating`
     /// covers the z/scroll/week/day tweens + flips; add the rest of the live/elastic/drag states.
     private var needsRender: Bool {
-        isAnimating || anim.shiftTween != nil || anim.dashPinTween != nil || anim.monthFlip != nil || drag != nil || daily.anim != nil
+        isAnimating || anim.shiftTween != nil || anim.gutterTween != nil || anim.dashPinTween != nil || anim.monthFlip != nil || drag != nil || daily.anim != nil
             || scroll.liveScrolling || scroll.liveMonthScrolling || scroll.liveWeekScrolling || scroll.liveDayScrolling
             || scroll.yearPull != nil || scroll.monthPull != nil || scroll.weekPull != nil || scroll.dayPull != nil
     }
@@ -214,6 +214,24 @@ public final class CalendarEngine {
         case editNote(ring: Bool)
     }
     public var onDashCommand: ((DashCmd) -> Void)?
+
+    /// ── Gutter hide (narrow window + pinned week/month dashboard) ──────────────────
+    /// The animated width by which the month-name/track gutter (section A) is slid off-screen
+    /// left: 0 = shown, Layout.labelW = fully hidden. The scene's SceneInput viewport is inflated
+    /// by this amount (sceneInput) and the view offsets the whole interactive stack by −gutterShift,
+    /// so the calendar band + dashboard reclaim the gutter's width. Tweened in the frame tick.
+    public internal(set) var gutterShift: CGFloat = 0
+
+    /// Target: hide the gutter only at month/week level with the dashboard PINNED (the intent bit —
+    /// flips immediately on ⌘B, so the hide/show tween runs in parallel with the pin slide) when
+    /// the calendar band would otherwise fall below its minimum width beside the pinned panel.
+    private var gutterShiftTarget: CGFloat {
+        guard (1 ... 2).contains(chrome.level), chrome.dashPinned else { return 0 }
+        let dashW = chrome.level <= 1
+            ? dashMonthPanelW(viewport, frac: chrome.dashMonthFrac)
+            : chrome.dashWeekFrac * (viewport.w - Layout.labelW)
+        return viewport.w - dashW - Layout.labelW < Motion.gutterHideMinW ? Layout.labelW : 0
+    }
     /// The timed event currently being moved/resized/created (an ACTIVE drag). The overlay floats it
     /// full-width above its day and excludes it from the others' overlap packing so they don't reflow
     /// mid-edit; nil at rest, so the normal side-by-side layout resumes on drop.
@@ -569,7 +587,11 @@ public final class CalendarEngine {
 
     /// ── Frame snapshot ──────────────────────────────────────────────────────────
     func snapshot() -> SceneInput {
-        var g = SceneInput(z: z, focus: focus, week: week, vp: viewport, scrollY: scrollY, tlScroll: tlScroll,
+        // Gutter hide: the scene lays out `gutterShift` wider than the real window (the view slides
+        // the whole stack left by the same amount) — inflate ONLY the SceneInput's viewport; the
+        // stored `viewport` stays window-real (setViewport's same-size guard depends on it).
+        let sceneVp = gutterShift > 0.01 ? Viewport(w: viewport.w + gutterShift, h: viewport.h) : viewport
+        var g = SceneInput(z: z, focus: focus, week: week, vp: sceneVp, scrollY: scrollY, tlScroll: tlScroll,
                    now: now, year: year, hover: blockHoverOverride() ?? hover, weekHourH: weekHourH, daily: daily,
                    monthAnim: anim.monthAnim, altDeltaHours: altDeltaHours, altLabel: altColumnLabel,
                    yearPull: scroll.yearPull, flipFade: anim.flipFade,
@@ -622,7 +644,10 @@ public final class CalendarEngine {
     /// Advance the anim.tween to `date` and return the immutable input for this frame.
     public func sceneInput(at date: Date, viewport vp: Viewport) -> SceneInput {
         viewport = vp
-        if let t = anim.tween {
+        if var t = anim.tween {
+            if !t.ticked { // first rendered frame → start the clock NOW (see Tween.ticked)
+                t.ticked = true; t.start = date; anim.tween = t
+            }
             z = t.value(at: date)
             let done = t.isComplete(at: date)
             if done {
@@ -642,7 +667,10 @@ public final class CalendarEngine {
                 } // a jumpToDay landed at day view
             }
         }
-        if let st = anim.scrollTween {
+        if var st = anim.scrollTween {
+            if !st.ticked { // launch glides stall the same way — same rebase (see Tween.ticked)
+                st.ticked = true; st.start = date; anim.scrollTween = st
+            }
             scrollY = st.value(at: date); onSetYearScroll?(scrollY)
             if st.isComplete(at: date) {
                 scrollY = st.to; anim.scrollTween = nil; onSetYearScroll?(scrollY)
@@ -711,6 +739,20 @@ public final class CalendarEngine {
             drawerShift = st.value(at: date)
             if st.isComplete(at: date) {
                 drawerShift = st.to; anim.shiftTween = nil
+            }
+        }
+        // ── Gutter hide/show: retarget + advance. The scene renders `gutterShift` wider than the
+        // window and the view slides left by the same amount, so the month-name/track gutter
+        // (section A) glides off-screen when the pinned week/month dashboard squeezes the calendar.
+        let gTarget = gutterShiftTarget
+        if abs((anim.gutterTween?.to ?? gutterShift) - gTarget) > 0.5 {
+            anim.gutterTween = Tween(from: gutterShift, to: gTarget, start: date,
+                                     duration: Motion.drawerShiftDur, ease: easeOut)
+        }
+        if let gt = anim.gutterTween {
+            gutterShift = gt.value(at: date)
+            if gt.isComplete(at: date) {
+                gutterShift = gt.to; anim.gutterTween = nil
             }
         }
         if let fa = anim.flipAnim {

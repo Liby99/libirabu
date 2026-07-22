@@ -49,7 +49,9 @@ public struct Breadcrumb: View {
                 }
             }
             if chrome.level >= 3, let r = resolveDate(chrome.year, chrome.displayFocus, chrome.displayDom) {
-                sep; crumb("\(WD_LONG[dayOfWeek(r.year, r.month, r.day)]), \(r.day)\(ordinal(r.day))", active: true)
+                // Just the ordinal ("21st") — the weekday lives in the day column's own header,
+                // and the trail (2026 › July › Week 4 › 21st) already carries the context.
+                sep; crumb("\(r.day)\(ordinal(r.day))", active: true)
             }
         }
         .padding(.horizontal, 18)

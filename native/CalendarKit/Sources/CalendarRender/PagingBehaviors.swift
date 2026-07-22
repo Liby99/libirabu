@@ -39,7 +39,8 @@ public struct MonthPagingBehavior: ScrollTargetBehavior {
 
 /// Snap the momentum-projected landing to the nearest DAY: a gentle nudge advances one day, a fast
 /// fling carries several (SwiftUI projects farther), and either way lands exactly on a day boundary
-/// with the native deceleration curve. Clamped to the month.
+/// with the native deceleration curve. Clamped to the month. (The Mac's day pager; the phone's
+/// PhoneDayDriver pages with native `.paging` — its day column fills the container.)
 public struct DayScrollBehavior: ScrollTargetBehavior {
     var dayW: CGFloat
     var maxDay: CGFloat // last valid day index (= daysInMonth − 1)

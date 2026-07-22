@@ -229,15 +229,17 @@ public enum HelpContent {
                     .bullets([
                         "To-Do — every checkbox from the range's notes and its events, gathered in one list.",
                         "Note — a free-form Markdown scratchpad for that day, week, or month.",
+                        "Proj — your projects' life cycles, one gantt chart per project.",
                     ]),
                     .paragraph(
                         "Check items off directly in the To-Do tab; they stay in sync with the notes they came from."
                     ),
                     .paragraph(
-                        "⌘B focuses the To-Do tab and ⌘E the Note editor. In week or month view they also open the panel if it's closed, flip between tabs, and — pressed again on their own tab — put it away."
+                        "⌘B focuses the To-Do tab, ⌘E the Note editor, and ⌘J the Projects tab. In week or month view they also open the panel if it's closed, flip between tabs, and — pressed again on their own tab — put it away."
                     ),
                 ],
-                shortcuts: [.init("⌘B", "Focus the To-Do list"), .init("⌘E", "Focus the Note editor")],
+                shortcuts: [.init("⌘B", "Focus the To-Do list"), .init("⌘E", "Focus the Note editor"),
+                            .init("⌘J", "Focus the Projects tab")],
                 gif: "daily-dashboard"
             ),
         ]

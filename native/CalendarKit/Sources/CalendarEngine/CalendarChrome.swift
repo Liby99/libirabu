@@ -40,5 +40,6 @@ public final class CalendarChrome {
     public internal(set) var monthResync = 0 // bumped when the month pager must re-sync to `focus`
     public internal(set) var weekResync = 0 // bumped when the week pager must re-sync to `week`/`focus`
     public internal(set) var dailyResync = 0 // bumped when the day pager must re-sync to `daily.dom`/width
+    public internal(set) var yearResync = 0 // bumped when the year QUARTER strips must re-sync to `yearQX`
     public init() {}
 }

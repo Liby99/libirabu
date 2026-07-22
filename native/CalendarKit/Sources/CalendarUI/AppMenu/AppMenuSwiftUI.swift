@@ -96,6 +96,11 @@ public struct ViewMenuContent: View {
         }
         .keyboardShortcut("e", modifiers: .command)
         .disabled(engine.chrome.level < 1 || engine.chrome.drawerOpen)
+        Button { NotificationCenter.default.post(name: .focusDashProj, object: nil) } label: {
+            Label("Projects", systemImage: "chart.bar.doc.horizontal")
+        }
+        .keyboardShortcut("j", modifiers: .command)
+        .disabled(engine.chrome.level < 1 || engine.chrome.drawerOpen)
         Toggle(isOn: $showHidden) { Label("Show Hidden Imported Events", systemImage: "eye.slash") }
         Divider()
         Picker(selection: $mainTz) {

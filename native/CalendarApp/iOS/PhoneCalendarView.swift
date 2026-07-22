@@ -55,8 +55,19 @@ struct PhoneCalendarView: View {
                 }
                 .onAppear {
                     engine.setViewport(geo.size)
-                    // PHONE V1 is year-view only (z stays 0) — land centered on today's month.
+                    // Land on today: month row vertically centered, today's day column
+                    // horizontally centered in its quarter (goToCurrent seeds yearQX).
                     engine.goToCurrent("year")
+                    // Prewarm the first zoom-in's caches while the year view idles: the
+                    // per-event anchor-label timezone pass + the focus/neighbor months'
+                    // packing otherwise land inside the FIRST zoom's opening frames.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        EventsOverlay.prewarmTimedCaches(
+                            events: engine.viewEvents(), year: engine.year,
+                            months: [max(0, engine.focus - 1), engine.focus, min(11, engine.focus + 1)],
+                            editGen: engine.displayGen, mainTz: engine.mainTz
+                        )
+                    }
                 }
                 .onChange(of: geo.size) { _, s in engine.setViewport(s) }
             }

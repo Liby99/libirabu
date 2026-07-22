@@ -27,7 +27,7 @@ enum KeyToken: Equatable {
     case cmdEqual, cmdMinus // ⌘= / ⌘− → zoom in / out (keeps the current focus)
     case cmdUp, cmdDown, cmdLeft, cmdRight // ⌘+arrows → move the selected event
     case optUp, optDown // ⌥↑ / ⌥↓ — guide display only (the note editor owns them: move line)
-    case cmdB, cmdE // ⌘B / ⌘E — guide display only (the View-menu key equivalents own the keystroke)
+    case cmdB, cmdE, cmdJ // ⌘B/⌘E/⌘J — guide display only (the View-menu key equivalents own the keystroke)
     case shiftUp, shiftDown, shiftLeft, shiftRight // ⇧+arrows → resize the selected event
     case char(Character)
 
@@ -66,6 +66,7 @@ enum KeyToken: Equatable {
         case .optDown: "⌥↓"
         case .cmdB: "⌘B"
         case .cmdE: "⌘E"
+        case .cmdJ: "⌘J"
         case .cmdUp: "⌘↑"
         case .cmdDown: "⌘↓"
         case .cmdLeft: "⌘←"
@@ -222,7 +223,9 @@ enum AppKeyState: Equatable {
                     recurring: t.recurring,
                     imported: t.imported,
                     alreadyHidden: t.alreadyHidden,
-                    kind: engine.kind(of: t.id) ?? .timed
+                    kind: engine.kind(of: t.id) ?? .timed,
+                    viaGhost: t.viaGhost,
+                    atBase: t.atBase
                 )
             }
         }
@@ -248,7 +251,8 @@ enum AppKeyState: Equatable {
     /// Listed wherever the dashboard is reachable (month/week/day — never at year).
     private var dashHotkeyBindings: [KeyBinding] {
         engine.chrome.level >= 1
-            ? [KeyBinding(.cmdB, "To-do list"), KeyBinding(.cmdE, "Note editor")]
+            ? [KeyBinding(.cmdB, "To-do list"), KeyBinding(.cmdE, "Note editor"),
+               KeyBinding(.cmdJ, "Projects")]
             : []
     }
 

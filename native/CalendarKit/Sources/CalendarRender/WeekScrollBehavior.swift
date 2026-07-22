@@ -54,7 +54,12 @@ public struct WeekScrollBehavior: ScrollTargetBehavior {
             landed = (cur + step).rounded() // nearest day near the live position
         }
         let bounded = min(max(0, landed), maxDay)
-        target.rect.origin.x = bounded * dayW
+        // Write x ONLY when it actually changes: on a two-axis ScrollView (the phone's week
+        // driver) a rewritten target re-routes the y momentum through the snap animation, so
+        // an unconditional write made vertical timeline flicks die early.
+        if abs(target.rect.origin.x - bounded * dayW) > 0.5 {
+            target.rect.origin.x = bounded * dayW
+        }
         onTarget?(bounded, abs(v) > weekVelocity)
     }
 }

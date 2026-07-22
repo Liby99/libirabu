@@ -122,6 +122,14 @@ extension CalendarEngine {
                 selectYear(ty)
             }
             focus = tm
+            // Center TODAY's day column in its quarter strip (phone: the quarters overflow
+            // horizontally; clamps to 0 — a no-op — wherever the quarter fits the viewport).
+            if yearQX.indices.contains(tm / 3) {
+                let gridW = viewport.w - Layout.labelW
+                yearQX[tm / 3] = clamp((CGFloat(td) - 0.5) * yearDayW(viewport) - gridW / 2,
+                                       0, yearQuarterMaxX(viewport))
+                chrome.yearResync &+= 1 // re-sync the quarter strips to the new offset
+            }
             zoomToYear()
             ensureMonthVisible(tm, animated: true) // glide the year scroll so the current month shows
         }
@@ -431,6 +439,17 @@ extension CalendarEngine {
 
     public var timelineMaxScroll: CGFloat {
         timelineInfo(snapshot()).maxScroll
+    }
+
+    /// The timeline's max scroll AT a given zoom, independent of the current (possibly mid-
+    /// transition) z. The phone's week/day drivers mount MID-ZOOM and size their scrollable
+    /// height once — sizing from the live `timelineMaxScroll` baked in the partially-revealed
+    /// timeline's (much smaller) range, leaving the vertical scroll permanently truncated
+    /// ("sticky" — the rubber band hit far above the timeline's real bottom).
+    public func timelineMaxScroll(atZ zz: CGFloat) -> CGFloat {
+        var g = snapshot()
+        g.z = zz
+        return timelineInfo(g).maxScroll
     }
 
     /// Mirror the driver's live offset (may be < 0 or > maxScroll during the elastic bounce — that

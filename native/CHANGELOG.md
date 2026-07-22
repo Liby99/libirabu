@@ -24,6 +24,17 @@ each release.
   and whether deadlines display; configured via a ⚙ cog (bottom-right of the TODO panel) or
   right-click in the list, both popping the same native menu. Defaults: each scope collects
   down to its own granularity (daily skips weekly/monthly notes; weekly skips monthly).
+- Improved: the Batch Rename panel is now properly modal — the calendar behind it is blocked,
+  Esc cancels from anywhere (reverting the live renames), and the panel has explicit
+  Cancel / Rename buttons (Cancel restores the original titles).
+- Added: gutter auto-hide — in month/week view with the dashboard pinned, when the window gets
+  too narrow the month-name/track sidebar slides off-screen left (animated), giving the calendar
+  and dashboard its width back; it slides back in when space allows or the dashboard unpins.
+- Improved: the delete dialog is now systematic across every case — promoted lane bars offer
+  "Remove from Lane" (the default) alongside delete/hide; imported recurring events gain
+  "Hide Occurrence" next to "Hide Series"; a recurring event's first occurrence no longer shows
+  the redundant "This & Future" (≡ delete series); and an already-hidden imported event offers
+  "Unhide" instead of a dead-end notice.
 
 ## [0.1.0] — 2026-07-21
 

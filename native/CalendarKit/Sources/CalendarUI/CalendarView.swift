@@ -130,6 +130,9 @@ public struct CalendarView: View {
                 || ui.calendarPrompt != nil || ui.pendingCalendarRemove
         }
         ic.onDeleteDialogKey = { handleDeleteDialogKey($0) }
+        ic.isBatchRenaming = { ui.batchRenaming }
+        ic.onBatchRenameCancel = { cancelBatchRename(ui: ui, engine: engine) }
+        ic.onBatchRenameCommit = { commitBatchRename(ui: ui, engine: engine) }
         ic.onRequestDelete = {
             if let t = engine.deleteTargetForSelection() {
                 ui.requestDelete(
@@ -138,7 +141,9 @@ public struct CalendarView: View {
                     recurring: t.recurring,
                     imported: t.imported,
                     alreadyHidden: t.alreadyHidden,
-                    kind: engine.kind(of: t.id) ?? .timed
+                    kind: engine.kind(of: t.id) ?? .timed,
+                    viaGhost: t.viaGhost,
+                    atBase: t.atBase
                 )
             }
         }
@@ -157,11 +162,16 @@ public struct CalendarView: View {
         case .thisAndFuture: engine.deleteFuture(pd.id, pd.occKey)
         case .deleteAll: engine.remove(pd.id)
         case .hide: engine.hideImportedSeries(pd.id) // imported → hide (can't truly delete)
+        case .hideOccurrence: engine.hideImportedOccurrence(pd.id) // imported → hide just this one
+        case .removeFromLane: engine.unpromote(pd.id) // ghost bar → clear the promotion, keep the item
+        case .unhide: engine.unhideImportedSeries(pd.id) // revealed-hidden → bring it back
         }
         ui.pendingDelete = nil
-        if !choice.isCancel {
+        // Close the drawer only when the item actually left the calendar; lane removal and unhide
+        // keep it around (and possibly still open in the drawer).
+        if choice.isDestructive {
             ui.openEventId = nil
-        } // event gone → close its drawer if open
+        }
         refocusCatcher() // keys go back to the calendar
         engine.wake()
     }
@@ -477,14 +487,16 @@ public struct CalendarView: View {
                 let c = engine.dashboardCarousel()
                 // The webview frame sits at the DAY split in day view, at the narrower PINNED edge
                 // at month/week — normalize the CSS slide against whichever frame is in use.
-                let dayLOpen = Layout.labelW + dashFrac * max(1, vp.w - Layout.labelW)
+                // Gutter hide: geometry below must match the SceneInput's (possibly inflated) width.
+                let vpw = input.vp.w
+                let dayLOpen = Layout.labelW + dashFrac * max(1, vpw - Layout.labelW)
                 let pinLOpen = engine.chrome.level <= 1
-                    ? vp.w - dashMonthPanelW(vp, frac: engine.chrome.dashMonthFrac)
-                    : vp.w - engine.chrome.dashWeekFrac * (vp.w - Layout.labelW)
+                    ? vpw - dashMonthPanelW(input.vp, frac: engine.chrome.dashMonthFrac)
+                    : vpw - engine.chrome.dashWeekFrac * (vpw - Layout.labelW)
                 // dashPresented (not dashPinned): stays true through the ⌘B retract tween, so the
                 // slide normalizes against the PINNED edge while the content rides off with it.
                 let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPresented) ? pinLOpen : dayLOpen
-                let wvW = max(1, vp.w - lOpen)
+                let wvW = max(1, vpw - lOpen)
                 let slide = min(1, max(0, Double((dashboardLeftAnimated(input) - lOpen) / wvW)))
                 // Zoom-scope carousel: pure function of z (mirrors SceneRenderer's scopePair) —
                 // the finer scope enters from the LEFT zooming in, returns from the RIGHT out.
@@ -542,8 +554,8 @@ public struct CalendarView: View {
                                mKeyA: mKeyA, mKeyB: mKeyB,
                                wFrom: wt.from, wTo: wt.to, wP: Double(wt.p),
                                wKeyA: wt.fromKey, wKeyB: wt.toKey,
-                               maskX: Double((scopeGeom?.mask ?? vp.w) - Layout.labelW),
-                               maskW: Double(vp.w - (scopeGeom?.mask ?? vp.w)),
+                               maskX: Double((scopeGeom?.mask ?? vpw) - Layout.labelW),
+                               maskW: Double(vpw - (scopeGeom?.mask ?? vpw)),
                                aName: scopeGeom?.a.name ?? "",
                                aX: Double((scopeGeom?.a.x ?? 0) - Layout.labelW),
                                aW: Double(scopeGeom?.a.w ?? 0),
@@ -555,7 +567,8 @@ public struct CalendarView: View {
                                // Drawer canvas-shift (week/month; 0 at day): the webview content rides
                                // the same slide the scene gets via .offset(-drawerShift), so the pinned
                                // panel moves WITH the canvas instead of sitting still under the drawer.
-                               shiftX: Double(engine.drawerShift))
+                               shiftX: Double(engine.drawerShift),
+                               gutterShiftX: Double(engine.gutterShift))
                     .frame(width: 0, height: 0)
             }
         }
@@ -578,7 +591,7 @@ public struct CalendarView: View {
                       // behind the scrim while the base layer hid them as "drawn by the lift").
                       editGen: engine.displayGen,
                       onlyBox: sel, theme: theme)
-            .offset(x: Layout.padLeft - engine.drawerShift)
+            .offset(x: Layout.padLeft - engine.drawerShift - engine.gutterShift)
     }
 
     /// The clicked DEADLINE lifted sharp above the drawer scrim — its moment line + end dots (Canvas)
@@ -589,13 +602,13 @@ public struct CalendarView: View {
         ZStack(alignment: .topLeading) {
             Canvas { ctx, _ in
                 var c = ctx
-                c.translateBy(x: Layout.padLeft - engine.drawerShift, y: 0)
+                c.translateBy(x: Layout.padLeft - engine.drawerShift - engine.gutterShift, y: 0)
                 SceneRenderer.drawMid(input: input, deadlines: engine.viewDeadlines(), selected: sel,
                                       drawerOpen: true, hovered: nil, only: sel, in: &c, theme: theme)
             }
             DeadlinesOverlay(input: input, deadlines: engine.viewDeadlines(), sides: engine.deadlineSides(),
                              selected: sel, hovered: nil, drawerOpen: true, only: sel, theme: theme)
-                .offset(x: Layout.padLeft - engine.drawerShift)
+                .offset(x: Layout.padLeft - engine.drawerShift - engine.gutterShift)
         }
     }
 
@@ -624,6 +637,14 @@ public struct CalendarView: View {
                 // no TimelineView at all (see calendarSurface / calendarScene): that's what stops the
                 // display-cycle redraw and takes idle CPU to ~0.
                 let awake = engine.renderClock.awake
+                // Gutter hide (narrow window + pinned week/month dashboard): the interactive stack
+                // below lays out `gShift` wider than the window and slides left by the same amount
+                // (see the .frame/.offset pair after the inline editors). gShift mirrors the
+                // engine's tweened value through dashAnim (per-frame observable), so the slide
+                // animates even though this body isn't inside the TimelineView.
+                let gShift = CGFloat(dashAnim.gutterShift)
+                let cw = geo.size.width + gShift
+                let vpX = Viewport(w: vp.w + gShift, h: vp.h)
                 calendarSurface(awake: awake, vp: vp, theme: theme)
                     // The visual layers are purely presentational — never let them intercept
                     // mouse events (the Canvas layers are hit-testable and re-render every
@@ -660,8 +681,8 @@ public struct CalendarView: View {
                                                   // WKWebView layer): day view AND the pinned week/month panels.
                                                   inactive: ui.openEventId != nil && (engine.chrome.level == 3
                                                       || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level))),
-                                                  frac: dashFrac, vp: vp,
-                                                  containerWidth: geo.size.width, height: geo.size.height, theme: theme,
+                                                  frac: dashFrac, vp: vpX,
+                                                  containerWidth: cw, height: geo.size.height, theme: theme,
                                                   onOpen: { ui.openEventId = sourceId(of: $0) },
                                                   onCloseDrawer: { ui.openEventId = nil },
                                                   onNoteExit: { engine.dashNoteExit() },
@@ -678,21 +699,21 @@ public struct CalendarView: View {
                     // hosted WKWebView NSView can't hit-test over the native controls. Tabs carousel via dashAnim.
                     .overlay {
                         if ui.openEventId == nil {
-                            DashTabsOverlay(engine: engine, anim: dashAnim, tab: $dashTab, frac: dashFrac, vp: vp,
-                                            containerWidth: geo.size.width, theme: theme)
+                            DashTabsOverlay(engine: engine, anim: dashAnim, tab: $dashTab, frac: dashFrac, vp: vpX,
+                                            containerWidth: cw, theme: theme)
                         }
                     }
                     .overlay {
                         if ui.openEventId == nil {
                             NoteModeToggleOverlay(engine: engine, anim: dashAnim, tab: dashTab, noteMode: $noteMode,
-                                                  containerWidth: geo.size.width, height: geo.size.height, theme: theme)
+                                                  containerWidth: cw, height: geo.size.height, theme: theme)
                         }
                     }
                     // TODO layering cog (bottom-right on the TODO tab) → the native callout menu.
                     .overlay {
                         if ui.openEventId == nil {
                             TodoCogOverlay(engine: engine, anim: dashAnim, tab: dashTab, controller: todoMenu,
-                                           containerWidth: geo.size.width, height: geo.size.height, theme: theme)
+                                           containerWidth: cw, height: geo.size.height, theme: theme)
                         }
                     }
                     // Day-view split handle: drag the timeline↔dashboard boundary to resize. Above the catcher
@@ -702,7 +723,7 @@ public struct CalendarView: View {
                         if engine.chrome.level == 3
                             || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)),
                             ui.openEventId == nil {
-                            DashboardSplitHandle(engine: engine, vp: vp, height: geo.size.height, theme: theme,
+                            DashboardSplitHandle(engine: engine, vp: vpX, height: geo.size.height, theme: theme,
                                                  onFrac: { dashFrac = $0 })
                         }
                     }
@@ -747,6 +768,14 @@ public struct CalendarView: View {
                                              })
                         }
                     }
+                    // ── Gutter hide: the interactive stack ABOVE this point (scene + pagers + input
+                    // catcher + dashboard + inline editors) lays out gShift wider than the window and
+                    // slides left by the same amount — the month-name/track gutter glides off-screen,
+                    // and the calendar + pinned dashboard reclaim its width. The catcher rides inside,
+                    // so pointer coordinates stay consistent with the inflated scene automatically.
+                    // Window-anchored layers (scrim, lifted copies, drawer, dialogs) attach BELOW.
+                    .frame(width: cw, height: geo.size.height, alignment: .topLeading)
+                    .offset(x: -gShift)
                     // 4a. scrim — blocks the canvas + closes on outside-click (fades). Light dim; the blur behind
                     // it carries most of the "inactive" cue.
                     .overlay {
@@ -1042,18 +1071,28 @@ private struct ViewPrefObservers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .focusDashNote)) { _ in
                 dashHotkey(.note)        // View ▸ Note Editor (⌘E)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .focusDashProj)) { _ in
+                dashHotkey(.proj)        // View ▸ Projects (⌘J)
+            }
     }
 
-    /// ⌘B / ⌘E — two sides of one coin: focus the dashboard's TODO / NOTE tab.
-    /// Day view: switch + keyboard-focus the tab (⌘E lands in the markdown editor).
-    /// Month/week: closed → open the panel on that tab; open on the other tab → flip to it;
+    /// ⌘B / ⌘E / ⌘J — faces of one coin: focus the dashboard's TODO / NOTE / PROJ tab.
+    /// Day view: switch + keyboard-focus the tab (⌘E lands in the markdown editor; PROJ has no
+    /// keyboard stop yet, so ⌘J drops any TODO/NOTE ring and hands keys to the calendar).
+    /// Month/week: closed → open the panel on that tab; open on another tab → flip to it;
     /// already open on that tab → retract the panel. No-op at year or under the drawer.
     private func dashHotkey(_ stop: DashTab) {
         guard ui.openEventId == nil else { return }
         switch engine.chrome.level {
         case 3:
             dashTab = stop
-            engine.dashFocusEntry(stop == .todo ? .todo : .note)
+            switch stop {
+            case .todo: engine.dashFocusEntry(.todo)
+            case .note: engine.dashFocusEntry(.note)
+            case .proj:
+                engine.dashExitFocus()
+                carousel.regateWebFocus()
+            }
         case 1, 2:
             if !engine.dashPinned {
                 engine.toggleDashPin()

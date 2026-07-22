@@ -151,7 +151,7 @@ for (const P of [P0, P1]) {
 // Each day owns a note. The carousel panels render a STATIC preview of the day's note (so paging
 // slides the old note out + the new one in, like the TODO list). The live CodeMirror editor overlays
 // the centered panel only at rest, for editing. Notes for all days come from Swift via setData.
-let tab: "todo" | "note" = "todo";
+let tab: "todo" | "note" | "proj" = "todo";
 let noteMode: "edit" | "preview" = "edit";
 let notes: Record<string, string> = {};
 let liveIso = "";                                      // the note KEY the live editor currently holds
@@ -204,7 +204,7 @@ function applyNav() {
   noteLive.classList.toggle("cc-nav-on", navStop === "note" && (!editingNote || editingRing));
   applyTodoCursor();
 }
-function applyTab(t: "todo" | "note") { tab = t; isoOf.delete(p0); isoOf.delete(p1); scopeSig.clear(); apply(); }
+function applyTab(t: "todo" | "note" | "proj") { tab = t; isoOf.delete(p0); isoOf.delete(p1); scopeSig.clear(); apply(); }
 // A user action IN the webview (⌘S / ⌘-click) → change mode + tell Swift so the native toggle updates.
 function noteModeUser(m: "edit" | "preview") {
   if (noteMode === m) return;
@@ -519,11 +519,49 @@ function deadlineHTML(viewIso: string): string {
   return `<section class="cc-dd-sec cc-dd-ddl-sec" data-iso="${viewIso}">${head}${body}</section>`;
 }
 
+// ── PROJ tab: per-project gantt charts — PLACEHOLDER LAYOUT (real data model + drawing later).
+// Each project gets a section: name + a lane of task bars on a shared horizontal time axis.
+// Bars are plain positioned divs (left/width in % of the track) so the layout, spacing, and
+// per-scope framing can be tuned before the actual gantt renderer lands.
+function projHTML(): string {
+  const proj = (name: string, color: string,
+                rows: [string, number, number, boolean?][]) => `
+    <section class="cc-dd-sec cc-proj">
+      <div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(name)}</span><span class="cc-dd-sec-count">${rows.length}</span></div>
+      <div class="cc-proj-gantt">
+        ${rows.map(([label, start, len, done]) => `
+          <div class="cc-proj-row">
+            <span class="cc-proj-task${done ? " cc-proj-task-done" : ""}">${esc(label)}</span>
+            <span class="cc-proj-track"><span class="cc-proj-bar${done ? " cc-proj-done" : ""}"
+              style="left:${start}%;width:${len}%;background:var(--event-${color}-border)"></span></span>
+          </div>`).join("")}
+      </div>
+    </section>`;
+  return `<div class="cc-proj-ph">PROJECTS · GANTT · PLACEHOLDER</div>` +
+    proj("Paper — CHI 2027", "blue", [
+      ["Outline", 0, 16, true], ["Study design", 10, 24, true], ["Data collection", 30, 28],
+      ["Analysis", 52, 22], ["Writing", 62, 30], ["Submission", 94, 6],
+    ]) +
+    proj("MagiCal 0.2", "red", [
+      ["Scope dashboards", 0, 32, true], ["Gantt tab", 26, 34], ["Polish pass", 55, 25],
+      ["TestFlight", 78, 22],
+    ]) +
+    proj("Grant renewal", "darkgreen", [
+      ["Budget draft", 0, 40], ["Letters", 30, 30], ["Final PDF", 70, 30],
+    ]);
+}
+
 // Render one day's content into a panel's inner scroller. TODO → the grouped list; NOTE → a static
 // markdown preview of that day's note (so the note carousels per-day like the list).
 function renderPanel(el: HTMLElement, viewIso: string) {
   const scroll = scrollOf.get(el) ?? el;
   isoOf.set(el, viewIso);
+  if (tab === "proj") {
+    scroll.innerHTML = projHTML();
+    scroll.scrollTop = scrollByIso[viewIso] ?? 0;
+    flatOf.delete(el);
+    return;
+  }
   if (tab === "note") {
     // Content-based: a note with content shows its rendered preview; an empty day shows the editor
     // placeholder — the SAME representation the settled panel uses, so scrolling never flips modes.
@@ -619,6 +657,11 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
     scroll = el.firstElementChild as HTMLElement;
   }
   const noteKey = scope === "week" ? weekNoteKey(key) : monthNoteKey(key);
+  if (tab === "proj") {
+    scroll.innerHTML = projHTML();
+    flatOf.delete(el);
+    return;
+  }
   if (tab === "note") {
     const text = notes[noteKey] || "";
     scroll.innerHTML = text.trim()
@@ -960,7 +1003,7 @@ root.addEventListener("click", (e) => {
   },
   // Swift drives the tab. Idempotent: the un-adopted echo push (see the coordinator's noteMode/tab
   // handling) re-sends the current value — a full re-render for a no-op change would be wasteful.
-  setTab(t: "todo" | "note") { if (t !== tab) applyTab(t); },
+  setTab(t: "todo" | "note" | "proj") { if (t !== tab) applyTab(t); },
   setNoteMode(m: "edit" | "preview") {                       // native edit/preview toggle (no echo back)
     if (noteMode !== m) { noteMode = m; liveMode = ""; apply(); }
   },

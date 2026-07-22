@@ -272,6 +272,7 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     var p = 0.0
     var reveal = 1.0
     var slide = 0.0
+    var gutterShift = 0.0 // engine.gutterShift mirrored per frame (gutter hide slide)
     var headerTopY = Double(Layout.topPad) // the focused band's ANIMATED top (accordion / page-turn)
     var headerTopY2 = Double(Layout.topPad) // the INCOMING month band's top during a page-turn
     var panelLeft = 0.0 // dashboardLeftAnimated — the panel's live left edge (pinned width morphs)
@@ -293,7 +294,11 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
              headerTopY: Double, headerTopY2: Double, panelLeft: Double,
              monthP: Double, monthDir: Int, scopeT: Double, weekP: Double,
              aName: String, aX: Double, aW: Double, aOp: Double,
-             bName: String, bX: Double, bW: Double, bOp: Double) {
+             bName: String, bX: Double, bW: Double, bOp: Double,
+             gutterShift: Double = 0) {
+        if self.gutterShift != gutterShift {
+            self.gutterShift = gutterShift
+        }
         if self.dir != dir {
             self.dir = dir
         }
@@ -380,6 +385,7 @@ struct CarouselDriver: NSViewRepresentable {
     var aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0 // current/outgoing panel
     var bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0 // incoming (transitions)
     var shiftX: Double = 0 // drawer canvas-shift (engine.drawerShift): content rides the canvas slide
+    var gutterShiftX: Double = 0 // gutter hide (engine.gutterShift): body-level frame/offset rides it
     func makeNSView(context: Context) -> NSView {
         NSView()
     }
@@ -398,7 +404,8 @@ struct CarouselDriver: NSViewRepresentable {
                  headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
                  monthP: mP, monthDir: mDir, scopeT: scopeT, weekP: wP,
                  aName: aName, aX: aX, aW: aW, aOp: aOp,
-                 bName: bName, bX: bX, bW: bW, bOp: bOp)
+                 bName: bName, bX: bX, bW: bW, bOp: bOp,
+                 gutterShift: gutterShiftX)
     }
 }
 
@@ -547,7 +554,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
         /// changes mode itself (content-based default / ⌘S / ⌘-click) and posts it back so the native
         /// toggle mirrors; `lastMode` is adopted in the message handler so that post doesn't echo.
         private func pushState(tab: DashTab, noteMode: NotesMode, inactive: Bool) {
-            let t = tab == .note ? "note" : "todo"
+            let t = tab.js
             if t != lastTab {
                 lastTab = t; eval("CK.setTab('\(t)')")
             }
@@ -588,7 +595,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
             // shows, forever). Instead the binding round-trips and the next updateNSView re-pushes;
             // the JS setters are idempotent and never post back, so it converges without a loop.
             case "tab":
-                onTab((body["tab"] as? String) == "note" ? .note : .todo)
+                onTab(DashTab.fromJS(body["tab"] as? String))
             case "noteMode":
                 onNoteMode((body["mode"] as? String) == "preview" ? .preview : .edit)
             case "noteChange":
@@ -650,7 +657,22 @@ struct DailyDashboardWebView: NSViewRepresentable {
 }
 
 /// The dashboard's two tabs: the TODO list (default) and a per-day markdown NOTE.
-public enum DashTab: Hashable { case todo, note }
+public enum DashTab: Hashable { case todo, note, proj }
+
+extension DashTab {
+    /// The JS-side tab key (CK.setTab / the "tab" message).
+    var js: String {
+        switch self {
+        case .todo: "todo"
+        case .note: "note"
+        case .proj: "proj"
+        }
+    }
+
+    static func fromJS(_ s: String?) -> DashTab {
+        s == "note" ? .note : (s == "proj" ? .proj : .todo)
+    }
+}
 
 /// Places the dashboard in the day-view content region — one WebView spanning the full panel
 /// (dashLeft → window edge) that hosts BOTH tabs (TODO carousel + per-day NOTE editor) and the
@@ -842,7 +864,9 @@ struct TodoCogOverlay: View {
                 .frame(width: 24, height: 24)
                 .opacity(atRest ? 1 : 0)
                 .allowsHitTesting(atRest)
-                .position(x: right - 22, y: bottom - 2)
+                // Equal breathing room to the window's right and bottom edges: the center sits
+                // bottomPad+2 (=30px) above the bottom, so match it horizontally (padRight is 0).
+                .position(x: right - 30, y: bottom - 2)
                 .animation(.easeOut(duration: 0.12), value: atRest)
         }
     }
@@ -911,6 +935,7 @@ private struct DashTabs: View {
             Spacer(minLength: 0)
             TabLabel(title: "TODO", selected: tab == .todo, theme: theme) { tab = .todo }
             TabLabel(title: "NOTE", selected: tab == .note, theme: theme) { tab = .note }
+            TabLabel(title: "PROJ", selected: tab == .proj, theme: theme) { tab = .proj }
         }
         .padding(.trailing, 18)
         .frame(width: w, alignment: .trailing)

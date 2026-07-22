@@ -67,6 +67,20 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 /* "Write something" — the empty-note invitation into the markdown editor. */
 .cc-dd-note-write { color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .cc-dd-note-write:hover { color: var(--fg); }
+
+/* ── PROJ tab: per-project gantt charts (placeholder layout — real renderer later). Each
+   project section holds label+bar rows on a shared horizontal axis; bar left/width are inline
+   percentages of the track, colored by the project's event-palette border var. ── */
+.cc-proj-ph { opacity: .55; font-size: 11px; letter-spacing: 1.5px; margin: 4px 0 10px; }
+.cc-proj-gantt { display: flex; flex-direction: column; gap: 5px; }
+.cc-proj-row { display: flex; align-items: center; gap: 8px; }
+.cc-proj-task { width: 104px; flex: none; font-size: 11px; color: var(--accent-grey);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-proj-task-done { text-decoration: line-through; opacity: .6; }
+.cc-proj-track { position: relative; flex: 1; height: 13px; border-radius: 4px;
+  background: rgba(128, 128, 128, .12); overflow: clip; }
+.cc-proj-bar { position: absolute; top: 0; bottom: 0; border-radius: 4px; opacity: .85; }
+.cc-proj-done { opacity: .38; }
 /* Transform layer: carries the per-frame carousel slide + fade. It must NOT be the scroller — a
    transformed/composited scroller loses WebKit's native rubber-band. */
 .cc-dd-panel {

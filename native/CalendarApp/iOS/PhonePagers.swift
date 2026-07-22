@@ -14,6 +14,7 @@ import CalendarEngine
 import CalendarGeometry
 import CalendarRender
 import SwiftUI
+import UIKit
 
 /// Mounts the right driver for the current zoom level.
 ///
@@ -185,6 +186,14 @@ private struct QuarterStrip: View {
             pendingRestore = x
             pos.scrollTo(x: x)
         }
+        // The engine repositioned the quarters (launch: today's column centered in its
+        // quarter — goToCurrent("year")) — re-sync the strip. Guarded by pendingRestore so
+        // the mirror can't write a stale offset while the pin lands (mount-order safe).
+        .onChange(of: engine.chrome.yearResync) { _, _ in
+            let x = engine.yearQX.indices.contains(q) ? engine.yearQX[q] : 0
+            pendingRestore = x
+            pos.scrollTo(x: x)
+        }
     }
 }
 
@@ -314,9 +323,33 @@ private struct MonthHStrip: View {
     }
 }
 
+/// Zero-size probe that flips `isDirectionalLockEnabled` on the enclosing UIScrollView — the
+/// iOS twin of the Mac's WeekScrollGrabber introspection. SwiftUI's two-axis ScrollView pans
+/// FREELY (diagonal drift: a vertical timeline scroll that wanders sideways also nudges the
+/// day window); the UIKit lock makes each drag pick a primary axis at gesture start, so a
+/// scroll is either a page (x) or a timeline scroll (y), never a diagonal smear.
+private struct DirectionalLockProbe: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        UIView()
+    }
+
+    func updateUIView(_ v: UIView, context: Context) {
+        DispatchQueue.main.async {
+            var s = v.superview
+            while let cur = s, !(cur is UIScrollView) {
+                s = cur.superview
+            }
+            if let sv = s as? UIScrollView, !sv.isDirectionalLockEnabled {
+                sv.isDirectionalLockEnabled = true
+            }
+        }
+    }
+}
+
 /// Week view: one two-axis ScrollView — x is the day window (day-aligned nudges, week-boundary
 /// flings, month-edge pulls; Layout.weekDaysVisible cells wide — 3 on the phone), y is the hour
-/// timeline. UIKit's own pan physics arbitrate the axes.
+/// timeline. Each drag axis-locks (DirectionalLockProbe); the timeline height is sized at the
+/// SETTLED week zoom (the driver mounts mid-zoom, when the live timeline is barely revealed).
 private struct PhoneWeekDriver: View {
     let engine: CalendarEngine
     let vp: Viewport
@@ -341,12 +374,13 @@ private struct PhoneWeekDriver: View {
         let stripX = { (w: CGFloat) in w * 7 * dayW - fdow * dayW } // engine week → strip offset
         let maxDay = max(0, dim - Layout.weekDaysVisible) // strip-local last window start
         let maxX = max(0, dim * dayW - gridW)
-        let maxY = max(0, engine.timelineMaxScroll)
+        let maxY = max(0, engine.timelineMaxScroll(atZ: 2)) // settled-week height, not mid-zoom
         ScrollView([.horizontal, .vertical]) {
             Color.clear
                 .frame(width: dim * dayW,
                        height: vp.h + maxY)
                 .scrollTargetLayout()
+                .background(DirectionalLockProbe())
         }
         .scrollPosition($pos)
         // Initial-layout restore of the seeded window position (see PhoneYearDriver: the
@@ -401,16 +435,35 @@ private struct PhoneWeekDriver: View {
             // shift into the strip's month-local space. (fdow/dayW captured at mount: on the
             // phone the focus month can't change while week view is up — flips are disabled —
             // and any level change remounts this driver, re-capturing both.)
+            // While a restore is pending, an engine pin REPLACES the restore target: the zoom
+            // anchor moves tlScroll every frame of the month→week zoom, and a target frozen at
+            // mount would fight those pins — the strip loses, parks at the stale y (often 0),
+            // and the first touch mirrors it back as "jump to 12am".
             engine.onSetWeekScroll = { x in
-                p.wrappedValue.scrollTo(x: x - fdow * dayW, y: max(0, engine.tlScroll))
+                let t = CGPoint(x: min(max(x - fdow * dayW, 0), maxX),
+                                y: min(max(engine.tlScroll, 0), maxY))
+                if pendingRestore != nil {
+                    pendingRestore = t
+                }
+                p.wrappedValue.scrollTo(x: t.x, y: t.y)
             }
             engine.onSetTlScroll = { y in
-                p.wrappedValue.scrollTo(x: min(max(engine.week * 7 * dayW - fdow * dayW, 0), maxX), y: y)
+                let t = CGPoint(x: min(max(engine.week * 7 * dayW - fdow * dayW, 0), maxX),
+                                y: min(max(y, 0), maxY))
+                if pendingRestore != nil {
+                    pendingRestore = t
+                }
+                p.wrappedValue.scrollTo(x: t.x, y: t.y)
             }
         }
         // A month-edge flip re-anchored focus/week — re-sync the strip to the new resting week.
         .onChange(of: engine.chrome.weekResync) { _, _ in
-            pos.scrollTo(x: stripX(engine.week), y: max(0, engine.tlScroll))
+            let t = CGPoint(x: min(max(stripX(engine.week), 0), maxX),
+                            y: min(max(engine.tlScroll, 0), maxY))
+            if pendingRestore != nil {
+                pendingRestore = t
+            }
+            pos.scrollTo(x: t.x, y: t.y)
         }
         // The mount-time restore can silently drop while the zoom blend is still settling (the
         // PhoneYearDriver race, aggravated by mounting mid-gesture). No phase change can clear
@@ -424,57 +477,65 @@ private struct PhoneWeekDriver: View {
     }
 }
 
-/// Day view: x pages day↔day (one page = the day column), y scrolls the hour timeline.
-/// Hardened like PhoneWeekDriver (its two-axis twin): pendingRestore guard with re-pin,
-/// drag-only guard clears, pinch freeze, and BOTH axes named on every programmatic pin
-/// (a single-axis scrollTo on a two-axis ScrollView zeroes the other axis).
+/// Day view: an outer HORIZONTAL pager — one page per day of the focus month, native
+/// `.paging` (the phone's day column fills the grid, so page == container: the genuine
+/// iPhone-home-screen pager — half-screen commit, FAST snap, never more than one page per
+/// swipe, hard edges at day 1 / the last day) — nested with an inner vertical timeline
+/// ScrollView riding the focused page (PhoneMonthDriver's construction, rotated). UIKit's
+/// nested-scroll arbitration axis-locks the two natively, and each ScrollView is SINGLE-
+/// axis, so the two-axis hazards (a one-axis pin zeroing the other; a custom snap target
+/// re-routing the other axis's momentum) vanish by construction. The previous one-ScrollView
+/// two-axis build snapped pages through a custom target, and SwiftUI kept the NATURAL
+/// fling's settle duration while traveling only one page — the "huge momentum, page crawls"
+/// feel this replaces.
 private struct PhoneDayDriver: View {
     let engine: CalendarEngine
     let vp: Viewport
     var frozen = false // pinch in flight — scrolling is disabled by PhoneDriverLayer
     @State private var pos = ScrollPosition()
-    @State private var pendingRestore: CGPoint? // see PhoneYearDriver — same remount race
+    @State private var pendingRestore: CGFloat? // see PhoneYearDriver — same remount race
 
     var body: some View {
         let gridW = max(1, vp.w - Layout.labelW)
-        let dayW = max(1, engine.daily.frac * gridW)
+        let dayW = max(1, engine.daily.frac * gridW) // frac is pinned to 1 on the phone → dayW == gridW == one page
         let days = max(1, daysInMonth(engine.chrome.year, engine.chrome.focus))
         let maxX = CGFloat(days - 1) * dayW
-        let maxY = max(0, engine.timelineMaxScroll)
-        ScrollView([.horizontal, .vertical]) {
-            Color.clear
-                .frame(width: CGFloat(days) * dayW,
-                       height: vp.h + maxY)
+        ScrollView(.horizontal) {
+            ZStack(alignment: .topLeading) {
+                HStack(spacing: 0) {
+                    ForEach(0 ..< days, id: \.self) { d in
+                        Color.clear.frame(width: dayW).frame(maxHeight: .infinity).id(d)
+                    }
+                }
                 .scrollTargetLayout()
+                // The timeline strip rides the FOCUSED day page (chrome.dailyDom is
+                // @Observable, so a completed page turn re-seats it — like MonthHStrip).
+                DayTimelineStrip(engine: engine, vp: vp)
+                    .frame(width: dayW, height: vp.h)
+                    .offset(x: CGFloat(engine.chrome.dailyDom - 1) * dayW)
+            }
         }
         .scrollPosition($pos)
         // Initial-layout restore of the landing day (see PhoneYearDriver: the imperative
         // scrollTo alone races the attachment and can silently drop).
         .defaultScrollAnchor(UnitPoint(
-            x: maxX > 0 ? min(max(CGFloat(engine.daily.dom - 1) * dayW / maxX, 0), 1) : 0,
-            y: maxY > 0 ? min(max(engine.tlScroll / maxY, 0), 1) : 0
+            x: maxX > 0 ? min(max(CGFloat(engine.daily.dom - 1) * dayW / maxX, 0), 1) : 0, y: 0
         ))
-        .scrollTargetBehavior(DayScrollBehavior(dayW: dayW, maxDay: CGFloat(days - 1)))
+        .scrollTargetBehavior(.paging) // NATIVE paging — the authentic pager physics
         .scrollBounceBehavior(.always)
         .scrollIndicators(.hidden)
-        // The strip must be able to park every day at the window's left edge — pad the tail by
-        // the viewport-vs-page difference so offsets reach (days−1)·dayW (the Mac driver's
-        // viewport IS one page wide, ours is the whole grid). Zero when the day column fills
-        // the grid (the phone's full-width split).
-        .contentMargins(.trailing, max(0, gridW - dayW), for: .scrollContent)
         .frame(width: gridW, height: vp.h)
         .offset(x: Layout.padLeft + Layout.labelW)
-        .onScrollGeometryChange(for: CGPoint.self, of: { CGPoint(x: $0.contentOffset.x, y: $0.contentOffset.y) }) { _, o in
+        .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.x + $0.contentInsets.leading }) { _, x in
             if let t = pendingRestore {
-                if abs(o.x - t.x) < 1, abs(o.y - t.y) < 1 {
+                if abs(x - t) < 1 {
                     pendingRestore = nil // restore landed → mirror live
                 } else {
-                    pos.scrollTo(x: t.x, y: t.y) // re-pin until landed (see PhoneYearDriver)
+                    pos.scrollTo(x: t) // re-pin until landed (see PhoneYearDriver)
                     return
                 }
             }
-            engine.setDayProgress(o.x)
-            engine.setTlScroll(o.y)
+            engine.setDayProgress(x)
         }
         .onScrollPhaseChange { old, new in
             if new == .interacting { // drag only — see PhoneYearDriver
@@ -487,25 +548,76 @@ private struct PhoneDayDriver: View {
             }
         }
         .onAppear {
-            let p = $pos
-            let target = CGPoint(x: min(max(CGFloat(engine.daily.dom - 1) * dayW, 0), maxX),
-                                 y: min(max(engine.tlScroll, 0), maxY))
+            let target = min(max(CGFloat(engine.daily.dom - 1) * dayW, 0), maxX)
             pendingRestore = target
-            p.wrappedValue.scrollTo(x: target.x, y: target.y)
-            // BOTH axes on every pin — a single-axis scrollTo zeroes the other on this
-            // two-axis ScrollView (the week driver's traced bug, same shape here).
-            engine.onSetTlScroll = { y in
-                p.wrappedValue.scrollTo(x: min(max(CGFloat(engine.daily.dom - 1) * dayW, 0), maxX), y: y)
-            }
+            pos.scrollTo(x: target)
         }
-        // Jump-to-today / zoom-in landing / split change — re-sync the strip.
+        // Jump-to-today / zoom-in landing / split change — re-sync the pager to the day.
         .onChange(of: engine.chrome.dailyResync) { _, _ in
-            pos.scrollTo(x: CGFloat(engine.daily.dom - 1) * dayW, y: max(0, engine.tlScroll))
+            let x = min(max(CGFloat(engine.daily.dom - 1) * dayW, 0), maxX)
+            pendingRestore = x
+            pos.scrollTo(x: x)
         }
         // Restore retry once a pinch's freeze lifts (see PhoneWeekDriver).
         .onChange(of: frozen) { _, f in
             if !f, let t = pendingRestore {
-                pos.scrollTo(x: t.x, y: t.y)
+                pos.scrollTo(x: t)
+            }
+        }
+    }
+}
+
+/// The focused day's vertical hour-timeline driver, nested inside PhoneDayDriver's pager —
+/// single-axis, so its momentum is fully native and the engine's timeline pins
+/// (`onSetTlScroll`, e.g. the pinch zoom-anchor) can't touch the day pager's x.
+private struct DayTimelineStrip: View {
+    let engine: CalendarEngine
+    let vp: Viewport
+    @State private var pos = ScrollPosition()
+    @State private var pendingRestore: CGFloat? // see PhoneYearDriver — same remount race
+
+    var body: some View {
+        let maxY = max(0, engine.timelineMaxScroll(atZ: 3)) // settled-day height, not mid-zoom
+        ScrollView(.vertical) {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: vp.h + maxY)
+        }
+        .scrollPosition($pos)
+        .defaultScrollAnchor(UnitPoint(x: 0, y: maxY > 0 ? min(max(engine.tlScroll / maxY, 0), 1) : 0))
+        .scrollBounceBehavior(.always)
+        .scrollIndicators(.hidden)
+        .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { _, y in
+            if let t = pendingRestore {
+                if abs(y - t) < 1 {
+                    pendingRestore = nil
+                } else {
+                    pos.scrollTo(y: t) // re-pin until landed (see PhoneYearDriver)
+                    return
+                }
+            }
+            engine.setTlScroll(y)
+        }
+        .onScrollPhaseChange { _, new in
+            if new == .interacting { // drag only — see PhoneYearDriver
+                pendingRestore = nil
+            }
+        }
+        .onAppear {
+            let p = $pos
+            let target = min(max(engine.tlScroll, 0), maxY)
+            pendingRestore = target
+            p.wrappedValue.scrollTo(y: target)
+            // Single-axis → safe; and while a restore is pending an engine pin REPLACES the
+            // restore target (the zoom anchor moves tlScroll every frame of the week→day
+            // zoom — a mount-frozen target would fight it and snap to a stale y on first
+            // touch; see PhoneWeekDriver).
+            engine.onSetTlScroll = { y in
+                let t = min(max(y, 0), maxY)
+                if pendingRestore != nil {
+                    pendingRestore = t
+                }
+                p.wrappedValue.scrollTo(y: t)
             }
         }
     }

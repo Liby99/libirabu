@@ -271,4 +271,31 @@ extension CalendarEngine {
         }
         scheduleCommit()
     }
+
+    /// The current selection's titles by source id — captured when the batch-rename panel opens,
+    /// so Cancel/Esc can put them back (typing renames LIVE via batchSetTitle).
+    public func batchTitlesSnapshot() -> [String: String] {
+        let set = Set(selectedIds.map { sourceId(of: $0) })
+        var out: [String: String] = [:]
+        for e in items.events where set.contains(e.id) { out[e.id] = e.title }
+        for b in items.bands where set.contains(b.id) { out[b.id] = b.title }
+        for d in items.deadlines where set.contains(d.id) { out[d.id] = d.title }
+        return out
+    }
+
+    /// Cancel of a live batch rename: restore every captured title verbatim.
+    public func batchRestoreTitles(_ titles: [String: String]) {
+        guard !titles.isEmpty else { return }
+        beginTxn()
+        for i in items.events.indices {
+            if let t = titles[items.events[i].id] { items.events[i].title = t }
+        }
+        for i in items.bands.indices {
+            if let t = titles[items.bands[i].id] { items.bands[i].title = t }
+        }
+        for i in items.deadlines.indices {
+            if let t = titles[items.deadlines[i].id] { items.deadlines[i].title = t }
+        }
+        scheduleCommit()
+    }
 }
