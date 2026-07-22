@@ -220,20 +220,25 @@ public final class CalendarEngine {
     /// left: 0 = shown, labelW + padLeft = fully hidden with the calendar band's left edge flush
     /// against the WINDOW border (the gutter AND the window's left margin both yield). The scene's
     /// SceneInput viewport is inflated by this amount (sceneInput) and every layer translates left
-    /// by it (sceneDX / CSS panel motion / pointer compensation). Tweened in the frame tick.
+    /// by it (sceneDX / CSS panel motion / pointer compensation).
+    ///
+    /// Two factors, recomposed each tick: `gutterHide` (the tweened BINARY decision, 0…1 — narrow
+    /// window + pinned dashboard) × a CONTINUOUS z-fade riding the zoom itself — full through
+    /// month↔week, ramping out across week→day and month→year with the same easing the scope
+    /// reveal uses. So zooming to day view slides the gutter back IN STEP with the pinch instead
+    /// of snapping when the level boundary is crossed.
     public internal(set) var gutterShift: CGFloat = 0
+    var gutterHide: CGFloat = 0 // tweened hide decision (0 shown … 1 hidden)
 
-    /// Target: hide the gutter only at month/week level with the dashboard PINNED (the intent bit —
-    /// flips immediately on ⌘B, so the hide/show tween runs in parallel with the pin slide) when
-    /// the calendar band would otherwise fall below its minimum width beside the pinned panel.
-    private var gutterShiftTarget: CGFloat {
-        guard (1 ... 2).contains(chrome.level), chrome.dashPinned else { return 0 }
-        let dashW = chrome.level <= 1
+    /// The binary decision: with the dashboard PINNED (the intent bit — flips immediately on ⌘B,
+    /// so the tween runs in parallel with the pin slide), hide when the calendar band would fall
+    /// below its minimum width beside the pinned panel. Level-agnostic — the z-fade handles scope.
+    private var gutterHideTarget: CGFloat {
+        guard chrome.dashPinned else { return 0 }
+        let dashW = z < 1.5
             ? dashMonthPanelW(viewport, frac: chrome.dashMonthFrac)
             : chrome.dashWeekFrac * (viewport.w - Layout.labelW)
-        return viewport.w - dashW - Layout.labelW < Motion.gutterHideMinW
-            ? Layout.labelW + Layout.padLeft // band's left edge flush with the window border
-            : 0
+        return viewport.w - dashW - Layout.labelW < Motion.gutterHideMinW ? 1 : 0
     }
     /// The timed event currently being moved/resized/created (an ACTIVE drag). The overlay floats it
     /// full-width above its day and excludes it from the others' overlap packing so they don't reflow
@@ -752,20 +757,22 @@ public final class CalendarEngine {
                 drawerShift = st.to; anim.shiftTween = nil
             }
         }
-        // ── Gutter hide/show: retarget + advance. The scene renders `gutterShift` wider than the
-        // window and the view slides left by the same amount, so the month-name/track gutter
-        // (section A) glides off-screen when the pinned week/month dashboard squeezes the calendar.
-        let gTarget = gutterShiftTarget
-        if abs((anim.gutterTween?.to ?? gutterShift) - gTarget) > 0.5 {
-            anim.gutterTween = Tween(from: gutterShift, to: gTarget, start: date,
+        // ── Gutter hide/show: retarget + advance the BINARY decision tween, then recompose the
+        // presented shift with the continuous z-fade (rides the zoom: full through month↔week,
+        // zero at day and year — in step with the pinch, never snapping at a level boundary).
+        let gTarget = gutterHideTarget
+        if abs((anim.gutterTween?.to ?? gutterHide) - gTarget) > 0.001 {
+            anim.gutterTween = Tween(from: gutterHide, to: gTarget, start: date,
                                      duration: Motion.drawerShiftDur, ease: easeOut)
         }
         if let gt = anim.gutterTween {
-            gutterShift = gt.value(at: date)
+            gutterHide = gt.value(at: date)
             if gt.isComplete(at: date) {
-                gutterShift = gt.to; anim.gutterTween = nil
+                gutterHide = gt.to; anim.gutterTween = nil
             }
         }
+        let gZFade = easeInOut(clamp(z, 0, 1)) * (1 - easeInOut(clamp(z - 2, 0, 1)))
+        gutterShift = gutterHide * gZFade * (Layout.labelW + Layout.padLeft)
         if let fa = anim.flipAnim {
             advanceFlip(fa, at: date)
         }

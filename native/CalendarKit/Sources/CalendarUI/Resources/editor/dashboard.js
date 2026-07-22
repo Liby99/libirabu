@@ -56254,33 +56254,36 @@
       }
       return p3;
     };
+    const evById = new Map(events.map((e) => [e.id, e]));
+    for (const t2 of allTodos) {
+      if (t2.indent !== 0 || !t2.projects.length) continue;
+      let fallback = today, color2 = "blue";
+      if (t2.source === "event") {
+        const ev = evById.get(t2.eventId);
+        if (ev) {
+          fallback = ev.start.slice(0, 10);
+          color2 = ev.color || "blue";
+        }
+      } else if (t2.dailyDate) {
+        const d = t2.dailyDate;
+        fallback = d.startsWith("week:") ? d.slice(5) : d.startsWith("month:") ? `${d.slice(6)}-01` : d;
+      }
+      const start = (t2.created ?? "").slice(0, 10) || fallback;
+      const task = {
+        t: t2,
+        start,
+        end: t2.done ? (t2.doneDate ?? "").slice(0, 10) || start : null,
+        due: dueDate(t2) || null,
+        color: color2
+      };
+      for (const k of t2.projects) get(k).tasks.push(task);
+    }
     for (const ev of events) {
-      const seriesKeys = noteProjectKeys(ev.notes);
-      const occKeys = /* @__PURE__ */ new Map();
-      for (const [ok4, note] of Object.entries(ev.occurrenceNotes ?? {})) {
-        const ks = noteProjectKeys(note);
-        if (ks.length) occKeys.set(ok4, ks);
-      }
-      if (!seriesKeys.length && !occKeys.size) continue;
-      const fallbackStart = ev.start.slice(0, 10);
-      for (const t2 of allTodos) {
-        if (t2.source !== "event" || t2.eventId !== ev.id) continue;
-        const keys2 = t2.occurrenceKey ? [.../* @__PURE__ */ new Set([...seriesKeys, ...occKeys.get(t2.occurrenceKey) ?? []])] : seriesKeys;
-        if (!keys2.length) continue;
-        const start = (t2.created ?? "").slice(0, 10) || fallbackStart;
-        const task = {
-          t: t2,
-          start,
-          end: t2.done ? (t2.doneDate ?? "").slice(0, 10) || start : null,
-          due: dueDate(t2) || null,
-          color: ev.color ?? "blue"
-        };
-        for (const k of keys2) get(k).tasks.push(task);
-      }
-      if (ev.kind === "deadline" && seriesKeys.length) {
-        const dl = deadlines.find((d) => d.id === ev.id);
-        if (dl) for (const k of seriesKeys) get(k).deadlines.push(dl);
-      }
+      if (ev.kind !== "deadline") continue;
+      const keys2 = noteProjectKeys(ev.notes);
+      if (!keys2.length) continue;
+      const dl = deadlines.find((d) => d.id === ev.id);
+      if (dl) for (const k of keys2) get(k).deadlines.push(dl);
     }
     for (const p3 of map3.values()) {
       p3.lastActivity = p3.tasks.reduce((a, x) => {
@@ -56310,7 +56313,7 @@
     const shown = projects.filter((p3) => p3.tasks.some((x) => x.start <= re2 && (!x.end || x.end >= rs)));
     if (!shown.length) {
       return `<div class="cc-proj-ph">PROJECTS</div>
-      <div class="cc-dd-free">No projects active in this range. Add a line "@project:name" to an event or deadline note.</div>`;
+      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone).</div>`;
     }
     return `<div class="cc-proj-ph">PROJECTS</div>` + shown.map(projChartHTML).join("");
   }

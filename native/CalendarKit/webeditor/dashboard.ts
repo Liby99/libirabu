@@ -520,12 +520,12 @@ function deadlineHTML(viewIso: string): string {
 }
 
 // ── PROJ tab: per-project gantt charts ─────────────────────────────────────────────────────────
-// A note line that is exactly `@project:<key>` (own line, trimmed) associates its whole note with
-// that project. Sources: EVENT notes (timed/band/deadline, series + per-occurrence) — daily/scope
-// notes deliberately do NOT collect (user decision). Each project charts its todos as segments
-// (created → done, or created → now in gray for open ones; the post-due portion hatched) plus its
-// deadlines as vertical rules, over a relative-days + month-boundaries axis extending into the
-// future to the latest deadline.
+// Membership is PER TODO ITEM: a TOP-LEVEL todo line carrying an inline `@project:<key>` token
+// (already parsed by the shared tokenizer into ParsedTodo.projects, stripped from the text)
+// charts as a row — from any source: event/deadline/daily/scope notes. Sub-tasks never chart.
+// Separately, a DEADLINE whose note contains a bare `@project:<key>` line becomes the project's
+// MILESTONE (a vertical rule). Rows: created → done segments, open rows run to now in gray, the
+// post-due portion hatched; axis = relative days + month boundaries, extended into the future.
 interface ProjTask {
   t: ParsedTodo;
   start: string; // day iso: created:, else the source item's day
@@ -562,34 +562,38 @@ function ensureProjects() {
     if (!p) { p = { key: k, tasks: [], deadlines: [], lastActivity: "" }; map.set(k, p); }
     return p;
   };
+  // Rows: every TOP-LEVEL todo tagged @project:<key>, from any note source.
+  const evById = new Map(events.map((e) => [e.id, e]));
+  for (const t of allTodos) {
+    if (t.indent !== 0 || !t.projects.length) continue;
+    // created: absent → the source item's own day (event/deadline date; daily note's date;
+    // scope notes anchor at their range start).
+    let fallback = today, color = "blue";
+    if (t.source === "event") {
+      const ev = evById.get(t.eventId);
+      if (ev) { fallback = ev.start.slice(0, 10); color = ev.color || "blue"; }
+    } else if (t.dailyDate) {
+      const d = t.dailyDate;
+      fallback = d.startsWith("week:") ? d.slice(5)
+        : d.startsWith("month:") ? `${d.slice(6)}-01` : d;
+    }
+    const start = (t.created ?? "").slice(0, 10) || fallback;
+    const task: ProjTask = {
+      t, start,
+      end: t.done ? ((t.doneDate ?? "").slice(0, 10) || start) : null,
+      due: dueDate(t) || null,
+      color,
+    };
+    for (const k of t.projects) get(k).tasks.push(task);
+  }
+  // Milestones: a DEADLINE whose note carries a bare `@project:<key>` line (its own todos
+  // already chart as rows via the generic path above).
   for (const ev of events) {
-    const seriesKeys = noteProjectKeys(ev.notes);
-    const occKeys = new Map<string, string[]>();
-    for (const [ok, note] of Object.entries(ev.occurrenceNotes ?? {})) {
-      const ks = noteProjectKeys(note);
-      if (ks.length) occKeys.set(ok, ks);
-    }
-    if (!seriesKeys.length && !occKeys.size) continue;
-    const fallbackStart = ev.start.slice(0, 10); // created: absent → the source item's day
-    for (const t of allTodos) {
-      if (t.source !== "event" || t.eventId !== ev.id) continue;
-      const keys = t.occurrenceKey
-        ? [...new Set([...seriesKeys, ...(occKeys.get(t.occurrenceKey) ?? [])])]
-        : seriesKeys;
-      if (!keys.length) continue;
-      const start = (t.created ?? "").slice(0, 10) || fallbackStart;
-      const task: ProjTask = {
-        t, start,
-        end: t.done ? ((t.doneDate ?? "").slice(0, 10) || start) : null,
-        due: dueDate(t) || null,
-        color: ev.color ?? "blue",
-      };
-      for (const k of keys) get(k).tasks.push(task);
-    }
-    if (ev.kind === "deadline" && seriesKeys.length) {
-      const dl = deadlines.find((d) => d.id === ev.id);
-      if (dl) for (const k of seriesKeys) get(k).deadlines.push(dl);
-    }
+    if (ev.kind !== "deadline") continue;
+    const keys = noteProjectKeys(ev.notes);
+    if (!keys.length) continue;
+    const dl = deadlines.find((d) => d.id === ev.id);
+    if (dl) for (const k of keys) get(k).deadlines.push(dl);
   }
   for (const p of map.values()) {
     p.lastActivity = p.tasks.reduce((a, x) => {
@@ -626,7 +630,7 @@ function projHTML(rs: string, re: string): string {
     p.tasks.some((x) => x.start <= re && (!x.end || x.end >= rs)));
   if (!shown.length) {
     return `<div class="cc-proj-ph">PROJECTS</div>
-      <div class="cc-dd-free">No projects active in this range. Add a line "@project:name" to an event or deadline note.</div>`;
+      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone).</div>`;
   }
   return `<div class="cc-proj-ph">PROJECTS</div>` + shown.map(projChartHTML).join("");
 }
