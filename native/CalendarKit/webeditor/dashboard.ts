@@ -809,7 +809,7 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
   const vlines = p.deadlines.map((d, i) => {
     const iso = dlIsos[i], l = x(iso);
     return `<div class="cc-proj-vline cc-proj-dlline ${evc(d.color)}" style="left:${l.toFixed(2)}%"></div>
-      <div class="cc-proj-vlabel ${evc(d.color)}" style="left:${l.toFixed(2)}%" title="${esc(d.title)}">${esc(d.title)}</div>`;
+      <div class="cc-proj-vlabel ${evc(d.color)}" style="left:${l.toFixed(2)}%" data-ddl="${esc(d.id)}" role="button" tabindex="0" title="${esc(d.title)}">${esc(d.title)}</div>`;
   }).join("");
   const nowLine = `<div class="cc-proj-vline cc-proj-nowline" style="left:${x(today).toFixed(2)}%"></div>`;
   // Axis 1: relative days from now (past "Nd ago", future "in Nd"), step scaled to the span —
@@ -1312,7 +1312,7 @@ root.addEventListener("click", (e) => {
     const todo = (flatOf.get(panel) ?? [])[Number(openEl.dataset.open)];
     if (todo) {
       // A daily-note todo isn't an event → don't open the drawer; fly to that day + open the NOTE tab.
-      if (todo.source === "daily") post({ type: "jumpDay", date: todo.dailyDate });
+      if (todo.source === "daily") post({ type: "jumpDay", date: todo.dailyDate, line: todo.line });
       else post({ type: "open", eventId: todo.eventId, occKey: todo.occurrenceKey });
     }
     return;
@@ -1388,7 +1388,7 @@ root.addEventListener("click", (e) => {
     const row = todoRows()[todoCursor];
     const t = row ? (flatOf.get(p0) ?? [])[Number(row.dataset.idx ?? -1)] : undefined;
     if (!t) return;
-    if (t.source === "daily") post({ type: "jumpDay", date: t.dailyDate });
+    if (t.source === "daily") post({ type: "jumpDay", date: t.dailyDate, line: t.line });
     else post({ type: "open", eventId: t.eventId, occKey: t.occurrenceKey });
   },
   navFold(open: boolean) {                     // ←/→ on the TODO stop → fold/unfold the focused row's subtree
@@ -1399,7 +1399,9 @@ root.addEventListener("click", (e) => {
     if (!t || collapsed.has(foldKey(t)) === !open) return;   // already there (held key auto-repeats)
     toggleFold(p0, t, open);   // same animated path as the chevron click
   },
-  noteEdit(ring = false) {                     // Enter on the NOTE stop / ⌘E → focus the live editor
+  // Enter on the NOTE stop / ⌘E → focus the live editor. `line` (a todo-row jump): once the
+  // editor is up, SELECT that source line so the jumped-to item arrives highlighted.
+  noteEdit(ring = false, line: number | null = null) {
     editingNote = true; editingRing = ring; applyNav();
     noteModeUser("edit");
     // The live overlay may not be visible YET: ⌘E can arrive before the tab switch
@@ -1408,6 +1410,7 @@ root.addEventListener("click", (e) => {
     const tryFocus = (left: number) => {
       if (noteLive.style.display !== "none") {
         noteEd.setMode("edit"); noteEd.focus();
+        if (line) noteEd.selectLine(line);
       } else if (left > 0) {
         requestAnimationFrame(() => tryFocus(left - 1));
       } else {
@@ -1420,7 +1423,7 @@ root.addEventListener("click", (e) => {
         }) });
       }
     };
-    queueMicrotask(() => tryFocus(30));
+    queueMicrotask(() => tryFocus(90)); // ~1.5s — covers a full fly-to-day + panel reveal
   },
 };
 post({ type: "ready" });

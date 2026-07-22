@@ -57260,6 +57260,12 @@
         const pos = view.state.doc.line(ln).from;
         view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
         view.focus();
+      },
+      selectLine(line) {
+        const ln = Math.max(1, Math.min(view.state.doc.lines, Math.round(line)));
+        const l = view.state.doc.line(ln);
+        view.dispatch({ selection: { anchor: l.from, head: l.to }, scrollIntoView: true });
+        view.focus();
       }
     };
   }

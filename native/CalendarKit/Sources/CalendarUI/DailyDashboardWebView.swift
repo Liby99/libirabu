@@ -260,15 +260,16 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     /// Enter on the NOTE stop → let the WebView own the keys (allow focus + first responder) and focus
     /// the CodeMirror editor.
     /// `ring: true` (⌘E while keyboard mode was already on) keeps the dashed nav ring visible
-    /// around the editor while the caret blinks inside it.
-    func focusNoteEditor(ring: Bool = false) {
+    /// around the editor while the caret blinks inside it. `line`: a todo-row jump — once the
+    /// editor lands, that source line is SELECTED (the clicked item arrives highlighted).
+    func focusNoteEditor(ring: Bool = false, line: Int? = nil) {
         guard let w = web as? PassThroughWebView else { return }
         // Defer to the NEXT runloop tick: this is called from within the Enter keyDown dispatch, and
         // making the web view first responder synchronously mid-keyDown routes that same Enter into the
         // freshly-focused CodeMirror as a stray newline. Letting the keyDown finish first avoids that.
         DispatchQueue.main.async { [weak self] in
             w.allowFocus(); w.window?.makeFirstResponder(w)
-            self?.eval("CK.noteEdit(\(ring))")
+            self?.eval("CK.noteEdit(\(ring), \(line.map(String.init) ?? "null"))")
         }
     }
 }
@@ -436,7 +437,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
     var onNoteMode: (NotesMode) -> Void
     var onNoteChange: (_ date: String, _ value: String) -> Void
     var onOpenLink: (URL) -> Void
-    var onJumpDay: (_ date: String) -> Void
+    var onJumpDay: (_ date: String, _ line: Int?) -> Void
     var onCloseDrawer: () -> Void
     var onNoteExit: () -> Void // daily NOTE editor handed focus back (Esc / ⌘S)
     var onNavTab: (Bool) -> Void // Tab in the web view → app keyboard nav (true = forward)
@@ -523,7 +524,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
         var onNoteMode: (NotesMode) -> Void
         var onNoteChange: (_ date: String, _ value: String) -> Void
         var onOpenLink: (URL) -> Void
-        var onJumpDay: (String) -> Void
+        var onJumpDay: (String, Int?) -> Void
         var onCloseDrawer: () -> Void
         var onNoteExit: () -> Void
         var onNavTab: (Bool) -> Void
@@ -538,7 +539,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
              onToggle: @escaping (String, String?, String) -> Void, onOpen: @escaping (String) -> Void,
              onDeselect: @escaping () -> Void, onTab: @escaping (DashTab) -> Void,
              onNoteMode: @escaping (NotesMode) -> Void, onNoteChange: @escaping (String, String) -> Void,
-             onOpenLink: @escaping (URL) -> Void, onJumpDay: @escaping (String) -> Void,
+             onOpenLink: @escaping (URL) -> Void, onJumpDay: @escaping (String, Int?) -> Void,
              onCloseDrawer: @escaping () -> Void, onNoteExit: @escaping () -> Void,
              onNavTab: @escaping (Bool) -> Void) {
             self.carousel = carousel; self.onToggle = onToggle; self.onOpen = onOpen; self.onDeselect = onDeselect
@@ -623,7 +624,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
                 }
             case "jumpDay":
                 if let date = body["date"] as? String {
-                    onJumpDay(date)
+                    onJumpDay(date, body["line"] as? Int)
                 }
             case "hlocal":
                 // Pointer moved over / off a horizontally-scrollable element (code block) — route the
@@ -741,17 +742,20 @@ struct DailyDashboardOverlay: View {
             onTab: { tab = $0 }, onNoteMode: { noteMode = $0 },
             onNoteChange: { date, value in engine.setDailyNote(date, value) },
             onOpenLink: { NSWorkspace.shared.open($0) },
-            onJumpDay: { date in
+            onJumpDay: { [carousel] date, line in
                 // "YYYY-MM-DD" → fly to that day (like Today), then open its NOTE tab on landing.
                 // Scope-note keys (weekly/monthly todos — TODO list rows and gantt titles alike):
                 // "week:<sunday-iso>" → that week view; "month:<YYYY-MM>" → that month view — both
                 // land with the panel pinned open on the NOTE tab (the note the todo lives in).
+                // `line` (the clicked todo's source line): the editor focuses and SELECTS it —
+                // CK.noteEdit's frame-retry waits out the travel + panel reveal.
                 if date.hasPrefix("week:") {
                     let c = date.dropFirst(5).split(separator: "-").compactMap { Int($0) }
                     guard c.count == 3 else { return }
                     engine.jumpToWeek(c[0], c[1] - 1, c[2])
                     engine.pinDashboard()
                     tab = .note
+                    carousel.focusNoteEditor(line: line)
                     return
                 }
                 if date.hasPrefix("month:") {
@@ -760,11 +764,15 @@ struct DailyDashboardOverlay: View {
                     engine.setView(year: c[0], zoom: "month", focusedMonth: c[1] - 1)
                     engine.pinDashboard()
                     tab = .note
+                    carousel.focusNoteEditor(line: line)
                     return
                 }
                 let c = date.split(separator: "-").compactMap { Int($0) }
                 guard c.count == 3 else { return }
-                engine.jumpToDay(c[0], c[1] - 1, c[2], onLand: { tab = .note })
+                engine.jumpToDay(c[0], c[1] - 1, c[2], onLand: {
+                    tab = .note
+                    carousel.focusNoteEditor(line: line)
+                })
             },
             onCloseDrawer: onCloseDrawer,
             onNoteExit: onNoteExit,

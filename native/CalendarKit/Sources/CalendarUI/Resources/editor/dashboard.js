@@ -57402,6 +57402,12 @@
         const pos = view.state.doc.line(ln).from;
         view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
         view.focus();
+      },
+      selectLine(line) {
+        const ln = Math.max(1, Math.min(view.state.doc.lines, Math.round(line)));
+        const l = view.state.doc.line(ln);
+        view.dispatch({ selection: { anchor: l.from, head: l.to }, scrollIntoView: true });
+        view.focus();
       }
     };
   }
@@ -58088,7 +58094,7 @@
     const vlines = p3.deadlines.map((d, i3) => {
       const iso = dlIsos[i3], l = x(iso);
       return `<div class="cc-proj-vline cc-proj-dlline ${evc(d.color)}" style="left:${l.toFixed(2)}%"></div>
-      <div class="cc-proj-vlabel ${evc(d.color)}" style="left:${l.toFixed(2)}%" title="${esc(d.title)}">${esc(d.title)}</div>`;
+      <div class="cc-proj-vlabel ${evc(d.color)}" style="left:${l.toFixed(2)}%" data-ddl="${esc(d.id)}" role="button" tabindex="0" title="${esc(d.title)}">${esc(d.title)}</div>`;
     }).join("");
     const nowLine = `<div class="cc-proj-vline cc-proj-nowline" style="left:${x(today).toFixed(2)}%"></div>`;
     const step = span <= 42 ? 7 : span <= 100 ? 30 : span <= 240 ? 60 : 90;
@@ -58583,7 +58589,7 @@
     if (openEl && panel) {
       const todo = (flatOf.get(panel) ?? [])[Number(openEl.dataset.open)];
       if (todo) {
-        if (todo.source === "daily") post({ type: "jumpDay", date: todo.dailyDate });
+        if (todo.source === "daily") post({ type: "jumpDay", date: todo.dailyDate, line: todo.line });
         else post({ type: "open", eventId: todo.eventId, occKey: todo.occurrenceKey });
       }
       return;
@@ -58685,7 +58691,7 @@
       const row2 = todoRows()[todoCursor];
       const t2 = row2 ? (flatOf.get(p0) ?? [])[Number(row2.dataset.idx ?? -1)] : void 0;
       if (!t2) return;
-      if (t2.source === "daily") post({ type: "jumpDay", date: t2.dailyDate });
+      if (t2.source === "daily") post({ type: "jumpDay", date: t2.dailyDate, line: t2.line });
       else post({ type: "open", eventId: t2.eventId, occKey: t2.occurrenceKey });
     },
     navFold(open2) {
@@ -58696,7 +58702,9 @@
       if (!t2 || collapsed.has(foldKey(t2)) === !open2) return;
       toggleFold(p0, t2, open2);
     },
-    noteEdit(ring = false) {
+    // Enter on the NOTE stop / ⌘E → focus the live editor. `line` (a todo-row jump): once the
+    // editor is up, SELECT that source line so the jumped-to item arrives highlighted.
+    noteEdit(ring = false, line = null) {
       editingNote = true;
       editingRing = ring;
       applyNav();
@@ -58705,6 +58713,7 @@
         if (noteLive.style.display !== "none") {
           noteEd.setMode("edit");
           noteEd.focus();
+          if (line) noteEd.selectLine(line);
         } else if (left > 0) {
           requestAnimationFrame(() => tryFocus(left - 1));
         } else {
@@ -58719,7 +58728,7 @@
           }) });
         }
       };
-      queueMicrotask(() => tryFocus(30));
+      queueMicrotask(() => tryFocus(90));
     }
   };
   post({ type: "ready" });

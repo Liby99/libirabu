@@ -131,6 +131,7 @@ export interface NoteEditorHandle {
   setMode(mode: "edit" | "preview"): void;
   focus(): void;
   setCursorLine(line: number): void;
+  selectLine(line: number): void;       // select a whole source line (todo-row jump landing)
   setPlaceholder(text: string): void;   // scope-aware empty-note hint (Daily/Weekly/Monthly)
 }
 export interface NoteEditorOpts {
@@ -425,6 +426,12 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
       const ln = Math.max(1, Math.min(view.state.doc.lines, Math.round(line)));
       const pos = view.state.doc.line(ln).from;
       view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+      view.focus();
+    },
+    selectLine(line: number) {
+      const ln = Math.max(1, Math.min(view.state.doc.lines, Math.round(line)));
+      const l = view.state.doc.line(ln);
+      view.dispatch({ selection: { anchor: l.from, head: l.to }, scrollIntoView: true });
       view.focus();
     },
   };

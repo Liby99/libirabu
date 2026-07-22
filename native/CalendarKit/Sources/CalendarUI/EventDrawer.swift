@@ -1072,6 +1072,19 @@ struct EventDrawer: View {
         return String(format: "%d:%02d", hh, mm)
     }
 
+    /// "Navigate to Event" — shown beside the time info when the drawer was reached WITHOUT
+    /// selecting the event on the canvas (a dashboard/gantt/search open): fly the calendar to
+    /// the event and select it, keeping the drawer up.
+    @ViewBuilder private var navigateButton: some View {
+        if engine.selectedId.map({ sourceId(of: $0) }) != id {
+            Button { engine.revealAndSelect(id: id) } label: {
+                Label("Navigate to Event", systemImage: "location")
+            }
+            .buttonStyle(.link).font(.caption)
+            .help("Fly the calendar to this event")
+        }
+    }
+
     @ViewBuilder private var whenControls: some View {
         switch kind {
         case .timed:
@@ -1092,6 +1105,7 @@ struct EventDrawer: View {
                     displayedComponents: .hourAndMinute
                 ) }
                 Spacer(minLength: 0)
+                navigateButton
             }
             .font(.callout)
         case .band where recurringBand:
@@ -1109,6 +1123,7 @@ struct EventDrawer: View {
                         .buttonStyle(.link)
                 }
                 Spacer(minLength: 0)
+                navigateButton
             }
             .font(.callout).foregroundStyle(theme.text)
         case .band:
@@ -1127,6 +1142,7 @@ struct EventDrawer: View {
                     displayedComponents: .date
                 ) }
                 Spacer(minLength: 0)
+                navigateButton
             }
             .font(.callout)
         case .deadline:
@@ -1139,6 +1155,7 @@ struct EventDrawer: View {
                     displayedComponents: .hourAndMinute
                 ) }
                 Spacer(minLength: 0)
+                navigateButton
             }
             .font(.callout)
         }

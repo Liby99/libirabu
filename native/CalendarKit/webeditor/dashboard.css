@@ -133,7 +133,8 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 /* Centered on its rule + colored like its deadline — same alignment language as event names. */
 .cc-proj-vlabel { position: absolute; top: -16px; transform: translateX(-50%); max-width: 45%;
   font-size: 10.5px; letter-spacing: .3px; color: var(--ev-color); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; }
+  overflow: hidden; text-overflow: ellipsis; cursor: pointer; }   /* data-ddl → opens the drawer */
+.cc-proj-vlabel:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* Axis strips: absolute tick labels along the same % scale as the bars. */
 .cc-proj-axis { position: relative; height: 14px; margin-top: 3px; font-size: 10px;
   color: var(--accent-grey); }
