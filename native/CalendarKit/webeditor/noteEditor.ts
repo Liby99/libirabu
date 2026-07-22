@@ -190,6 +190,19 @@ function dateSource(ctx: CompletionContext): CompletionResult | null {
   if (parsed) {
     push(partial, parsed, 3); // the typed freeform, concretized, on top
   }
+  // due: weekday names (any prefix — "thu", "th", even "t") → the NEXT such weekday after today.
+  // Ambiguous prefixes list every match ("t" → tue + thu), each with its resolved date.
+  if (key === "due" && /^[a-z]+$/i.test(partial)) {
+    const WD_LC = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const pl = partial.toLowerCase();
+    WD_LC.forEach((w, i) => {
+      if (w.startsWith(pl)) {
+        const d = new Date(now);
+        d.setDate(d.getDate() + (((i - now.getDay()) + 7) % 7 || 7)); // strictly future
+        push(w.slice(0, 3), d, 2);
+      }
+    });
+  }
   const statics: [string, Date][] = [
     ["now", now], ["today", now], ["tomorrow", new Date(now.getTime() + 86_400_000)],
     ["3d", new Date(now.getTime() + 3 * 86_400_000)], ["1w", new Date(now.getTime() + 7 * 86_400_000)],

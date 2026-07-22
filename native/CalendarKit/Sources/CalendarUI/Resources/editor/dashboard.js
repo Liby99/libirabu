@@ -57143,6 +57143,17 @@
     if (parsed) {
       push2(partial, parsed, 3);
     }
+    if (key2 === "due" && /^[a-z]+$/i.test(partial)) {
+      const WD_LC = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+      const pl = partial.toLowerCase();
+      WD_LC.forEach((w, i3) => {
+        if (w.startsWith(pl)) {
+          const d = new Date(now);
+          d.setDate(d.getDate() + ((i3 - now.getDay() + 7) % 7 || 7));
+          push2(w.slice(0, 3), d, 2);
+        }
+      });
+    }
     const statics = [
       ["now", now],
       ["today", now],
