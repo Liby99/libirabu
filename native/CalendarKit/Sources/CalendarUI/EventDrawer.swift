@@ -1081,6 +1081,7 @@ struct EventDrawer: View {
                 Label("Navigate to Event", systemImage: "location")
             }
             .buttonStyle(.link).font(.caption)
+            .foregroundStyle(Theme.accent) // .link renders blue; the app's accent (Settings) wins
             .help("Fly the calendar to this event")
         }
     }
