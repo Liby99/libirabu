@@ -581,7 +581,10 @@ function ensureProjects() {
     const task: ProjTask = {
       t, start,
       end: t.done ? ((t.doneDate ?? "").slice(0, 10) || start) : null,
-      due: dueDate(t) || null,
+      // Only an EXPLICIT `due:` token is a deadline here. A todo without one INHERITS its source
+      // item's date as `due` (dueSource "event" — the TODO list's sectioning semantics), which
+      // would falsely hatch any task finished after its note's day as "overdue".
+      due: t.dueSource === "line" ? dueDate(t) || null : null,
       color,
     };
     for (const k of t.projects) get(k).tasks.push(task);

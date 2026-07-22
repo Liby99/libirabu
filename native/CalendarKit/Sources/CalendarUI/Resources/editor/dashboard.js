@@ -56273,7 +56273,10 @@
         t: t2,
         start,
         end: t2.done ? (t2.doneDate ?? "").slice(0, 10) || start : null,
-        due: dueDate(t2) || null,
+        // Only an EXPLICIT `due:` token is a deadline here. A todo without one INHERITS its source
+        // item's date as `due` (dueSource "event" — the TODO list's sectioning semantics), which
+        // would falsely hatch any task finished after its note's day as "overdue".
+        due: t2.dueSource === "line" ? dueDate(t2) || null : null,
         color: color2
       };
       for (const k of t2.projects) get(k).tasks.push(task);
