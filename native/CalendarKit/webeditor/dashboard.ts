@@ -168,7 +168,7 @@ const noteEd = createNoteEditor({
   editorEl: document.getElementById("note-editor")!,
   previewEl: document.getElementById("note-preview")!,
   placeholder: "Daily Note (Markdown)…",
-  onChange: (value) => { notes[liveIso] = value; liveText = value; todosDirty = true; post({ type: "noteChange", date: liveIso, value }); },
+  onChange: (value) => { notes[liveIso] = value; liveText = value; todosDirty = true; projectsDirty = true; post({ type: "noteChange", date: liveIso, value }); },
   // ⌘S → preview, and (if we were keyboard-focused via Tab) hand focus back to the calendar's NOTE ring.
   onPreview: () => { noteModeUser("preview"); post({ type: "navNoteExit" }); },
   onExit: () => post({ type: "navNoteExit" }),             // Escape in the editor → back to the NOTE ring
@@ -519,36 +519,199 @@ function deadlineHTML(viewIso: string): string {
   return `<section class="cc-dd-sec cc-dd-ddl-sec" data-iso="${viewIso}">${head}${body}</section>`;
 }
 
-// ── PROJ tab: per-project gantt charts — PLACEHOLDER LAYOUT (real data model + drawing later).
-// Each project gets a section: name + a lane of task bars on a shared horizontal time axis.
-// Bars are plain positioned divs (left/width in % of the track) so the layout, spacing, and
-// per-scope framing can be tuned before the actual gantt renderer lands.
-function projHTML(): string {
-  const proj = (name: string, color: string,
-                rows: [string, number, number, boolean?][]) => `
+// ── PROJ tab: per-project gantt charts ─────────────────────────────────────────────────────────
+// A note line that is exactly `@project:<key>` (own line, trimmed) associates its whole note with
+// that project. Sources: EVENT notes (timed/band/deadline, series + per-occurrence) — daily/scope
+// notes deliberately do NOT collect (user decision). Each project charts its todos as segments
+// (created → done, or created → now in gray for open ones; the post-due portion hatched) plus its
+// deadlines as vertical rules, over a relative-days + month-boundaries axis extending into the
+// future to the latest deadline.
+interface ProjTask {
+  t: ParsedTodo;
+  start: string; // day iso: created:, else the source item's day
+  end: string | null; // done day; null = open (extends to now)
+  due: string | null;
+  color: string; // the source event's color
+}
+interface Project {
+  key: string;
+  tasks: ProjTask[];
+  deadlines: DL[];
+  lastActivity: string; // max(done ?? created ?? due) — panel sort order
+}
+let projects: Project[] = [];
+let projectsDirty = true; // set alongside todosDirty (same data feeds both)
+function noteProjectKeys(text: string | null | undefined): string[] {
+  if (!text || !text.includes("@project:")) return [];
+  const out: string[] = [];
+  for (const line of text.split("\n")) {
+    const m = line.trim().match(/^@project:(.+)$/);
+    if (m) {
+      const k = m[1].trim();
+      if (k && !out.includes(k)) out.push(k);
+    }
+  }
+  return out;
+}
+function ensureProjects() {
+  ensureTodos();
+  if (!projectsDirty) return;
+  const map = new Map<string, Project>();
+  const get = (k: string): Project => {
+    let p = map.get(k);
+    if (!p) { p = { key: k, tasks: [], deadlines: [], lastActivity: "" }; map.set(k, p); }
+    return p;
+  };
+  for (const ev of events) {
+    const seriesKeys = noteProjectKeys(ev.notes);
+    const occKeys = new Map<string, string[]>();
+    for (const [ok, note] of Object.entries(ev.occurrenceNotes ?? {})) {
+      const ks = noteProjectKeys(note);
+      if (ks.length) occKeys.set(ok, ks);
+    }
+    if (!seriesKeys.length && !occKeys.size) continue;
+    const fallbackStart = ev.start.slice(0, 10); // created: absent → the source item's day
+    for (const t of allTodos) {
+      if (t.source !== "event" || t.eventId !== ev.id) continue;
+      const keys = t.occurrenceKey
+        ? [...new Set([...seriesKeys, ...(occKeys.get(t.occurrenceKey) ?? [])])]
+        : seriesKeys;
+      if (!keys.length) continue;
+      const start = (t.created ?? "").slice(0, 10) || fallbackStart;
+      const task: ProjTask = {
+        t, start,
+        end: t.done ? ((t.doneDate ?? "").slice(0, 10) || start) : null,
+        due: dueDate(t) || null,
+        color: ev.color ?? "blue",
+      };
+      for (const k of keys) get(k).tasks.push(task);
+    }
+    if (ev.kind === "deadline" && seriesKeys.length) {
+      const dl = deadlines.find((d) => d.id === ev.id);
+      if (dl) for (const k of seriesKeys) get(k).deadlines.push(dl);
+    }
+  }
+  for (const p of map.values()) {
+    p.lastActivity = p.tasks.reduce((a, x) => {
+      const d = x.end ?? x.start;
+      return d > a ? d : a;
+    }, "");
+  }
+  projects = [...map.values()].sort((a, b) => (a.lastActivity < b.lastActivity ? 1 : -1));
+  projectsDirty = false;
+}
+
+// Relevance ranking inside a project: open state, priority, activity recency, near/overdue due.
+// Transparent + additive so the weights are tunable in one place. Top 8 rows per project.
+const PROJ_MAX_ROWS = 8;
+function projScore(x: ProjTask): number {
+  let s = 0;
+  if (!x.t.done) s += 4;
+  s += x.t.priority ?? 0;
+  const anchor = x.end ?? x.start;
+  if (anchor && today) s += 3 * Math.exp(-Math.abs(daysBetween(anchor, today)) / 30);
+  if (x.due && today) {
+    const dd = daysBetween(today, x.due);
+    if (dd >= -30 && dd <= 14) s += 2;
+  }
+  return s;
+}
+
+/// The PROJ panel for a scope range [rs, re] (day: viewIso..viewIso). A project is shown iff it
+/// was ACTIVE during the range: some todo with start ≤ re and (open, or done on/after rs).
+function projHTML(rs: string, re: string): string {
+  if (!today) return ""; // pre-data tick — nothing to chart yet
+  ensureProjects();
+  const shown = projects.filter((p) =>
+    p.tasks.some((x) => x.start <= re && (!x.end || x.end >= rs)));
+  if (!shown.length) {
+    return `<div class="cc-proj-ph">PROJECTS</div>
+      <div class="cc-dd-free">No projects active in this range. Add a line "@project:name" to an event or deadline note.</div>`;
+  }
+  return `<div class="cc-proj-ph">PROJECTS</div>` + shown.map(projChartHTML).join("");
+}
+
+const MO_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function projChartHTML(p: Project): string {
+  const tasks = [...p.tasks].sort((a, b) => projScore(b) - projScore(a)).slice(0, PROJ_MAX_ROWS)
+    .sort((a, b) => (a.start < b.start ? -1 : 1)); // chart order: chronological
+  const hiddenN = p.tasks.length - tasks.length;
+  const dlIsos = p.deadlines.map((d) => `${d.year}-${pad(d.month + 1)}-${pad(d.day)}`);
+  // Time range: earliest visible start → max(now, latest deadline). "Show the future" — a CFP
+  // next month extends the chart past the now-line.
+  let lo = today, hi = today;
+  for (const x of tasks) {
+    if (x.start < lo) lo = x.start;
+    const e = x.end ?? today;
+    if (e > hi) hi = e;
+  }
+  for (const iso of dlIsos) {
+    if (iso < lo) lo = iso;
+    if (iso > hi) hi = iso;
+  }
+  const span = Math.max(1, daysBetween(lo, hi));
+  const x = (iso: string) => Math.max(0, Math.min(100, (daysBetween(lo, iso) / span) * 100));
+  const seg = (a: string, b: string, cls: string, color: string) => {
+    const l = x(a), w = Math.max(0.8, x(b) - x(a));
+    return `<span class="cc-proj-bar ${cls}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%;--bar:var(--event-${color}-border)"></span>`;
+  };
+  const rows = tasks.map((t) => {
+    const end = t.end ?? today;
+    let bars = "";
+    // Post-due portion hatched (overdue), for finished-late AND still-open-late rows alike.
+    if (t.due && end > t.due && t.start < t.due) {
+      bars = seg(t.start, t.due, t.end ? "cc-proj-donebar" : "cc-proj-openbar", t.color)
+        + seg(t.due, end, (t.end ? "cc-proj-donebar" : "cc-proj-openbar") + " cc-proj-over", t.color);
+    } else {
+      const over = t.due && end > t.due ? " cc-proj-over" : "";
+      bars = seg(t.start, end, (t.end ? "cc-proj-donebar" : "cc-proj-openbar") + over, t.color);
+    }
+    return `<div class="cc-proj-lrow${t.end ? " cc-proj-task-done" : ""}" title="${esc(t.t.text)}">${esc(t.t.text)}</div>|||<div class="cc-proj-track">${bars}</div>`;
+  });
+  // Deadline rules + the now-line span the row area; deadline titles sit in the top strip.
+  const vlines = p.deadlines.map((d, i) => {
+    const iso = dlIsos[i], l = x(iso);
+    return `<div class="cc-proj-vline" style="left:${l.toFixed(2)}%"></div>
+      <div class="cc-proj-vlabel" style="left:${l.toFixed(2)}%" title="${esc(d.title)}">◆ ${esc(d.title)}</div>`;
+  }).join("");
+  const nowLine = `<div class="cc-proj-vline cc-proj-nowline" style="left:${x(today).toFixed(2)}%"></div>`;
+  // Axis 1: relative days from now (past "Nd ago", future "in Nd"), step scaled to the span.
+  const step = span <= 100 ? 30 : span <= 240 ? 60 : 90;
+  let ticks = "";
+  for (let k = Math.ceil(-daysBetween(lo, today) / step) * step; ; k += step) {
+    const iso = addDays(today, k);
+    if (iso > hi) break;
+    if (iso < lo) continue;
+    const label = k === 0 ? "now" : k < 0 ? `${-k}d ago` : `in ${k}d`;
+    ticks += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${label}</span>`;
+  }
+  // Axis 2: month boundaries.
+  let months = "";
+  {
+    let [y, m] = lo.split("-").map(Number);
+    m += 1; if (m > 12) { m = 1; y += 1; }
+    for (;;) {
+      const iso = `${y}-${pad(m)}-01`;
+      if (iso > hi) break;
+      months += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${MO_SHORT[m - 1]}${m === 1 ? ` ’${String(y % 100).padStart(2, "0")}` : ""}</span>`;
+      m += 1; if (m > 12) { m = 1; y += 1; }
+    }
+  }
+  return `
     <section class="cc-dd-sec cc-proj">
-      <div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(name)}</span><span class="cc-dd-sec-count">${rows.length}</span></div>
-      <div class="cc-proj-gantt">
-        ${rows.map(([label, start, len, done]) => `
-          <div class="cc-proj-row">
-            <span class="cc-proj-task${done ? " cc-proj-task-done" : ""}">${esc(label)}</span>
-            <span class="cc-proj-track"><span class="cc-proj-bar${done ? " cc-proj-done" : ""}"
-              style="left:${start}%;width:${len}%;background:var(--event-${color}-border)"></span></span>
-          </div>`).join("")}
+      <div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(p.key)}</span><span class="cc-dd-sec-count">${p.tasks.length}</span>${hiddenN > 0 ? `<span class="cc-proj-more">+${hiddenN} more</span>` : ""}</div>
+      <div class="cc-proj-chart${p.deadlines.length ? " cc-proj-hasdls" : ""}">
+        <div class="cc-proj-labels">${rows.map((r) => r.split("|||")[0]).join("")}</div>
+        <div class="cc-proj-plot">
+          <div class="cc-proj-plotarea">
+            ${vlines}${nowLine}
+            ${rows.map((r) => r.split("|||")[1]).join("")}
+          </div>
+          <div class="cc-proj-axis">${ticks}</div>
+          <div class="cc-proj-axis cc-proj-months">${months}</div>
+        </div>
       </div>
     </section>`;
-  return `<div class="cc-proj-ph">PROJECTS · GANTT · PLACEHOLDER</div>` +
-    proj("Paper — CHI 2027", "blue", [
-      ["Outline", 0, 16, true], ["Study design", 10, 24, true], ["Data collection", 30, 28],
-      ["Analysis", 52, 22], ["Writing", 62, 30], ["Submission", 94, 6],
-    ]) +
-    proj("MagiCal 0.2", "red", [
-      ["Scope dashboards", 0, 32, true], ["Gantt tab", 26, 34], ["Polish pass", 55, 25],
-      ["TestFlight", 78, 22],
-    ]) +
-    proj("Grant renewal", "darkgreen", [
-      ["Budget draft", 0, 40], ["Letters", 30, 30], ["Final PDF", 70, 30],
-    ]);
 }
 
 // Render one day's content into a panel's inner scroller. TODO → the grouped list; NOTE → a static
@@ -557,7 +720,7 @@ function renderPanel(el: HTMLElement, viewIso: string) {
   const scroll = scrollOf.get(el) ?? el;
   isoOf.set(el, viewIso);
   if (tab === "proj") {
-    scroll.innerHTML = projHTML();
+    scroll.innerHTML = projHTML(viewIso.slice(0, 10), viewIso.slice(0, 10));
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;
     flatOf.delete(el);
     return;
@@ -657,8 +820,10 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
     scroll = el.firstElementChild as HTMLElement;
   }
   const noteKey = scope === "week" ? weekNoteKey(key) : monthNoteKey(key);
+  const start = scope === "week" ? key : `${key}-01`;
+  const end = scope === "week" ? addDays(key, 6) : monthEndIso(key);
   if (tab === "proj") {
-    scroll.innerHTML = projHTML();
+    scroll.innerHTML = projHTML(start, end);
     flatOf.delete(el);
     return;
   }
@@ -670,8 +835,6 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
     flatOf.delete(el);
     return;
   }
-  const start = scope === "week" ? key : `${key}-01`;
-  const end = scope === "week" ? addDays(key, 6) : monthEndIso(key);
   const word = scope === "week" ? "this week" : "this month";
   // The scope note's OWN todos drop their "Weekly/Monthly note · …" prefix inside their own
   // panel (shallow clones — the soft-link fields still point at the right note line).
@@ -930,7 +1093,7 @@ function toggle(panel: HTMLElement, idx: number) {
       }
     }
   }
-  if (ok) { todosDirty = true; selfEditAt = performance.now(); }   // suppress the setData echo's re-sort
+  if (ok) { todosDirty = true; projectsDirty = true; selfEditAt = performance.now(); }   // suppress the setData echo's re-sort
   if (row) setRowDone(row, ok ? !wasDone : wasDone);               // animate in place (revert native flip if unchanged)
 }
 
@@ -987,7 +1150,7 @@ root.addEventListener("click", (e) => {
     const d = JSON.parse(json);
     events = d.events || []; deadlines = d.deadlines || []; today = d.today || "";
     notes = d.dailyNotes || {};
-    todosDirty = true;                    // re-aggregate event + daily-note todos on next todo render
+    todosDirty = true; projectsDirty = true; // re-aggregate todos + the project index on next render
     if (!last.from) last.from = d.viewIso || today;
     // If this data push is just the echo of a checkbox WE just toggled, update the data but leave the
     // panels in place — the checked row stays put (mid-animation) and only migrates to "Recently

@@ -68,19 +68,42 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-dd-note-write { color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .cc-dd-note-write:hover { color: var(--fg); }
 
-/* ── PROJ tab: per-project gantt charts (placeholder layout — real renderer later). Each
-   project section holds label+bar rows on a shared horizontal axis; bar left/width are inline
-   percentages of the track, colored by the project's event-palette border var. ── */
+/* ── PROJ tab: per-project gantt charts. Two columns (task labels | plot); the plot stacks
+   fixed-height track rows, overlaid by deadline rules + the now-line, with two axis strips
+   below (relative days, month boundaries). Bars carry their event color via --bar; the
+   post-due portion hatches; open bars are grayed (unfinished). ── */
 .cc-proj-ph { opacity: .55; font-size: 11px; letter-spacing: 1.5px; margin: 4px 0 10px; }
-.cc-proj-gantt { display: flex; flex-direction: column; gap: 5px; }
-.cc-proj-row { display: flex; align-items: center; gap: 8px; }
-.cc-proj-task { width: 104px; flex: none; font-size: 11px; color: var(--accent-grey);
+.cc-proj-more { font-size: 10px; color: var(--accent-grey); margin-left: 2px; }
+.cc-proj-chart { display: flex; gap: 8px; margin-top: 2px; }
+.cc-proj-hasdls .cc-proj-plotarea { margin-top: 15px; }   /* room for the deadline labels strip */
+.cc-proj-hasdls .cc-proj-labels { padding-top: 15px; }
+.cc-proj-labels { width: 104px; flex: none; display: flex; flex-direction: column; gap: 4px; }
+.cc-proj-lrow { height: 14px; line-height: 14px; font-size: 11px; color: var(--accent-grey);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-proj-task-done { text-decoration: line-through; opacity: .6; }
-.cc-proj-track { position: relative; flex: 1; height: 13px; border-radius: 4px;
-  background: rgba(128, 128, 128, .12); overflow: clip; }
-.cc-proj-bar { position: absolute; top: 0; bottom: 0; border-radius: 4px; opacity: .85; }
-.cc-proj-done { opacity: .38; }
+.cc-proj-plot { flex: 1; min-width: 0; position: relative; }
+.cc-proj-plotarea { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.cc-proj-track { position: relative; height: 14px; border-radius: 4px;
+  background: rgba(128, 128, 128, .10); overflow: clip; }
+.cc-proj-bar { position: absolute; top: 1px; bottom: 1px; border-radius: 3px; background: var(--bar); }
+.cc-proj-donebar { opacity: .85; }
+.cc-proj-openbar { opacity: .38; filter: grayscale(.55); }   /* unfinished → grayer, runs to now */
+.cc-proj-over { background-image: repeating-linear-gradient(45deg,
+  rgba(0, 0, 0, .30) 0 3px, transparent 3px 6px); }          /* past-due portion: hatched */
+/* Deadline rules + the now-line span the row area; labels sit in the strip above. */
+.cc-proj-vline { position: absolute; top: -2px; bottom: -2px; width: 1px;
+  background: var(--accent-grey); opacity: .55; }
+.cc-proj-nowline { background: var(--accent-dark); opacity: .9; width: 1.5px; }
+.cc-proj-vlabel { position: absolute; top: -15px; transform: translateX(-4px); max-width: 45%;
+  font-size: 9.5px; letter-spacing: .3px; color: var(--fg); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+/* Axis strips: absolute tick labels along the same % scale as the bars. */
+.cc-proj-axis { position: relative; height: 13px; margin-top: 3px; font-size: 9px;
+  color: var(--accent-grey); }
+.cc-proj-months { margin-top: 0; opacity: .75; border-top: 1px solid rgba(128, 128, 128, .25); }
+.cc-proj-tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.cc-proj-axis .cc-proj-tick::before { content: ""; position: absolute; left: 50%; top: -3px;
+  width: 1px; height: 3px; background: currentColor; }
 /* Transform layer: carries the per-frame carousel slide + fade. It must NOT be the scroller — a
    transformed/composited scroller loses WebKit's native rubber-band. */
 .cc-dd-panel {

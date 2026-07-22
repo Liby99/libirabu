@@ -55917,6 +55917,7 @@
       notes[liveIso] = value;
       liveText = value;
       todosDirty = true;
+      projectsDirty = true;
       post({ type: "noteChange", date: liveIso, value });
     },
     // ⌘S → preview, and (if we were keyboard-focused via Tab) hand focus back to the calendar's NOTE ring.
@@ -56227,42 +56228,179 @@
           <span class="cc-dd-ddl-when">${esc(relDue(viewIso, iso))} \xB7 ${hhmm(d.hour)}</span></li>`).join("")}</ul>` : `<div class="cc-dd-free">No deadlines in this window.</div>`;
     return `<section class="cc-dd-sec cc-dd-ddl-sec" data-iso="${viewIso}">${head2}${body3}</section>`;
   }
-  function projHTML() {
-    const proj = (name2, color2, rows) => `
+  var projects = [];
+  var projectsDirty = true;
+  function noteProjectKeys(text9) {
+    if (!text9 || !text9.includes("@project:")) return [];
+    const out = [];
+    for (const line of text9.split("\n")) {
+      const m = line.trim().match(/^@project:(.+)$/);
+      if (m) {
+        const k = m[1].trim();
+        if (k && !out.includes(k)) out.push(k);
+      }
+    }
+    return out;
+  }
+  function ensureProjects() {
+    ensureTodos();
+    if (!projectsDirty) return;
+    const map3 = /* @__PURE__ */ new Map();
+    const get = (k) => {
+      let p3 = map3.get(k);
+      if (!p3) {
+        p3 = { key: k, tasks: [], deadlines: [], lastActivity: "" };
+        map3.set(k, p3);
+      }
+      return p3;
+    };
+    for (const ev of events) {
+      const seriesKeys = noteProjectKeys(ev.notes);
+      const occKeys = /* @__PURE__ */ new Map();
+      for (const [ok4, note] of Object.entries(ev.occurrenceNotes ?? {})) {
+        const ks = noteProjectKeys(note);
+        if (ks.length) occKeys.set(ok4, ks);
+      }
+      if (!seriesKeys.length && !occKeys.size) continue;
+      const fallbackStart = ev.start.slice(0, 10);
+      for (const t2 of allTodos) {
+        if (t2.source !== "event" || t2.eventId !== ev.id) continue;
+        const keys2 = t2.occurrenceKey ? [.../* @__PURE__ */ new Set([...seriesKeys, ...occKeys.get(t2.occurrenceKey) ?? []])] : seriesKeys;
+        if (!keys2.length) continue;
+        const start = (t2.created ?? "").slice(0, 10) || fallbackStart;
+        const task = {
+          t: t2,
+          start,
+          end: t2.done ? (t2.doneDate ?? "").slice(0, 10) || start : null,
+          due: dueDate(t2) || null,
+          color: ev.color ?? "blue"
+        };
+        for (const k of keys2) get(k).tasks.push(task);
+      }
+      if (ev.kind === "deadline" && seriesKeys.length) {
+        const dl = deadlines.find((d) => d.id === ev.id);
+        if (dl) for (const k of seriesKeys) get(k).deadlines.push(dl);
+      }
+    }
+    for (const p3 of map3.values()) {
+      p3.lastActivity = p3.tasks.reduce((a, x) => {
+        const d = x.end ?? x.start;
+        return d > a ? d : a;
+      }, "");
+    }
+    projects = [...map3.values()].sort((a, b) => a.lastActivity < b.lastActivity ? 1 : -1);
+    projectsDirty = false;
+  }
+  var PROJ_MAX_ROWS = 8;
+  function projScore(x) {
+    let s2 = 0;
+    if (!x.t.done) s2 += 4;
+    s2 += x.t.priority ?? 0;
+    const anchor = x.end ?? x.start;
+    if (anchor && today) s2 += 3 * Math.exp(-Math.abs(daysBetween(anchor, today)) / 30);
+    if (x.due && today) {
+      const dd2 = daysBetween(today, x.due);
+      if (dd2 >= -30 && dd2 <= 14) s2 += 2;
+    }
+    return s2;
+  }
+  function projHTML(rs, re2) {
+    if (!today) return "";
+    ensureProjects();
+    const shown = projects.filter((p3) => p3.tasks.some((x) => x.start <= re2 && (!x.end || x.end >= rs)));
+    if (!shown.length) {
+      return `<div class="cc-proj-ph">PROJECTS</div>
+      <div class="cc-dd-free">No projects active in this range. Add a line "@project:name" to an event or deadline note.</div>`;
+    }
+    return `<div class="cc-proj-ph">PROJECTS</div>` + shown.map(projChartHTML).join("");
+  }
+  var MO_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function projChartHTML(p3) {
+    const tasks = [...p3.tasks].sort((a, b) => projScore(b) - projScore(a)).slice(0, PROJ_MAX_ROWS).sort((a, b) => a.start < b.start ? -1 : 1);
+    const hiddenN = p3.tasks.length - tasks.length;
+    const dlIsos = p3.deadlines.map((d) => `${d.year}-${pad3(d.month + 1)}-${pad3(d.day)}`);
+    let lo = today, hi = today;
+    for (const x2 of tasks) {
+      if (x2.start < lo) lo = x2.start;
+      const e = x2.end ?? today;
+      if (e > hi) hi = e;
+    }
+    for (const iso of dlIsos) {
+      if (iso < lo) lo = iso;
+      if (iso > hi) hi = iso;
+    }
+    const span = Math.max(1, daysBetween(lo, hi));
+    const x = (iso) => Math.max(0, Math.min(100, daysBetween(lo, iso) / span * 100));
+    const seg = (a, b, cls, color2) => {
+      const l = x(a), w = Math.max(0.8, x(b) - x(a));
+      return `<span class="cc-proj-bar ${cls}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%;--bar:var(--event-${color2}-border)"></span>`;
+    };
+    const rows = tasks.map((t2) => {
+      const end = t2.end ?? today;
+      let bars = "";
+      if (t2.due && end > t2.due && t2.start < t2.due) {
+        bars = seg(t2.start, t2.due, t2.end ? "cc-proj-donebar" : "cc-proj-openbar", t2.color) + seg(t2.due, end, (t2.end ? "cc-proj-donebar" : "cc-proj-openbar") + " cc-proj-over", t2.color);
+      } else {
+        const over = t2.due && end > t2.due ? " cc-proj-over" : "";
+        bars = seg(t2.start, end, (t2.end ? "cc-proj-donebar" : "cc-proj-openbar") + over, t2.color);
+      }
+      return `<div class="cc-proj-lrow${t2.end ? " cc-proj-task-done" : ""}" title="${esc(t2.t.text)}">${esc(t2.t.text)}</div>|||<div class="cc-proj-track">${bars}</div>`;
+    });
+    const vlines = p3.deadlines.map((d, i3) => {
+      const iso = dlIsos[i3], l = x(iso);
+      return `<div class="cc-proj-vline" style="left:${l.toFixed(2)}%"></div>
+      <div class="cc-proj-vlabel" style="left:${l.toFixed(2)}%" title="${esc(d.title)}">\u25C6 ${esc(d.title)}</div>`;
+    }).join("");
+    const nowLine = `<div class="cc-proj-vline cc-proj-nowline" style="left:${x(today).toFixed(2)}%"></div>`;
+    const step = span <= 100 ? 30 : span <= 240 ? 60 : 90;
+    let ticks = "";
+    for (let k = Math.ceil(-daysBetween(lo, today) / step) * step; ; k += step) {
+      const iso = addDays(today, k);
+      if (iso > hi) break;
+      if (iso < lo) continue;
+      const label = k === 0 ? "now" : k < 0 ? `${-k}d ago` : `in ${k}d`;
+      ticks += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${label}</span>`;
+    }
+    let months = "";
+    {
+      let [y, m] = lo.split("-").map(Number);
+      m += 1;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      }
+      for (; ; ) {
+        const iso = `${y}-${pad3(m)}-01`;
+        if (iso > hi) break;
+        months += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${MO_SHORT[m - 1]}${m === 1 ? ` \u2019${String(y % 100).padStart(2, "0")}` : ""}</span>`;
+        m += 1;
+        if (m > 12) {
+          m = 1;
+          y += 1;
+        }
+      }
+    }
+    return `
     <section class="cc-dd-sec cc-proj">
-      <div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(name2)}</span><span class="cc-dd-sec-count">${rows.length}</span></div>
-      <div class="cc-proj-gantt">
-        ${rows.map(([label, start, len, done]) => `
-          <div class="cc-proj-row">
-            <span class="cc-proj-task${done ? " cc-proj-task-done" : ""}">${esc(label)}</span>
-            <span class="cc-proj-track"><span class="cc-proj-bar${done ? " cc-proj-done" : ""}"
-              style="left:${start}%;width:${len}%;background:var(--event-${color2}-border)"></span></span>
-          </div>`).join("")}
+      <div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(p3.key)}</span><span class="cc-dd-sec-count">${p3.tasks.length}</span>${hiddenN > 0 ? `<span class="cc-proj-more">+${hiddenN} more</span>` : ""}</div>
+      <div class="cc-proj-chart${p3.deadlines.length ? " cc-proj-hasdls" : ""}">
+        <div class="cc-proj-labels">${rows.map((r) => r.split("|||")[0]).join("")}</div>
+        <div class="cc-proj-plot">
+          <div class="cc-proj-plotarea">
+            ${vlines}${nowLine}
+            ${rows.map((r) => r.split("|||")[1]).join("")}
+          </div>
+          <div class="cc-proj-axis">${ticks}</div>
+          <div class="cc-proj-axis cc-proj-months">${months}</div>
+        </div>
       </div>
     </section>`;
-    return `<div class="cc-proj-ph">PROJECTS \xB7 GANTT \xB7 PLACEHOLDER</div>` + proj("Paper \u2014 CHI 2027", "blue", [
-      ["Outline", 0, 16, true],
-      ["Study design", 10, 24, true],
-      ["Data collection", 30, 28],
-      ["Analysis", 52, 22],
-      ["Writing", 62, 30],
-      ["Submission", 94, 6]
-    ]) + proj("MagiCal 0.2", "red", [
-      ["Scope dashboards", 0, 32, true],
-      ["Gantt tab", 26, 34],
-      ["Polish pass", 55, 25],
-      ["TestFlight", 78, 22]
-    ]) + proj("Grant renewal", "darkgreen", [
-      ["Budget draft", 0, 40],
-      ["Letters", 30, 30],
-      ["Final PDF", 70, 30]
-    ]);
   }
   function renderPanel(el, viewIso) {
     const scroll = scrollOf.get(el) ?? el;
     isoOf.set(el, viewIso);
     if (tab2 === "proj") {
-      scroll.innerHTML = projHTML();
+      scroll.innerHTML = projHTML(viewIso.slice(0, 10), viewIso.slice(0, 10));
       scroll.scrollTop = scrollByIso[viewIso] ?? 0;
       flatOf.delete(el);
       return;
@@ -56337,8 +56475,10 @@
       scroll = el.firstElementChild;
     }
     const noteKey = scope === "week" ? weekNoteKey(key2) : monthNoteKey(key2);
+    const start = scope === "week" ? key2 : `${key2}-01`;
+    const end = scope === "week" ? addDays(key2, 6) : monthEndIso(key2);
     if (tab2 === "proj") {
-      scroll.innerHTML = projHTML();
+      scroll.innerHTML = projHTML(start, end);
       flatOf.delete(el);
       return;
     }
@@ -56348,8 +56488,6 @@
       flatOf.delete(el);
       return;
     }
-    const start = scope === "week" ? key2 : `${key2}-01`;
-    const end = scope === "week" ? addDays(key2, 6) : monthEndIso(key2);
     const word = scope === "week" ? "this week" : "this month";
     const sections = rangeTodoSections(start, end, word, scope).map((s2) => ({
       ...s2,
@@ -56631,6 +56769,7 @@
     }
     if (ok4) {
       todosDirty = true;
+      projectsDirty = true;
       selfEditAt = performance.now();
     }
     if (row2) setRowDone(row2, ok4 ? !wasDone : wasDone);
@@ -56693,6 +56832,7 @@
       today = d.today || "";
       notes = d.dailyNotes || {};
       todosDirty = true;
+      projectsDirty = true;
       if (!last.from) last.from = d.viewIso || today;
       if (performance.now() - selfEditAt < SELF_ECHO_MS) return;
       isoOf.delete(p0);
