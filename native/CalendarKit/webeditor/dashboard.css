@@ -154,7 +154,11 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 /* Plain inner scroller: no transform/will-change, so WebKit gives it native elastic overscroll. */
 .cc-dd-scroll {
   position: absolute; inset: 0; box-sizing: border-box;
-  overflow-y: auto; overflow-x: hidden;
+  /* x: CLIP, not hidden — hidden is still a scroll container, so any content overhanging the
+     panel (a long deadline/event label near the gantt's right edge) inflates scrollWidth and
+     the trackpad can PAN the panel sideways, breaking the app's layout flow. clip forbids all
+     horizontal scrolling; vertical stays the one intentional scroller. */
+  overflow-y: auto; overflow-x: clip;
   padding: 8px 18px 34px var(--dd-pad);          /* left 25 = gutter (matches the Canvas barX) */
   /* Room for the keyboard-nav ring at the scroll edges: scrollIntoView keeps the focused row this far
      from the top/bottom, so the dashed outline (which overshoots the row) never gets clipped. */
