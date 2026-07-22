@@ -78,9 +78,14 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-proj-hasdls .cc-proj-plotarea { margin-top: 15px; }   /* room for the deadline labels strip */
 .cc-proj-hasdls .cc-proj-labels { padding-top: 15px; }
 .cc-proj-labels { width: 104px; flex: none; display: flex; flex-direction: column; gap: 4px; }
-.cc-proj-lrow { height: 14px; line-height: 14px; font-size: 11px; color: var(--accent-grey);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cc-proj-task-done { text-decoration: line-through; opacity: .6; }
+.cc-proj-lrow { height: 14px; display: flex; align-items: center; gap: 4px; font-size: 11px;
+  color: var(--accent-grey); }
+.cc-proj-ltext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Completion checkbox glyph (NO strike-through on the label): ✓-box done, empty box open. */
+.cc-proj-box { flex: none; width: 10px; height: 10px; box-sizing: border-box; border-radius: 3px;
+  border: 1px solid var(--accent-grey); display: flex; align-items: center; justify-content: center;
+  font-size: 8px; line-height: 8px; color: var(--check-mark); }
+.cc-proj-box-done { border-color: var(--check-mark); }
 .cc-proj-plot { flex: 1; min-width: 0; position: relative; }
 .cc-proj-plotarea { position: relative; display: flex; flex-direction: column; gap: 4px; }
 .cc-proj-track { position: relative; height: 14px; border-radius: 4px;

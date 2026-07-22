@@ -56347,7 +56347,7 @@
         const over = t2.due && end > t2.due ? " cc-proj-over" : "";
         bars = seg(t2.start, end, (t2.end ? "cc-proj-donebar" : "cc-proj-openbar") + over, t2.color);
       }
-      return `<div class="cc-proj-lrow${t2.end ? " cc-proj-task-done" : ""}" title="${esc(t2.t.text)}">${esc(t2.t.text)}</div>|||<div class="cc-proj-track">${bars}</div>`;
+      return `<div class="cc-proj-lrow" title="${esc(t2.t.text)}"><span class="cc-proj-box${t2.end ? " cc-proj-box-done" : ""}">${t2.end ? "\u2713" : ""}</span><span class="cc-proj-ltext">${esc(t2.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
     });
     const vlines = p3.deadlines.map((d, i3) => {
       const iso = dlIsos[i3], l = x(iso);

@@ -670,7 +670,8 @@ function projChartHTML(p: Project): string {
       const over = t.due && end > t.due ? " cc-proj-over" : "";
       bars = seg(t.start, end, (t.end ? "cc-proj-donebar" : "cc-proj-openbar") + over, t.color);
     }
-    return `<div class="cc-proj-lrow${t.end ? " cc-proj-task-done" : ""}" title="${esc(t.t.text)}">${esc(t.t.text)}</div>|||<div class="cc-proj-track">${bars}</div>`;
+    // Completion state as a checkbox glyph (no strike-through): ✓-box done, empty box open.
+    return `<div class="cc-proj-lrow" title="${esc(t.t.text)}"><span class="cc-proj-box${t.end ? " cc-proj-box-done" : ""}">${t.end ? "✓" : ""}</span><span class="cc-proj-ltext">${esc(t.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
   });
   // Deadline rules + the now-line span the row area; deadline titles sit in the top strip.
   const vlines = p.deadlines.map((d, i) => {
