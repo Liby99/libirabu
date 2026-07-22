@@ -630,8 +630,32 @@ function ensureProjects() {
       return d > a ? d : a;
     }, "");
   }
-  projects = [...map.values()].sort((a, b) => (a.lastActivity < b.lastActivity ? 1 : -1));
+  // CONSISTENT ordering: a deterministic relevance score with a total-order tiebreak (the key),
+  // so the list never reshuffles on rebuilds or ties. Raw lastActivity-desc both shuffled ties
+  // (Map iteration order) and jumped a project around the moment one of its boxes was checked.
+  projects = [...map.values()].sort((a, b) =>
+    projectScore(b) - projectScore(a) || (a.key < b.key ? -1 : 1));
   projectsDirty = false;
+}
+
+/// Project relevance — transparent + additive, weights tunable in one place:
+/// open-work pressure (count + priorities), activity recency (30d decay), and how close the
+/// nearest upcoming deadline is (21d decay).
+function projectScore(p: Project): number {
+  let s = 0;
+  const open = p.tasks.filter((x) => !x.end);
+  s += Math.min(4, open.length); // active work, capped so a huge backlog doesn't dominate
+  for (const x of open) s += Math.min(3, x.t.priority ?? 0) / 3;
+  if (p.lastActivity && today) {
+    s += 4 * Math.exp(-Math.abs(daysBetween(p.lastActivity, today)) / 30);
+  }
+  if (today) {
+    for (const d of p.deadlines) {
+      const dd = daysBetween(today, `${d.year}-${pad(d.month + 1)}-${pad(d.day)}`);
+      if (dd >= 0) s += 3 * Math.exp(-dd / 21);
+    }
+  }
+  return s;
 }
 
 // Relevance ranking inside a project: open state, priority, activity recency, near/overdue due.

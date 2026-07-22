@@ -57940,8 +57940,24 @@
         return d > a ? d : a;
       }, "");
     }
-    projects = [...map3.values()].sort((a, b) => a.lastActivity < b.lastActivity ? 1 : -1);
+    projects = [...map3.values()].sort((a, b) => projectScore(b) - projectScore(a) || (a.key < b.key ? -1 : 1));
     projectsDirty = false;
+  }
+  function projectScore(p3) {
+    let s2 = 0;
+    const open2 = p3.tasks.filter((x) => !x.end);
+    s2 += Math.min(4, open2.length);
+    for (const x of open2) s2 += Math.min(3, x.t.priority ?? 0) / 3;
+    if (p3.lastActivity && today) {
+      s2 += 4 * Math.exp(-Math.abs(daysBetween(p3.lastActivity, today)) / 30);
+    }
+    if (today) {
+      for (const d of p3.deadlines) {
+        const dd2 = daysBetween(today, `${d.year}-${pad3(d.month + 1)}-${pad3(d.day)}`);
+        if (dd2 >= 0) s2 += 3 * Math.exp(-dd2 / 21);
+      }
+    }
+    return s2;
   }
   var PROJ_MAX_ROWS = 8;
   function projScore(x) {
