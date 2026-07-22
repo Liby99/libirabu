@@ -92,7 +92,7 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
   background: rgba(128, 128, 128, .10); overflow: clip; }
 .cc-proj-bar { position: absolute; top: 1px; bottom: 1px; border-radius: 3px; background: var(--bar); }
 .cc-proj-donebar { opacity: .85; }
-.cc-proj-openbar { opacity: .38; filter: grayscale(.55); }   /* unfinished → grayer, runs to now */
+.cc-proj-openbar { opacity: .85; }   /* open rows stay fully colored (run to now); the checkbox carries the state */
 .cc-proj-over { background-image: repeating-linear-gradient(45deg,
   rgba(0, 0, 0, .30) 0 3px, transparent 3px 6px); }          /* past-due portion: hatched */
 /* An uncrossed due date (open-with-future-due / finished-early): a small vertical tick in the
