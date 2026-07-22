@@ -724,6 +724,25 @@ struct DailyDashboardOverlay: View {
             onOpenLink: { NSWorkspace.shared.open($0) },
             onJumpDay: { date in
                 // "YYYY-MM-DD" → fly to that day (like Today), then open its NOTE tab on landing.
+                // Scope-note keys (weekly/monthly todos — TODO list rows and gantt titles alike):
+                // "week:<sunday-iso>" → that week view; "month:<YYYY-MM>" → that month view — both
+                // land with the panel pinned open on the NOTE tab (the note the todo lives in).
+                if date.hasPrefix("week:") {
+                    let c = date.dropFirst(5).split(separator: "-").compactMap { Int($0) }
+                    guard c.count == 3 else { return }
+                    engine.jumpToWeek(c[0], c[1] - 1, c[2])
+                    engine.pinDashboard()
+                    tab = .note
+                    return
+                }
+                if date.hasPrefix("month:") {
+                    let c = date.dropFirst(6).split(separator: "-").compactMap { Int($0) }
+                    guard c.count == 2 else { return }
+                    engine.setView(year: c[0], zoom: "month", focusedMonth: c[1] - 1)
+                    engine.pinDashboard()
+                    tab = .note
+                    return
+                }
                 let c = date.split(separator: "-").compactMap { Int($0) }
                 guard c.count == 3 else { return }
                 engine.jumpToDay(c[0], c[1] - 1, c[2], onLand: { tab = .note })
@@ -926,8 +945,10 @@ private struct DashTabs: View {
         .clipped() // clip a sliding copy at the panel edge
         .mask(alignment: .leading) { Rectangle().padding(.leading, clipLeft) }
         // Interactive only at rest: panel fully opaque (no scope transition), no inner page-turn
-        // mid-flight (the week turn rests at 1 too), no month-turn in flight.
-        .allowsHitTesting(op > 0.999 && (pageP < 0.01 || pageP > 0.99) && anim.monthP < 0.01)
+        // mid-flight (the week turn rests at 1 too), no month-turn in flight. The mid-flight term
+        // mirrors the two-copy render condition above EXACTLY — if a single resting row is drawn,
+        // it is clickable (a mismatched epsilon here once left a visible row that ignored clicks).
+        .allowsHitTesting(op > 0.999 && !(pageDir != 0 && pageP > 0.001 && pageP < 0.999) && anim.monthP < 0.01)
     }
 
     private var row: some View {

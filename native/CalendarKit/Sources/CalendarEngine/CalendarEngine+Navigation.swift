@@ -271,6 +271,32 @@ extension CalendarEngine {
         wake()
     }
 
+    /// Programmatic pin (no toggle semantics, valid at any level): make sure the ⌘B panel is out —
+    /// e.g. landing on a weekly/monthly note from a gantt row must arrive with the panel open.
+    public func pinDashboard() {
+        guard !dashPinned else { return }
+        dashPinned = true
+        UserDefaults.standard.set(true, forKey: PrefKeys.dashPinned)
+        anim.dashPinTween = Tween(from: dashPin, to: 1, start: Date(), duration: 0.3, ease: easeInOut)
+        chrome.dashPinned = true
+        chrome.dashPresented = true
+        wake()
+    }
+
+    /// Land on the WEEK VIEW containing (year, month, dom) — the "go to this weekly note" jump.
+    public func jumpToWeek(_ ty: Int, _ m0: Int, _ dom: Int) {
+        wake()
+        if ty != year {
+            selectYear(ty)
+        }
+        let m = max(0, min(11, m0))
+        focus = m
+        week = CGFloat(weekOfDate(ty, m, max(1, min(daysInMonth(ty, m), dom))))
+        chrome.monthResync &+= 1; chrome.weekResync &+= 1
+        tweenZ(to: 2)
+        pushChrome()
+    }
+
     public func setView(year targetYear: Int? = nil, zoom: String? = nil, focusedMonth: Int? = nil,
                         day: Int? = nil) {
         wake()

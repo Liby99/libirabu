@@ -623,20 +623,25 @@ function projScore(x: ProjTask): number {
 
 /// The PROJ panel for a scope range [rs, re] (day: viewIso..viewIso). A project is shown iff it
 /// was ACTIVE during the range: some todo with start ≤ re and (open, or done on/after rs).
-function projHTML(rs: string, re: string): string {
-  if (!today) return ""; // pre-data tick — nothing to chart yet
+/// Returns the html AND the flat todo list in render order — the caller registers it in flatOf,
+/// so the rows are FULLY interactive TODO items (checkbox toggling + title-click open) through
+/// the exact same delegation paths as the TODO tab, just formatted as a gantt.
+function projHTML(rs: string, re: string): { html: string; flat: ParsedTodo[] } {
+  if (!today) return { html: "", flat: [] }; // pre-data tick — nothing to chart yet
   ensureProjects();
   const shown = projects.filter((p) =>
     p.tasks.some((x) => x.start <= re && (!x.end || x.end >= rs)));
+  const flat: ParsedTodo[] = [];
   if (!shown.length) {
-    return `<div class="cc-proj-ph">PROJECTS</div>
-      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone).</div>`;
+    return { html: `<div class="cc-proj-ph">PROJECTS</div>
+      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone).</div>`, flat };
   }
-  return `<div class="cc-proj-ph">PROJECTS</div>` + shown.map(projChartHTML).join("");
+  return { html: `<div class="cc-proj-ph">PROJECTS</div>`
+    + shown.map((p) => projChartHTML(p, flat)).join(""), flat };
 }
 
 const MO_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function projChartHTML(p: Project): string {
+function projChartHTML(p: Project, flat: ParsedTodo[]): string {
   const tasks = [...p.tasks].sort((a, b) => projScore(b) - projScore(a)).slice(0, PROJ_MAX_ROWS)
     .sort((a, b) => (a.start < b.start ? -1 : 1)); // chart order: chronological
   const hiddenN = p.tasks.length - tasks.length;
@@ -670,8 +675,12 @@ function projChartHTML(p: Project): string {
       const over = t.due && end > t.due ? " cc-proj-over" : "";
       bars = seg(t.start, end, (t.end ? "cc-proj-donebar" : "cc-proj-openbar") + over, t.color);
     }
-    // Completion state as a checkbox glyph (no strike-through): ✓-box done, empty box open.
-    return `<div class="cc-proj-lrow" title="${esc(t.t.text)}"><span class="cc-proj-box${t.end ? " cc-proj-box-done" : ""}">${t.end ? "✓" : ""}</span><span class="cc-proj-ltext">${esc(t.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
+    // A REAL todo row, gantt-formatted: the same checkbox as the TODO list (same class → the
+    // shared change-delegation toggles the source line, done:-stamp and all) and a clickable
+    // title (data-open → open the event drawer / jump to the source note).
+    const idx = flat.length;
+    flat.push(t.t);
+    return `<div class="cc-proj-lrow"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t.t.text)}">${esc(t.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
   });
   // Deadline rules + the now-line span the row area; deadline titles sit in the top strip.
   const vlines = p.deadlines.map((d, i) => {
@@ -725,9 +734,10 @@ function renderPanel(el: HTMLElement, viewIso: string) {
   const scroll = scrollOf.get(el) ?? el;
   isoOf.set(el, viewIso);
   if (tab === "proj") {
-    scroll.innerHTML = projHTML(viewIso.slice(0, 10), viewIso.slice(0, 10));
+    const r = projHTML(viewIso.slice(0, 10), viewIso.slice(0, 10));
+    scroll.innerHTML = r.html;
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;
-    flatOf.delete(el);
+    flatOf.set(el, r.flat); // gantt rows ARE todo rows — checkbox/open delegation resolves here
     return;
   }
   if (tab === "note") {
@@ -828,8 +838,9 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
   const start = scope === "week" ? key : `${key}-01`;
   const end = scope === "week" ? addDays(key, 6) : monthEndIso(key);
   if (tab === "proj") {
-    scroll.innerHTML = projHTML(start, end);
-    flatOf.delete(el);
+    const r = projHTML(start, end);
+    scroll.innerHTML = r.html;
+    flatOf.set(el, r.flat); // gantt rows ARE todo rows — checkbox/open delegation resolves here
     return;
   }
   if (tab === "note") {

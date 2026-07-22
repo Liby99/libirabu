@@ -78,17 +78,17 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-proj-hasdls .cc-proj-plotarea { margin-top: 15px; }   /* room for the deadline labels strip */
 .cc-proj-hasdls .cc-proj-labels { padding-top: 15px; }
 .cc-proj-labels { width: 104px; flex: none; display: flex; flex-direction: column; gap: 4px; }
-.cc-proj-lrow { height: 14px; display: flex; align-items: center; gap: 4px; font-size: 11px;
+.cc-proj-lrow { height: 16px; display: flex; align-items: center; gap: 5px; font-size: 11px;
   color: var(--accent-grey); }
-.cc-proj-ltext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Completion checkbox glyph (NO strike-through on the label): ✓-box done, empty box open. */
-.cc-proj-box { flex: none; width: 10px; height: 10px; box-sizing: border-box; border-radius: 3px;
-  border: 1px solid var(--accent-grey); display: flex; align-items: center; justify-content: center;
-  font-size: 8px; line-height: 8px; color: var(--check-mark); }
-.cc-proj-box-done { border-color: var(--check-mark); }
+/* The row's checkbox IS the TODO list's (.cc-dtodo-check — same class, same toggle delegation);
+   only its list-alignment margin is neutralized here. The title is clickable (data-open). */
+.cc-proj-lrow .cc-dtodo-check { margin-top: 0; }
+.cc-proj-ltext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer; }
+.cc-proj-ltext:hover { color: var(--highlight); }
 .cc-proj-plot { flex: 1; min-width: 0; position: relative; }
 .cc-proj-plotarea { position: relative; display: flex; flex-direction: column; gap: 4px; }
-.cc-proj-track { position: relative; height: 14px; border-radius: 4px;
+.cc-proj-track { position: relative; height: 16px; border-radius: 4px;
   background: rgba(128, 128, 128, .10); overflow: clip; }
 .cc-proj-bar { position: absolute; top: 1px; bottom: 1px; border-radius: 3px; background: var(--bar); }
 .cc-proj-donebar { opacity: .85; }

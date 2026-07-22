@@ -56308,17 +56308,18 @@
     return s2;
   }
   function projHTML(rs, re2) {
-    if (!today) return "";
+    if (!today) return { html: "", flat: [] };
     ensureProjects();
     const shown = projects.filter((p3) => p3.tasks.some((x) => x.start <= re2 && (!x.end || x.end >= rs)));
+    const flat = [];
     if (!shown.length) {
-      return `<div class="cc-proj-ph">PROJECTS</div>
-      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone).</div>`;
+      return { html: `<div class="cc-proj-ph">PROJECTS</div>
+      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone).</div>`, flat };
     }
-    return `<div class="cc-proj-ph">PROJECTS</div>` + shown.map(projChartHTML).join("");
+    return { html: `<div class="cc-proj-ph">PROJECTS</div>` + shown.map((p3) => projChartHTML(p3, flat)).join(""), flat };
   }
   var MO_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  function projChartHTML(p3) {
+  function projChartHTML(p3, flat) {
     const tasks = [...p3.tasks].sort((a, b) => projScore(b) - projScore(a)).slice(0, PROJ_MAX_ROWS).sort((a, b) => a.start < b.start ? -1 : 1);
     const hiddenN = p3.tasks.length - tasks.length;
     const dlIsos = p3.deadlines.map((d) => `${d.year}-${pad3(d.month + 1)}-${pad3(d.day)}`);
@@ -56347,7 +56348,9 @@
         const over = t2.due && end > t2.due ? " cc-proj-over" : "";
         bars = seg(t2.start, end, (t2.end ? "cc-proj-donebar" : "cc-proj-openbar") + over, t2.color);
       }
-      return `<div class="cc-proj-lrow" title="${esc(t2.t.text)}"><span class="cc-proj-box${t2.end ? " cc-proj-box-done" : ""}">${t2.end ? "\u2713" : ""}</span><span class="cc-proj-ltext">${esc(t2.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
+      const idx = flat.length;
+      flat.push(t2.t);
+      return `<div class="cc-proj-lrow"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t2.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t2.t.text)}">${esc(t2.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
     });
     const vlines = p3.deadlines.map((d, i3) => {
       const iso = dlIsos[i3], l = x(iso);
@@ -56403,9 +56406,10 @@
     const scroll = scrollOf.get(el) ?? el;
     isoOf.set(el, viewIso);
     if (tab2 === "proj") {
-      scroll.innerHTML = projHTML(viewIso.slice(0, 10), viewIso.slice(0, 10));
+      const r = projHTML(viewIso.slice(0, 10), viewIso.slice(0, 10));
+      scroll.innerHTML = r.html;
       scroll.scrollTop = scrollByIso[viewIso] ?? 0;
-      flatOf.delete(el);
+      flatOf.set(el, r.flat);
       return;
     }
     if (tab2 === "note") {
@@ -56481,8 +56485,9 @@
     const start = scope === "week" ? key2 : `${key2}-01`;
     const end = scope === "week" ? addDays(key2, 6) : monthEndIso(key2);
     if (tab2 === "proj") {
-      scroll.innerHTML = projHTML(start, end);
-      flatOf.delete(el);
+      const r = projHTML(start, end);
+      scroll.innerHTML = r.html;
+      flatOf.set(el, r.flat);
       return;
     }
     if (tab2 === "note") {

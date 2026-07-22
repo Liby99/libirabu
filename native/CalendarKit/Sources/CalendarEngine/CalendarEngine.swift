@@ -60,6 +60,11 @@ public final class CalendarEngine {
     /// covers the z/scroll/week/day tweens + flips; add the rest of the live/elastic/drag states.
     private var needsRender: Bool {
         isAnimating || anim.shiftTween != nil || anim.gutterTween != nil || anim.dashPinTween != nil || anim.monthFlip != nil || drag != nil || daily.anim != nil
+            // An unsettled week-dash hold MUST keep ticking: its idle-settle fallback (0.3s) and the
+            // settle tween itself only advance in the tick — sleeping mid-settle froze the carousel
+            // progress at a mid value, which left the week panel's tab row permanently un-clickable
+            // (its hit gate requires the turn to be at an endpoint).
+            || weekDashHold != nil || weekDashSettle != nil
             || scroll.liveScrolling || scroll.liveMonthScrolling || scroll.liveWeekScrolling || scroll.liveDayScrolling
             || scroll.yearPull != nil || scroll.monthPull != nil || scroll.weekPull != nil || scroll.dayPull != nil
     }
