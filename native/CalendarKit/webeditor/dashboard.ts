@@ -653,6 +653,7 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     if (x.start < lo) lo = x.start;
     const e = x.end ?? today;
     if (e > hi) hi = e;
+    if (x.due && x.due > hi) hi = x.due; // an uncrossed due renders as a tick — keep it in range
   }
   for (const iso of dlIsos) {
     if (iso < lo) lo = iso;
@@ -665,15 +666,24 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     return `<span class="cc-proj-bar ${cls}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%;--bar:var(--event-${color}-border)"></span>`;
   };
   const rows = tasks.map((t) => {
+    // The bar taxonomy (created/due/done):
+    //   · created only            → one bar, created → now
+    //   · created+due, not crossed→ one bar to now/done; the due renders as a small vertical
+    //     TICK at its (possibly future) date — for open rows and finished-early rows alike
+    //   · due crossed (end > due) → two segments: created → due solid, due → end hatched
+    //     (started-after-due degenerates to one fully-hatched segment)
     const end = t.end ?? today;
+    const kind = t.end ? "cc-proj-donebar" : "cc-proj-openbar";
     let bars = "";
-    // Post-due portion hatched (overdue), for finished-late AND still-open-late rows alike.
-    if (t.due && end > t.due && t.start < t.due) {
-      bars = seg(t.start, t.due, t.end ? "cc-proj-donebar" : "cc-proj-openbar", t.color)
-        + seg(t.due, end, (t.end ? "cc-proj-donebar" : "cc-proj-openbar") + " cc-proj-over", t.color);
+    if (t.due && end > t.due) {
+      bars = t.start < t.due
+        ? seg(t.start, t.due, kind, t.color) + seg(t.due, end, kind + " cc-proj-over", t.color)
+        : seg(t.start, end, kind + " cc-proj-over", t.color);
     } else {
-      const over = t.due && end > t.due ? " cc-proj-over" : "";
-      bars = seg(t.start, end, (t.end ? "cc-proj-donebar" : "cc-proj-openbar") + over, t.color);
+      bars = seg(t.start, end, kind, t.color);
+      if (t.due && t.due > end) {
+        bars += `<span class="cc-proj-due" style="left:${x(t.due).toFixed(2)}%;--bar:var(--event-${t.color}-border)"></span>`;
+      }
     }
     // A REAL todo row, gantt-formatted: the same checkbox as the TODO list (same class → the
     // shared change-delegation toggles the source line, done:-stamp and all) and a clickable

@@ -56328,6 +56328,7 @@
       if (x2.start < lo) lo = x2.start;
       const e = x2.end ?? today;
       if (e > hi) hi = e;
+      if (x2.due && x2.due > hi) hi = x2.due;
     }
     for (const iso of dlIsos) {
       if (iso < lo) lo = iso;
@@ -56341,12 +56342,15 @@
     };
     const rows = tasks.map((t2) => {
       const end = t2.end ?? today;
+      const kind = t2.end ? "cc-proj-donebar" : "cc-proj-openbar";
       let bars = "";
-      if (t2.due && end > t2.due && t2.start < t2.due) {
-        bars = seg(t2.start, t2.due, t2.end ? "cc-proj-donebar" : "cc-proj-openbar", t2.color) + seg(t2.due, end, (t2.end ? "cc-proj-donebar" : "cc-proj-openbar") + " cc-proj-over", t2.color);
+      if (t2.due && end > t2.due) {
+        bars = t2.start < t2.due ? seg(t2.start, t2.due, kind, t2.color) + seg(t2.due, end, kind + " cc-proj-over", t2.color) : seg(t2.start, end, kind + " cc-proj-over", t2.color);
       } else {
-        const over = t2.due && end > t2.due ? " cc-proj-over" : "";
-        bars = seg(t2.start, end, (t2.end ? "cc-proj-donebar" : "cc-proj-openbar") + over, t2.color);
+        bars = seg(t2.start, end, kind, t2.color);
+        if (t2.due && t2.due > end) {
+          bars += `<span class="cc-proj-due" style="left:${x(t2.due).toFixed(2)}%;--bar:var(--event-${t2.color}-border)"></span>`;
+        }
       }
       const idx = flat.length;
       flat.push(t2.t);
