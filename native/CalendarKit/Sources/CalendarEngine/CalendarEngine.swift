@@ -114,6 +114,7 @@ public final class CalendarEngine {
     /// Autocomplete entity index (projects/people/tags) as JSON, cached per editGen — feeds the
     /// drawer note editor's completions. Non-persistent. See entityIndexJSON().
     var entityIdxCache: (gen: Int, json: String)?
+    var entityIdxWork: DispatchWorkItem? // coalesced async refresh (never scans on a keystroke)
     func fireDayLand() {
         if let cb = anim.dayLandDone {
             anim.dayLandDone = nil; cb()

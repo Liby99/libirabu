@@ -189,15 +189,65 @@ extension CalendarEngine {
     }
 
     /// ── Autocomplete entity index: projects / people / tags across EVERY note ────────────────
-    /// A lightweight regex scan (the JS tokenizer is ground truth; this approximation only feeds
-    /// the drawer editor's completion lists — the dashboard editor builds its own index from the
-    /// parsed todos). Cached per editGen; never persisted.
+    /// A regex scan over the whole database (the JS tokenizer is ground truth; this approximation
+    /// only feeds the drawer editor's completion lists). Cached per editGen; never persisted.
+    ///
+    /// PERF CONTRACT: this is called from the drawer's per-render path, and EVERY keystroke of a
+    /// title edit bumps editGen — so a stale cache must NEVER rescan synchronously (that was a
+    /// full-database scan per keystroke: the laggy-title-editing bug). Stale → return the old
+    /// index instantly and refresh via a COALESCED async task (fires after the typing burst, scan
+    /// off the main thread). Only the very first ask (no cache yet — the drawer just opened)
+    /// scans inline, so completions are ready immediately.
     public func entityIndexJSON() -> String {
-        if let c = entityIdxCache, c.gen == caches.editGen {
+        if let c = entityIdxCache {
+            if c.gen != caches.editGen {
+                scheduleEntityIndexRefresh()
+            }
             return c.json
         }
+        let json = Self.scanEntityIndex(entityNoteSnapshot())
+        entityIdxCache = (caches.editGen, json)
+        return json
+    }
+
+    /// Coalesced background refresh: debounced past the typing burst (0.6s, like the undo
+    /// coalescer), value-snapshot the notes on main (CoW — refcount bumps), scan off-main.
+    private func scheduleEntityIndexRefresh() {
+        entityIdxWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let gen = self.caches.editGen
+            let notes = self.entityNoteSnapshot()
+            Task.detached(priority: .utility) {
+                let json = CalendarEngine.scanEntityIndex(notes)
+                await MainActor.run {
+                    self.entityIdxCache = (gen, json)
+                }
+            }
+        }
+        entityIdxWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    /// Every note body in the database (rich + per-occurrence + daily/scope), as plain strings.
+    private func entityNoteSnapshot() -> [String] {
+        var notes: [String] = []
+        for (_, rf) in items.richById {
+            if let n = rf.notes {
+                notes.append(n)
+            }
+            for (_, n) in rf.occurrenceNotes ?? [:] {
+                notes.append(n)
+            }
+        }
+        notes.append(contentsOf: items.dailyNotes.values)
+        return notes
+    }
+
+    /// The pure scan — nonisolated so the refresh can run it off the main thread.
+    nonisolated static func scanEntityIndex(_ notes: [String]) -> String {
         var projects = Set<String>(), people = Set<String>(), tags = Set<String>()
-        func scan(_ note: String) {
+        for note in notes {
             for line in note.split(separator: "\n") {
                 for m in line.matches(of: #/(?:^|\s)@?project:([\w-]+)/#) {
                     projects.insert(String(m.1))
@@ -214,23 +264,10 @@ extension CalendarEngine {
                 }
             }
         }
-        for (_, rf) in items.richById {
-            if let n = rf.notes {
-                scan(n)
-            }
-            for (_, n) in rf.occurrenceNotes ?? [:] {
-                scan(n)
-            }
-        }
-        for (_, n) in items.dailyNotes {
-            scan(n)
-        }
         let obj: [String: [String]] = ["projects": projects.sorted(), "people": people.sorted(),
                                        "tags": tags.sorted()]
-        let json = (try? JSONSerialization.data(withJSONObject: obj))
+        return (try? JSONSerialization.data(withJSONObject: obj))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-        entityIdxCache = (caches.editGen, json)
-        return json
     }
 
     /// ── Daily note (the dashboard NOTE tab) — one markdown note per ISO date ────────────────────
