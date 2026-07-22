@@ -201,24 +201,25 @@ function parseLooseDate(s: string, now: Date, dueOriented: boolean): Date | null
 
 function dateSource(o: NoteEditorOpts) {
   return (ctx: CompletionContext): CompletionResult | null => {
-  const m = ctx.matchBefore(/(?:due|created|done):[\w/-]*$/);
+  const m = ctx.matchBefore(/(?:due|created|done|start):[\w/-]*$/);
   if (!m) return null;
   const text = ctx.state.sliceDoc(m.from, m.to);
   const ci = text.indexOf(":");
   const key = text.slice(0, ci), partial = text.slice(ci + 1);
   const now = new Date();
-  const wantTime = key !== "due"; // created/done stamp minutes; due is a calendar date
+  const wantTime = key === "created" || key === "done"; // stamps carry minutes; due/start are dates
+  const futureOriented = key === "due" || key === "start"; // planning tokens point forward
   const conc = (d: Date) => (wantTime ? minuteIso(d) : dayIso(d));
   const opts: Completion[] = [];
   const push = (label: string, d: Date, boost = 0) =>
     opts.push({ label, detail: `→ ${conc(d)}`, apply: conc(d), type: "constant", boost });
-  const parsed = parseLooseDate(partial, now, key === "due");
+  const parsed = parseLooseDate(partial, now, futureOriented);
   if (parsed) {
     push(partial, parsed, 3); // the typed freeform, concretized, on top
   }
-  // due: weekday names (any prefix — "thu", "th", even "t") → the NEXT such weekday after today.
-  // Ambiguous prefixes list every match ("t" → tue + thu), each with its resolved date.
-  if (key === "due" && /^[a-z]+$/i.test(partial)) {
+  // due:/start: weekday names (any prefix — "thu", "th", even "t") → the NEXT such weekday after
+  // today. Ambiguous prefixes list every match ("t" → tue + thu), each with its resolved date.
+  if (futureOriented && /^[a-z]+$/i.test(partial)) {
     const WD_LC = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
     const pl = partial.toLowerCase();
     WD_LC.forEach((w, i) => {

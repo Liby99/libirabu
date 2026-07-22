@@ -57005,21 +57005,22 @@
   }
   function dateSource(o) {
     return (ctx) => {
-      const m = ctx.matchBefore(/(?:due|created|done):[\w/-]*$/);
+      const m = ctx.matchBefore(/(?:due|created|done|start):[\w/-]*$/);
       if (!m) return null;
       const text9 = ctx.state.sliceDoc(m.from, m.to);
       const ci = text9.indexOf(":");
       const key2 = text9.slice(0, ci), partial = text9.slice(ci + 1);
       const now = /* @__PURE__ */ new Date();
-      const wantTime = key2 !== "due";
+      const wantTime = key2 === "created" || key2 === "done";
+      const futureOriented = key2 === "due" || key2 === "start";
       const conc2 = (d) => wantTime ? minuteIso(d) : dayIso(d);
       const opts = [];
       const push2 = (label, d, boost = 0) => opts.push({ label, detail: `\u2192 ${conc2(d)}`, apply: conc2(d), type: "constant", boost });
-      const parsed = parseLooseDate(partial, now, key2 === "due");
+      const parsed = parseLooseDate(partial, now, futureOriented);
       if (parsed) {
         push2(partial, parsed, 3);
       }
-      if (key2 === "due" && /^[a-z]+$/i.test(partial)) {
+      if (futureOriented && /^[a-z]+$/i.test(partial)) {
         const WD_LC = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
         const pl = partial.toLowerCase();
         WD_LC.forEach((w, i3) => {

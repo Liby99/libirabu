@@ -608,7 +608,10 @@ function ensureProjects() {
       fallback = d.startsWith("week:") ? d.slice(5)
         : d.startsWith("month:") ? `${d.slice(6)}-01` : d;
     }
-    const start = (t.created ?? "").slice(0, 10) || fallback;
+    // `start:` (the show-from token) SHADOWS created: as the bar's origin — "created the todo
+    // now, but the work begins next week" charts from next week. created:, then the source
+    // item's day, remain the fallbacks.
+    const start = (t.start ?? "").slice(0, 10) || (t.created ?? "").slice(0, 10) || fallback;
     const task: ProjTask = {
       t, start,
       end: t.done ? ((t.doneDate ?? "").slice(0, 10) || start) : null,
@@ -738,6 +741,7 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
   let lo = today, hi = today;
   for (const x of tasks) {
     if (x.start < lo) lo = x.start;
+    if (x.start > hi) hi = x.start; // a FUTURE start: (planned-ahead work) stubs at its date
     const e = x.end ?? today;
     if (e > hi) hi = e;
     if (x.due && x.due > hi) hi = x.due; // an uncrossed due renders as a tick — keep it in range
