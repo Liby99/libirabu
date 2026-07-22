@@ -34,8 +34,15 @@ body { color: var(--accent-dark); -webkit-font-smoothing: antialiased; }
 .cc-dw-md pre { background: color-mix(in srgb, var(--accent-dark) 8%, transparent); padding: 0.6em 0.8em; border-radius: 8px; overflow: auto; }
 .cc-dw-md pre code { background: none; padding: 0; }
 .cc-dw-md hr { border: none; border-top: 1px solid var(--accent-grey); margin: 1em 0; }
+/* Tables: solid horizontal rules, DOTTED internal verticals, and no outer left/right border —
+   the table reads as rows first, with light column hints. */
 .cc-dw-md table { border-collapse: collapse; margin: 0.5em 0; }
-.cc-dw-md th, .cc-dw-md td { border: 1px solid var(--accent-grey); padding: 0.25em 0.6em; }
+.cc-dw-md th, .cc-dw-md td {
+  border-top: 1px solid var(--accent-grey); border-bottom: 1px solid var(--accent-grey);
+  border-left: 1px dotted var(--accent-grey); border-right: none;
+  padding: 0.25em 0.6em;
+}
+.cc-dw-md th:first-child, .cc-dw-md td:first-child { border-left: none; }
 .cc-dw-md img { max-width: 100%; }
 /* GFM task list. The list markers are dropped, top-level checkboxes hug the left margin, and a
    NESTED task list gets a full, clearly visible indent step per level (the old approach — full list

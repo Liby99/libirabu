@@ -242,6 +242,48 @@ public enum HelpContent {
                             .init("⌘J", "Focus the Projects tab")],
                 gif: "daily-dashboard"
             ),
+            HelpTopic(
+                id: "todo-syntax", title: "Todo & note syntax",
+                summary: "The full token language: checkboxes, dates, priorities, tags, people, and projects.",
+                keywords: ["todo", "syntax", "tokens", "due", "priority", "tags", "project", "person",
+                           "followup", "created", "done", "start", "markdown", "dsl", "autocomplete"],
+                blocks: [
+                    .paragraph(
+                        "Every note is plain Markdown, and any list line with a checkbox — \"- [ ] task\" — becomes a TODO. The markdown stays the single source of truth: checking a box anywhere (the To-Do list, a note preview, a Projects chart) rewrites that exact line. Notes live in five places, and their todos all pool into the same index: an event's note, a recurring event's per-occurrence \"This Event\" note, and the daily, weekly, and monthly notes."
+                    ),
+                    .paragraph(
+                        "Indent a task under another to make a sub-task (Tab / ⇧Tab in the editor nest and un-nest). Sub-tasks fold under their parent in the To-Do list (←/→ on a focused row) and never chart on their own in Projects."
+                    ),
+                    .paragraph(
+                        "Tokens are words you drop anywhere on the task line; they render as badges in previews and are stripped from the displayed text. Date-valued tokens share one grammar: an explicit 2026-07-30 (optionally T17:00), the keywords today / tomorrow / yesterday, or an offset like 3d, 2w, -1m, 1y."
+                    ),
+                    .bullets([
+                        "p:! … p:!!!!! — priority, one to five bangs; ranks the item in every list.",
+                        "due:<date> — the deadline. Also takes a bare time (due:5pm, due:17:00 → today at that time). Without a due:, the item inherits its note's own date (the event's day, or the daily note's day).",
+                        "tz:<zone> — the due date's timezone: tz:AOE or an IANA id like tz:America/New_York.",
+                        "start:<date> — defer: the item stays out of the daily lists until that date, and the Projects chart draws its bar from it (planning ahead: created today, starting next week).",
+                        "created:<datetime> — when the item entered the list. Auto-stamped on top-level items when an editing session ends, so you rarely type it; it anchors the left end of Projects bars.",
+                        "done:<datetime> — completion time. Auto-stamped when you tick a checkbox (and stripped when you untick); the right end of a finished Projects bar.",
+                        "followup:30d or followup:<date> — a follow-up reminder: a duration counts from the event's END date. Surfaces under \"Remember to Followup\" and goes overdue like a due date.",
+                        "color:<name> — override this item's badge color (an event-palette name).",
+                        "#tag — freeform tags; searchable (⌘F), shown on rows. Two are special: #silent mutes this item's notifications, #notify opts it in even when its kind is off in Settings.",
+                        "@name or @person:name — a person reference; @<type>:name works for any entity type.",
+                        "@project:name (or project:name) — attach this item to a project (see below).",
+                        "[label](url) and bare URLs — links; clickable in previews, ⌘-clickable in the editor.",
+                    ]),
+                    .paragraph(
+                        "Projects (⌘J): a top-level todo tagged @project:name becomes a row on that project's gantt — its bar runs from start:/created: to done: (or to now while open), the portion past its due: hatches, and an unreached due: draws as a small tick. Two more forms extend the chart: a bare @project:name line in a DEADLINE's note marks that deadline as the project's milestone (a vertical rule), and in a band event's note (or a recurring band's This Event note) it draws the event as a box spanning the tracks."
+                    ),
+                    .paragraph(
+                        "Autocomplete does the typing: @ suggests people and the project:/person: namespaces, @project: lists your existing projects, # your existing tags. After due:, created:, done:, or start:, a date dropdown offers now / today / tomorrow, weekday names (any prefix — due:th → next Thursday), month-days (july-5, 7/5), offsets (3d, 2w) — each shown with its resolved date — plus \"this event time\" in an event's note and \"this day time\" in a daily note. Enter or Tab inserts the concrete value; Esc closes the dropdown."
+                    ),
+                    .tip(
+                        "The To-Do list sorts itself from these tokens: due/overdue/followup windows, priority, then completion recency — so a well-tokenized line files itself. And since done:/created: are stamped automatically, an accurate project history usually costs you nothing but the @project: tag."
+                    ),
+                ],
+                shortcuts: [.init("⌘S", "Editor → preview"), .init("Tab", "Accept completion / indent"),
+                            .init("Esc", "Close dropdown, then exit editor")]
+            ),
         ]
     )
 
