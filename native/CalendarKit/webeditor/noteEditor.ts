@@ -6,6 +6,8 @@
 import { EditorView, keymap, placeholder as cmPlaceholder, drawSelection } from "@codemirror/view";
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import { history, defaultKeymap, historyKeymap, indentMore, indentLess } from "@codemirror/commands";
+import { acceptCompletion, autocompletion, closeCompletion, completionStatus, startCompletion,
+         type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { markdown } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
@@ -113,12 +115,124 @@ export interface NoteEditorOpts {
   editorEl: HTMLElement;
   previewEl: HTMLElement;
   placeholder?: string;
+  /// Live entity index for @project: / @person: / #tag completions (non-persistent — the host
+  /// derives it from its in-memory data). Omitted → entity completion off; DATE completion
+  /// (due:/created:/done:) needs no index and always works.
+  completionIndex?: () => { projects: string[]; people: string[]; tags: string[] };
   onChange: (value: string) => void;
   onPreview: () => void;                 // ⌘S in the editor
   onOpenLink: (url: string) => void;     // ⌘-click a link
   onEditAt: (line: number) => void;      // ⌘-click a preview block → edit at that line
   onExit?: () => void;                   // Escape in the editor → hand focus back to the host
   emptyPreview?: () => string;           // HTML for preview mode when the note is empty (else blank)
+}
+
+// ── Autocomplete ────────────────────────────────────────────────────────────────────────────────
+// Entities from the host's live index (@project:, @person:, bare @, #tag) + date concretization
+// after due:/created:/done: — "now", "today", "3d", "2w", "july-5", "7/5" all resolve to real
+// date(-time) strings, shown in the dropdown and inserted on Enter/Tab.
+
+const MONTHS_LC = ["january", "february", "march", "april", "may", "june", "july", "august",
+                   "september", "october", "november", "december"];
+const p2c = (n: number) => String(n).padStart(2, "0");
+const dayIso = (d: Date) => `${d.getFullYear()}-${p2c(d.getMonth() + 1)}-${p2c(d.getDate())}`;
+const minuteIso = (d: Date) => `${dayIso(d)}T${p2c(d.getHours())}:${p2c(d.getMinutes())}`;
+
+/// Loose date grammar → a concrete Date. `dueOriented` picks the NEXT occurrence for bare
+/// month-day forms ("july-5"); created/done resolve within THIS year (they describe the past).
+function parseLooseDate(s: string, now: Date, dueOriented: boolean): Date | null {
+  s = s.toLowerCase();
+  let m = s.match(/^(\d+)(d|w|m)$/); // relative: 3d, 2w, 1m (from now)
+  if (m) {
+    const n = +m[1], d = new Date(now);
+    if (m[2] === "d") d.setDate(d.getDate() + n);
+    else if (m[2] === "w") d.setDate(d.getDate() + 7 * n);
+    else d.setMonth(d.getMonth() + n);
+    return d;
+  }
+  m = s.match(/^([a-z]{3,9})[-/ ]?(\d{1,2})$/); // month-day: july-5, jul5, march 12
+  if (m) {
+    const mi = MONTHS_LC.findIndex((x) => x.startsWith(m![1]));
+    const day = +m[2];
+    if (mi < 0 || day < 1 || day > 31) return null;
+    let d = new Date(now.getFullYear(), mi, day);
+    if (dueOriented && d.getTime() < now.getTime() - 86_400_000) {
+      d = new Date(now.getFullYear() + 1, mi, day);
+    }
+    return d;
+  }
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})$/); // numeric month-day: 7-5, 7/5
+  if (m) {
+    const mo = +m[1], day = +m[2];
+    if (mo < 1 || mo > 12 || day < 1 || day > 31) return null;
+    let d = new Date(now.getFullYear(), mo - 1, day);
+    if (dueOriented && d.getTime() < now.getTime() - 86_400_000) {
+      d = new Date(now.getFullYear() + 1, mo - 1, day);
+    }
+    return d;
+  }
+  return null;
+}
+
+function dateSource(ctx: CompletionContext): CompletionResult | null {
+  const m = ctx.matchBefore(/(?:due|created|done):[\w/-]*$/);
+  if (!m) return null;
+  const text = ctx.state.sliceDoc(m.from, m.to);
+  const ci = text.indexOf(":");
+  const key = text.slice(0, ci), partial = text.slice(ci + 1);
+  const now = new Date();
+  const wantTime = key !== "due"; // created/done stamp minutes; due is a calendar date
+  const conc = (d: Date) => (wantTime ? minuteIso(d) : dayIso(d));
+  const opts: Completion[] = [];
+  const push = (label: string, d: Date, boost = 0) =>
+    opts.push({ label, detail: `→ ${conc(d)}`, apply: conc(d), type: "constant", boost });
+  const parsed = parseLooseDate(partial, now, key === "due");
+  if (parsed) {
+    push(partial, parsed, 3); // the typed freeform, concretized, on top
+  }
+  const statics: [string, Date][] = [
+    ["now", now], ["today", now], ["tomorrow", new Date(now.getTime() + 86_400_000)],
+    ["3d", new Date(now.getTime() + 3 * 86_400_000)], ["1w", new Date(now.getTime() + 7 * 86_400_000)],
+  ];
+  for (const [l, d] of statics) {
+    if (l.startsWith(partial.toLowerCase()) && l !== partial) {
+      push(l, d);
+    }
+  }
+  if (!opts.length) return null;
+  return { from: m.from + ci + 1, options: opts, filter: false };
+}
+
+function entitySource(o: NoteEditorOpts) {
+  return (ctx: CompletionContext): CompletionResult | null => {
+    const idx = o.completionIndex?.();
+    if (!idx) return null;
+    const list = (from: number, xs: string[], type: string): CompletionResult | null =>
+      xs.length ? { from, options: xs.map((x): Completion => ({ label: x, type })),
+                    validFor: /^[\w-]*$/ } : null;
+    let m = ctx.matchBefore(/@project:[\w-]*$/);
+    if (m) return list(m.from + 9, idx.projects, "keyword");
+    m = ctx.matchBefore(/@person:[\w-]*$/);
+    if (m) return list(m.from + 8, idx.people, "constant");
+    m = ctx.matchBefore(/@[\w-]*$/); // bare @ = person, plus the two namespace prefixes
+    if (m) {
+      const reopen = (view: EditorView, _c: Completion, from: number, to: number, ins: string) => {
+        view.dispatch({ changes: { from, to, insert: ins } });
+        startCompletion(view); // "@project:" placed → immediately offer the keys
+      };
+      const options: Completion[] = [
+        ...idx.people.map((x): Completion => ({ label: x, type: "constant" })),
+        { label: "project:", type: "keyword", boost: -1,
+          apply: (v, c, f, t2) => reopen(v, c, f, t2, "project:") },
+        { label: "person:", type: "keyword", boost: -1,
+          apply: (v, c, f, t2) => reopen(v, c, f, t2, "person:") },
+      ];
+      return { from: m.from + 1, options, validFor: /^[\w-]*$/ };
+    }
+    m = ctx.matchBefore(/#[\w-]*$/);
+    if (m) return list(m.from + 1, idx.tags, "type");
+    return null;
+  };
 }
 
 export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
@@ -171,7 +285,11 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
         // Tab/⇧Tab indent/outdent the line(s) — never native focus traversal; nested `- [ ]` items are
         // how sub-tasks are made. Enter already continues list/task markers (markdown()'s own keymap)
         // and ⌥↑/⌥↓ move lines, ⌘←/→ jump line bounds (defaultKeymap).
-        keymap.of([{ key: "Tab", run: indentMore, shift: indentLess }, ...defaultKeymap, ...historyKeymap]),
+        // Tab ACCEPTS an open completion first (returns false when none → falls through to indent).
+        keymap.of([{ key: "Tab", run: acceptCompletion },
+                   { key: "Tab", run: indentMore, shift: indentLess }, ...defaultKeymap, ...historyKeymap]),
+        // Entity + date autocomplete (the package's own keymap adds Enter-accept / arrows / Esc).
+        autocompletion({ override: [entitySource(o), dateSource], icons: false }),
         drawSelection(),
         EditorView.lineWrapping,
         markdown(),
@@ -180,7 +298,12 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
         openLinks,
         Prec.highest(keymap.of([
           { key: "Mod-s", preventDefault: true, stopPropagation: true, run: () => { stampCreated(); o.onPreview(); return true; } },
-          { key: "Escape", preventDefault: true, stopPropagation: true, run: () => { stampCreated(); o.onExit?.(); return true; } },
+          { key: "Escape", preventDefault: true, stopPropagation: true, run: (v) => {
+            if (completionStatus(v.state)) {
+              return closeCompletion(v); // first Esc dismisses the dropdown, not the editor
+            }
+            stampCreated(); o.onExit?.(); return true;
+          } },
         ])),
         // Focus loss (clicking away, tabbing out, the overlay hiding) also ends the session.
         EditorView.domEventHandlers({ blur: () => { stampCreated(); return false; } }),

@@ -168,13 +168,14 @@ const noteEd = createNoteEditor({
   editorEl: document.getElementById("note-editor")!,
   previewEl: document.getElementById("note-preview")!,
   placeholder: "Daily Note (Markdown)…",
-  onChange: (value) => { notes[liveIso] = value; liveText = value; todosDirty = true; projectsDirty = true; post({ type: "noteChange", date: liveIso, value }); },
+  onChange: (value) => { notes[liveIso] = value; liveText = value; todosDirty = true; projectsDirty = true; entityDirty = true; post({ type: "noteChange", date: liveIso, value }); },
   // ⌘S → preview, and (if we were keyboard-focused via Tab) hand focus back to the calendar's NOTE ring.
   onPreview: () => { noteModeUser("preview"); post({ type: "navNoteExit" }); },
   onExit: () => post({ type: "navNoteExit" }),             // Escape in the editor → back to the NOTE ring
   onOpenLink: (url) => post({ type: "openLink", url }),
   onEditAt: (line) => { noteModeUser("edit"); noteEd.setCursorLine(line); },   // ⌘-click a preview block
   emptyPreview: () => emptyNoteHTML(liveScope),
+  completionIndex, // @project:/@person:/#tag completions from the live entity index
 });
 
 // ── Keyboard nav from the calendar (Tab into the dashboard TODO / NOTE stops) ──────────────────────
@@ -541,6 +542,27 @@ interface Project {
 }
 let projects: Project[] = [];
 let projectsDirty = true; // set alongside todosDirty (same data feeds both)
+
+// ── Autocomplete entity index (non-persistent; derived from the live todo index) ────────────────
+// Projects / people / tags seen anywhere in the database, for the note editor's @project: /
+// @person: / #tag completions. Rebuilt lazily on the same dirty cadence as the todo index.
+let entityDirty = true;
+let entityIdx = { projects: [] as string[], people: [] as string[], tags: [] as string[] };
+function completionIndex() {
+  ensureProjects(); // ensures todos too; `projects` adds deadline bare-line keys
+  if (entityDirty) {
+    const ps = new Set<string>(), pe = new Set<string>(), tg = new Set<string>();
+    for (const t of allTodos) {
+      for (const k of t.projects) ps.add(k);
+      for (const k of t.people) pe.add(k);
+      for (const k of t.tags) tg.add(k);
+    }
+    for (const p of projects) ps.add(p.key);
+    entityIdx = { projects: [...ps].sort(), people: [...pe].sort(), tags: [...tg].sort() };
+    entityDirty = false;
+  }
+  return entityIdx;
+}
 function noteProjectKeys(text: string | null | undefined): string[] {
   if (!text || !text.includes("@project:")) return [];
   const out: string[] = [];
@@ -1139,7 +1161,7 @@ function toggle(panel: HTMLElement, idx: number) {
       }
     }
   }
-  if (ok) { todosDirty = true; projectsDirty = true; selfEditAt = performance.now(); }   // suppress the setData echo's re-sort
+  if (ok) { todosDirty = true; projectsDirty = true; entityDirty = true; selfEditAt = performance.now(); }   // suppress the setData echo's re-sort
   if (row) setRowDone(row, ok ? !wasDone : wasDone);               // animate in place (revert native flip if unchanged)
 }
 
@@ -1196,7 +1218,7 @@ root.addEventListener("click", (e) => {
     const d = JSON.parse(json);
     events = d.events || []; deadlines = d.deadlines || []; today = d.today || "";
     notes = d.dailyNotes || {};
-    todosDirty = true; projectsDirty = true; // re-aggregate todos + the project index on next render
+    todosDirty = true; projectsDirty = true; entityDirty = true; // re-aggregate todos + the project index on next render
     if (!last.from) last.from = d.viewIso || today;
     // If this data push is just the echo of a checkbox WE just toggled, update the data but leave the
     // panels in place — the checked row stays put (mid-animation) and only migrates to "Recently

@@ -119,3 +119,20 @@ body { color: var(--accent-dark); -webkit-font-smoothing: antialiased; }
 .cc-dw-mi-val { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .cc-dw-mi-val a { color: var(--highlight); text-decoration: underline; text-underline-offset: 2px; }
 .cc-dw-mi-desc { margin-top: 7px; }
+
+/* ── Autocomplete dropdown (note editor: entities + date concretization) ─────────────────────────
+   System Canvas colors follow color-scheme (pushed from Swift), so the popup themes correctly in
+   both webviews without new vars. */
+.cm-tooltip.cm-tooltip-autocomplete {
+  background: Canvas; color: CanvasText;
+  border: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
+  border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+  overflow: clip; font-size: 12px;
+}
+.cm-tooltip-autocomplete > ul { font-family: var(--font-mono, ui-monospace, monospace); max-height: 220px; }
+.cm-tooltip-autocomplete > ul > li { padding: 2.5px 9px; }
+.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--highlight, #4a8ee8); color: var(--check-mark, #fff);
+}
+.cm-completionDetail { opacity: 0.62; margin-left: 10px; font-style: normal; }
+.cm-tooltip-autocomplete li[aria-selected] .cm-completionDetail { opacity: 0.85; }
