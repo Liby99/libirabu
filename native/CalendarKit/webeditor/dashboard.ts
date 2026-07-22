@@ -723,11 +723,11 @@ function projHTML(rs: string, re: string): { html: string; flat: ParsedTodo[] } 
       || p.events.some((e) => e.start <= re && e.end >= rs));
   const flat: ParsedTodo[] = [];
   if (!shown.length) {
-    return { html: `<div class="cc-proj-ph">PROJECTS</div>
-      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone; in a band event's note — or a recurring band's This Event note — it charts as an event bar).</div>`, flat };
+    return { html: `<div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone; in a band event's note — or a recurring band's This Event note — it charts as an event bar).</div>`, flat };
   }
-  return { html: `<div class="cc-proj-ph">PROJECTS</div>`
-    + shown.map((p) => projChartHTML(p, flat)).join(""), flat };
+  // No page title — the panel's own header (the Canvas "… DASHBOARD" bars + PROJ tab) names it;
+  // the first project section starts right at the top.
+  return { html: shown.map((p) => projChartHTML(p, flat)).join(""), flat };
 }
 
 const MO_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

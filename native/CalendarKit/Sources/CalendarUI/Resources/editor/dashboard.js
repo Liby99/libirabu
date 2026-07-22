@@ -58023,10 +58023,9 @@
     const shown = projects.filter((p3) => p3.tasks.some((x) => x.start <= re2 && (!x.end || x.end >= rs)) || p3.events.some((e) => e.start <= re2 && e.end >= rs));
     const flat = [];
     if (!shown.length) {
-      return { html: `<div class="cc-proj-ph">PROJECTS</div>
-      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone; in a band event's note \u2014 or a recurring band's This Event note \u2014 it charts as an event bar).</div>`, flat };
+      return { html: `<div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone; in a band event's note \u2014 or a recurring band's This Event note \u2014 it charts as an event bar).</div>`, flat };
     }
-    return { html: `<div class="cc-proj-ph">PROJECTS</div>` + shown.map((p3) => projChartHTML(p3, flat)).join(""), flat };
+    return { html: shown.map((p3) => projChartHTML(p3, flat)).join(""), flat };
   }
   var MO_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   function projChartHTML(p3, flat) {
