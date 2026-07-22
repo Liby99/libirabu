@@ -723,7 +723,7 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     // title (data-open → open the event drawer / jump to the source note).
     const idx = flat.length;
     flat.push(t.t);
-    return `<div class="cc-proj-lrow"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t.t.text)}">${esc(t.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
+    return `<div class="cc-proj-lrow${t.end ? " cc-proj-lrow-done" : ""}"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t.t.text)}">${esc(t.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
   });
   // Deadline rules + the now-line span the row area; deadline titles sit in the top strip.
   const vlines = p.deadlines.map((d, i) => {
@@ -927,6 +927,17 @@ let liveShown = false, liveMode = "";
 // position + fade the two day panels within it like SceneRenderer.drawPanel; then place the live note
 // editor over the centered panel at rest.
 let dayViewShown = false;   // true once the dashboard is revealed (day view); reset when hidden
+// A panel render must NEVER kill the tick pipeline: an uncaught throw mid-apply() left the
+// function half-run — panels stale AND the live note editor permanently unmounted (the visible
+// symptom: the native toggle says Editor, only the static preview shows, Enter/⌘-click do
+// nothing, and — since identical ticks are deduped Swift-side — nothing ever retries). Contain
+// each render and report it to Swift (Coordinator logs to the Xcode console) so the underlying
+// bug is visible instead of wedging the dashboard.
+function guarded(what: string, fn: () => void) {
+  try { fn(); } catch (e) {
+    post({ type: "err", where: what, message: String((e as Error)?.stack ?? e) });
+  }
+}
 function apply() {
   const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDy0, mDy1, mP,
           mKeyA, mKeyB, wFrom, wTo, wP, wKeyA, wKeyB,
@@ -989,7 +1000,7 @@ function apply() {
     const t2 = mpA; mpA = mpB; mpB = t2;
   }
   if (mKeyA) {
-    renderScopePanel(mpA, "month", mKeyA); scopeKeyOf.set(mpA, mKeyA);
+    guarded(`month:${mKeyA}`, () => renderScopePanel(mpA, "month", mKeyA)); scopeKeyOf.set(mpA, mKeyA);
     mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
     mpA.style.opacity = (1 - mP).toFixed(3);
     // Interactive only at rest — a faded sub-panel sits ON TOP of its sibling in DOM order and
@@ -997,7 +1008,7 @@ function apply() {
     mpA.style.pointerEvents = mP < 0.001 ? "auto" : "none";
   }
   if (mKeyA && mKeyB && mP > 0.001) {
-    renderScopePanel(mpB, "month", mKeyB); scopeKeyOf.set(mpB, mKeyB);
+    guarded(`month:${mKeyB}`, () => renderScopePanel(mpB, "month", mKeyB)); scopeKeyOf.set(mpB, mKeyB);
     mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
     mpB.style.opacity = mP.toFixed(3);
     mpB.style.pointerEvents = "none";
@@ -1012,14 +1023,14 @@ function apply() {
     const t3 = wpA; wpA = wpB; wpB = t3;
   }
   if (wKeyA) {
-    renderScopePanel(wpA, "week", wKeyA); scopeKeyOf.set(wpA, wKeyA);
+    guarded(`week:${wKeyA}`, () => renderScopePanel(wpA, "week", wKeyA)); scopeKeyOf.set(wpA, wKeyA);
     wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
     wpA.style.opacity = (1 - wP).toFixed(3);
     // Same at-rest gate as the month pair; the week turn rests at BOTH ends (wP 0 or 1).
     wpA.style.pointerEvents = wP < 0.001 ? "auto" : "none";
   }
   if (wKeyA && wKeyB && wP > 0.001) {
-    renderScopePanel(wpB, "week", wKeyB); scopeKeyOf.set(wpB, wKeyB);
+    guarded(`week:${wKeyB}`, () => renderScopePanel(wpB, "week", wKeyB)); scopeKeyOf.set(wpB, wKeyB);
     wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
     wpB.style.opacity = wP.toFixed(3);
     wpB.style.pointerEvents = wP > 0.999 ? "auto" : "none";
@@ -1027,13 +1038,13 @@ function apply() {
     wpB.style.opacity = "0";
     wpB.style.pointerEvents = "none";
   }
-  if (isoOf.get(p0) !== from) renderPanel(p0, from);
+  if (isoOf.get(p0) !== from) guarded(`day:${from}`, () => renderPanel(p0, from));
   const atRest = !to || p <= 0.0001;
   if (atRest) {                                   // single centered panel
     p0.style.transform = "translateX(0)"; p0.style.opacity = "1"; p0.style.pointerEvents = "auto";
     p1.style.opacity = "0"; p1.style.pointerEvents = "none";
   } else {
-    if (isoOf.get(p1) !== to) renderPanel(p1, to);
+    if (isoOf.get(p1) !== to) guarded(`day:${to}`, () => renderPanel(p1, to));
     // current slides out by -dir·p, fades to 1−p; incoming enters from dir·(1−p), fades to p.
     p0.style.transform = `translateX(${(-dir * p * 100).toFixed(3)}%)`; p0.style.opacity = (1 - p).toFixed(3);
     p1.style.transform = `translateX(${(dir * (1 - p) * 100).toFixed(3)}%)`; p1.style.opacity = p.toFixed(3);

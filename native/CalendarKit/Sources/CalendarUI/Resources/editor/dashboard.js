@@ -58000,7 +58000,7 @@
       }
       const idx = flat.length;
       flat.push(t2.t);
-      return `<div class="cc-proj-lrow"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t2.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t2.t.text)}">${esc(t2.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
+      return `<div class="cc-proj-lrow${t2.end ? " cc-proj-lrow-done" : ""}"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t2.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t2.t.text)}">${esc(t2.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
     });
     const vlines = p3.deadlines.map((d, i3) => {
       const iso = dlIsos[i3], l = x(iso);
@@ -58168,6 +58168,13 @@
   var liveShown = false;
   var liveMode = "";
   var dayViewShown = false;
+  function guarded(what, fn) {
+    try {
+      fn();
+    } catch (e) {
+      post({ type: "err", where: what, message: String(e?.stack ?? e) });
+    }
+  }
   function apply() {
     const {
       from,
@@ -58255,14 +58262,14 @@
       mpB = t22;
     }
     if (mKeyA) {
-      renderScopePanel(mpA, "month", mKeyA);
+      guarded(`month:${mKeyA}`, () => renderScopePanel(mpA, "month", mKeyA));
       scopeKeyOf.set(mpA, mKeyA);
       mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
       mpA.style.opacity = (1 - mP).toFixed(3);
       mpA.style.pointerEvents = mP < 1e-3 ? "auto" : "none";
     }
     if (mKeyA && mKeyB && mP > 1e-3) {
-      renderScopePanel(mpB, "month", mKeyB);
+      guarded(`month:${mKeyB}`, () => renderScopePanel(mpB, "month", mKeyB));
       scopeKeyOf.set(mpB, mKeyB);
       mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
       mpB.style.opacity = mP.toFixed(3);
@@ -58277,14 +58284,14 @@
       wpB = t3;
     }
     if (wKeyA) {
-      renderScopePanel(wpA, "week", wKeyA);
+      guarded(`week:${wKeyA}`, () => renderScopePanel(wpA, "week", wKeyA));
       scopeKeyOf.set(wpA, wKeyA);
       wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
       wpA.style.opacity = (1 - wP).toFixed(3);
       wpA.style.pointerEvents = wP < 1e-3 ? "auto" : "none";
     }
     if (wKeyA && wKeyB && wP > 1e-3) {
-      renderScopePanel(wpB, "week", wKeyB);
+      guarded(`week:${wKeyB}`, () => renderScopePanel(wpB, "week", wKeyB));
       scopeKeyOf.set(wpB, wKeyB);
       wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
       wpB.style.opacity = wP.toFixed(3);
@@ -58293,7 +58300,7 @@
       wpB.style.opacity = "0";
       wpB.style.pointerEvents = "none";
     }
-    if (isoOf.get(p0) !== from) renderPanel(p0, from);
+    if (isoOf.get(p0) !== from) guarded(`day:${from}`, () => renderPanel(p0, from));
     const atRest = !to || p3 <= 1e-4;
     if (atRest) {
       p0.style.transform = "translateX(0)";
@@ -58302,7 +58309,7 @@
       p1.style.opacity = "0";
       p1.style.pointerEvents = "none";
     } else {
-      if (isoOf.get(p1) !== to) renderPanel(p1, to);
+      if (isoOf.get(p1) !== to) guarded(`day:${to}`, () => renderPanel(p1, to));
       p0.style.transform = `translateX(${(-dir * p3 * 100).toFixed(3)}%)`;
       p0.style.opacity = (1 - p3).toFixed(3);
       p1.style.transform = `translateX(${(dir * (1 - p3) * 100).toFixed(3)}%)`;

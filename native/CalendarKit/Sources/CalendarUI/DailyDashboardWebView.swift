@@ -570,6 +570,11 @@ struct DailyDashboardWebView: NSViewRepresentable {
         func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
             switch type {
+            case "err":
+                // A contained webview render failure (dashboard.ts guarded()) — the dashboard keeps
+                // working; log the culprit so the underlying render bug is visible + fixable.
+                print("⚠️ [dashboard] render error in \(body["where"] as? String ?? "?"): " +
+                    (body["message"] as? String ?? "?"))
             case "ready":
                 ready = true
                 if let w = want {

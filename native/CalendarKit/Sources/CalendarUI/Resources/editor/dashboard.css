@@ -80,8 +80,10 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 /* Label column scales WITH the panel (percentage, not fixed px) — wider on the day panel,
    proportionally narrower on the week/month widths; titles ellipsize inside. */
 .cc-proj-labels { flex: 0 0 32%; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+/* Open todos read in the PRIMARY ink (white on dark); checked ones recede to gray. */
 .cc-proj-lrow { height: 16px; display: flex; align-items: center; gap: 5px; font-size: 11px;
-  color: var(--accent-grey); }
+  color: var(--accent-dark); }
+.cc-proj-lrow-done { color: var(--accent-grey); }
 /* The row's checkbox IS the TODO list's (.cc-dtodo-check — same class, same toggle delegation);
    only its list-alignment margin is neutralized here. The title is clickable (data-open). */
 .cc-proj-lrow .cc-dtodo-check { margin-top: 0; }
