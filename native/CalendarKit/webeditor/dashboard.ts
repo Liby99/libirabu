@@ -306,7 +306,7 @@ function todoLayer(t: ParsedTodo): string {
 // Empty list: distinguish "nothing due" from "you filtered every source away".
 const emptyListHTML = (p: TodoPrefs) =>
   `<div class="cc-dtodo-empty">${p.sources.length
-    ? "Nothing on the list — you’re clear."
+    ? "Nothing on the list — you’re clear. Please go to an event’s note, or the daily/weekly/monthly dashboard’s notepad, to add “- [ ] …” todo items — they show up right here."
     : "All sources hidden — pick some in the ⚙ menu."}</div>`;
 
 function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
@@ -723,7 +723,7 @@ function projHTML(rs: string, re: string): { html: string; flat: ParsedTodo[] } 
       || p.events.some((e) => e.start <= re && e.end >= rs));
   const flat: ParsedTodo[] = [];
   if (!shown.length) {
-    return { html: `<div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone; in a band event's note — or a recurring band's This Event note — it charts as an event bar).</div>`, flat };
+    return { html: `<div class="cc-dd-free">No projects here yet. Please go to an event’s note, or the daily/weekly/monthly dashboard’s notepad, and add todo items tagged with @project:your-project — your project shows up right here.</div>`, flat };
   }
   // No page title — the panel's own header (the Canvas "… DASHBOARD" bars + PROJ tab) names it;
   // the first project section starts right at the top.

@@ -57693,7 +57693,7 @@
     const d = t2.dailyDate ?? "";
     return d.startsWith("week:") ? "weekly" : d.startsWith("month:") ? "monthly" : "daily";
   }
-  var emptyListHTML = (p3) => `<div class="cc-dtodo-empty">${p3.sources.length ? "Nothing on the list \u2014 you\u2019re clear." : "All sources hidden \u2014 pick some in the \u2699 menu."}</div>`;
+  var emptyListHTML = (p3) => `<div class="cc-dtodo-empty">${p3.sources.length ? "Nothing on the list \u2014 you\u2019re clear. Please go to an event\u2019s note, or the daily/weekly/monthly dashboard\u2019s notepad, to add \u201C- [ ] \u2026\u201D todo items \u2014 they show up right here." : "All sources hidden \u2014 pick some in the \u2699 menu."}</div>`;
   function sectionsForDay(todos, viewIso) {
     const isToday = viewIso === today;
     const p3 = todoPrefs.day;
@@ -58023,7 +58023,7 @@
     const shown = projects.filter((p3) => p3.tasks.some((x) => x.start <= re2 && (!x.end || x.end >= rs)) || p3.events.some((e) => e.start <= re2 && e.end >= rs));
     const flat = [];
     if (!shown.length) {
-      return { html: `<div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone; in a band event's note \u2014 or a recurring band's This Event note \u2014 it charts as an event bar).</div>`, flat };
+      return { html: `<div class="cc-dd-free">No projects here yet. Please go to an event\u2019s note, or the daily/weekly/monthly dashboard\u2019s notepad, and add todo items tagged with @project:your-project \u2014 your project shows up right here.</div>`, flat };
     }
     return { html: shown.map((p3) => projChartHTML(p3, flat)).join(""), flat };
   }
