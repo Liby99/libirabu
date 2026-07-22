@@ -23,7 +23,7 @@ import remarkTodoTokens from "../../../src/app/calendar/view/notes/remarkTodoTok
 import { linesNeedingCreated } from "../../../src/lib/assistant/tools/todos";
 import { splitNote, parseManaged } from "../../../src/lib/import/managedNote";
 
-const MONO = "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)";
+const MONO = "var(--font-mono, Menlo, ui-monospace, SFMono-Regular, Consolas, monospace)";
 
 const cmTheme = EditorView.theme({
   "&": { backgroundColor: "transparent", color: "var(--accent-dark)", height: "100%", fontSize: "13px" },

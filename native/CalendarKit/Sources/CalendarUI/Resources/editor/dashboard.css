@@ -7,7 +7,7 @@
   --check-mark: #1c1c1e;                 /* the ✓ punched out of the filled checkbox */
   --event-red-border: #ff6a6f;
   --event-darkgreen-border: #8fbf7a;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: Menlo, ui-monospace, SFMono-Regular, Consolas, monospace;
   color-scheme: dark;
 }
 html, body { background: transparent; margin: 0; padding: 0; height: 100%; overflow: clip;

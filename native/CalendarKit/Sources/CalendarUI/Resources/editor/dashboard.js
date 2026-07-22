@@ -57008,7 +57008,7 @@
   }
 
   // noteEditor.ts
-  var MONO = "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)";
+  var MONO = "var(--font-mono, Menlo, ui-monospace, SFMono-Regular, Consolas, monospace)";
   var cmTheme = EditorView.theme({
     "&": { backgroundColor: "transparent", color: "var(--accent-dark)", height: "100%", fontSize: "13px" },
     "&.cm-focused": { outline: "none" },
