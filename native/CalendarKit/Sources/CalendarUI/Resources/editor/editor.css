@@ -129,7 +129,14 @@ body { color: var(--accent-dark); -webkit-font-smoothing: antialiased; }
   border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
   overflow: clip; font-size: 12px;
 }
-.cm-tooltip-autocomplete > ul { font-family: var(--font-mono, Menlo, ui-monospace, monospace); max-height: 220px; }
+/* Full selector: CodeMirror's base theme sets `font-family: monospace` on this exact selector
+   (higher specificity than the bare class), which otherwise wins → Courier, not Menlo. */
+.cm-tooltip.cm-tooltip-autocomplete > ul,
+.cm-tooltip.cm-tooltip-autocomplete .cm-completionLabel,
+.cm-tooltip.cm-tooltip-autocomplete .cm-completionDetail {
+  font-family: var(--font-mono, Menlo, ui-monospace, monospace);
+}
+.cm-tooltip-autocomplete > ul { max-height: 220px; }
 .cm-tooltip-autocomplete > ul > li { padding: 5px 10px; line-height: 1.45; }
 /* Full selector (matches CodeMirror's own base-theme rule) so the ACCENT highlight reliably
    out-specifies the package default. */
