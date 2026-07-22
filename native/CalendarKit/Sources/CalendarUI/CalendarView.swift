@@ -9,6 +9,11 @@ public struct CalendarView: View {
     @State private var engine = CalendarEngine()
     @State private var ui = CalendarUIState()
     @State private var drawerWidth: CGFloat = 410
+    // The drawer's slide-in is a .move transition; a state-mutating hover inside it (the resize
+    // handle sweeping under a stationary mouse) re-renders the transitioning subtree and FREEZES
+    // the presentation mid-flight (model already final → snaps at the end). Mouse-transparent
+    // until the entrance settles, so no hover can fire during the animation.
+    @State private var drawerSettling = false
     @State private var monthBridge = MonthPagerBridge()
     @State private var weekBridge = WeekPagerBridge()
     @State private var dayBridge = DayPagerBridge()
@@ -820,6 +825,7 @@ public struct CalendarView: View {
                                 demoConfigOpen: demo.configPulse,
                                 demoRepeatFeed: demo.repeatFeed
                             )
+                            .allowsHitTesting(!drawerSettling) // see drawerSettling
                             .transition(.move(edge: .trailing))
                         }
                     }
@@ -876,9 +882,13 @@ public struct CalendarView: View {
                     }
                     .onAppear { setupOnAppear(size: geo.size) }
                     .onChange(of: geo.size) { _, s in engine.setViewport(s) }
-                    .onChange(of: ui.openEventId) { _, v in
+                    .onChange(of: ui.openEventId) { old, v in
                         engine.drawerOpen = v != nil
                         engine.chrome.drawerOpen = v != nil
+                        if v != nil, old == nil { // opening: let the slide-in own the mouse
+                            drawerSettling = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { drawerSettling = false }
+                        }
                         if let id = v {
                             engine.onHoverExit() // clear any lingering highlight now
                             engine.openDrawerShift(id: id, drawerWidth: drawerWidth)
