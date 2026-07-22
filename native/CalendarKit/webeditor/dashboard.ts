@@ -176,6 +176,10 @@ const noteEd = createNoteEditor({
   onEditAt: (line) => { noteModeUser("edit"); noteEd.setCursorLine(line); },   // ⌘-click a preview block
   emptyPreview: () => emptyNoteHTML(liveScope),
   completionIndex, // @project:/@person:/#tag completions from the live entity index
+  // due: context anchor — a DAILY note offers "this day time" (its own date). Week/month notes
+  // have a range, not a moment → no anchor there.
+  dueAnchor: () => (liveScope === "day" && liveIso && !liveIso.includes(":")
+    ? { label: "this day time", value: liveIso.slice(0, 10) } : null),
 });
 
 // ── Keyboard nav from the calendar (Tab into the dashboard TODO / NOTE stops) ──────────────────────

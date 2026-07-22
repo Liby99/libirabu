@@ -119,6 +119,9 @@ export interface NoteEditorOpts {
   /// derives it from its in-memory data). Omitted → entity completion off; DATE completion
   /// (due:/created:/done:) needs no index and always works.
   completionIndex?: () => { projects: string[]; people: string[]; tags: string[] };
+  /// Context anchor offered after `due:` — the note's OWN moment ("this event time" with the
+  /// event's datetime in the drawer; "this day time" with the day's date in a daily note).
+  dueAnchor?: () => { label: string; value: string } | null;
   onChange: (value: string) => void;
   onPreview: () => void;                 // ⌘S in the editor
   onOpenLink: (url: string) => void;     // ⌘-click a link
@@ -174,7 +177,8 @@ function parseLooseDate(s: string, now: Date, dueOriented: boolean): Date | null
   return null;
 }
 
-function dateSource(ctx: CompletionContext): CompletionResult | null {
+function dateSource(o: NoteEditorOpts) {
+  return (ctx: CompletionContext): CompletionResult | null => {
   const m = ctx.matchBefore(/(?:due|created|done):[\w/-]*$/);
   if (!m) return null;
   const text = ctx.state.sliceDoc(m.from, m.to);
@@ -212,8 +216,17 @@ function dateSource(ctx: CompletionContext): CompletionResult | null {
       push(l, d);
     }
   }
+  // The note's own moment — "this event time" in the drawer, "this day time" in a daily note.
+  if (key === "due") {
+    const anchor = o.dueAnchor?.();
+    if (anchor && (!partial || anchor.label.startsWith(partial.toLowerCase()))) {
+      opts.push({ label: anchor.label, detail: `→ ${anchor.value}`, apply: anchor.value,
+                  type: "constant", boost: 2 });
+    }
+  }
   if (!opts.length) return null;
   return { from: m.from + ci + 1, options: opts, filter: false };
+  };
 }
 
 function entitySource(o: NoteEditorOpts) {
@@ -302,7 +315,7 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
         keymap.of([{ key: "Tab", run: acceptCompletion },
                    { key: "Tab", run: indentMore, shift: indentLess }, ...defaultKeymap, ...historyKeymap]),
         // Entity + date autocomplete (the package's own keymap adds Enter-accept / arrows / Esc).
-        autocompletion({ override: [entitySource(o), dateSource], icons: false }),
+        autocompletion({ override: [entitySource(o), dateSource(o)], icons: false }),
         drawSelection(),
         EditorView.lineWrapping,
         markdown(),

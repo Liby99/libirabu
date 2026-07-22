@@ -617,11 +617,19 @@ struct EventDrawer: View {
 
             // Notes markdown editor (WKWebView) fills the remaining space. Horizontal padding of 18
             // matches the top content so the text left/right edges line up (internal CSS padding is 0).
-            MarkdownWebEditor(text: activeNote, mode: $notesMode, theme: theme,
+            MarkdownWebEditor(text: activeNote, mode: $notesMode,
+                              // Name the note being edited — one editor serves both scopes, and an
+                              // identical empty state made it impossible to tell which one you're in.
+                              placeholder: !recurring ? "Something to note about this event?"
+                                  : noteScope == .occurrence
+                                  ? "Notes for THIS occurrence only…"
+                                  : "Notes for every occurrence of this event…",
+                              theme: theme,
                               focusPulse: notesFocusPulse,
                               onExit: { refocus() }, // Escape → back to the notes ring
                               onSavePreview: { refocus() }, // ⌘S → preview → back to the notes ring
-                              entityIndex: { engine.entityIndexJSON() }) // @project:/@person:/# completions
+                              entityIndex: { engine.entityIndexJSON() }, // @project:/@person:/# completions
+                              dueAnchor: { engine.dueAnchorString(id) }) // due: "this event time"
                 .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
                 .drawerRingAnchor(.notes)
                 .padding(.horizontal, contentPad).padding(.vertical, editorVPad)

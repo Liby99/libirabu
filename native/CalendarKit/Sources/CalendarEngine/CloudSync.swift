@@ -403,9 +403,23 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         r["createdByAI"] = ((rf?.createdByAI ?? false) ? 1 : 0) as NSNumber
         r["colorOverride"] = rf?.colorOverride as CKRecordValue?
         r["userHidden"] = ((rf?.userHidden ?? false) ? 1 : 0) as NSNumber
+        // Per-occurrence notes (recurring "This Event" notes), as a JSON string field. This was
+        // MISSING: the record round-trip dropped them, and since inbound sync replaces richById
+        // wholesale, every fetched echo wiped locally-saved occurrence notes.
+        r["occurrenceNotesJSON"] = (rf?.occurrenceNotes)
+            .flatMap { try? JSONEncoder().encode($0) }
+            .flatMap { String(data: $0, encoding: .utf8) } as CKRecordValue?
     }
 
     private func readRich(_ r: CKRecord) -> RichFields {
+        var rf = readRichBase(r)
+        rf.occurrenceNotes = (r["occurrenceNotesJSON"] as? String)
+            .flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) }
+        return rf
+    }
+
+    private func readRichBase(_ r: CKRecord) -> RichFields {
         RichFields(
             notes: r["notes"] as? String,
             tags: (r["tags"] as? [String]) ?? [],

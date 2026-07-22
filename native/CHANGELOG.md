@@ -27,6 +27,11 @@ each release.
 - Improved: the Batch Rename panel is now properly modal — the calendar behind it is blocked,
   Esc cancels from anywhere (reverting the live renames), and the panel has explicit
   Cancel / Rename buttons (Cancel restores the original titles).
+- Fixed: a recurring event's "This Event" (per-occurrence) note was broken twice over — typing
+  in This Event scope silently edited the All Events (series) note instead (a stale editor
+  binding), and occurrence notes were missing from the CloudKit record mapping so any that WERE
+  saved got wiped by the next sync echo. Both fixed; per-occurrence notes now save, preview,
+  and round-trip through iCloud correctly.
 - Fixed: hover-cursor flicker over events (grab hand fighting the default pointer), worst in
   year view right after launch — the invisible dashboard WebView kept its own mouse tracking
   alive; it is now truly hidden whenever faded out, including at launch.

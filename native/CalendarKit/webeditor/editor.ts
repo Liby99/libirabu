@@ -11,6 +11,7 @@ function post(msg: any) { (window as any).webkit?.messageHandlers?.ck?.postMessa
 // Entity index for @project:/@person:/#tag completions — pushed from Swift (the engine's
 // database-wide scan); empty until the first CK.setEntityIndex.
 let entityIdx = { projects: [] as string[], people: [] as string[], tags: [] as string[] };
+let dueAnchorVal: string | null = null; // the event's own moment (pushed from Swift)
 
 const ed = createNoteEditor({
   editorEl: document.getElementById("editor")!,
@@ -22,11 +23,13 @@ const ed = createNoteEditor({
   onEditAt: (line) => post({ type: "editAt", line }),
   onExit: () => post({ type: "exit" }),
   completionIndex: () => entityIdx,
+  dueAnchor: () => (dueAnchorVal ? { label: "this event time", value: dueAnchorVal } : null),
 });
 
 (window as any).CK = {
   setValue: ed.setValue,
   setMode: ed.setMode,
+  setPlaceholder: ed.setPlaceholder, // scope-aware empty hint (All Events vs This Event)
   focus: ed.focus,
   setCursorLine: ed.setCursorLine,
   setTheme(vars: Record<string, string>) {
@@ -36,6 +39,7 @@ const ed = createNoteEditor({
   setEntityIndex(idx: { projects?: string[]; people?: string[]; tags?: string[] }) {
     entityIdx = { projects: idx.projects ?? [], people: idx.people ?? [], tags: idx.tags ?? [] };
   },
+  setDueAnchor(v: string | null) { dueAnchorVal = v || null; },
 };
 
 post({ type: "ready" });

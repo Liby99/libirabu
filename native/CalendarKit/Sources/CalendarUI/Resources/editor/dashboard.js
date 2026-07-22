@@ -57128,46 +57128,60 @@
     }
     return null;
   }
-  function dateSource(ctx) {
-    const m = ctx.matchBefore(/(?:due|created|done):[\w/-]*$/);
-    if (!m) return null;
-    const text9 = ctx.state.sliceDoc(m.from, m.to);
-    const ci = text9.indexOf(":");
-    const key2 = text9.slice(0, ci), partial = text9.slice(ci + 1);
-    const now = /* @__PURE__ */ new Date();
-    const wantTime = key2 !== "due";
-    const conc2 = (d) => wantTime ? minuteIso(d) : dayIso(d);
-    const opts = [];
-    const push2 = (label, d, boost = 0) => opts.push({ label, detail: `\u2192 ${conc2(d)}`, apply: conc2(d), type: "constant", boost });
-    const parsed = parseLooseDate(partial, now, key2 === "due");
-    if (parsed) {
-      push2(partial, parsed, 3);
-    }
-    if (key2 === "due" && /^[a-z]+$/i.test(partial)) {
-      const WD_LC = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-      const pl = partial.toLowerCase();
-      WD_LC.forEach((w, i3) => {
-        if (w.startsWith(pl)) {
-          const d = new Date(now);
-          d.setDate(d.getDate() + ((i3 - now.getDay() + 7) % 7 || 7));
-          push2(w.slice(0, 3), d, 2);
-        }
-      });
-    }
-    const statics = [
-      ["now", now],
-      ["today", now],
-      ["tomorrow", new Date(now.getTime() + 864e5)],
-      ["3d", new Date(now.getTime() + 3 * 864e5)],
-      ["1w", new Date(now.getTime() + 7 * 864e5)]
-    ];
-    for (const [l, d] of statics) {
-      if (l.startsWith(partial.toLowerCase()) && l !== partial) {
-        push2(l, d);
+  function dateSource(o) {
+    return (ctx) => {
+      const m = ctx.matchBefore(/(?:due|created|done):[\w/-]*$/);
+      if (!m) return null;
+      const text9 = ctx.state.sliceDoc(m.from, m.to);
+      const ci = text9.indexOf(":");
+      const key2 = text9.slice(0, ci), partial = text9.slice(ci + 1);
+      const now = /* @__PURE__ */ new Date();
+      const wantTime = key2 !== "due";
+      const conc2 = (d) => wantTime ? minuteIso(d) : dayIso(d);
+      const opts = [];
+      const push2 = (label, d, boost = 0) => opts.push({ label, detail: `\u2192 ${conc2(d)}`, apply: conc2(d), type: "constant", boost });
+      const parsed = parseLooseDate(partial, now, key2 === "due");
+      if (parsed) {
+        push2(partial, parsed, 3);
       }
-    }
-    if (!opts.length) return null;
-    return { from: m.from + ci + 1, options: opts, filter: false };
+      if (key2 === "due" && /^[a-z]+$/i.test(partial)) {
+        const WD_LC = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+        const pl = partial.toLowerCase();
+        WD_LC.forEach((w, i3) => {
+          if (w.startsWith(pl)) {
+            const d = new Date(now);
+            d.setDate(d.getDate() + ((i3 - now.getDay() + 7) % 7 || 7));
+            push2(w.slice(0, 3), d, 2);
+          }
+        });
+      }
+      const statics = [
+        ["now", now],
+        ["today", now],
+        ["tomorrow", new Date(now.getTime() + 864e5)],
+        ["3d", new Date(now.getTime() + 3 * 864e5)],
+        ["1w", new Date(now.getTime() + 7 * 864e5)]
+      ];
+      for (const [l, d] of statics) {
+        if (l.startsWith(partial.toLowerCase()) && l !== partial) {
+          push2(l, d);
+        }
+      }
+      if (key2 === "due") {
+        const anchor = o.dueAnchor?.();
+        if (anchor && (!partial || anchor.label.startsWith(partial.toLowerCase()))) {
+          opts.push({
+            label: anchor.label,
+            detail: `\u2192 ${anchor.value}`,
+            apply: anchor.value,
+            type: "constant",
+            boost: 2
+          });
+        }
+      }
+      if (!opts.length) return null;
+      return { from: m.from + ci + 1, options: opts, filter: false };
+    };
   }
   function entitySource(o) {
     return (ctx) => {
@@ -57259,7 +57273,7 @@
             ...historyKeymap
           ]),
           // Entity + date autocomplete (the package's own keymap adds Enter-accept / arrows / Esc).
-          autocompletion({ override: [entitySource(o), dateSource], icons: false }),
+          autocompletion({ override: [entitySource(o), dateSource(o)], icons: false }),
           drawSelection(),
           EditorView.lineWrapping,
           markdown(),
@@ -57544,8 +57558,11 @@
     },
     // ⌘-click a preview block
     emptyPreview: () => emptyNoteHTML(liveScope),
-    completionIndex
+    completionIndex,
     // @project:/@person:/#tag completions from the live entity index
+    // due: context anchor — a DAILY note offers "this day time" (its own date). Week/month notes
+    // have a range, not a moment → no anchor there.
+    dueAnchor: () => liveScope === "day" && liveIso && !liveIso.includes(":") ? { label: "this day time", value: liveIso.slice(0, 10) } : null
   });
   var navStop = null;
   var todoCursor = 0;

@@ -163,6 +163,31 @@ extension CalendarEngine {
         items.dailyNotes
     }
 
+    /// The drawer's "due: this event time" completion value: the item's own display-converted
+    /// moment — date+time for timed events/deadlines (due: accepts THH:MM), date-only for bands.
+    public func dueAnchorString(_ boxId: String) -> String? {
+        let sid = sourceId(of: boxId)
+        func dt(_ y: Int, _ m0: Int, _ d: Int, _ hour: CGFloat) -> String {
+            let t = Int((hour * 60).rounded())
+            return String(format: "%04d-%02d-%02dT%02d:%02d", y, m0 + 1, d, (t / 60) % 24, t % 60)
+        }
+        if let e0 = event(sid) {
+            let e = displayEvent(e0)
+            return dt(e.year, e.month, e.day, e.startHour)
+        }
+        if let d0 = deadline(sid) {
+            let d = displayDeadline(d0)
+            return dt(d.year, d.month, d.day, d.hour)
+        }
+        if let b = items.bands.first(where: { $0.id == sid }) {
+            return String(format: "%04d-%02d-%02d", b.year, b.month + 1, b.startDay)
+        }
+        if let e = imported.events.first(where: { $0.id == sid }) {
+            return dt(e.year, e.month, e.day, e.startHour)
+        }
+        return nil
+    }
+
     /// ── Autocomplete entity index: projects / people / tags across EVERY note ────────────────
     /// A lightweight regex scan (the JS tokenizer is ground truth; this approximation only feeds
     /// the drawer editor's completion lists — the dashboard editor builds its own index from the

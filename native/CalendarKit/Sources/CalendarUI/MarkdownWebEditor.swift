@@ -40,6 +40,7 @@ final class FocusGatedWebView: WKWebView, FocusGatedControl {
 struct MarkdownWebEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var mode: NotesMode
+    var placeholder = "Something to note about this event?" // scope-aware empty-note hint
     var theme: Theme
     /// When set (daily-note tab), horizontal scroll + pinch forward to the calendar instead of being
     /// eaten by the editor; vertical scroll stays here. Unset in the drawer (no calendar underneath).
@@ -53,6 +54,8 @@ struct MarkdownWebEditor: NSViewRepresentable {
     /// Entity-index JSON provider (engine.entityIndexJSON) → @project:/@person:/#tag completions.
     /// nil → entity completion off (date completion always works).
     var entityIndex: (() -> String)? = nil
+    /// "due: this event time" completion value — the note's own moment (engine.dueAnchorString).
+    var dueAnchor: (() -> String?)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, mode: $mode)
@@ -78,8 +81,10 @@ struct MarkdownWebEditor: NSViewRepresentable {
 
     func updateNSView(_ web: WKWebView, context: Context) {
         let c = context.coordinator
+        c.text = $text; c.mode = $mode // re-target: the bound note switches with the drawer's scope
         c.onExit = onExit; c.onSavePreview = onSavePreview
-        c.apply(text: text, mode: mode, theme: themeVars(), entityIndex: entityIndex?())
+        c.apply(text: text, mode: mode, theme: themeVars(), entityIndex: entityIndex?(),
+                placeholder: placeholder, dueAnchor: dueAnchor?() ?? nil)
         if focusPulse != c.lastFocusPulse {
             c.lastFocusPulse = focusPulse; c.grabFocus()
         } // keyboard: focus the editor
@@ -106,13 +111,20 @@ struct MarkdownWebEditor: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
-        private let text: Binding<String>
-        private let mode: Binding<NotesMode>
+        // MUTABLE: the drawer hands this view a SWITCHING binding (series note vs. per-occurrence
+        // note, by scope). The coordinator outlives every re-render, so a `let` captured at
+        // creation kept writing the ORIGINAL target forever — typing in "This Event" scope
+        // silently edited the series note. updateNSView refreshes these every pass.
+        var text: Binding<String>
+        var mode: Binding<NotesMode>
         weak var web: WKWebView?
         private var ready = false
         private var lastSent = "" // last value pushed to / received from JS (echo guard)
         private var lastEntityIndex = "" // dedup — the gen-cached JSON only changes on real edits
-        private var want: (text: String, mode: NotesMode, theme: [String: String], entityIndex: String?)?
+        private var lastDueAnchor: String?
+        private var want: (text: String, mode: NotesMode, theme: [String: String], entityIndex: String?,
+                           placeholder: String, dueAnchor: String?)?
+        private var lastPlaceholder = ""
         private var pendingCursorLine: Int? // ⌘-clicked preview line → place caret after mode flip
         var onExit: () -> Void = {} // Escape in the editor → host returns focus to the ring
         var onSavePreview: () -> Void = {} // ⌘S → preview → host returns focus to the ring
@@ -131,12 +143,20 @@ struct MarkdownWebEditor: NSViewRepresentable {
             eval("CK.setMode('edit'); CK.focus()")
         }
 
-        func apply(text: String, mode: NotesMode, theme: [String: String], entityIndex: String?) {
-            want = (text, mode, theme, entityIndex)
+        func apply(text: String, mode: NotesMode, theme: [String: String], entityIndex: String?,
+                   placeholder: String, dueAnchor: String?) {
+            want = (text, mode, theme, entityIndex, placeholder, dueAnchor)
             guard ready else { return }
             push(theme)
+            if placeholder != lastPlaceholder {
+                lastPlaceholder = placeholder; eval("CK.setPlaceholder(\(jsString(placeholder)))")
+            }
             if let idx = entityIndex, idx != lastEntityIndex {
                 lastEntityIndex = idx; eval("CK.setEntityIndex(\(idx))")
+            }
+            if dueAnchor != lastDueAnchor {
+                lastDueAnchor = dueAnchor
+                eval("CK.setDueAnchor(\(dueAnchor.map(jsString) ?? "null"))")
             }
             if text != lastSent {
                 lastSent = text; eval("CK.setValue(\(jsString(text)))")
@@ -157,8 +177,13 @@ struct MarkdownWebEditor: NSViewRepresentable {
                         .text; eval("CK.setValue(\(jsString(w.text)))"); eval(
                             "CK.setMode('\(w.mode == .edit ? "edit" : "preview")')"
                         )
+                    lastPlaceholder = w.placeholder
+                    eval("CK.setPlaceholder(\(jsString(w.placeholder)))")
                     if let idx = w.entityIndex {
                         lastEntityIndex = idx; eval("CK.setEntityIndex(\(idx))")
+                    }
+                    if let a = w.dueAnchor {
+                        lastDueAnchor = a; eval("CK.setDueAnchor(\(jsString(a)))")
                     }
                 }
             case "change":
