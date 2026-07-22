@@ -73,15 +73,15 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
    below (relative days, month boundaries). Bars carry their event color via --bar; the
    post-due portion hatches; open bars are grayed (unfinished). ── */
 .cc-proj-ph { opacity: .55; font-size: 11px; letter-spacing: 1.5px; margin: 4px 0 10px; }
-.cc-proj-more { font-size: 10px; color: var(--accent-grey); margin-left: 2px; }
+.cc-proj-more { font-size: 11px; color: var(--accent-grey); margin-left: 2px; }
 .cc-proj-chart { display: flex; gap: 8px; margin-top: 2px; }
-.cc-proj-hasdls .cc-proj-plotarea { margin-top: 15px; }   /* room for the deadline labels strip */
-.cc-proj-hasdls .cc-proj-labels { padding-top: 15px; }
+.cc-proj-hasdls .cc-proj-plotarea { margin-top: 17px; }   /* room for the deadline labels strip */
+.cc-proj-hasdls .cc-proj-labels { padding-top: 17px; }
 /* Label column scales WITH the panel (percentage, not fixed px) — wider on the day panel,
    proportionally narrower on the week/month widths; titles ellipsize inside. */
 .cc-proj-labels { flex: 0 0 32%; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 /* Open todos read in the PRIMARY ink (white on dark); checked ones recede to gray. */
-.cc-proj-lrow { height: 16px; display: flex; align-items: center; gap: 5px; font-size: 11px;
+.cc-proj-lrow { height: 18px; display: flex; align-items: center; gap: 5px; font-size: 12.5px;
   color: var(--accent-dark); }
 .cc-proj-lrow-done { color: var(--accent-grey); }
 /* The row's checkbox IS the TODO list's (.cc-dtodo-check — same class, same toggle delegation);
@@ -92,7 +92,7 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-proj-ltext:hover { color: var(--highlight); }
 .cc-proj-plot { flex: 1; min-width: 0; position: relative; }
 .cc-proj-plotarea { position: relative; display: flex; flex-direction: column; gap: 4px; }
-.cc-proj-track { position: relative; height: 16px; border-radius: 4px;
+.cc-proj-track { position: relative; height: 18px; border-radius: 4px;   /* = label row height */
   background: rgba(128, 128, 128, .10); overflow: clip; }
 .cc-proj-bar { position: absolute; top: 1px; bottom: 1px; border-radius: 3px; background: var(--ev-color); }
 .cc-proj-donebar { opacity: .85; }
@@ -107,11 +107,11 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-proj-vline { position: absolute; top: -2px; bottom: -2px; width: 1px;
   background: var(--accent-grey); opacity: .55; }
 .cc-proj-nowline { background: var(--accent-dark); opacity: .9; width: 1.5px; }
-.cc-proj-vlabel { position: absolute; top: -15px; transform: translateX(-4px); max-width: 45%;
-  font-size: 9.5px; letter-spacing: .3px; color: var(--fg); white-space: nowrap;
+.cc-proj-vlabel { position: absolute; top: -16px; transform: translateX(-4px); max-width: 45%;
+  font-size: 10.5px; letter-spacing: .3px; color: var(--fg); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 /* Axis strips: absolute tick labels along the same % scale as the bars. */
-.cc-proj-axis { position: relative; height: 13px; margin-top: 3px; font-size: 9px;
+.cc-proj-axis { position: relative; height: 14px; margin-top: 3px; font-size: 10px;
   color: var(--accent-grey); }
 .cc-proj-months { margin-top: 0; opacity: .75; border-top: 1px solid rgba(128, 128, 128, .25); }
 .cc-proj-tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }

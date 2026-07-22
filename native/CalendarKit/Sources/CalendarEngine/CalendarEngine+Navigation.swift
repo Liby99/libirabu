@@ -376,6 +376,12 @@ extension CalendarEngine {
     func cancelTween() {
         if let t = anim.tween {
             z = t.value(at: Date()); anim.tween = nil
+            // A zoom interrupted in its last breath settles ON the level: leaving z at e.g. 2.9885
+            // is visually identical to 3 but breaks exact-rest consumers (the day-note editor's
+            // scopeT gate wedged on it; the gutter z-fade would idle at ~0.04%).
+            if abs(z - z.rounded()) < 0.02 {
+                z = z.rounded()
+            }
         }
         if let st = anim.scrollTween {
             scrollY = st.value(at: Date()); anim.scrollTween = nil

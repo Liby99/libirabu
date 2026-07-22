@@ -58119,8 +58119,24 @@
       const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
       return d !== 0 ? d : cmpTie(a, b);
     };
-    const open2 = pool.filter((t2) => !t2.done && inR(opDate(t2))).sort(byOp);
-    const completed = pool.filter((t2) => t2.done && t2.parentLine == null && t2.doneDate && inR(t2.doneDate.slice(0, 10))).sort((a, b) => {
+    const byLine = new Map(pool.map((t2) => [`${scopeKey(t2)}\0${t2.line}`, t2]));
+    const rootOf = (t2) => {
+      let cur2 = t2;
+      while (cur2.parentLine != null) {
+        const up = byLine.get(`${scopeKey(cur2)}\0${cur2.parentLine}`);
+        if (!up) break;
+        cur2 = up;
+      }
+      return cur2;
+    };
+    const openBest = /* @__PURE__ */ new Map();
+    for (const h2 of pool.filter((t2) => !t2.done && inR(opDate(t2))).sort(byOp)) {
+      const r = rootOf(h2);
+      if (!openBest.has(r)) openBest.set(r, h2);
+    }
+    const open2 = [...openBest.keys()];
+    const openSet = new Set(open2);
+    const completed = pool.filter((t2) => t2.done && t2.parentLine == null && t2.doneDate && inR(t2.doneDate.slice(0, 10)) && !openSet.has(t2)).sort((a, b) => {
       const d = a.doneDate < b.doneDate ? 1 : a.doneDate > b.doneDate ? -1 : 0;
       return d !== 0 ? d : cmpTie(a, b);
     });
@@ -58158,10 +58174,16 @@
       ...s2,
       items: s2.items.map((t2) => t2.dailyDate === noteKey ? { ...t2, eventTitle: "" } : t2)
     }));
-    const flat = sections.flatMap((s2) => s2.items);
+    const kids = childrenIndex(allTodos);
+    const flat = [];
+    const secHTML = sections.map((s2) => {
+      const rows = s2.items.map((t2) => subtree(t2, kids).map((n) => {
+        flat.push(n);
+        return rowHTML(n, flat.length - 1, today);
+      }).join("")).join("");
+      return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span></div><ul class="cc-dtodo-list">${rows}</ul></section>`;
+    }).join("");
     flatOf.set(el, flat);
-    let i3 = -1;
-    const secHTML = sections.map((s2) => `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span></div><ul class="cc-dtodo-list">${s2.items.map((t2) => rowHTML(t2, ++i3, today)).join("")}</ul></section>`).join("");
     const pr = todoPrefs[scope];
     scroll.innerHTML = (pr.deadlines ? rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end) : "") + (sections.length ? secHTML : emptyListHTML(pr));
   }
@@ -58331,7 +58353,8 @@
       liveKey = monthNoteKey(mKeyA);
       hideEl = mpA;
     }
-    const showLive = tab2 === "note" && atRest && reveal > 0.999 && t2 % 1 === 0 && !!liveKey;
+    const scopeAtRest = t2 < 1e-3 || t2 > 0.999;
+    const showLive = tab2 === "note" && atRest && reveal > 0.999 && scopeAtRest && !!liveKey;
     noteLive.style.display = showLive ? "" : "none";
     for (const el of [p0, wpA, wpB, mpA, mpB]) el.style.visibility = "";
     if (showLive && hideEl) hideEl.style.visibility = "hidden";
@@ -58520,15 +58543,16 @@
     },
     // Swift drives the tab. Idempotent: the un-adopted echo push (see the coordinator's noteMode/tab
     // handling) re-sends the current value — a full re-render for a no-op change would be wasteful.
+    // A no-change push still re-runs apply() (cheap — every render is cache-guarded): the native
+    // toggles double as a manual repair path if the tick pipeline ever wedges with stale state.
     setTab(t2) {
       if (t2 !== tab2) applyTab(t2);
+      else apply();
     },
     setNoteMode(m) {
-      if (noteMode !== m) {
-        noteMode = m;
-        liveMode = "";
-        apply();
-      }
+      noteMode = m;
+      liveMode = "";
+      apply();
     },
     setInactive(on) {
       scrim.classList.toggle("on", on);
@@ -58598,6 +58622,16 @@
           noteEd.focus();
         } else if (left > 0) {
           requestAnimationFrame(() => tryFocus(left - 1));
+        } else {
+          post({ type: "err", where: "noteEdit-stuck", message: JSON.stringify({
+            tab: tab2,
+            noteMode,
+            liveMode,
+            liveShown,
+            liveIso,
+            display: noteLive.style.display,
+            last
+          }) });
         }
       };
       queueMicrotask(() => tryFocus(30));

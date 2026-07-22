@@ -864,11 +864,30 @@ function rangeTodoSections(startIso: string, endIso: string, word: string, scope
     const d = opDate(a) < opDate(b) ? -1 : opDate(a) > opDate(b) ? 1 : (b.priority ?? 0) - (a.priority ?? 0);
     return d !== 0 ? d : cmpTie(a, b);
   };
-  const open = pool.filter((t) => !t.done && inR(opDate(t))).sort(byOp);
-  // Top-level items only: a finished SUB-item is detail of its parent's progress, not its own
-  // accomplishment row — it still shows (struck) under the parent in the daily subtree view.
+  // NESTING: a qualifying SUB-item never shows alone — it PROMOTES its root, and the section
+  // lists ROOTS only (renderScopePanel renders each root's full subtree, same "sublists in
+  // full" rule as the daily view). Roots order by their earliest-due qualifying member.
+  const byLine = new Map(pool.map((t) => [`${scopeKey(t)}\0${t.line}`, t] as const));
+  const rootOf = (t: ParsedTodo): ParsedTodo => {
+    let cur = t;
+    while (cur.parentLine != null) {
+      const up = byLine.get(`${scopeKey(cur)}\0${cur.parentLine}`);
+      if (!up) break;
+      cur = up;
+    }
+    return cur;
+  };
+  const openBest = new Map<ParsedTodo, ParsedTodo>(); // root → earliest qualifying member
+  for (const h of pool.filter((t) => !t.done && inR(opDate(t))).sort(byOp)) {
+    const r = rootOf(h);
+    if (!openBest.has(r)) openBest.set(r, h);
+  }
+  const open = [...openBest.keys()]; // insertion order == byOp order of each root's best member
+  const openSet = new Set(open);
+  // Completed: done ROOTS finished in range — skipping any root already shown under TODOs
+  // (a done parent with an open in-range child shows there, struck, with its subtree).
   const completed = pool
-    .filter((t) => t.done && t.parentLine == null && t.doneDate && inR(t.doneDate.slice(0, 10)))
+    .filter((t) => t.done && t.parentLine == null && t.doneDate && inR(t.doneDate.slice(0, 10)) && !openSet.has(t))
     .sort((a, b) => { const d = a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0; return d !== 0 ? d : cmpTie(a, b); });
   return [
     { key: "open", title: `TODOs ${word}`, items: open },
@@ -909,11 +928,15 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
   const sections = rangeTodoSections(start, end, word, scope).map((s) => ({
     ...s, items: s.items.map((t) => t.dailyDate === noteKey ? { ...t, eventTitle: "" } : t),
   }));
-  const flat = sections.flatMap((s) => s.items);
+  // Sections hold ROOTS; render each root's full subtree. `flat` must match data-idx exactly
+  // (checkbox toggles resolve rows through it), so hidden==none here: every subtree row lists.
+  const kids = childrenIndex(allTodos);
+  const flat: ParsedTodo[] = [];
+  const secHTML = sections.map((s) => {
+    const rows = s.items.map((t) => subtree(t, kids).map((n) => { flat.push(n); return rowHTML(n, flat.length - 1, today); }).join("")).join("");
+    return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${rows}</ul></section>`;
+  }).join("");
   flatOf.set(el, flat);
-  let i = -1;
-  const secHTML = sections.map((s) =>
-    `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${s.items.map((t) => rowHTML(t, ++i, today)).join("")}</ul></section>`).join("");
   const pr = todoPrefs[scope];
   scroll.innerHTML =
     (pr.deadlines
@@ -1063,7 +1086,10 @@ function apply() {
   } else if (scopeName === "month" && mP <= 0.001 && mKeyA) {
     liveKey = monthNoteKey(mKeyA); hideEl = mpA;
   }
-  const showLive = tab === "note" && atRest && reveal > 0.999 && t % 1 === 0 && !!liveKey;
+  // Scope-rest is TOLERANT (t within epsilon of an integer), like every other rest gate here —
+  // `t % 1 === 0` wedged the live editor when an interrupted zoom left z a hair off its level.
+  const scopeAtRest = t < 0.001 || t > 0.999;
+  const showLive = tab === "note" && atRest && reveal > 0.999 && scopeAtRest && !!liveKey;
   noteLive.style.display = showLive ? "" : "none";
   for (const el of [p0, wpA, wpB, mpA, mpB]) el.style.visibility = "";
   if (showLive && hideEl) hideEl.style.visibility = "hidden";
@@ -1245,9 +1271,11 @@ root.addEventListener("click", (e) => {
   },
   // Swift drives the tab. Idempotent: the un-adopted echo push (see the coordinator's noteMode/tab
   // handling) re-sends the current value — a full re-render for a no-op change would be wasteful.
-  setTab(t: "todo" | "note" | "proj") { if (t !== tab) applyTab(t); },
+  // A no-change push still re-runs apply() (cheap — every render is cache-guarded): the native
+  // toggles double as a manual repair path if the tick pipeline ever wedges with stale state.
+  setTab(t: "todo" | "note" | "proj") { if (t !== tab) applyTab(t); else apply(); },
   setNoteMode(m: "edit" | "preview") {                       // native edit/preview toggle (no echo back)
-    if (noteMode !== m) { noteMode = m; liveMode = ""; apply(); }
+    noteMode = m; liveMode = ""; apply();
   },
   setInactive(on: boolean) { scrim.classList.toggle("on", on); },   // drawer open → blur + block the dashboard
   setTheme(vars: Record<string, string>) { const s = document.documentElement.style; for (const k in vars) s.setProperty(k, vars[k]); },
@@ -1300,6 +1328,14 @@ root.addEventListener("click", (e) => {
         noteEd.setMode("edit"); noteEd.focus();
       } else if (left > 0) {
         requestAnimationFrame(() => tryFocus(left - 1));
+      } else {
+        // Gave up — the live overlay never mounted (the "toggle says Editor but only the
+        // preview shows" wedge). Dump every input of the showLive gate to the Swift log so
+        // the failing condition is identifiable from the Xcode console.
+        post({ type: "err", where: "noteEdit-stuck", message: JSON.stringify({
+          tab, noteMode, liveMode, liveShown, liveIso,
+          display: noteLive.style.display, last,
+        }) });
       }
     };
     queueMicrotask(() => tryFocus(30));

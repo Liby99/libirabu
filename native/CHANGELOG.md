@@ -27,6 +27,14 @@ each release.
 - Improved: the Batch Rename panel is now properly modal — the calendar behind it is blocked,
   Esc cancels from anywhere (reverting the live renames), and the panel has explicit
   Cancel / Rename buttons (Cancel restores the original titles).
+- Fixed: weekly/monthly "TODOs this week/month" no longer list a nested sub-task as an
+  isolated row — a qualifying sub-item promotes its parent, which renders with its full
+  subtree (same rule as the daily dashboard), deduped against "Completed this week/month".
+- Fixed: the daily NOTE tab could wedge showing the static preview with the toggle stuck on
+  "Editor" (Enter/⌘-click dead) after an interrupted fly-to-today — an interrupted zoom left the
+  zoom level a hair off its resting value and a bit-exact gate never mounted the live editor.
+  Interrupted zooms now settle on the level, the gate is tolerant, and a panel render error can
+  no longer wedge the dashboard pipeline (contained + logged instead).
 - Added: gutter auto-hide — in month/week view with the dashboard pinned, when the window gets
   too narrow the month-name/track sidebar slides off-screen left (animated), giving the calendar
   and dashboard its width back; it slides back in when space allows or the dashboard unpins.

@@ -49,9 +49,16 @@ public struct Breadcrumb: View {
                 }
             }
             if chrome.level >= 3, let r = resolveDate(chrome.year, chrome.displayFocus, chrome.displayDom) {
-                // Just the ordinal ("21st") — the weekday lives in the day column's own header,
-                // and the trail (2026 › July › Week 4 › 21st) already carries the context.
-                sep; crumb("\(r.day)\(ordinal(r.day))", active: true)
+                // Phone (compact gutter): just the ordinal ("21st") — the weekday lives in the
+                // day column's own header, and the tight trail (2026 › July › Week 4 › 21st)
+                // must fit the bottom capsule. Desktop keeps the full "Monday, 21st".
+                sep
+                if Layout.isCompactGutter {
+                    crumb("\(r.day)\(ordinal(r.day))", active: true)
+                } else {
+                    crumb("\(WD_LONG[dayOfWeek(r.year, r.month, r.day)]), \(r.day)\(ordinal(r.day))",
+                          active: true)
+                }
             }
         }
         .padding(.horizontal, 18)
@@ -59,9 +66,11 @@ public struct Breadcrumb: View {
 
     private func yearLabel(atYear: Bool) -> some View {
         HStack(spacing: 0) {
-            // At the yearly view the crumb names the level ("Year 2026"); deeper in, the level
-            // is implied by the trail (2026 › July › …) so the bare number keeps the crumb tight.
-            crumb(atYear ? "Year \(chrome.year)" : "\(chrome.year)", active: atYear).fixedSize()
+            // Phone (compact gutter): past the yearly view the level is implied by the trail
+            // (2026 › July › …), and the bare number keeps the bottom capsule tight. Desktop
+            // keeps "Year 2026" at every level.
+            crumb(atYear || !Layout.isCompactGutter ? "Year \(chrome.year)" : "\(chrome.year)",
+                  active: atYear).fixedSize()
             if atYear {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .semibold))
