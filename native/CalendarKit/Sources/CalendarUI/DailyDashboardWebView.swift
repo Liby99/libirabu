@@ -934,8 +934,8 @@ private struct DashTabs: View {
         HStack(spacing: 4) {
             Spacer(minLength: 0)
             TabLabel(title: "TODO", selected: tab == .todo, theme: theme) { tab = .todo }
-            TabLabel(title: "NOTE", selected: tab == .note, theme: theme) { tab = .note }
             TabLabel(title: "PROJ", selected: tab == .proj, theme: theme) { tab = .proj }
+            TabLabel(title: "NOTE", selected: tab == .note, theme: theme) { tab = .note }
         }
         .padding(.trailing, 18)
         .frame(width: w, alignment: .trailing)

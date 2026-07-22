@@ -65,7 +65,7 @@ struct TimelineScaleBar: View {
                 // from the window edge (the canvas translates by padLeft), and the visible border
                 // sits at labelW in scene space — NOT tl.x0, which is the month's day-1 origin and
                 // goes far off-screen once the week pager has scrolled.
-                .offset(x: Layout.padLeft + Layout.labelW - Self.hitW / 2, y: tl.tlTop + thumbTop)
+                .offset(x: Layout.padLeft + Layout.labelW - engine.gutterShift - Self.hitW / 2, y: tl.tlTop + thumbTop)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .opacity(visible ? 1 : 0)

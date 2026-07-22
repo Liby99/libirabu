@@ -66,7 +66,7 @@ extension CalendarEngine {
     /// scripted drag creates an event exactly under the synthetic cursor — with the live create-preview. This
     /// mirrors CatcherView.point(): geometry space = view − padLeft (+ the live drawer shift).
     private func demoViewToGeometry(_ p: CGPoint) -> CGPoint {
-        CGPoint(x: p.x - Layout.padLeft + drawerShift, y: p.y)
+        CGPoint(x: p.x - Layout.padLeft + drawerShift + gutterShift, y: p.y)
     }
 
     public func demoPointerDown(atView p: CGPoint) {
@@ -108,20 +108,20 @@ extension CalendarEngine {
     /// The deadline quick-add "+" spot (appears while hovering a day column), in VIEW coordinates — the
     /// deadline-add recording scene hovers, reads this, and clicks it through the real pointer path.
     public func demoDeadlineSpotView() -> CGPoint? {
-        deadlineAddSpot(snapshotInput()).map { CGPoint(x: $0.x + Layout.padLeft - drawerShift, y: $0.y) }
+        deadlineAddSpot(snapshotInput()).map { CGPoint(x: $0.x + Layout.padLeft - drawerShift - gutterShift, y: $0.y) }
     }
 
     /// A DEADLINE's on-screen anchor (mid moment-line), VIEW coords — the promote scene right-clicks it.
     public func demoDeadlinePointView(_ id: String) -> CGPoint? {
         guard let d = displayDeadlines(for: year).first(where: { $0.id == id }),
               let pos = deadlinePos(d, snapshotInput()) else { return nil }
-        return CGPoint(x: pos.x + pos.w * 0.2 + Layout.padLeft - drawerShift, y: pos.y)
+        return CGPoint(x: pos.x + pos.w * 0.2 + Layout.padLeft - drawerShift - gutterShift, y: pos.y)
     }
     /// A BAND box's rect (incl. promoted ghosts), VIEW coords — the promote scene drags the ghost by it.
     public func demoBandRectView(_ boxId: String) -> CGRect? {
         guard let b = viewBands().first(where: { $0.id == boxId }),
               let r = bandEventRect(b, snapshotInput()) else { return nil }
-        return CGRect(x: r.x + Layout.padLeft - drawerShift, y: r.y, width: r.w, height: r.h)
+        return CGRect(x: r.x + Layout.padLeft - drawerShift - gutterShift, y: r.y, width: r.w, height: r.h)
     }
     /// Center the week/day timeline on `hour` (scenes must not assume where the pinned-16:00 scroll sits).
     public func demoScrollTimelineToHour(_ hour: CGFloat) {
@@ -144,7 +144,7 @@ extension CalendarEngine {
               let seg = timedSegments(disp).first else { return nil }
         let sameDay = eventsOn(seg.event.year, seg.event.month, seg.event.day)
         guard let r = eventRect(seg.event, year, focus, tl, g.vp, layoutDay(sameDay)[seg.event.id]) else { return nil }
-        return CGRect(x: r.minX + Layout.padLeft - drawerShift, y: tl.tlTop - tl.scroll + r.minY,
+        return CGRect(x: r.minX + Layout.padLeft - drawerShift - gutterShift, y: tl.tlTop - tl.scroll + r.minY,
                       width: r.width, height: r.height)
     }
 

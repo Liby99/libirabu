@@ -348,7 +348,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         // Undo the render's padLeft translation (and the drawer left-shift) so hits land in
         // geometry space.
         let p = convert(e.locationInWindow, from: nil)
-        return CGPoint(x: p.x - Layout.padLeft + (engine?.drawerShift ?? 0), y: p.y)
+        return CGPoint(x: p.x - Layout.padLeft + (engine?.drawerShift ?? 0) + (engine?.gutterShift ?? 0), y: p.y)
     }
 
     override func scrollWheel(with e: NSEvent) {
@@ -559,7 +559,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         // not 9 days off-screen). Content right edge = dashboardLeftAnimated (vp.w outside day
         // view). Scene → view = +padLeft − drawerShift. Fall back to a pointer spot rect.
         let view = convert(e.locationInWindow, from: nil)
-        let dx = Layout.padLeft - engine.drawerShift
+        let dx = Layout.padLeft - engine.drawerShift - engine.gutterShift
         let g = engine.snapshotInput()
         let anchor = engine.selectedBoxRect()
             .map { (r: CGRect) -> CGRect in

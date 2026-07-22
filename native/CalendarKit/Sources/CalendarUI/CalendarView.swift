@@ -343,6 +343,10 @@ public struct CalendarView: View {
     private func calendarScene(_ input: SceneInput, vp: Viewport, theme: Theme) -> some View {
         // Rest-year layer cache (see YearLayerCache.swift): non-nil at z==0 with no page-turn/flip.
         let g0 = yearCacheInput(input)
+        // Gutter hide: the scene lays out gutterShift wider (input.vp is inflated) and every
+        // layer TRANSLATES left by the same amount — pure draw-transform motion, no view resize
+        // (resizing the hosted WKWebView/NSScrollViews per frame is what tanks the framerate).
+        let sceneDX = Layout.padLeft - engine.gutterShift
         return ZStack {
             // 1. scene below events — clipped to the content area. At rest-year the scroll-RIGID
             // slice records once at full year height and CA translates it; only the hover
@@ -356,7 +360,7 @@ public struct CalendarView: View {
                 }
                 Canvas { ctx, _ in
                     var c = ctx
-                    c.translateBy(x: Layout.padLeft, y: 0)
+                    c.translateBy(x: sceneDX, y: 0)
                     RenderProf.measure("drawBelow", "1_drawBelow") {
                         SceneRenderer.drawBelow(input: input, filter: .hoverOnly, in: &c, theme: theme)
                     }
@@ -364,7 +368,7 @@ public struct CalendarView: View {
             } else {
                 Canvas { ctx, _ in
                     var c = ctx
-                    c.translateBy(x: Layout.padLeft, y: 0)
+                    c.translateBy(x: sceneDX, y: 0)
                     RenderProf.measure("drawBelow", "1_drawBelow") {
                         SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
                     }
@@ -381,13 +385,13 @@ public struct CalendarView: View {
                           hideBox: ui.openEventId != nil ? engine.selectedId : nil, // lifted sharp above
                           yearG0: g0,
                           theme: theme)
-                .offset(x: Layout.padLeft)
+                .offset(x: sceneDX)
             // 3. deadlines: the moment line + dots are drawn in the Canvas… When the drawer is open the
             // SELECTED deadline is HIDDEN here (drawn sharp in the lift below, like band/timed events).
             let liftDdl = ui.openEventId != nil ? engine.selectedId : nil
             Canvas { ctx, _ in
                 var c = ctx
-                c.translateBy(x: Layout.padLeft, y: 0)
+                c.translateBy(x: sceneDX, y: 0)
                 RenderProf.measure("drawMid", "3_drawMid") {
                     SceneRenderer.drawMid(
                         input: input,
@@ -407,7 +411,7 @@ public struct CalendarView: View {
                              selected: engine.selectedId, selectedIds: engine.selectedIds,
                              hovered: engine.hoveredEventId,
                              drawerOpen: ui.openEventId != nil, hide: liftDdl, theme: theme)
-                .offset(x: Layout.padLeft)
+                .offset(x: sceneDX)
             // 4. chrome on top of the glass: gutter labels/borders, track names, now-line/cursor, dashboard title.
             // Rest-year: the gutter (month names + track names + borders) is scroll-rigid → cached layer;
             // the per-frame pass keeps only the gutter hover strip + foreground + pull hints.
@@ -421,7 +425,7 @@ public struct CalendarView: View {
                 }
                 Canvas { ctx, _ in
                     var c = ctx
-                    c.translateBy(x: Layout.padLeft, y: 0)
+                    c.translateBy(x: sceneDX, y: 0)
                     RenderProf.measure("drawAbove", "5_drawAbove") {
                         SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames,
                                                 hideTrack: ui.editingTrack.map { ($0.month, $0.track) },
@@ -431,7 +435,7 @@ public struct CalendarView: View {
             } else {
                 Canvas { ctx, _ in
                     var c = ctx
-                    c.translateBy(x: Layout.padLeft, y: 0)
+                    c.translateBy(x: sceneDX, y: 0)
                     RenderProf.measure("drawAbove", "5_drawAbove") {
                         SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames,
                                                 hideTrack: ui.editingTrack.map { ($0.month, $0.track) }, in: &c, theme: theme)
@@ -442,23 +446,23 @@ public struct CalendarView: View {
             // gutter hour labels/borders, so their frosted glass blurs the labels instead of the
             // labels drawing crisp across the tag (the day-view left-gutter collision).
             TimeTagsOverlay(input: input, theme: theme)
-                .offset(x: Layout.padLeft)
+                .offset(x: sceneDX)
             // Keyboard-navigation cursor (dashed sliding ring).
             CursorRing(rect: engine.blockCursorRect(), theme: theme, cornerRadius: 6,
                        geometryAnimating: engine.isAnimating)
-                .offset(x: Layout.padLeft)
+                .offset(x: sceneDX)
             // Band cursor: a dashed cell over one lane × one day.
             CursorRing(rect: engine.bandCursorRect(), theme: theme, cornerRadius: 4,
                        geometryAnimating: engine.isAnimating)
-                .offset(x: Layout.padLeft)
+                .offset(x: sceneDX)
             // Track-name cursor (month view's extra Tab stops): a dashed cell over the gutter name slot.
             CursorRing(rect: engine.trackNameCursorRect(), theme: theme, cornerRadius: 4,
                        geometryAnimating: engine.isAnimating)
-                .offset(x: Layout.padLeft)
+                .offset(x: sceneDX)
             // Event cursor: dashed ring around the SELECTED event box (keyboard mode).
             CursorRing(rect: engine.selectionRingRect().map { $0.insetBy(dx: -2, dy: -2) },
                        theme: theme, cornerRadius: 8, geometryAnimating: engine.isAnimating)
-                .offset(x: Layout.padLeft)
+                .offset(x: sceneDX)
             // Marquee selection box: dashed border + shaded fill. Positive select = red; negative = gray.
             if let m = engine.marqueeRect {
                 let c = engine.marqueeNegative ? Color.secondary : theme.eventBorder("red")
@@ -470,7 +474,7 @@ public struct CalendarView: View {
                     ))
                     .frame(width: m.width, height: m.height)
                     .position(x: m.midX, y: m.midY)
-                    .offset(x: Layout.padLeft)
+                    .offset(x: sceneDX)
                     .allowsHitTesting(false)
             }
             // Deadline quick-add "+" — a small circle on the hovered day column's left edge at the nearest
@@ -479,7 +483,7 @@ public struct CalendarView: View {
             if ui.openEventId == nil, let spot = engine.deadlineAddSpot(input) {
                 DeadlineAddButton(theme: theme, hovering: spot.hovering)
                     .position(x: spot.x, y: spot.y)
-                    .offset(x: Layout.padLeft)
+                    .offset(x: sceneDX)
             }
             // Per-frame day-carousel driver for the dashboard WebView (invisible). Carries {from,to,dir,p}
             // for day paging and `reveal` for the panel's slide-in-from-right + fade. Week level up.
@@ -491,8 +495,9 @@ public struct CalendarView: View {
                 let vpw = input.vp.w
                 let dayLOpen = Layout.labelW + dashFrac * max(1, vpw - Layout.labelW)
                 let pinLOpen = engine.chrome.level <= 1
-                    ? vpw - dashMonthPanelW(input.vp, frac: engine.chrome.dashMonthFrac)
-                    : vpw - engine.chrome.dashWeekFrac * (vpw - Layout.labelW)
+                    ? vpw - dashMonthPanelW(Viewport(w: vpw - engine.gutterShift, h: input.vp.h),
+                                            frac: engine.chrome.dashMonthFrac)
+                    : vpw - engine.chrome.dashWeekFrac * (vpw - engine.gutterShift - Layout.labelW)
                 // dashPresented (not dashPinned): stays true through the ⌘B retract tween, so the
                 // slide normalizes against the PINNED edge while the content rides off with it.
                 let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPresented) ? pinLOpen : dayLOpen
@@ -542,7 +547,7 @@ public struct CalendarView: View {
                                scopeA: sA, scopeB: sB, scopeT: sT,
                                headerTopY: Double(fHeader.bandY),
                                headerTopY2: Double(fHeader2.bandY),
-                               panelLeft: Double(dashboardLeftAnimated(input)),
+                               panelLeft: Double(dashboardLeftAnimated(input) - engine.gutterShift),
                                webDy: Double(fRest.bandY - Layout.topPad),
                                mFrom: mFrom, mTo: mTo, mDir: mDir, mP: mP,
                                // Month-turn PIXEL offsets for the webview sub-panels, relative to the
@@ -554,14 +559,14 @@ public struct CalendarView: View {
                                mKeyA: mKeyA, mKeyB: mKeyB,
                                wFrom: wt.from, wTo: wt.to, wP: Double(wt.p),
                                wKeyA: wt.fromKey, wKeyB: wt.toKey,
-                               maskX: Double((scopeGeom?.mask ?? vpw) - Layout.labelW),
+                               maskX: Double((scopeGeom?.mask ?? vpw) - Layout.labelW - engine.gutterShift),
                                maskW: Double(vpw - (scopeGeom?.mask ?? vpw)),
                                aName: scopeGeom?.a.name ?? "",
-                               aX: Double((scopeGeom?.a.x ?? 0) - Layout.labelW),
+                               aX: Double((scopeGeom?.a.x ?? 0) - Layout.labelW - engine.gutterShift),
                                aW: Double(scopeGeom?.a.w ?? 0),
                                aOp: Double(scopeGeom?.a.op ?? 0),
                                bName: scopeGeom?.b?.name ?? "",
-                               bX: Double((scopeGeom?.b?.x ?? 0) - Layout.labelW),
+                               bX: Double((scopeGeom?.b?.x ?? 0) - Layout.labelW - engine.gutterShift),
                                bW: Double(scopeGeom?.b?.w ?? 0),
                                bOp: Double(scopeGeom?.b?.op ?? 0),
                                // Drawer canvas-shift (week/month; 0 at day): the webview content rides
@@ -637,13 +642,12 @@ public struct CalendarView: View {
                 // no TimelineView at all (see calendarSurface / calendarScene): that's what stops the
                 // display-cycle redraw and takes idle CPU to ~0.
                 let awake = engine.renderClock.awake
-                // Gutter hide (narrow window + pinned week/month dashboard): the interactive stack
-                // below lays out `gShift` wider than the window and slides left by the same amount
-                // (see the .frame/.offset pair after the inline editors). gShift mirrors the
-                // engine's tweened value through dashAnim (per-frame observable), so the slide
-                // animates even though this body isn't inside the TimelineView.
+                // Gutter hide (narrow window + pinned week/month dashboard): the SCENE lays out
+                // gShift wider and translates left internally (see calendarScene/sceneDX + the
+                // CarouselDriver's compensated panel geometry — CSS motion in a fixed webview
+                // frame). NOTHING here changes frame per frame; gShift (mirrored through the
+                // per-frame observable dashAnim) only feeds the split handle's x.
                 let gShift = CGFloat(dashAnim.gutterShift)
-                let cw = geo.size.width + gShift
                 let vpX = Viewport(w: vp.w + gShift, h: vp.h)
                 calendarSurface(awake: awake, vp: vp, theme: theme)
                     // The visual layers are purely presentational — never let them intercept
@@ -681,8 +685,8 @@ public struct CalendarView: View {
                                                   // WKWebView layer): day view AND the pinned week/month panels.
                                                   inactive: ui.openEventId != nil && (engine.chrome.level == 3
                                                       || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level))),
-                                                  frac: dashFrac, vp: vpX,
-                                                  containerWidth: cw, height: geo.size.height, theme: theme,
+                                                  frac: dashFrac, vp: vp,
+                                                  containerWidth: geo.size.width, height: geo.size.height, theme: theme,
                                                   onOpen: { ui.openEventId = sourceId(of: $0) },
                                                   onCloseDrawer: { ui.openEventId = nil },
                                                   onNoteExit: { engine.dashNoteExit() },
@@ -699,21 +703,21 @@ public struct CalendarView: View {
                     // hosted WKWebView NSView can't hit-test over the native controls. Tabs carousel via dashAnim.
                     .overlay {
                         if ui.openEventId == nil {
-                            DashTabsOverlay(engine: engine, anim: dashAnim, tab: $dashTab, frac: dashFrac, vp: vpX,
-                                            containerWidth: cw, theme: theme)
+                            DashTabsOverlay(engine: engine, anim: dashAnim, tab: $dashTab, frac: dashFrac, vp: vp,
+                                            containerWidth: geo.size.width, theme: theme)
                         }
                     }
                     .overlay {
                         if ui.openEventId == nil {
                             NoteModeToggleOverlay(engine: engine, anim: dashAnim, tab: dashTab, noteMode: $noteMode,
-                                                  containerWidth: cw, height: geo.size.height, theme: theme)
+                                                  containerWidth: geo.size.width, height: geo.size.height, theme: theme)
                         }
                     }
                     // TODO layering cog (bottom-right on the TODO tab) → the native callout menu.
                     .overlay {
                         if ui.openEventId == nil {
                             TodoCogOverlay(engine: engine, anim: dashAnim, tab: dashTab, controller: todoMenu,
-                                           containerWidth: cw, height: geo.size.height, theme: theme)
+                                           containerWidth: geo.size.width, height: geo.size.height, theme: theme)
                         }
                     }
                     // Day-view split handle: drag the timeline↔dashboard boundary to resize. Above the catcher
@@ -723,7 +727,8 @@ public struct CalendarView: View {
                         if engine.chrome.level == 3
                             || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)),
                             ui.openEventId == nil {
-                            DashboardSplitHandle(engine: engine, vp: vpX, height: geo.size.height, theme: theme,
+                            DashboardSplitHandle(engine: engine, vp: vpX, gutterShift: gShift,
+                                                 height: geo.size.height, theme: theme,
                                                  onFrac: { dashFrac = $0 })
                         }
                     }
@@ -768,14 +773,6 @@ public struct CalendarView: View {
                                              })
                         }
                     }
-                    // ── Gutter hide: the interactive stack ABOVE this point (scene + pagers + input
-                    // catcher + dashboard + inline editors) lays out gShift wider than the window and
-                    // slides left by the same amount — the month-name/track gutter glides off-screen,
-                    // and the calendar + pinned dashboard reclaim its width. The catcher rides inside,
-                    // so pointer coordinates stay consistent with the inflated scene automatically.
-                    // Window-anchored layers (scrim, lifted copies, drawer, dialogs) attach BELOW.
-                    .frame(width: cw, height: geo.size.height, alignment: .topLeading)
-                    .offset(x: -gShift)
                     // 4a. scrim — blocks the canvas + closes on outside-click (fades). Light dim; the blur behind
                     // it carries most of the "inactive" cue.
                     .overlay {

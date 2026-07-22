@@ -217,9 +217,10 @@ public final class CalendarEngine {
 
     /// ── Gutter hide (narrow window + pinned week/month dashboard) ──────────────────
     /// The animated width by which the month-name/track gutter (section A) is slid off-screen
-    /// left: 0 = shown, Layout.labelW = fully hidden. The scene's SceneInput viewport is inflated
-    /// by this amount (sceneInput) and the view offsets the whole interactive stack by −gutterShift,
-    /// so the calendar band + dashboard reclaim the gutter's width. Tweened in the frame tick.
+    /// left: 0 = shown, labelW + padLeft = fully hidden with the calendar band's left edge flush
+    /// against the WINDOW border (the gutter AND the window's left margin both yield). The scene's
+    /// SceneInput viewport is inflated by this amount (sceneInput) and every layer translates left
+    /// by it (sceneDX / CSS panel motion / pointer compensation). Tweened in the frame tick.
     public internal(set) var gutterShift: CGFloat = 0
 
     /// Target: hide the gutter only at month/week level with the dashboard PINNED (the intent bit —
@@ -230,7 +231,9 @@ public final class CalendarEngine {
         let dashW = chrome.level <= 1
             ? dashMonthPanelW(viewport, frac: chrome.dashMonthFrac)
             : chrome.dashWeekFrac * (viewport.w - Layout.labelW)
-        return viewport.w - dashW - Layout.labelW < Motion.gutterHideMinW ? Layout.labelW : 0
+        return viewport.w - dashW - Layout.labelW < Motion.gutterHideMinW
+            ? Layout.labelW + Layout.padLeft // band's left edge flush with the window border
+            : 0
     }
     /// The timed event currently being moved/resized/created (an ACTIVE drag). The overlay floats it
     /// full-width above its day and excludes it from the others' overlap packing so they don't reflow
@@ -605,8 +608,16 @@ public final class CalendarEngine {
                    yearQX: yearQX,
                    monthQX: monthQX)
         g.dashPin = dashPin
-        g.dashWeekFrac = dashWeekFrac
-        g.dashMonthFrac = dashMonthFrac
+        // Gutter hide: the pinned panel must stay PX-STABLE while the scene width inflates —
+        // otherwise crossing the hide threshold with the split handle makes the panel lunge
+        // (frac × inflated) past the cursor and the drag oscillates. Scale the fractions so
+        // fracEff × (inflatedW − labelW) == frac × (realW − labelW): all reclaimed width goes
+        // to the CALENDAR, the panel and the handle's absolute position never move.
+        let fracScale: CGFloat = gutterShift > 0.01
+            ? (viewport.w - Layout.labelW) / max(1, viewport.w + gutterShift - Layout.labelW)
+            : 1
+        g.dashWeekFrac = dashWeekFrac * fracScale
+        g.dashMonthFrac = dashMonthFrac * fracScale
         g.weekDash = weekDashHold.map { SceneInput.WeekDashOverride(from: $0.from, to: $0.to, p: $0.q) }
         return g
     }

@@ -48,7 +48,7 @@ enum Motion {
     /// ── Gutter hide (narrow window + pinned week/month dashboard) ──
     /// Minimum width the calendar band region (section B) keeps beside the pinned dashboard;
     /// below it, the month-name/track gutter (section A) slides off-screen left.
-    static let gutterHideMinW: CGFloat = 520
+    static let gutterHideMinW: CGFloat = 800
 }
 
 /// View-behavior thresholds that aren't layout (Layout) or timing (Motion).

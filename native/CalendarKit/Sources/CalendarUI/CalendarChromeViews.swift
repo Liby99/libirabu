@@ -34,7 +34,8 @@ struct DeadlineAddButton: View {
 
 struct DashboardSplitHandle: View {
     let engine: CalendarEngine
-    let vp: Viewport
+    let vp: Viewport // gutter-INFLATED at month/week hide (matches dashScopePanels' geometry)
+    var gutterShift: CGFloat = 0 // window x = inflated scene x − gutterShift
     let height: CGFloat
     let theme: Theme
     var onFrac: (CGFloat) -> Void = { _ in } // report the live split so the dashboard re-lays-out
@@ -49,7 +50,11 @@ struct DashboardSplitHandle: View {
     private let gapInset: CGFloat = 25
 
     var body: some View {
-        let contentW = max(1, vp.w - Layout.labelW)
+        // Real (un-inflated) width basis: the pinned panel is PX-STABLE under the gutter hide
+        // (frac × real content — see snapshot's fracEff), so both the handle position and the
+        // drag's frac mapping must use the same basis or the handle drifts/oscillates mid-hide.
+        let rw = vp.w - gutterShift
+        let contentW = max(1, rw - Layout.labelW)
         // Two modes, one handle. DAY: drags the timeline↔dashboard split (daily.frac = TIMELINE
         // width fraction; boundary at labelW + frac·content). PINNED month/week: drags that
         // scope's PANEL width (dashMonth/WeekFrac = PANEL fraction; boundary at w − frac·content,
@@ -59,8 +64,10 @@ struct DashboardSplitHandle: View {
         let scopeFrac = isMonth ? engine.chrome.dashMonthFrac : engine.chrome.dashWeekFrac
         let frac = dragFrac ?? (pinned ? scopeFrac : engine.daily.frac)
         // Month panel width floors at dashMonthMinW — the handle sits on the FLOORED edge.
+        // Window x of the pinned boundary: padLeft + inflated right edge − panel − gutterShift
+        // = padLeft + rw − panel (the inflation and the slide cancel — stable through the hide).
         let gapLeftX = pinned
-            ? Layout.padLeft + vp.w - (isMonth ? dashMonthPanelW(vp, frac: frac) : frac * contentW)
+            ? Layout.padLeft + rw - (isMonth ? dashMonthPanelW(Viewport(w: rw, h: vp.h), frac: frac) : frac * contentW)
             : Layout.padLeft + Layout.labelW + frac * contentW
         let centerX = gapLeftX + gapInset / 2
         let active = onGrip || dragFrac != nil
