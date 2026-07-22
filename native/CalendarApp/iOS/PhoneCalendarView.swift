@@ -22,6 +22,10 @@ struct PhoneCalendarView: View {
     @State private var sheetItem: SheetItem?
     @State private var showMenu = false
     @State private var showAI = false
+    /// While the event sheet is up, the calendar canvas lifts by this much so the selected
+    /// event sits highlighted in the sheet-free TOP part of the screen (the medium detent
+    /// covers the bottom half). Animated in on open, back to 0 on dismiss.
+    @State private var canvasLift: CGFloat = 0
 
     private struct SheetItem: Identifiable {
         let id: String
@@ -43,6 +47,9 @@ struct PhoneCalendarView: View {
                     }
                     .allowsHitTesting(false) // presentational; touch goes to the drivers below
                 }
+                // Sheet-reveal lift: the canvas (drivers included, so touch stays aligned)
+                // slides up to put the selected event in the sheet-free top region.
+                .offset(y: -canvasLift)
                 .simultaneousGesture(taps)
                 .simultaneousGesture(pinch)
                 // Fires on fingers-up AND system cancellation (the @GestureState reset covers
@@ -81,7 +88,12 @@ struct PhoneCalendarView: View {
             bottomBar
         }
         .background(theme.bg.ignoresSafeArea())
-        .sheet(item: $sheetItem, onDismiss: { engine.select(nil) }) { item in
+        .sheet(item: $sheetItem, onDismiss: {
+            engine.select(nil)
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                canvasLift = 0
+            }
+        }) { item in
             PhoneEventSheet(engine: engine, boxId: item.id, theme: theme)
         }
         .fullScreenCover(isPresented: $showMenu) {
@@ -118,6 +130,14 @@ struct PhoneCalendarView: View {
                 if let id = engine.itemId(at: p) {
                     engine.select(id)
                     sheetItem = SheetItem(id: id)
+                    // Lift the canvas so the event sits centered in the sheet-free top part
+                    // (the medium detent covers the bottom half; aim its middle at ~22%).
+                    if let r = engine.selectedBoxRect() {
+                        let h = engine.viewport.h
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            canvasLift = min(max(r.midY - h * 0.22, 0), h * 0.6)
+                        }
+                    }
                 } else if !engine.isDayLevel {
                     engine.navigate(at: p) // day level: nothing deeper to drill into
                 }
@@ -162,10 +182,10 @@ struct PhoneCalendarView: View {
             }
     }
 
-    /// View-space → geometry-space (the render layers draw offset by padLeft; see the Mac's
-    /// CalendarInputLayer point mapping — no drawer shift on the phone).
+    /// View-space → geometry-space (the render layers draw offset by padLeft; the sheet-reveal
+    /// lift shifts the canvas up, so gesture y compensates by +canvasLift).
     private func geomPoint(_ loc: CGPoint) -> CGPoint {
-        CGPoint(x: loc.x - Layout.padLeft, y: loc.y)
+        CGPoint(x: loc.x - Layout.padLeft, y: loc.y + canvasLift)
     }
 
     // ── Chrome ───────────────────────────────────────────────────────────────────────

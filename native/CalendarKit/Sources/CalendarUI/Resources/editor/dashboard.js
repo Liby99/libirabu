@@ -57895,7 +57895,7 @@
     const get = (k) => {
       let p3 = map3.get(k);
       if (!p3) {
-        p3 = { key: k, tasks: [], deadlines: [], lastActivity: "" };
+        p3 = { key: k, tasks: [], events: [], deadlines: [], lastActivity: "" };
         map3.set(k, p3);
       }
       return p3;
@@ -57926,6 +57926,28 @@
         color: color2
       };
       for (const k of t2.projects) get(k).tasks.push(task);
+    }
+    for (const ev of events) {
+      if (ev.kind !== "band") continue;
+      const s0 = ev.start.slice(0, 10), e0 = ev.end.slice(0, 10);
+      const spanDays = Math.max(0, daysBetween(s0, e0));
+      for (const k of noteProjectKeys(ev.notes)) {
+        get(k).events.push({ id: ev.id, title: ev.title, color: ev.color || "blue", start: s0, end: e0 });
+      }
+      for (const [okey, note] of Object.entries(ev.occurrenceNotes ?? {})) {
+        const keys2 = noteProjectKeys(note);
+        if (!keys2.length) continue;
+        const at = okey.indexOf("@");
+        let os = s0;
+        if (at >= 0) {
+          const parts = okey.slice(at + 1).split("-").map(Number);
+          if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {
+            os = `${parts[0]}-${pad3(parts[1] + 1)}-${pad3(parts[2])}`;
+          }
+        }
+        const oe = addDays(os, spanDays);
+        for (const k of keys2) get(k).events.push({ id: ev.id, title: ev.title, color: ev.color || "blue", start: os, end: oe });
+      }
     }
     for (const ev of events) {
       if (ev.kind !== "deadline") continue;
@@ -57975,11 +57997,11 @@
   function projHTML(rs, re2) {
     if (!today) return { html: "", flat: [] };
     ensureProjects();
-    const shown = projects.filter((p3) => p3.tasks.some((x) => x.start <= re2 && (!x.end || x.end >= rs)));
+    const shown = projects.filter((p3) => p3.tasks.some((x) => x.start <= re2 && (!x.end || x.end >= rs)) || p3.events.some((e) => e.start <= re2 && e.end >= rs));
     const flat = [];
     if (!shown.length) {
       return { html: `<div class="cc-proj-ph">PROJECTS</div>
-      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone).</div>`, flat };
+      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone; in a band event's note \u2014 or a recurring band's This Event note \u2014 it charts as an event bar).</div>`, flat };
     }
     return { html: `<div class="cc-proj-ph">PROJECTS</div>` + shown.map((p3) => projChartHTML(p3, flat)).join(""), flat };
   }
@@ -57998,6 +58020,10 @@
     for (const iso of dlIsos) {
       if (iso < lo) lo = iso;
       if (iso > hi) hi = iso;
+    }
+    for (const ev of p3.events) {
+      if (ev.start < lo) lo = ev.start;
+      if (ev.end > hi) hi = ev.end;
     }
     lo = addDays(lo, -1);
     hi = addDays(hi, 3);
@@ -58035,10 +58061,16 @@
       flat.push(t2.t);
       return `<div class="cc-proj-lrow${t2.end ? " cc-proj-lrow-done" : ""}"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t2.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t2.t.text)}">${esc(t2.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
     });
+    const evBoxes = [...p3.events].sort((a, b) => a.start < b.start ? -1 : 1).map((ev) => {
+      const l = x(ev.start), w = Math.max(1.2, x(addDays(ev.end, 1)) - l);
+      return `<div class="cc-proj-evbox ${evc(ev.color)}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%">
+      <span class="cc-proj-evname" data-ddl="${esc(ev.id)}" role="button" tabindex="0" title="${esc(ev.title)}">${esc(ev.title)}</span>
+    </div>`;
+    }).join("");
     const vlines = p3.deadlines.map((d, i3) => {
       const iso = dlIsos[i3], l = x(iso);
-      return `<div class="cc-proj-vline" style="left:${l.toFixed(2)}%"></div>
-      <div class="cc-proj-vlabel" style="left:${l.toFixed(2)}%" title="${esc(d.title)}">\u25C6 ${esc(d.title)}</div>`;
+      return `<div class="cc-proj-vline cc-proj-dlline ${evc(d.color)}" style="left:${l.toFixed(2)}%"></div>
+      <div class="cc-proj-vlabel ${evc(d.color)}" style="left:${l.toFixed(2)}%" title="${esc(d.title)}">${esc(d.title)}</div>`;
     }).join("");
     const nowLine = `<div class="cc-proj-vline cc-proj-nowline" style="left:${x(today).toFixed(2)}%"></div>`;
     const step = span <= 42 ? 7 : span <= 100 ? 30 : span <= 240 ? 60 : 90;
@@ -58079,12 +58111,13 @@
     return `
     <section class="cc-dd-sec cc-proj">
       <div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(p3.key)}</span><span class="cc-dd-sec-count">${p3.tasks.length}</span>${hiddenN > 0 ? `<span class="cc-proj-more">+${hiddenN} more</span>` : ""}</div>
-      <div class="cc-proj-chart${p3.deadlines.length ? " cc-proj-hasdls" : ""}">
+      <div class="cc-proj-chart${p3.deadlines.length ? " cc-proj-hasdls" : ""}${p3.events.length ? " cc-proj-hasevs" : ""}">
         <div class="cc-proj-labels">${rows.map((r) => r.split("|||")[0]).join("")}</div>
         <div class="cc-proj-plot">
           <div class="cc-proj-plotarea">
             ${vlines}${nowLine}
             ${rows.map((r) => r.split("|||")[1]).join("")}
+            ${evBoxes}
           </div>
           <div class="cc-proj-axis">${ticks}</div>
           <div class="cc-proj-axis cc-proj-months">${months}</div>

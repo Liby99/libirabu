@@ -27,6 +27,10 @@ each release.
 - Improved: the Batch Rename panel is now properly modal — the calendar behind it is blocked,
   Esc cancels from anywhere (reverting the live renames), and the panel has explicit
   Cancel / Rename buttons (Cancel restores the original titles).
+- Added: project event boxes — a band event whose note (or a recurring band's "This Event"
+  occurrence note) carries a bare @project:name line now charts on that project's timeline as a
+  rounded region spanning all task tracks over its dates, with the event's name along its top
+  edge (clickable to open the event); the box is pointer-transparent so task rows stay usable.
 - Fixed: a recurring event's "This Event" (per-occurrence) note was broken twice over — typing
   in This Event scope silently edited the All Events (series) note instead (a stale editor
   binding), and occurrence notes were missing from the CloudKit record mapping so any that WERE

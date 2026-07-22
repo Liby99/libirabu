@@ -538,9 +538,14 @@ interface ProjTask {
   due: string | null;
   color: string; // the source event's color
 }
+/// An EVENT BAR on the chart: a band event that belongs to the project — a bare `@project:<key>`
+/// line in its note (non-recurring) or in a "This Event" occurrence note (recurring). The show/
+/// rehearsal itself, drawn as a distinct bar over the timeline (tasks chart the work BEFORE it).
+interface ProjEvent { id: string; title: string; color: string; start: string; end: string; }
 interface Project {
   key: string;
   tasks: ProjTask[];
+  events: ProjEvent[];
   deadlines: DL[];
   lastActivity: string; // max(done ?? created ?? due) — panel sort order
 }
@@ -585,7 +590,7 @@ function ensureProjects() {
   const map = new Map<string, Project>();
   const get = (k: string): Project => {
     let p = map.get(k);
-    if (!p) { p = { key: k, tasks: [], deadlines: [], lastActivity: "" }; map.set(k, p); }
+    if (!p) { p = { key: k, tasks: [], events: [], deadlines: [], lastActivity: "" }; map.set(k, p); }
     return p;
   };
   // Rows: every TOP-LEVEL todo tagged @project:<key>, from any note source.
@@ -614,6 +619,34 @@ function ensureProjects() {
       color,
     };
     for (const k of t.projects) get(k).tasks.push(task);
+  }
+  // Event bars: a BAND event whose note carries a bare `@project:<key>` line — the series note
+  // for a plain band, or a "This Event" occurrence note for a recurring one (each tagged
+  // occurrence gets its own bar at its own dates, spanning the band's length).
+  for (const ev of events) {
+    if (ev.kind !== "band") continue;
+    const s0 = ev.start.slice(0, 10), e0 = ev.end.slice(0, 10);
+    const spanDays = Math.max(0, daysBetween(s0, e0));
+    for (const k of noteProjectKeys(ev.notes)) {
+      get(k).events.push({ id: ev.id, title: ev.title, color: ev.color || "blue", start: s0, end: e0 });
+    }
+    for (const [okey, note] of Object.entries(ev.occurrenceNotes ?? {})) {
+      const keys = noteProjectKeys(note);
+      if (!keys.length) continue;
+      // Occurrence-note keys are box ids: "<id>@Y-M-D" (0-BASED month — occKey/YMD convention),
+      // or the bare id for the base occurrence (which the series-note pass already covers if
+      // tagged there; a base-keyed occurrence note bars at the band's own dates).
+      const at = okey.indexOf("@");
+      let os = s0;
+      if (at >= 0) {
+        const parts = okey.slice(at + 1).split("-").map(Number);
+        if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {
+          os = `${parts[0]}-${pad(parts[1] + 1)}-${pad(parts[2])}`;
+        }
+      }
+      const oe = addDays(os, spanDays);
+      for (const k of keys) get(k).events.push({ id: ev.id, title: ev.title, color: ev.color || "blue", start: os, end: oe });
+    }
   }
   // Milestones: a DEADLINE whose note carries a bare `@project:<key>` line (its own todos
   // already chart as rows via the generic path above).
@@ -683,11 +716,12 @@ function projHTML(rs: string, re: string): { html: string; flat: ParsedTodo[] } 
   if (!today) return { html: "", flat: [] }; // pre-data tick — nothing to chart yet
   ensureProjects();
   const shown = projects.filter((p) =>
-    p.tasks.some((x) => x.start <= re && (!x.end || x.end >= rs)));
+    p.tasks.some((x) => x.start <= re && (!x.end || x.end >= rs))
+      || p.events.some((e) => e.start <= re && e.end >= rs));
   const flat: ParsedTodo[] = [];
   if (!shown.length) {
     return { html: `<div class="cc-proj-ph">PROJECTS</div>
-      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone).</div>`, flat };
+      <div class="cc-dd-free">No projects active in this range. Tag a top-level TODO with @project:name (a bare @project:name line in a deadline's note marks it as that project's milestone; in a band event's note — or a recurring band's This Event note — it charts as an event bar).</div>`, flat };
   }
   return { html: `<div class="cc-proj-ph">PROJECTS</div>`
     + shown.map((p) => projChartHTML(p, flat)).join(""), flat };
@@ -711,6 +745,10 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
   for (const iso of dlIsos) {
     if (iso < lo) lo = iso;
     if (iso > hi) hi = iso;
+  }
+  for (const ev of p.events) {
+    if (ev.start < lo) lo = ev.start;
+    if (ev.end > hi) hi = ev.end;
   }
   // Visual breathing room: a day on the left, a few days past the last due/deadline/now.
   lo = addDays(lo, -1);
@@ -753,11 +791,21 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     flat.push(t.t);
     return `<div class="cc-proj-lrow${t.end ? " cc-proj-lrow-done" : ""}"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t.t.text)}">${esc(t.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
   });
-  // Deadline rules + the now-line span the row area; deadline titles sit in the top strip.
+  // Event boxes: rounded regions spanning ALL tracks (no lane of their own) over the event's
+  // date range, the event's name written along the box's top edge. The box body ignores the
+  // pointer (task checkboxes/bars stay fully usable through it); the NAME opens the event.
+  const evBoxes = [...p.events].sort((a, b) => (a.start < b.start ? -1 : 1)).map((ev) => {
+    const l = x(ev.start), w = Math.max(1.2, x(addDays(ev.end, 1)) - l); // end-day inclusive
+    return `<div class="cc-proj-evbox ${evc(ev.color)}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%">
+      <span class="cc-proj-evname" data-ddl="${esc(ev.id)}" role="button" tabindex="0" title="${esc(ev.title)}">${esc(ev.title)}</span>
+    </div>`;
+  }).join("");
+  // Deadline rules + the now-line span the row area; the title sits in the top strip, CENTERED
+  // on its rule and in the deadline's own color (same alignment language as the event names).
   const vlines = p.deadlines.map((d, i) => {
     const iso = dlIsos[i], l = x(iso);
-    return `<div class="cc-proj-vline" style="left:${l.toFixed(2)}%"></div>
-      <div class="cc-proj-vlabel" style="left:${l.toFixed(2)}%" title="${esc(d.title)}">◆ ${esc(d.title)}</div>`;
+    return `<div class="cc-proj-vline cc-proj-dlline ${evc(d.color)}" style="left:${l.toFixed(2)}%"></div>
+      <div class="cc-proj-vlabel ${evc(d.color)}" style="left:${l.toFixed(2)}%" title="${esc(d.title)}">${esc(d.title)}</div>`;
   }).join("");
   const nowLine = `<div class="cc-proj-vline cc-proj-nowline" style="left:${x(today).toFixed(2)}%"></div>`;
   // Axis 1: relative days from now (past "Nd ago", future "in Nd"), step scaled to the span —
@@ -794,12 +842,13 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
   return `
     <section class="cc-dd-sec cc-proj">
       <div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(p.key)}</span><span class="cc-dd-sec-count">${p.tasks.length}</span>${hiddenN > 0 ? `<span class="cc-proj-more">+${hiddenN} more</span>` : ""}</div>
-      <div class="cc-proj-chart${p.deadlines.length ? " cc-proj-hasdls" : ""}">
+      <div class="cc-proj-chart${p.deadlines.length ? " cc-proj-hasdls" : ""}${p.events.length ? " cc-proj-hasevs" : ""}">
         <div class="cc-proj-labels">${rows.map((r) => r.split("|||")[0]).join("")}</div>
         <div class="cc-proj-plot">
           <div class="cc-proj-plotarea">
             ${vlines}${nowLine}
             ${rows.map((r) => r.split("|||")[1]).join("")}
+            ${evBoxes}
           </div>
           <div class="cc-proj-axis">${ticks}</div>
           <div class="cc-proj-axis cc-proj-months">${months}</div>

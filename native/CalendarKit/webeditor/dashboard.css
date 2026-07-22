@@ -96,6 +96,24 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
   background: rgba(128, 128, 128, .10); overflow: clip; }
 .cc-proj-bar { position: absolute; top: 1px; bottom: 1px; border-radius: 3px; background: var(--ev-color); }
 .cc-proj-donebar { opacity: .85; }
+/* EVENT box: the show/rehearsal itself — a rounded region spanning ALL tracks over its date
+   range (no lane of its own), name along its top edge. The body is pointer-transparent so the
+   task rows stay fully interactive beneath; only the name is clickable (opens the event). */
+.cc-proj-evbox {
+  position: absolute; top: 0; bottom: -2px; /* spans the tracks only — the name floats above */
+  border: 1.5px solid var(--ev-color); border-radius: 7px;
+  background: color-mix(in srgb, var(--ev-color) 10%, transparent);
+  pointer-events: none;
+}
+.cc-proj-evname {
+  /* Above the box (in the headroom strip), centered on the box's center. */
+  position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
+  font-size: 9.5px; font-weight: 700; line-height: 13px;
+  color: var(--ev-color); white-space: nowrap; pointer-events: auto; cursor: pointer;
+}
+/* Headroom so the box tops + names sit above the first task bar. */
+.cc-proj-hasevs .cc-proj-plotarea { margin-top: 15px; }
+.cc-proj-hasevs .cc-proj-labels { padding-top: 15px; }
 .cc-proj-openbar { opacity: .85; }   /* open rows stay fully colored (run to now); the checkbox carries the state */
 .cc-proj-over { background-image: repeating-linear-gradient(45deg,
   rgba(0, 0, 0, .30) 0 3px, transparent 3px 6px); }          /* past-due portion: hatched */
@@ -107,8 +125,14 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-proj-vline { position: absolute; top: -2px; bottom: -2px; width: 1px;
   background: var(--accent-grey); opacity: .55; }
 .cc-proj-nowline { background: var(--accent-dark); opacity: .9; width: 1.5px; }
-.cc-proj-vlabel { position: absolute; top: -16px; transform: translateX(-4px); max-width: 45%;
-  font-size: 10.5px; letter-spacing: .3px; color: var(--fg); white-space: nowrap;
+/* Deadline rule: thin + DASHED in the deadline's own color (the now-line stays solid). */
+.cc-proj-dlline {
+  width: 1px; opacity: .8;
+  background: repeating-linear-gradient(to bottom, var(--ev-color) 0 4px, transparent 4px 8px);
+}
+/* Centered on its rule + colored like its deadline — same alignment language as event names. */
+.cc-proj-vlabel { position: absolute; top: -16px; transform: translateX(-50%); max-width: 45%;
+  font-size: 10.5px; letter-spacing: .3px; color: var(--ev-color); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 /* Axis strips: absolute tick labels along the same % scale as the bars. */
 .cc-proj-axis { position: relative; height: 14px; margin-top: 3px; font-size: 10px;

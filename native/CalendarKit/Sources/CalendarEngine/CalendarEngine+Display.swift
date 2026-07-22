@@ -708,6 +708,12 @@ extension CalendarEngine {
         items.richById[overlayKey(id)]?.notes ?? ""
     }
 
+    /// The item's repeat rule (nil = one-off) — read through the overlay key like notes/tags.
+    /// Public for the iPhone detail sheet's "Repeats …" row.
+    public func repeatRule(_ id: String) -> Repeat? {
+        Repeat.parse(items.richById[overlayKey(id)]?.repeatJSON)
+    }
+
     public func setNotes(_ id: String, _ v: String) {
         let key = overlayKey(id)
         var rf = items.richById[key] ?? RichFields()
