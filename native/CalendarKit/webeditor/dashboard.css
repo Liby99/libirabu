@@ -90,7 +90,7 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-proj-plotarea { position: relative; display: flex; flex-direction: column; gap: 4px; }
 .cc-proj-track { position: relative; height: 16px; border-radius: 4px;
   background: rgba(128, 128, 128, .10); overflow: clip; }
-.cc-proj-bar { position: absolute; top: 1px; bottom: 1px; border-radius: 3px; background: var(--bar); }
+.cc-proj-bar { position: absolute; top: 1px; bottom: 1px; border-radius: 3px; background: var(--ev-color); }
 .cc-proj-donebar { opacity: .85; }
 .cc-proj-openbar { opacity: .85; }   /* open rows stay fully colored (run to now); the checkbox carries the state */
 .cc-proj-over { background-image: repeating-linear-gradient(45deg,
@@ -98,7 +98,7 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 /* An uncrossed due date (open-with-future-due / finished-early): a small vertical tick in the
    row's own color at the due position. */
 .cc-proj-due { position: absolute; top: 0; bottom: 0; width: 2px; border-radius: 1px;
-  background: var(--bar); opacity: .8; }
+  background: var(--ev-color); opacity: .8; }
 /* Deadline rules + the now-line span the row area; labels sit in the strip above. */
 .cc-proj-vline { position: absolute; top: -2px; bottom: -2px; width: 1px;
   background: var(--accent-grey); opacity: .55; }

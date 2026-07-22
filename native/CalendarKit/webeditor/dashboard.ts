@@ -662,11 +662,19 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     if (iso < lo) lo = iso;
     if (iso > hi) hi = iso;
   }
+  // Visual breathing room: a day on the left, a few days past the last due/deadline/now.
+  lo = addDays(lo, -1);
+  hi = addDays(hi, 3);
   const span = Math.max(1, daysBetween(lo, hi));
   const x = (iso: string) => Math.max(0, Math.min(100, (daysBetween(lo, iso) / span) * 100));
+  // Bar colors ride the house `.cc-ev-<color>` classes (they define --ev-color; unknown names
+  // fall to cc-ev-default). NOT the --event-*-border vars — those are never actually defined.
+  const EV_COLORS = new Set(["red", "blue", "green", "yellow", "purple", "orange", "cyan",
+                             "darkgreen", "indigo"]);
+  const evc = (c: string) => `cc-ev-${EV_COLORS.has(c) ? c : "default"}`;
   const seg = (a: string, b: string, cls: string, color: string) => {
     const l = x(a), w = Math.max(0.8, x(b) - x(a));
-    return `<span class="cc-proj-bar ${cls}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%;--bar:var(--event-${color}-border)"></span>`;
+    return `<span class="cc-proj-bar ${cls} ${evc(color)}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%"></span>`;
   };
   const rows = tasks.map((t) => {
     // The bar taxonomy (created/due/done):
@@ -685,7 +693,7 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     } else {
       bars = seg(t.start, end, kind, t.color);
       if (t.due && t.due > end) {
-        bars += `<span class="cc-proj-due" style="left:${x(t.due).toFixed(2)}%;--bar:var(--event-${t.color}-border)"></span>`;
+        bars += `<span class="cc-proj-due ${evc(t.color)}" style="left:${x(t.due).toFixed(2)}%"></span>`;
       }
     }
     // A REAL todo row, gantt-formatted: the same checkbox as the TODO list (same class → the
@@ -702,8 +710,9 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
       <div class="cc-proj-vlabel" style="left:${l.toFixed(2)}%" title="${esc(d.title)}">◆ ${esc(d.title)}</div>`;
   }).join("");
   const nowLine = `<div class="cc-proj-vline cc-proj-nowline" style="left:${x(today).toFixed(2)}%"></div>`;
-  // Axis 1: relative days from now (past "Nd ago", future "in Nd"), step scaled to the span.
-  const step = span <= 100 ? 30 : span <= 240 ? 60 : 90;
+  // Axis 1: relative days from now (past "Nd ago", future "in Nd"), step scaled to the span —
+  // short projects tick weekly so a two-week chart isn't a bare "now".
+  const step = span <= 42 ? 7 : span <= 100 ? 30 : span <= 240 ? 60 : 90;
   let ticks = "";
   for (let k = Math.ceil(-daysBetween(lo, today) / step) * step; ; k += step) {
     const iso = addDays(today, k);
@@ -712,9 +721,17 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     const label = k === 0 ? "now" : k < 0 ? `${-k}d ago` : `in ${k}d`;
     ticks += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${label}</span>`;
   }
-  // Axis 2: month boundaries.
+  // Axis 2: calendar boundaries — months, or WEEK boundaries (Sundays, "Jul 6") when the span
+  // is short enough that a month row would be sparse or empty.
   let months = "";
-  {
+  if (span <= 60) {
+    const [y0, m0, d0] = lo.split("-").map(Number);
+    const dow = new Date(Date.UTC(y0, m0 - 1, d0)).getUTCDay();
+    for (let iso = addDays(lo, (7 - dow) % 7); iso <= hi; iso = addDays(iso, 7)) {
+      const [, mm, dd] = iso.split("-").map(Number);
+      months += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${MO_SHORT[mm - 1]} ${dd}</span>`;
+    }
+  } else {
     let [y, m] = lo.split("-").map(Number);
     m += 1; if (m > 12) { m = 1; y += 1; }
     for (;;) {

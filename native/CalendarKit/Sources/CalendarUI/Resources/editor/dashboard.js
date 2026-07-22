@@ -56337,11 +56337,25 @@
       if (iso < lo) lo = iso;
       if (iso > hi) hi = iso;
     }
+    lo = addDays(lo, -1);
+    hi = addDays(hi, 3);
     const span = Math.max(1, daysBetween(lo, hi));
     const x = (iso) => Math.max(0, Math.min(100, daysBetween(lo, iso) / span * 100));
+    const EV_COLORS = /* @__PURE__ */ new Set([
+      "red",
+      "blue",
+      "green",
+      "yellow",
+      "purple",
+      "orange",
+      "cyan",
+      "darkgreen",
+      "indigo"
+    ]);
+    const evc = (c) => `cc-ev-${EV_COLORS.has(c) ? c : "default"}`;
     const seg = (a, b, cls, color2) => {
       const l = x(a), w = Math.max(0.8, x(b) - x(a));
-      return `<span class="cc-proj-bar ${cls}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%;--bar:var(--event-${color2}-border)"></span>`;
+      return `<span class="cc-proj-bar ${cls} ${evc(color2)}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%"></span>`;
     };
     const rows = tasks.map((t2) => {
       const end = t2.end ?? today;
@@ -56352,7 +56366,7 @@
       } else {
         bars = seg(t2.start, end, kind, t2.color);
         if (t2.due && t2.due > end) {
-          bars += `<span class="cc-proj-due" style="left:${x(t2.due).toFixed(2)}%;--bar:var(--event-${t2.color}-border)"></span>`;
+          bars += `<span class="cc-proj-due ${evc(t2.color)}" style="left:${x(t2.due).toFixed(2)}%"></span>`;
         }
       }
       const idx = flat.length;
@@ -56365,7 +56379,7 @@
       <div class="cc-proj-vlabel" style="left:${l.toFixed(2)}%" title="${esc(d.title)}">\u25C6 ${esc(d.title)}</div>`;
     }).join("");
     const nowLine = `<div class="cc-proj-vline cc-proj-nowline" style="left:${x(today).toFixed(2)}%"></div>`;
-    const step = span <= 100 ? 30 : span <= 240 ? 60 : 90;
+    const step = span <= 42 ? 7 : span <= 100 ? 30 : span <= 240 ? 60 : 90;
     let ticks = "";
     for (let k = Math.ceil(-daysBetween(lo, today) / step) * step; ; k += step) {
       const iso = addDays(today, k);
@@ -56375,7 +56389,14 @@
       ticks += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${label}</span>`;
     }
     let months = "";
-    {
+    if (span <= 60) {
+      const [y0, m0, d0] = lo.split("-").map(Number);
+      const dow = new Date(Date.UTC(y0, m0 - 1, d0)).getUTCDay();
+      for (let iso = addDays(lo, (7 - dow) % 7); iso <= hi; iso = addDays(iso, 7)) {
+        const [, mm, dd2] = iso.split("-").map(Number);
+        months += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${MO_SHORT[mm - 1]} ${dd2}</span>`;
+      }
+    } else {
       let [y, m] = lo.split("-").map(Number);
       m += 1;
       if (m > 12) {
