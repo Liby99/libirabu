@@ -50,6 +50,9 @@ struct MarkdownWebEditor: NSViewRepresentable {
     var focusPulse: Int = 0
     var onExit: () -> Void = {}
     var onSavePreview: () -> Void = {}
+    /// Entity-index JSON provider (engine.entityIndexJSON) → @project:/@person:/#tag completions.
+    /// nil → entity completion off (date completion always works).
+    var entityIndex: (() -> String)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, mode: $mode)
@@ -76,7 +79,7 @@ struct MarkdownWebEditor: NSViewRepresentable {
     func updateNSView(_ web: WKWebView, context: Context) {
         let c = context.coordinator
         c.onExit = onExit; c.onSavePreview = onSavePreview
-        c.apply(text: text, mode: mode, theme: themeVars())
+        c.apply(text: text, mode: mode, theme: themeVars(), entityIndex: entityIndex?())
         if focusPulse != c.lastFocusPulse {
             c.lastFocusPulse = focusPulse; c.grabFocus()
         } // keyboard: focus the editor
@@ -108,7 +111,8 @@ struct MarkdownWebEditor: NSViewRepresentable {
         weak var web: WKWebView?
         private var ready = false
         private var lastSent = "" // last value pushed to / received from JS (echo guard)
-        private var want: (text: String, mode: NotesMode, theme: [String: String])?
+        private var lastEntityIndex = "" // dedup — the gen-cached JSON only changes on real edits
+        private var want: (text: String, mode: NotesMode, theme: [String: String], entityIndex: String?)?
         private var pendingCursorLine: Int? // ⌘-clicked preview line → place caret after mode flip
         var onExit: () -> Void = {} // Escape in the editor → host returns focus to the ring
         var onSavePreview: () -> Void = {} // ⌘S → preview → host returns focus to the ring
@@ -127,10 +131,13 @@ struct MarkdownWebEditor: NSViewRepresentable {
             eval("CK.setMode('edit'); CK.focus()")
         }
 
-        func apply(text: String, mode: NotesMode, theme: [String: String]) {
-            want = (text, mode, theme)
+        func apply(text: String, mode: NotesMode, theme: [String: String], entityIndex: String?) {
+            want = (text, mode, theme, entityIndex)
             guard ready else { return }
             push(theme)
+            if let idx = entityIndex, idx != lastEntityIndex {
+                lastEntityIndex = idx; eval("CK.setEntityIndex(\(idx))")
+            }
             if text != lastSent {
                 lastSent = text; eval("CK.setValue(\(jsString(text)))")
             }
@@ -150,6 +157,9 @@ struct MarkdownWebEditor: NSViewRepresentable {
                         .text; eval("CK.setValue(\(jsString(w.text)))"); eval(
                             "CK.setMode('\(w.mode == .edit ? "edit" : "preview")')"
                         )
+                    if let idx = w.entityIndex {
+                        lastEntityIndex = idx; eval("CK.setEntityIndex(\(idx))")
+                    }
                 }
             case "change":
                 if let v = body["value"] as? String {

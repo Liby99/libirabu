@@ -35,6 +35,15 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         if alphaValue != alpha {
             alphaValue = alpha
         }
+        // Fully faded (year view / pre-reveal) → actually HIDDEN. An invisible-but-present
+        // WKWebView still runs WebKit's own mouse tracking and sets the WEB cursor (CSS pointer
+        // over its unseen rows) against the calendar's grab hand — the year-view hover flicker —
+        // and its stale interactiveLeftX could swallow clicks. Hidden removes it from tracking,
+        // hit-testing, and cursor updates in one move; the first reveal tick un-hides it.
+        let hide = alpha < 0.01
+        if isHidden != hide {
+            isHidden = hide
+        }
     }
 
     /// Frame-local x of the live mask edge (set per tick): the frame spans the FULL content
@@ -442,6 +451,11 @@ struct DailyDashboardWebView: NSViewRepresentable {
         let cfg = WKWebViewConfiguration()
         cfg.userContentController.add(context.coordinator, name: "ck")
         let web = PassThroughWebView(frame: .zero, configuration: cfg) // forwards horizontal scroll + pinch
+        // Launch state = fully-faded state: HIDDEN until the first reveal tick. The tick driver
+        // isn't mounted at year level, so without this a fresh launch left the view present at
+        // its default alpha 1 — visually blank (CSS reveal 0) but with WebKit's mouse tracking
+        // live, fighting the calendar's hover cursor (the launch-only year-view flicker).
+        web.setPanelAlpha(0)
         web.forwarder = forwarder
         web.setValue(false, forKey: "drawsBackground") // transparent → window glass shows through
         web.navigationDelegate = context.coordinator // http(s) links → system browser

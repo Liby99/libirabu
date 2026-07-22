@@ -730,9 +730,51 @@ private struct KindSection: View {
 private struct DeveloperTab: View {
     @AppStorage("cc.fpsHUD") private var fpsHUD = false
     @AppStorage("cc.performanceMode") private var perfMode = true
+    @State private var confirmPrune = false
+    @State private var pruning = false
+    @State private var pruneStatus: String?
+
+    private func runPrune() {
+        pruning = true
+        pruneStatus = nil
+        pruneOrphanCloudZones { result in
+            DispatchQueue.main.async {
+                pruning = false
+                switch result {
+                case let .success(names):
+                    pruneStatus = names.isEmpty
+                        ? "No orphaned zones found."
+                        : "Pruned \(names.count) zone\(names.count == 1 ? "" : "s"): \(names.joined(separator: ", "))"
+                case let .failure(e):
+                    pruneStatus = "Failed: \(e.localizedDescription)"
+                }
+            }
+        }
+    }
 
     var body: some View {
         Form {
+            Section("iCloud") {
+                Button(pruning ? "Pruning…" : "Prune Orphaned iCloud Zones…") { confirmPrune = true }
+                    .disabled(pruning)
+                if let s = pruneStatus {
+                    Text(s).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Deletes CloudKit zones that belong to no calendar in the registry — migration " +
+                    "leftovers whose records linger invisibly on the server. Registered calendars, the " +
+                    "registry, and the default zone are never touched. If you use multiple devices, let " +
+                    "them all finish syncing first: a calendar created elsewhere whose registry entry " +
+                    "hasn't arrived yet would look orphaned.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .confirmationDialog("Delete all orphaned iCloud zones?", isPresented: $confirmPrune) {
+                Button("Prune", role: .destructive) { runPrune() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Zones not matching any registered calendar are deleted from iCloud, including " +
+                    "all records inside them. This cannot be undone.")
+            }
             Section("Performance") {
                 Toggle("Performance Mode (flat event fills)", isOn: $perfMode)
                     .toggleStyle(.switch)

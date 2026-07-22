@@ -298,11 +298,15 @@ public struct TimeTagsOverlay: View {
         // Lines hug the caret (line-facing) side, like the CURRENT TIME pill: tag left of the
         // column → trailing-aligned, tag right of the column → leading-aligned.
         VStack(alignment: spec.pointsRight ? .trailing : .leading, spacing: -1) {
+            // fixedSize: the time must NEVER ellipsize — if a metric ever exceeds the pill's
+            // absolute width (Scene.swift TW), the text wins and the pill is what's undersized.
             Text(spec.text)
                 .font(.system(size: 11, weight: .semibold)).foregroundStyle(c)
+                .fixedSize()
             if let alt = spec.altText { // alt-tz wall clock, e.g. "13:45 (PST) [+1 day]"
                 Text(alt)
                     .font(.system(size: 9, weight: .semibold)).foregroundStyle(c.opacity(0.75))
+                    .fixedSize()
             }
         }
         .padding(.horizontal, 6)

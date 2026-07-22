@@ -27,14 +27,20 @@ struct DeleteConfirmDialog: View {
                 Text(pending.title)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.text)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true) // full wrapped height (like the note)
                 if let note = pending.note {
                     Text(note)
                         .font(.system(size: 12))
                         .foregroundStyle(theme.textMuted)
                         .multilineTextAlignment(.center)
-                        .frame(maxWidth: 360)
-                        // Take the FULL wrapped height for that width — without this, the card's outer
-                        // `.fixedSize()` measures the note as one line and clips the buttons below it.
+                        // FIXED width (not maxWidth): under the card's outer `.fixedSize()` a
+                        // maxWidth frame can still measure the note as one long line (the batch
+                        // dialog hit exactly that — see its width-based fix), which under-measures
+                        // the card height and pushes the buttons over its bottom edge. A hard
+                        // width makes wrap height deterministic; the card can only grow wider
+                        // for the button row / title.
+                        .frame(width: 360)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 12) {

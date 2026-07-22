@@ -14,6 +14,36 @@ import CloudKit
 import Foundation
 import Security
 
+/// Developer maintenance (Settings ▸ Developer): enumerate every zone in the private database and
+/// delete the ones belonging to NO registered calendar — migration leftovers whose records linger
+/// invisibly server-side (and, before inbound zone-filtering, resurrected deleted events). Never
+/// touches registered calendars' zones, the Registry zone, or CloudKit's default zone. Reports the
+/// pruned zone names. Caveat for multi-device users: a calendar created on another device whose
+/// registry entry hasn't synced here yet would LOOK orphaned — sync all devices first.
+@MainActor public func pruneOrphanCloudZones(completion: @escaping @Sendable (Result<[String], Error>) -> Void) {
+    var keep = Set(CalendarRegistry().all.map(\.id))
+    keep.insert("Registry") // RegistrySync's zone
+    keep.insert(CKRecordZone.default().zoneID.zoneName)
+    let db = CKContainer(identifier: CloudSync.containerID).privateCloudDatabase
+    db.fetchAllRecordZones { zones, err in
+        if let err {
+            completion(.failure(err)); return
+        }
+        let orphans = (zones ?? []).map(\.zoneID).filter { !keep.contains($0.zoneName) }
+        guard !orphans.isEmpty else {
+            completion(.success([])); return
+        }
+        let op = CKModifyRecordZonesOperation(recordZonesToSave: nil, recordZoneIDsToDelete: orphans)
+        op.modifyRecordZonesResultBlock = { result in
+            switch result {
+            case .success: completion(.success(orphans.map(\.zoneName)))
+            case let .failure(e): completion(.failure(e))
+            }
+        }
+        db.add(op)
+    }
+}
+
 @MainActor
 final class CloudSync: NSObject, CKSyncEngineDelegate {
     static let containerID = "iCloud.dev.libirabu.calendar"
@@ -219,6 +249,16 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     }
 
     /// ── Delegate event pump ───────────────────────────────────────────────────────
+    /// Scope fetches to THIS calendar's zone — the registry has its own engine (RegistrySync),
+    /// and other calendars' zones are none of this engine's business (see the zone filter in
+    /// applyFetched, which this makes cheap as well as correct).
+    func nextFetchChangesOptions(_ context: CKSyncEngine.FetchChangesContext,
+                                 syncEngine: CKSyncEngine) async -> CKSyncEngine.FetchChangesOptions {
+        var opts = CKSyncEngine.FetchChangesOptions()
+        opts.scope = .zoneIDs([zoneID])
+        return opts
+    }
+
     func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {
         switch event {
         case let .stateUpdate(e):
@@ -274,7 +314,13 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             @unknown default: ""
             }
         })
-        for m in modifications where !locallyDirty.contains(m.record.recordID.recordName) {
+        // ZONE FILTER: a CKSyncEngine fetches the WHOLE private database, but this CloudSync owns
+        // exactly ONE calendar zone. Without the filter, records living in OTHER zones (another
+        // calendar, or a legacy/migration leftover) merged into this calendar on every fetch —
+        // and since deletes target THIS zone (recordID(for:)), the server answered unknownItem
+        // and the ghosts resurrected on the next fetch, forever.
+        for m in modifications where m.record.recordID.zoneID == zoneID
+            && !locallyDirty.contains(m.record.recordID.recordName) {
             let r = m.record
             let name = r.recordID.recordName
             knownRecords[name] = r
@@ -295,7 +341,8 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         }
         // Same local-wins rule for deletions: a server delete of a record we're about to save
         // must not remove it locally — our pending save recreates it server-side.
-        let deletedIDs = deletions.map(\.recordID.recordName).filter { !locallyDirty.contains($0) }
+        let deletedIDs = deletions.filter { $0.recordID.zoneID == zoneID }
+            .map(\.recordID.recordName).filter { !locallyDirty.contains($0) }
         for id in deletedIDs {
             knownRecords[id] = nil
         }

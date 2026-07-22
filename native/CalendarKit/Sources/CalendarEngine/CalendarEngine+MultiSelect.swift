@@ -81,6 +81,7 @@ extension CalendarEngine {
 
     /// ⌘A: select every item currently visible in the viewport.
     public func selectAllInViewport() {
+        wake() // render loop may be idle — the new selection must paint NOW, not on the next input
         let g = snapshot()
         setSelection(itemsIntersecting(CGRect(x: 0, y: 0, width: g.vp.w, height: g.vp.h), g), primary: nil)
     }

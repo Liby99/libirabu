@@ -620,7 +620,8 @@ struct EventDrawer: View {
             MarkdownWebEditor(text: activeNote, mode: $notesMode, theme: theme,
                               focusPulse: notesFocusPulse,
                               onExit: { refocus() }, // Escape → back to the notes ring
-                              onSavePreview: { refocus() }) // ⌘S → preview → back to the notes ring
+                              onSavePreview: { refocus() }, // ⌘S → preview → back to the notes ring
+                              entityIndex: { engine.entityIndexJSON() }) // @project:/@person:/# completions
                 .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
                 .drawerRingAnchor(.notes)
                 .padding(.horizontal, contentPad).padding(.vertical, editorVPad)

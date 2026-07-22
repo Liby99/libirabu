@@ -27,6 +27,14 @@ each release.
 - Improved: the Batch Rename panel is now properly modal — the calendar behind it is blocked,
   Esc cancels from anywhere (reverting the live renames), and the panel has explicit
   Cancel / Rename buttons (Cancel restores the original titles).
+- Fixed: hover-cursor flicker over events (grab hand fighting the default pointer), worst in
+  year view right after launch — the invisible dashboard WebView kept its own mouse tracking
+  alive; it is now truly hidden whenever faded out, including at launch.
+- Fixed: deleted events could resurrect after a while — records from OTHER calendars' CloudKit
+  zones (e.g. migration leftovers) merged into the active calendar on every fetch, while deletes
+  only ever targeted the active zone. Inbound sync now filters to the calendar's own zone and
+  fetches are zone-scoped. Settings ▸ Developer gains "Prune Orphaned iCloud Zones…" to delete
+  the leftover zones (with confirmation; registered calendars and the registry are never touched).
 - Fixed: weekly/monthly "TODOs this week/month" no longer list a nested sub-task as an
   isolated row — a qualifying sub-item promotes its parent, which renders with its full
   subtree (same rule as the daily dashboard), deduped against "Completed this week/month".

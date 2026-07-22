@@ -458,7 +458,10 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         // cursorTagSpec), and widens further when that line carries the "[±1 day]" marker.
         let alt = g.altDeltaHours != nil
         let marker = g.altDeltaHours.map { altDayMarker(minutes: total % 1440, deltaHours: $0) } ?? false
-        let TW: CGFloat = alt ? (marker ? 148 : 96) : 44, GAP: CGFloat = 10, TH: CGFloat = alt ? 33 : 20
+        // Absolute widths with real headroom: 44 was exactly the metric width of "19:35" at
+        // 11pt semibold + padding, so the pill could ellipsize ("19:…"). The view also renders
+        // its text un-truncatable (fixedSize) as belt-and-braces.
+        let TW: CGFloat = alt ? (marker ? 160 : 108) : 58, GAP: CGFloat = 10, TH: CGFloat = alt ? 33 : 20
         // Nudge the tag down ~2px so it reads as hanging just under the cursor moment, and align its
         // side to the dot it points at (a caret is drawn on the near edge — see drawCursorTag).
         items.append(Item(

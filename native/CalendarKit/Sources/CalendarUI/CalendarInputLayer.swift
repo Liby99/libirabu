@@ -619,7 +619,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         if modalActive {
             return
         }
-        engine?.onPointerDrag(at: point(e)); NSCursor.closedHand.set()
+        engine?.onPointerDrag(at: point(e)); setCursor(.closedHand)
     }
 
     override func mouseUp(with e: NSEvent) {
@@ -642,7 +642,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         }
         engine?.enterMouseMode() // mouse activity hides the keyboard cursor visual
         if overToolbar(e) {
-            engine?.onHoverExit(); NSCursor.arrow.set(); return
+            engine?.onHoverExit(); setCursor(.arrow); return
         } // don't hover through the toolbar
         if engine?.drawerOpen == true {
             return
@@ -663,8 +663,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
         applyCursor(engine?.cursorHint(at: p))
     }
 
-    /// The cursor is set here (called from both mouseMoved and cursorUpdate). cursorUpdate is the AppKit-
-    /// sanctioned, event-driven place for a dynamic cursor, so it wins over any stray reset and doesn't flicker.
+    /// cursorUpdate RE-ASSERTS the last cursor mouseMoved computed — it never recomputes.
+    /// Synthesized cursorUpdate events (tracking-area churn during the per-frame renders) can carry
+    /// stale/bogus locations; recomputing the hint from those flipped grab→arrow over a hovered
+    /// band on alternate events — a visible flicker. mouseMoved (continuous, real coordinates) is
+    /// the single source of truth; this handler just keeps AppKit from stomping its choice.
     override func cursorUpdate(with e: NSEvent) {
         if modalActive || engine?.drawerOpen == true {
             NSCursor.arrow.set(); return
@@ -672,25 +675,32 @@ final class CatcherView: NSView, NSMenuItemValidation {
         if overToolbar(e) {
             NSCursor.arrow.set(); return
         }
-        let p = point(e)
-        if engine?.inDayDashboard(p) == true {
+        if engine?.inDayDashboard(point(e)) == true {
             return
         } // the dashboard web view owns its own cursor
-        applyCursor(engine?.cursorHint(at: p))
+        appliedCursor.set()
+    }
+
+    /// The last cursor WE chose (mouseMoved / drag / exit) — cursorUpdate re-asserts exactly this.
+    private var appliedCursor: NSCursor = .arrow
+
+    private func setCursor(_ c: NSCursor) {
+        appliedCursor = c
+        c.set()
     }
 
     private func applyCursor(_ hint: CalendarEngine.CursorHint?) {
         switch hint {
-        case .grab: NSCursor.openHand.set()
-        case .resizeLR: NSCursor.resizeLeftRight.set()
-        case .resizeV: NSCursor.resizeUpDown.set() // timed-event top/bottom edge
-        case .text: NSCursor.iBeam.set()
-        default: NSCursor.arrow.set()
+        case .grab: setCursor(.openHand)
+        case .resizeLR: setCursor(.resizeLeftRight)
+        case .resizeV: setCursor(.resizeUpDown) // timed-event top/bottom edge
+        case .text: setCursor(.iBeam)
+        default: setCursor(.arrow)
         }
     }
 
     override func mouseExited(with e: NSEvent) {
-        engine?.onHoverExit(); NSCursor.arrow.set()
+        engine?.onHoverExit(); setCursor(.arrow)
     }
 
     // Keyboard is handled by a LOCAL EVENT MONITOR (installed below), NOT keyDown on this view. That's

@@ -8,6 +8,10 @@ import { createNoteEditor } from "./noteEditor";
 
 function post(msg: any) { (window as any).webkit?.messageHandlers?.ck?.postMessage(msg); }
 
+// Entity index for @project:/@person:/#tag completions — pushed from Swift (the engine's
+// database-wide scan); empty until the first CK.setEntityIndex.
+let entityIdx = { projects: [] as string[], people: [] as string[], tags: [] as string[] };
+
 const ed = createNoteEditor({
   editorEl: document.getElementById("editor")!,
   previewEl: document.getElementById("preview")!,
@@ -17,6 +21,7 @@ const ed = createNoteEditor({
   onOpenLink: (url) => post({ type: "openLink", url }),
   onEditAt: (line) => post({ type: "editAt", line }),
   onExit: () => post({ type: "exit" }),
+  completionIndex: () => entityIdx,
 });
 
 (window as any).CK = {
@@ -27,6 +32,9 @@ const ed = createNoteEditor({
   setTheme(vars: Record<string, string>) {
     const root = document.documentElement.style;
     for (const k in vars) root.setProperty(k, vars[k]);
+  },
+  setEntityIndex(idx: { projects?: string[]; people?: string[]; tags?: string[] }) {
+    entityIdx = { projects: idx.projects ?? [], people: idx.people ?? [], tags: idx.tags ?? [] };
   },
 };
 

@@ -57222,6 +57222,7 @@
   function post(msg) {
     window.webkit?.messageHandlers?.ck?.postMessage(msg);
   }
+  var entityIdx = { projects: [], people: [], tags: [] };
   var ed = createNoteEditor({
     editorEl: document.getElementById("editor"),
     previewEl: document.getElementById("preview"),
@@ -57230,7 +57231,8 @@
     onPreview: () => post({ type: "preview" }),
     onOpenLink: (url) => post({ type: "openLink", url }),
     onEditAt: (line) => post({ type: "editAt", line }),
-    onExit: () => post({ type: "exit" })
+    onExit: () => post({ type: "exit" }),
+    completionIndex: () => entityIdx
   });
   window.CK = {
     setValue: ed.setValue,
@@ -57240,6 +57242,9 @@
     setTheme(vars) {
       const root5 = document.documentElement.style;
       for (const k in vars) root5.setProperty(k, vars[k]);
+    },
+    setEntityIndex(idx) {
+      entityIdx = { projects: idx.projects ?? [], people: idx.people ?? [], tags: idx.tags ?? [] };
     }
   };
   post({ type: "ready" });

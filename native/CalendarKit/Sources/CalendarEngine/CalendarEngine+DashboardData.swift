@@ -163,6 +163,51 @@ extension CalendarEngine {
         items.dailyNotes
     }
 
+    /// ── Autocomplete entity index: projects / people / tags across EVERY note ────────────────
+    /// A lightweight regex scan (the JS tokenizer is ground truth; this approximation only feeds
+    /// the drawer editor's completion lists — the dashboard editor builds its own index from the
+    /// parsed todos). Cached per editGen; never persisted.
+    public func entityIndexJSON() -> String {
+        if let c = entityIdxCache, c.gen == caches.editGen {
+            return c.json
+        }
+        var projects = Set<String>(), people = Set<String>(), tags = Set<String>()
+        func scan(_ note: String) {
+            for line in note.split(separator: "\n") {
+                for m in line.matches(of: #/(?:^|\s)@?project:([\w-]+)/#) {
+                    projects.insert(String(m.1))
+                }
+                for m in line.matches(of: #/(?:^|\s)@person:([\w-]+)/#) {
+                    people.insert(String(m.1))
+                }
+                // Bare @name = person; "@project:"/"@person:" fail the end-of-token lookahead.
+                for m in line.matches(of: #/(?:^|\s)@([A-Za-z][\w-]*)(?=\s|$)/#) {
+                    people.insert(String(m.1))
+                }
+                for m in line.matches(of: #/(?:^|\s)#([\w-]+)/#) {
+                    tags.insert(String(m.1))
+                }
+            }
+        }
+        for (_, rf) in items.richById {
+            if let n = rf.notes {
+                scan(n)
+            }
+            for (_, n) in rf.occurrenceNotes ?? [:] {
+                scan(n)
+            }
+        }
+        for (_, n) in items.dailyNotes {
+            scan(n)
+        }
+        let obj: [String: [String]] = ["projects": projects.sorted(), "people": people.sorted(),
+                                       "tags": tags.sorted()]
+        let json = (try? JSONSerialization.data(withJSONObject: obj))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        entityIdxCache = (caches.editGen, json)
+        return json
+    }
+
     /// ── Daily note (the dashboard NOTE tab) — one markdown note per ISO date ────────────────────
     public func dailyNote(_ iso: String) -> String {
         items.dailyNotes[iso] ?? ""
