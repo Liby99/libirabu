@@ -99,6 +99,7 @@ struct MarkdownWebEditor: NSViewRepresentable {
             "--accent-dark": cssColor(theme.text),
             "--accent-grey": cssColor(theme.accentGrey),
             "--highlight": String(format: "#%06x", AccentPref.hex), // follows Settings ▸ Accent Color
+            "--check-mark": cssColor(theme.bg), // ✓ punched from the filled checkbox → window bg tone
             "color-scheme": theme.dark ? "dark" : "light",
         ]
     }

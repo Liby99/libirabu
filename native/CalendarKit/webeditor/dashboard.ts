@@ -12,7 +12,7 @@
 // Bridge: Swift → CK.setData(json) / CK.tick(from,to,dir,p) / CK.setTheme(vars); JS → messageHandlers.ck.
 
 import { indexTodos, parseDailyNoteTodos, toggleTodoLine, type ParsedTodo, type TodoEventContext } from "../../../src/lib/assistant/tools/todos";
-import { createNoteEditor, renderMarkdown } from "./noteEditor";
+import { createNoteEditor, decorateTaskItems, renderMarkdown } from "./noteEditor";
 
 interface DL { id: string; year: number; month: number; day: number; hour: number; title: string; color: string; }
 
@@ -996,6 +996,7 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
     scroll.innerHTML = text.trim()
       ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text)}</div>`
       : emptyNoteHTML(scope);
+    decorateTaskItems(scroll); // checked items strike through, same as the live preview
     flatOf.delete(el);
     return;
   }

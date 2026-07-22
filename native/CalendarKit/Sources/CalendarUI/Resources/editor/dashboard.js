@@ -57073,6 +57073,23 @@
     const desc = description ? `<div class="cc-dw-mi-desc">${mdHtml(description)}</div>` : "";
     return `<div class="cc-dw-mi">${rows}${desc}</div>${mdHtml(user)}`;
   }
+  function decorateTaskItems(root6) {
+    root6.querySelectorAll('.task-list-item input[type="checkbox"]').forEach((box) => {
+      const host = box.parentElement;
+      if (host) {
+        const wrap3 = document.createElement("span");
+        wrap3.className = "cc-task-text";
+        let n = box.nextSibling;
+        while (n && !(n instanceof HTMLElement && (n.tagName === "UL" || n.tagName === "OL"))) {
+          const nx = n.nextSibling;
+          wrap3.appendChild(n);
+          n = nx;
+        }
+        host.insertBefore(wrap3, n);
+      }
+      box.closest("li")?.classList.toggle("cc-task-done", box.checked);
+    });
+  }
   var TASK_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
   function localStamp() {
     const d = /* @__PURE__ */ new Date(), p22 = (n) => String(n).padStart(2, "0");
@@ -57322,6 +57339,7 @@
         previewEl.textContent = src;
         return;
       }
+      decorateTaskItems(previewEl);
       const taskLines = [];
       src.split("\n").forEach((ln, i3) => {
         if (TASK_RE.test(ln)) taskLines.push(i3);
@@ -57334,12 +57352,10 @@
       });
     }
     function toggleTask(lineIdx) {
-      const lines = view.state.doc.toString().split("\n");
-      const m = lines[lineIdx]?.match(TASK_RE);
-      if (!m) return;
-      const checked = m[2].toLowerCase() === "x";
-      lines[lineIdx] = `${m[1]}[${checked ? " " : "x"}]${m[3]}`;
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: lines.join("\n") } });
+      const src = view.state.doc.toString();
+      const next = toggleTodoLine(src, lineIdx + 1, void 0, localStamp());
+      if (next == null || next === src) return;
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
       renderPreview();
     }
     previewEl.addEventListener("click", (e) => {
@@ -58232,6 +58248,7 @@
     if (tab2 === "note") {
       const text9 = notes[noteKey] || "";
       scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : emptyNoteHTML(scope);
+      decorateTaskItems(scroll);
       flatOf.delete(el);
       return;
     }

@@ -27,6 +27,10 @@ each release.
 - Improved: the Batch Rename panel is now properly modal — the calendar behind it is blocked,
   Esc cancels from anywhere (reverting the live renames), and the panel has explicit
   Cancel / Rename buttons (Cancel restores the original titles).
+- Improved: note preview task checkboxes now match the dashboard TODO list exactly (same custom
+  rounded box + accent check), checked items strike through (text only — badges and sub-items
+  stay legible), and ticking a box in preview stamps/strips the `done:` time exactly like the
+  dashboard toggle. Static note previews show the same done styling.
 - Added: project event boxes — a band event whose note (or a recurring band's "This Event"
   occurrence note) carries a bare @project:name line now charts on that project's timeline as a
   rounded region spanning all task tracks over its dates, with the event's name along its top

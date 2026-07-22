@@ -20,7 +20,7 @@ import remarkRehype from "remark-rehype";
 import rehypeKatex from "rehype-katex";
 import rehypeStringify from "rehype-stringify";
 import remarkTodoTokens from "../../../src/app/calendar/view/notes/remarkTodoTokens";
-import { linesNeedingCreated } from "../../../src/lib/assistant/tools/todos";
+import { linesNeedingCreated, toggleTodoLine } from "../../../src/lib/assistant/tools/todos";
 import { splitNote, parseManaged } from "../../../src/lib/import/managedNote";
 
 const MONO = "var(--font-mono, Menlo, ui-monospace, SFMono-Regular, Consolas, monospace)";
@@ -94,6 +94,28 @@ export function renderMarkdown(src: string): string {
       : escHtml(f.value)}</span></div>`).join("");
   const desc = description ? `<div class="cc-dw-mi-desc">${mdHtml(description)}</div>` : "";
   return `<div class="cc-dw-mi">${rows}${desc}</div>${mdHtml(user)}`;
+}
+
+/** Post-process a rendered markdown container: wrap each task item's OWN inline content in
+ *  `.cc-task-text` (so the done strikethrough hits the text but not nested sub-lists), and mark
+ *  checked items with `.cc-task-done` on their <li>. Shared by the live preview AND the static
+ *  note panels, so a checked box looks identical everywhere. */
+export function decorateTaskItems(root: HTMLElement) {
+  root.querySelectorAll<HTMLInputElement>('.task-list-item input[type="checkbox"]').forEach((box) => {
+    const host = box.parentElement; // the <li> (tight list) or its <p> (loose list)
+    if (host) {
+      const wrap = document.createElement("span");
+      wrap.className = "cc-task-text";
+      let n: ChildNode | null = box.nextSibling;
+      while (n && !(n instanceof HTMLElement && (n.tagName === "UL" || n.tagName === "OL"))) {
+        const nx: ChildNode | null = n.nextSibling;
+        wrap.appendChild(n);
+        n = nx;
+      }
+      host.insertBefore(wrap, n);
+    }
+    box.closest("li")?.classList.toggle("cc-task-done", box.checked);
+  });
 }
 
 export const TASK_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
@@ -346,6 +368,7 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
     if (!src.trim() && o.emptyPreview) { previewEl.innerHTML = o.emptyPreview(); return; }
     try { previewEl.innerHTML = renderMarkdown(src); }   // managed block → key:value table (§7)
     catch { previewEl.textContent = src; return; }
+    decorateTaskItems(previewEl); // .cc-task-text wrap + .cc-task-done (strikethrough styling)
     const taskLines: number[] = [];
     src.split("\n").forEach((ln, i) => { if (TASK_RE.test(ln)) taskLines.push(i); });
     previewEl.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box, i) => {
@@ -356,13 +379,13 @@ export function createNoteEditor(o: NoteEditorOpts): NoteEditorHandle {
     });
   }
 
+  // Checking in preview = the SAME soft-link write the dashboard uses: flip the checkbox AND
+  // stamp/strip the `done:` token, so a preview tick records WHEN it was finished too.
   function toggleTask(lineIdx: number) {
-    const lines = view.state.doc.toString().split("\n");
-    const m = lines[lineIdx]?.match(TASK_RE);
-    if (!m) return;
-    const checked = m[2].toLowerCase() === "x";
-    lines[lineIdx] = `${m[1]}[${checked ? " " : "x"}]${m[3]}`;
-    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: lines.join("\n") } });
+    const src = view.state.doc.toString();
+    const next = toggleTodoLine(src, lineIdx + 1, undefined, localStamp());
+    if (next == null || next === src) return;
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
     renderPreview();
   }
 

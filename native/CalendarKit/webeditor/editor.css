@@ -46,6 +46,25 @@ body { color: var(--accent-dark); -webkit-font-smoothing: antialiased; }
 .cc-dw-md .task-list-item input { margin-right: 0.4em; }
 /* Interactive task checkboxes tint to the app accent (red). */
 .cc-dw-md input[type="checkbox"] { accent-color: var(--highlight); cursor: pointer; }
+/* GFM task checkboxes: the SAME custom look as the dashboard TODO list (cc-dtodo-check) —
+   keep these two in sync. --check-mark is pushed from Swift (window bg tone). */
+.cc-dw-md .task-list-item input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; box-sizing: border-box;
+  width: 15px; height: 15px; margin: 0 6px 0 0; vertical-align: -2.5px;
+  border: 1.5px solid var(--accent-grey); border-radius: 5px; background: transparent; cursor: pointer;
+  position: relative; transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+}
+.cc-dw-md .task-list-item input[type="checkbox"]:hover { border-color: var(--accent-dark); }
+.cc-dw-md .task-list-item input[type="checkbox"]:active { transform: scale(0.9); }
+.cc-dw-md .task-list-item input[type="checkbox"]:checked { background: var(--highlight); border-color: var(--highlight); }
+.cc-dw-md .task-list-item input[type="checkbox"]:checked::after {
+  content: ""; position: absolute; left: 4px; top: 0.5px; width: 4px; height: 8px;
+  border: solid var(--check-mark, #1c1c1e); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+/* Done items: strike the item's OWN text (the .cc-task-text wrap — badges are atomic inline
+   boxes so the line skips them; nested sub-lists live outside the wrap and stay unstruck). */
+.cc-dw-md li.cc-task-done > .cc-task-text,
+.cc-dw-md li.cc-task-done > p > .cc-task-text { text-decoration: line-through; color: var(--accent-grey); }
 .katex { font-size: 1.05em; }
 
 /* ── Inline TODO-token badges (§17.1 DSL, rendered by remarkTodoTokens) ──────────────

@@ -56762,6 +56762,21 @@
     });
     return out;
   }
+  function toggleTodoLine(noteText, line, checked, stamp) {
+    const lines = noteText.split("\n");
+    const cur2 = lines[line - 1];
+    if (cur2 === void 0) return null;
+    const m = cur2.match(TASK_LINE_RE);
+    if (!m) return null;
+    const isChecked = m[2].toLowerCase() === "x";
+    const next = checked === void 0 ? !isChecked : checked;
+    let rest = m[3].replace(new RegExp(DONE_RE.source, "g"), "").replace(/\s+$/, "");
+    if (next && stamp) rest = `${rest} done:${stamp}`;
+    const nextLine = `${m[1]}[${next ? "x" : " "}]${rest}`;
+    if (nextLine === cur2) return noteText;
+    lines[line - 1] = nextLine;
+    return lines.join("\n");
+  }
 
   // ../../../src/app/calendar/view/notes/remarkTodoTokens.ts
   var g = (re2) => new RegExp(re2.source, "g");
@@ -56915,6 +56930,23 @@
     const rows = fields.map((f) => `<div class="cc-dw-mi-row"><span class="cc-dw-mi-key">${escHtml(f.label)}</span><span class="cc-dw-mi-val">${f.href ? `<a href="${escAttr(f.href)}" target="_blank" rel="noopener noreferrer">${escHtml(f.value)}</a>` : escHtml(f.value)}</span></div>`).join("");
     const desc = description ? `<div class="cc-dw-mi-desc">${mdHtml(description)}</div>` : "";
     return `<div class="cc-dw-mi">${rows}${desc}</div>${mdHtml(user)}`;
+  }
+  function decorateTaskItems(root5) {
+    root5.querySelectorAll('.task-list-item input[type="checkbox"]').forEach((box) => {
+      const host = box.parentElement;
+      if (host) {
+        const wrap3 = document.createElement("span");
+        wrap3.className = "cc-task-text";
+        let n = box.nextSibling;
+        while (n && !(n instanceof HTMLElement && (n.tagName === "UL" || n.tagName === "OL"))) {
+          const nx = n.nextSibling;
+          wrap3.appendChild(n);
+          n = nx;
+        }
+        host.insertBefore(wrap3, n);
+      }
+      box.closest("li")?.classList.toggle("cc-task-done", box.checked);
+    });
   }
   var TASK_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\](.*)$/;
   function localStamp() {
@@ -57165,6 +57197,7 @@
         previewEl.textContent = src;
         return;
       }
+      decorateTaskItems(previewEl);
       const taskLines = [];
       src.split("\n").forEach((ln, i3) => {
         if (TASK_RE.test(ln)) taskLines.push(i3);
@@ -57177,12 +57210,10 @@
       });
     }
     function toggleTask(lineIdx) {
-      const lines = view.state.doc.toString().split("\n");
-      const m = lines[lineIdx]?.match(TASK_RE);
-      if (!m) return;
-      const checked = m[2].toLowerCase() === "x";
-      lines[lineIdx] = `${m[1]}[${checked ? " " : "x"}]${m[3]}`;
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: lines.join("\n") } });
+      const src = view.state.doc.toString();
+      const next = toggleTodoLine(src, lineIdx + 1, void 0, localStamp());
+      if (next == null || next === src) return;
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
       renderPreview();
     }
     previewEl.addEventListener("click", (e) => {
