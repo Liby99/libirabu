@@ -52,3 +52,22 @@ final class GeometryTests: XCTestCase {
         XCTAssertFalse(buildScene(input(z: 2)).items.isEmpty)
     }
 }
+
+// Appended: pinned-dashboard reveal regression (week tabs un-clickable bug).
+extension GeometryTests {
+    /// A fully-pinned panel must read presence 1 at EVERY zoom level. Regression: the presence
+    /// denominator used the MONTH panel's resting width (with its dashMonthMinW floor), so in a
+    /// narrow window the week panel — narrower than that floor — never reached reveal 1, leaving
+    /// the week tab row dimmed and permanently un-clickable (its hit gate needs reveal ≈ 1).
+    func testPinnedRevealIsFullAtEveryScopeInNarrowWindow() {
+        for z: CGFloat in [1, 1.5, 2] {
+            var g = input(z: z)
+            g.vp = Viewport(w: 760, h: 700) // narrow: weekFrac·content < dashMonthMinW territory
+            g.dashPin = 1
+            g.dashWeekFrac = 0.35
+            g.dashMonthFrac = 0.25
+            XCTAssertEqual(dashRevealTotal(g), 1, accuracy: 0.001,
+                           "fully pinned at z=\(z) must be fully revealed")
+        }
+    }
+}

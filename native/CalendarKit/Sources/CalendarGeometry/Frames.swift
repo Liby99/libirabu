@@ -354,8 +354,16 @@ public func dashScopePanels(_ g: SceneInput) -> (mask: CGFloat, a: DashPanel, b:
 public func dashRevealTotal(_ g: SceneInput) -> CGFloat {
     let day = easeInOut(clamp(g.z - 2, 0, 1))
     guard let left = pinnedDashLeft(g) else { return day }
-    let restingW = g.vp.w - (Layout.labelW + 31 * monthDayW(g.vp, pin: g.dashPin, frac: g.dashMonthFrac))
-    let presence = clamp((g.vp.w - left) / max(1, restingW), 0, 1)
+    // Presence = currentPanelW / the CURRENT SCOPE'S resting width. The denominator must follow
+    // the month→week blend: dividing by the MONTH resting width alone (whose dashMonthMinW floor
+    // can exceed the week panel's width in a narrow window) left presence < 1 at week REST — the
+    // tabs rendered slightly dimmed and, because their hit gate requires reveal ≈ 1, permanently
+    // un-clickable. With the blended denominator, a fully-pinned panel reads 1 at every z and
+    // presence < 1 only during the year→month accordion entrance (its actual purpose).
+    let monthRight = Layout.labelW + 31 * monthDayW(g.vp, pin: g.dashPin, frac: g.dashMonthFrac)
+    let weekRight = lerp(g.vp.w, dashPinLeft(g.vp, frac: g.dashWeekFrac), g.dashPin)
+    let restRight = g.z <= 1 ? monthRight : lerp(monthRight, weekRight, easeInOut(clamp(g.z - 1, 0, 1)))
+    let presence = clamp((g.vp.w - left) / max(1, g.vp.w - restRight), 0, 1)
     return max(day, presence)
 }
 

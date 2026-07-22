@@ -77,7 +77,9 @@ html, body { background: transparent; margin: 0; padding: 0; height: 100%; overf
 .cc-proj-chart { display: flex; gap: 8px; margin-top: 2px; }
 .cc-proj-hasdls .cc-proj-plotarea { margin-top: 15px; }   /* room for the deadline labels strip */
 .cc-proj-hasdls .cc-proj-labels { padding-top: 15px; }
-.cc-proj-labels { width: 104px; flex: none; display: flex; flex-direction: column; gap: 4px; }
+/* Label column scales WITH the panel (percentage, not fixed px) — wider on the day panel,
+   proportionally narrower on the week/month widths; titles ellipsize inside. */
+.cc-proj-labels { flex: 0 0 32%; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .cc-proj-lrow { height: 16px; display: flex; align-items: center; gap: 5px; font-size: 11px;
   color: var(--accent-grey); }
 /* The row's checkbox IS the TODO list's (.cc-dtodo-check — same class, same toggle delegation);
