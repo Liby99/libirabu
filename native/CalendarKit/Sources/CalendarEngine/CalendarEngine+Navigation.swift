@@ -143,6 +143,7 @@ extension CalendarEngine {
         let tWeek = CGFloat((firstDOW(ty, tm) + td - 1) / 7)
         cancelTween(); anim.flipAnim = nil
         anim.zTweenDone = nil; anim.weekTweenDone = nil; anim.flipDone = nil; anim.scrollTweenDone = nil
+        anim.weekLandDone = nil; anim.monthLandDone = nil; anim.monthGlide = nil // supersede other jumps
         anim.dayLandDone = onLand
 
         // At the year layout: set focus/week/day, GLIDE the vertical scroll to centre the target month
@@ -284,8 +285,12 @@ extension CalendarEngine {
     }
 
     /// Land on the WEEK VIEW containing (year, month, dom) — the "go to this weekly note" jump.
-    public func jumpToWeek(_ ty: Int, _ m0: Int, _ dom: Int) {
+    /// `onLand` fires once the zoom settles at week level (jumpToWeek always ends in a z tween,
+    /// even from week level, so the completion hook in sceneInput always reaches it).
+    public func jumpToWeek(_ ty: Int, _ m0: Int, _ dom: Int, onLand: (() -> Void)? = nil) {
         wake()
+        anim.dayLandDone = nil; anim.monthLandDone = nil; anim.monthGlide = nil // supersede other jumps
+        anim.weekLandDone = onLand
         if ty != year {
             selectYear(ty)
         }
@@ -295,6 +300,36 @@ extension CalendarEngine {
         chrome.monthResync &+= 1; chrome.weekResync &+= 1
         tweenZ(to: 2)
         pushChrome()
+    }
+
+    /// Land on the MONTH VIEW showing (year, month) — the "go to this monthly note" jump. Already
+    /// resting at month level in the same year → an ANIMATED month glide (fast pagination toward
+    /// the target, not a snap). Cross-year or from another level → the setView path (year flip /
+    /// zoom), whose final z tween fires the landing. `onLand` fires once the month view settles.
+    public func jumpToMonth(_ ty: Int, _ m0: Int, onLand: (() -> Void)? = nil) {
+        wake()
+        anim.dayLandDone = nil; anim.weekLandDone = nil // supersede other jumps
+        anim.monthLandDone = onLand
+        let m = max(0, min(11, m0))
+        if ty == year, level(z) == 1, anim.tween == nil, !isMonthFlipping {
+            if focus == m, anim.monthAnim == nil, anim.monthGlide == nil {
+                fireMonthLand() // already resting on the target month
+                return
+            }
+            // Glide from the CURRENT continuous position (mid page-turn included) to the target.
+            let from = CGFloat(focus) + (anim.monthAnim.map { CGFloat($0.dir) * $0.p } ?? 0)
+            anim.monthGlide = Tween(
+                from: from, to: CGFloat(m), start: Date(),
+                duration: min(Motion.monthGlideMax,
+                              Motion.monthGlideBase + Motion.monthGlidePerPage * Double(abs(from - CGFloat(m)))),
+                ease: easeInOut
+            )
+            return
+        }
+        setView(year: ty, zoom: "month", focusedMonth: m)
+        if level(z) == 1, anim.tween == nil {
+            fireMonthLand() // setView had no zoom to run (e.g. cross-year at month level, flip only)
+        }
     }
 
     public func setView(year targetYear: Int? = nil, zoom: String? = nil, focusedMonth: Int? = nil,
@@ -392,6 +427,13 @@ extension CalendarEngine {
         if anim.dayTween != nil {
             anim.dayTween = nil; daily.anim = nil
         } // settle a day-glide on its current day
+        if anim.monthGlide != nil {
+            anim.monthGlide = nil; anim.monthAnim = nil
+            chrome.monthResync &+= 1 // re-sync the pager strip to wherever the glide was cut
+        }
+        // A manual navigation takes over → any pending jump landing is superseded (a stale land
+        // callback would otherwise fire on the USER's next arrival at that level and hijack it).
+        anim.dayLandDone = nil; anim.weekLandDone = nil; anim.monthLandDone = nil
         anim.zoomAnchorHour = nil; anim.zoomAnchorY = nil // interrupted zoom → drop the anchor; next zoom recaptures
         snapWork?.cancel()
     }

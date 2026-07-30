@@ -25,6 +25,10 @@ enum Motion {
     static let dayGlideBase: TimeInterval = 0.2
     static let dayGlidePerDay: TimeInterval = 0.035
     static let dayGlideMax: TimeInterval = 0.7
+    // Month-view month↕month glide (jumpToMonth): scales with distance, like the day glide.
+    static let monthGlideBase: TimeInterval = 0.35
+    static let monthGlidePerPage: TimeInterval = 0.12
+    static let monthGlideMax: TimeInterval = 1.1
 
     // ── Snaps / keyboard glides ──
     static let weekSnapDur: TimeInterval = 0.2 // settle a fractional week position

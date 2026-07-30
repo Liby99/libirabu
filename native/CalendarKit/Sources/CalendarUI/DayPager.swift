@@ -26,10 +26,16 @@ import SwiftUI
     }
 
     private var pending: CGFloat?
+    /// The initial engine→scroll-view sync has been APPLIED. Until then the geometry callback must
+    /// not write into the engine: a freshly-created pager (window closed and reopened while AT day
+    /// level — the engine outlives the window) first reports contentOffset 0, and adopting that
+    /// would snap the surviving day back to the 1st before onAppear positions the strip.
+    private(set) var primed = false
     func scrollTo(_ x: CGFloat) {
         guard let sv = scrollView else { pending = x; return }
         sv.contentView.scroll(to: NSPoint(x: max(0, x), y: 0))
         sv.reflectScrolledClipView(sv.contentView)
+        primed = true
     }
 }
 
@@ -59,6 +65,7 @@ struct DayPager: View {
             .scrollBounceBehavior(.always)
             .scrollIndicators(.hidden)
             .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.x }) { _, x in
+                guard bridge.primed else { return } // pre-sync offset 0 must not clobber the engine
                 engine.setDayProgress(x)
             }
             .onAppear { bridge.scrollTo(CGFloat(engine.daily.dom - 1) * dayW) }

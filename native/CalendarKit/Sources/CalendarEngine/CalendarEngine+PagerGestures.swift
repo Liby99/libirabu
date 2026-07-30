@@ -326,7 +326,9 @@ extension CalendarEngine {
     /// month and the fractional remainder becomes the page-turn progress. `focus` advances as the
     /// offset crosses each page boundary, so a multi-page fling walks through the months in order.
     public func setMonthProgress(_ offsetY: CGFloat, pageH: CGFloat) {
-        guard isMonthLevel, !isMonthFlipping, pageH > 0 else { return }
+        // monthGlide gate: during a jumpToMonth glide the engine owns the month position and the
+        // pager scroll view is parked at the OLD offset — its callbacks must not fight the glide.
+        guard isMonthLevel, !isMonthFlipping, anim.monthGlide == nil, pageH > 0 else { return }
         wake()
         let startFocus = focus
         var norm = offsetY / pageH - CGFloat(focus)

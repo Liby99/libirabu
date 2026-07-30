@@ -64,6 +64,31 @@ each release.
   "Hide Occurrence" next to "Hide Series"; a recurring event's first occurrence no longer shows
   the redundant "This & Future" (≡ delete series); and an already-hidden imported event offers
   "Unhide" instead of a dead-end notice.
+- Fixed: clicking a note-sourced TODO row now reliably lands in the note editor — it navigates to
+  the note's day/week/month, opens the dashboard's NOTE tab, and leaves the editor focused in edit
+  mode with the clicked line selected. Previously the landing's "note has content → preview"
+  default flipped the editor back to preview right after the jump (losing focus + selection), and
+  the focus itself raced the travel on a timed retry. The focus is now a callback that fires the
+  moment the target note's editor mounts (the end of the fly-to animation) and is dropped if the
+  jump is superseded first (tab switched away, preview toggled, or the flight interrupted).
+- Fixed: typing in a dashboard notepad no longer flickers or loses text, and ⌘S no longer makes
+  the rendered preview blink old text — the coalesced data round-trip (keystroke → engine →
+  dashboard JSON push) runs a few keystrokes behind the editor, and the editor was adopting those
+  stale echoes, wiping the newest characters (for good, when more typing raced the revert). Every
+  edit post now carries a sequence number that the engine echoes back inside the payload; the
+  editor refuses any payload older than its own latest edit. Genuine external rewrites (checkbox
+  toggles, undo, cloud sync) arrive caught-up and still sync in.
+- Improved: jumping to a MONTHLY note (todo row / gantt title click) while already in month view
+  now animates — a fast month-pagination glide toward the target month instead of an instant snap.
+- Fixed: todo-row jumps from month/week view now reliably finish on the NOTE tab with the editor
+  focused and the clicked line selected — the tab switch happens on LANDING (a new land callback
+  for week/month jumps, and the day jump's landing now fires outside the render pass), so the
+  "leaving day view resets to the TODO tab" rule can no longer clobber it mid-flight.
+- Fixed: closing the calendar window and reopening it no longer loses the view position — month
+  view snapped back to January and week view to the month's first week (day view would have
+  snapped to the 1st). The recreated invisible pager scroll views reported their initial offset 0
+  into the engine before being positioned; they now stay read-only until the first engine→pager
+  sync has been applied.
 
 ## [0.1.0] — 2026-07-21
 

@@ -27,10 +27,16 @@ import SwiftUI
     }
 
     private var pending: CGFloat?
+    /// The initial engine→scroll-view sync has been APPLIED. Until then the geometry callback must
+    /// not write into the engine: a freshly-created pager (window closed and reopened while AT week
+    /// level — the engine outlives the window) first reports contentOffset 0, and adopting that
+    /// would snap the surviving week back to the month's first week before onAppear positions it.
+    private(set) var primed = false
     func scrollTo(_ x: CGFloat) {
         guard let sv = scrollView else { pending = x; return } // not captured yet → apply on capture
         sv.contentView.scroll(to: NSPoint(x: max(0, x), y: 0))
         sv.reflectScrolledClipView(sv.contentView)
+        primed = true
     }
 }
 
@@ -70,6 +76,7 @@ struct WeekPager: View {
             .scrollBounceBehavior(.always)
             .scrollIndicators(.hidden)
             .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.x }) { _, x in
+                guard bridge.primed else { return } // pre-sync offset 0 must not clobber the engine
                 engine.setWeekProgress(x, dayW: dayW)
             }
             .onAppear { bridge.scrollTo(engine.week * 7 * dayW) }

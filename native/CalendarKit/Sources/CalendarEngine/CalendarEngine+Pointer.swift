@@ -237,7 +237,7 @@ extension CalendarEngine {
     /// frame WITHOUT its own spring (avoids lag during zoom/scroll); it springs only for discrete moves.
     public var isAnimating: Bool {
         anim.tween != nil || anim.scrollTween != nil || anim.tlScrollTween != nil || anim.weekTween != nil || anim
-            .dayTween != nil ||
+            .dayTween != nil || anim.monthGlide != nil ||
             anim.flipAnim != nil || anim.monthAnim != nil || anim.weekFlip != nil || anim.dayFlip != nil
     }
 

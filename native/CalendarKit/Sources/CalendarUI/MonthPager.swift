@@ -28,10 +28,16 @@ import SwiftUI
 
     var pageH: CGFloat = 0 // current page height, so the catcher can re-sync the SV to a focus after a flip
     private var pending: CGFloat?
+    /// The initial engine→scroll-view sync has been APPLIED. Until then the geometry callback must
+    /// not write into the engine: a freshly-created pager (window closed and reopened while AT this
+    /// level — the engine outlives the window) first reports contentOffset 0, and adopting that
+    /// would walk the surviving focus back to January before onAppear can position the strip.
+    private(set) var primed = false
     func scrollTo(_ y: CGFloat) {
         guard let sv = scrollView else { pending = y; return }
         sv.contentView.scroll(to: NSPoint(x: 0, y: max(0, y)))
         sv.reflectScrolledClipView(sv.contentView)
+        primed = true
     }
 
     /// Snap the backing scroll view to a month index (used to reset a stale offset left by a boundary flip).
@@ -62,6 +68,7 @@ struct MonthPager: View {
             .scrollBounceBehavior(.always) // elastic overscroll at Jan/Dec → boundary flip
             .scrollIndicators(.hidden)
             .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, y in
+                guard bridge.primed else { return } // pre-sync offset 0 must not clobber the engine
                 engine.setMonthProgress(y, pageH: pageH)
             }
             .onAppear { bridge.pageH = pageH; bridge.scrollTo(CGFloat(engine.focus) * pageH) }
