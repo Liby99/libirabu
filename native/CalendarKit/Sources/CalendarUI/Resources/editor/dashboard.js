@@ -57550,7 +57550,15 @@
   var notes = {};
   var liveIso = "";
   var liveText = "";
+  var noteSeq = 0;
+  var pushedNoteSeq = 0;
   var liveScope = "day";
+  var editJump = false;
+  var pendingNoteFocus = null;
+  function cancelNoteFocus() {
+    pendingNoteFocus = null;
+    editJump = false;
+  }
   var SCOPE_WORD = { day: "daily", week: "weekly", month: "monthly" };
   function emptyNoteHTML(scope) {
     return `<div class="cc-dd-note-empty">Empty ${SCOPE_WORD[scope]} note. <a class="cc-dd-note-write" role="button">Write something</a></div>`;
@@ -57562,10 +57570,11 @@
     onChange: (value) => {
       notes[liveIso] = value;
       liveText = value;
+      noteSeq += 1;
       todosDirty = true;
       projectsDirty = true;
       entityDirty = true;
-      post({ type: "noteChange", date: liveIso, value });
+      post({ type: "noteChange", date: liveIso, value, seq: noteSeq });
     },
     // ⌘S → preview, and (if we were keyboard-focused via Tab) hand focus back to the calendar's NOTE ring.
     onPreview: () => {
@@ -57608,6 +57617,7 @@
     applyTodoCursor();
   }
   function applyTab(t2) {
+    if (t2 !== "note") cancelNoteFocus();
     tab2 = t2;
     isoOf.delete(p0);
     isoOf.delete(p1);
@@ -57615,6 +57625,7 @@
     apply();
   }
   function noteModeUser(m) {
+    if (m === "preview") cancelNoteFocus();
     if (noteMode === m) return;
     noteMode = m;
     liveMode = "";
@@ -57715,7 +57726,7 @@
     const completed = roots.filter((t2) => t2.done && t2.doneDate && t2.doneDate.slice(0, 10) >= recentStart && t2.doneDate.slice(0, 10) <= viewIso).sort((a, b) => {
       const d = a.doneDate < b.doneDate ? 1 : a.doneDate > b.doneDate ? -1 : 0;
       return d !== 0 ? d : cmpTie(a, b);
-    }).slice(0, 12);
+    });
     return [
       { key: "dueDay", title: isToday ? "Today\u2019s Items" : "Due This Day", items: dueThisDay },
       { key: "overdue", title: "Overdue", items: overdue },
@@ -57816,6 +57827,57 @@
       });
     }
   }
+  var htmlOf = /* @__PURE__ */ new WeakMap();
+  function setHTML(scroll, html10, memoKey = html10) {
+    if (htmlOf.get(scroll) === memoKey) return false;
+    htmlOf.set(scroll, memoKey);
+    scroll.innerHTML = html10;
+    return true;
+  }
+  function bustHTML(panel) {
+    const sc = scrollOf.get(panel) ?? panel.firstElementChild;
+    if (sc) htmlOf.delete(sc);
+  }
+  var DEFER_BUDGET = 60;
+  var deferBudgetDefault = DEFER_BUDGET;
+  var panelRows = 0;
+  var panelBudget = DEFER_BUDGET;
+  var lastMotionAt = 0;
+  var pendingTails = /* @__PURE__ */ new WeakMap();
+  var revealPending = /* @__PURE__ */ new WeakSet();
+  function emitRow(out, tail, html10) {
+    (++panelRows > panelBudget ? tail : out).push(html10);
+  }
+  function commitTails(scroll, tails) {
+    if (tails.some((t2) => t2.length)) {
+      pendingTails.set(scroll, tails);
+      scheduleReveal(scroll);
+    } else {
+      pendingTails.delete(scroll);
+    }
+  }
+  function scheduleReveal(scroll) {
+    if (revealPending.has(scroll)) return;
+    revealPending.add(scroll);
+    const check = () => {
+      if (performance.now() - lastMotionAt < 150) {
+        window.setTimeout(check, 180);
+        return;
+      }
+      revealPending.delete(scroll);
+      const tails = pendingTails.get(scroll);
+      if (!tails) return;
+      pendingTails.delete(scroll);
+      for (const ul of Array.from(scroll.querySelectorAll("ul[data-sec]"))) {
+        const tail = tails[Number(ul.dataset.sec ?? -1)];
+        if (tail?.length) ul.insertAdjacentHTML("beforeend", tail.join(""));
+      }
+    };
+    window.setTimeout(check, 200);
+  }
+  var DONE_SHOW = 10;
+  var doneExpanded = /* @__PURE__ */ new Set();
+  var doneHeadHTML = (key2, total, open2) => (open2 ? "" : `<span class="cc-proj-more">+${total - DONE_SHOW} more</span>`) + `<button class="cc-dtodo-fold cc-done-fold" data-donefold="${esc(key2)}" aria-expanded="${open2}" title="Show all / top items"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M6.75 1.5 L17.25 12 L6.75 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
   function rowHTML(t2, idx, viewIso, fold) {
     const date = opDate(t2), overdue = date < viewIso;
     const prefix = t2.parentLine == null && t2.eventTitle && !(t2.source === "daily" && t2.dailyDate === viewIso) ? `<span class="cc-dtodo-event">${esc(t2.eventTitle)} \xB7 </span>` : "";
@@ -58005,6 +58067,10 @@
     return s2;
   }
   var PROJ_MAX_ROWS = 8;
+  var projExpanded = /* @__PURE__ */ new Set();
+  var projAnim = /* @__PURE__ */ new Map();
+  var PROJ_ANIM_MS = 280;
+  var projSettle = /* @__PURE__ */ new Map();
   function projScore(x) {
     let s2 = 0;
     if (!x.t.done) s2 += 4;
@@ -58017,7 +58083,7 @@
     }
     return s2;
   }
-  function projHTML(rs, re2) {
+  function projHTML(rs, re2, scope) {
     if (!today) return { html: "", flat: [] };
     ensureProjects();
     const shown = projects.filter((p3) => p3.tasks.some((x) => x.start <= re2 && (!x.end || x.end >= rs)) || p3.events.some((e) => e.start <= re2 && e.end >= rs));
@@ -58025,33 +58091,50 @@
     if (!shown.length) {
       return { html: `<div class="cc-dd-free">No projects here yet. Please go to an event\u2019s note, or the daily/weekly/monthly dashboard\u2019s notepad, and add todo items tagged with @project:your-project \u2014 your project shows up right here.</div>`, flat };
     }
-    return { html: shown.map((p3) => projChartHTML(p3, flat)).join(""), flat };
+    return { html: shown.map((p3) => projChartHTML(p3, flat, { rs, re: re2, scope })).join(""), flat };
   }
   var MO_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  function projChartHTML(p3, flat) {
-    const tasks = [...p3.tasks].sort((a, b) => projScore(b) - projScore(a)).slice(0, PROJ_MAX_ROWS).sort((a, b) => a.start < b.start ? -1 : 1);
-    const hiddenN = p3.tasks.length - tasks.length;
+  function projChartHTML(p3, flat, view) {
+    const anim = projAnim.get(p3.key);
+    const showAll = projExpanded.has(p3.key);
+    const byScore = [...p3.tasks].sort((a, b) => projScore(b) - projScore(a));
+    const capped = byScore.slice(0, PROJ_MAX_ROWS);
+    const tasks = (showAll || anim === "out" ? byScore : capped).slice().sort((a, b) => a.start < b.start ? -1 : 1);
+    const extra = anim ? new Set(byScore.slice(PROJ_MAX_ROWS)) : /* @__PURE__ */ new Set();
+    const hiddenN = showAll ? 0 : p3.tasks.length - capped.length;
     const dlIsos = p3.deadlines.map((d) => `${d.year}-${pad3(d.month + 1)}-${pad3(d.day)}`);
-    let lo = today, hi = today;
-    for (const x2 of tasks) {
-      if (x2.start < lo) lo = x2.start;
-      if (x2.start > hi) hi = x2.start;
-      const e = x2.end ?? today;
-      if (e > hi) hi = e;
-      if (x2.due && x2.due > hi) hi = x2.due;
-    }
-    for (const iso of dlIsos) {
-      if (iso < lo) lo = iso;
-      if (iso > hi) hi = iso;
-    }
-    for (const ev of p3.events) {
-      if (ev.start < lo) lo = ev.start;
-      if (ev.end > hi) hi = ev.end;
-    }
-    lo = addDays(lo, -1);
-    hi = addDays(hi, 3);
+    const rangeOf = (ts) => {
+      let rlo = today, rhi = today;
+      for (const it of ts) {
+        if (it.start < rlo) rlo = it.start;
+        if (it.start > rhi) rhi = it.start;
+        const e = it.end ?? today;
+        if (e > rhi) rhi = e;
+        if (it.due && it.due > rhi) rhi = it.due;
+      }
+      for (const iso of dlIsos) {
+        if (iso < rlo) rlo = iso;
+        if (iso > rhi) rhi = iso;
+      }
+      for (const ev of p3.events) {
+        if (ev.start < rlo) rlo = ev.start;
+        if (ev.end > rhi) rhi = ev.end;
+      }
+      if (view.rs < rlo) rlo = view.rs;
+      if (view.re > rhi) rhi = view.re;
+      return { lo: addDays(rlo, -1), hi: addDays(rhi, 3) };
+    };
+    const fin = rangeOf(showAll ? byScore : capped);
+    const pre = anim ? rangeOf(anim === "in" ? capped : byScore) : fin;
+    const { lo, hi } = fin;
     const span = Math.max(1, daysBetween(lo, hi));
-    const x = (iso) => Math.max(0, Math.min(100, daysBetween(lo, iso) / span * 100));
+    const preSpan = Math.max(1, daysBetween(pre.lo, pre.hi));
+    const x = (iso, frac = 0) => Math.max(0, Math.min(100, (daysBetween(lo, iso) + frac) / span * 100));
+    const x0 = (iso, frac = 0) => Math.max(0, Math.min(100, (daysBetween(pre.lo, iso) + frac) / preSpan * 100));
+    const posStyle = (l0, w0, l1, w1) => {
+      const st = `style="left:${l0.toFixed(2)}%${w0 !== void 0 ? `;width:${w0.toFixed(2)}%` : ""}"`;
+      return anim ? `${st} data-to="${l1.toFixed(2)}${w1 !== void 0 ? `|${w1.toFixed(2)}` : ""}"` : st;
+    };
     const EV_COLORS = /* @__PURE__ */ new Set([
       "red",
       "blue",
@@ -58064,10 +58147,12 @@
       "indigo"
     ]);
     const evc = (c) => `cc-ev-${EV_COLORS.has(c) ? c : "default"}`;
-    const seg = (a, b, cls, color2) => {
-      const l = x(a), w = Math.max(0.8, x(b) - x(a));
-      return `<span class="cc-proj-bar ${cls} ${evc(color2)}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%"></span>`;
-    };
+    const seg = (a, b, cls, color2) => `<span class="cc-proj-bar ${cls} ${evc(color2)}" ${posStyle(
+      x0(a),
+      Math.max(0.8, x0(b) - x0(a)),
+      x(a),
+      Math.max(0.8, x(b) - x(a))
+    )}></span>`;
     const rows = tasks.map((t2) => {
       const end = t2.end ?? today;
       const kind = t2.end ? "cc-proj-donebar" : "cc-proj-openbar";
@@ -58077,25 +58162,39 @@
       } else {
         bars = seg(t2.start, end, kind, t2.color);
         if (t2.due && t2.due > end) {
-          bars += `<span class="cc-proj-due ${evc(t2.color)}" style="left:${x(t2.due).toFixed(2)}%"></span>`;
+          bars += `<span class="cc-proj-due ${evc(t2.color)}" ${posStyle(x0(t2.due), void 0, x(t2.due), void 0)}></span>`;
         }
       }
       const idx = flat.length;
       flat.push(t2.t);
-      return `<div class="cc-proj-lrow${t2.end ? " cc-proj-lrow-done" : ""}"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t2.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t2.t.text)}">${esc(t2.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
+      const xcls = extra.has(t2) ? anim === "in" ? " cc-proj-x cc-proj-x0" : " cc-proj-x" : "";
+      return `<div class="cc-proj-lrow${t2.end ? " cc-proj-lrow-done" : ""}${xcls}"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t2.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t2.t.text)}">${esc(t2.t.text)}</span></div>|||<div class="cc-proj-track${xcls}">${bars}</div>`;
     });
     const evBoxes = [...p3.events].sort((a, b) => a.start < b.start ? -1 : 1).map((ev) => {
       const l = x(ev.start), w = Math.max(1.2, x(addDays(ev.end, 1)) - l);
-      return `<div class="cc-proj-evbox ${evc(ev.color)}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%">
+      const l0 = x0(ev.start), w0 = Math.max(1.2, x0(addDays(ev.end, 1)) - l0);
+      return `<div class="cc-proj-evbox ${evc(ev.color)}" ${posStyle(l0, w0, l, w)}>
       <span class="cc-proj-evname" data-ddl="${esc(ev.id)}" role="button" tabindex="0" title="${esc(ev.title)}">${esc(ev.title)}</span>
     </div>`;
     }).join("");
     const vlines = p3.deadlines.map((d, i3) => {
-      const iso = dlIsos[i3], l = x(iso);
-      return `<div class="cc-proj-vline cc-proj-dlline ${evc(d.color)}" style="left:${l.toFixed(2)}%"></div>
-      <div class="cc-proj-vlabel ${evc(d.color)}" style="left:${l.toFixed(2)}%" data-ddl="${esc(d.id)}" role="button" tabindex="0" title="${esc(d.title)}">${esc(d.title)}</div>`;
+      const iso = dlIsos[i3];
+      return `<div class="cc-proj-vline cc-proj-dlline ${evc(d.color)}" ${posStyle(x0(iso), void 0, x(iso), void 0)}></div>
+      <div class="cc-proj-vlabel ${evc(d.color)}" ${posStyle(x0(iso), void 0, x(iso), void 0)} data-ddl="${esc(d.id)}" role="button" tabindex="0" title="${esc(d.title)}">${esc(d.title)}</div>`;
     }).join("");
-    const nowLine = `<div class="cc-proj-vline cc-proj-nowline" style="left:${x(today).toFixed(2)}%"></div>`;
+    const wall = /* @__PURE__ */ new Date();
+    const nowFrac = (wall.getHours() * 60 + wall.getMinutes()) / 1440;
+    const nowLine = `<div class="cc-proj-vline cc-proj-nowline" ${posStyle(x0(today, nowFrac), void 0, x(today, nowFrac), void 0)}></div>
+    <div class="cc-proj-nowpill" ${posStyle(x0(today, nowFrac), void 0, x(today, nowFrac), void 0)}>now</div>`;
+    let viewMark = "";
+    if (view.scope === "day") {
+      viewMark = `<div class="cc-proj-vline cc-proj-dayline" ${posStyle(x0(view.rs), void 0, x(view.rs), void 0)}></div>`;
+    } else {
+      const vl1 = x(view.rs), vw1 = Math.max(0.8, x(addDays(view.re, 1)) - vl1);
+      const vl0 = x0(view.rs), vw0 = Math.max(0.8, x0(addDays(view.re, 1)) - vl0);
+      viewMark = `<div class="cc-proj-viewband" ${posStyle(vl0, vw0, vl1, vw1)}></div>
+      <div class="cc-proj-viewlabel" ${posStyle(vl0 + vw0 / 2, void 0, vl1 + vw1 / 2, void 0)}>${view.scope === "week" ? "This Week" : "This Month"}</div>`;
+    }
     const step = span <= 42 ? 7 : span <= 100 ? 30 : span <= 240 ? 60 : 90;
     let ticks = "";
     for (let k = Math.ceil(-daysBetween(lo, today) / step) * step; ; k += step) {
@@ -58103,7 +58202,7 @@
       if (iso > hi) break;
       if (iso < lo) continue;
       const label = k === 0 ? "now" : k < 0 ? `${-k}d ago` : `in ${k}d`;
-      ticks += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${label}</span>`;
+      ticks += `<span class="cc-proj-tick" ${posStyle(x0(iso), void 0, x(iso), void 0)}>${label}</span>`;
     }
     let months = "";
     if (span <= 60) {
@@ -58111,7 +58210,7 @@
       const dow = new Date(Date.UTC(y0, m0 - 1, d0)).getUTCDay();
       for (let iso = addDays(lo, (7 - dow) % 7); iso <= hi; iso = addDays(iso, 7)) {
         const [, mm, dd2] = iso.split("-").map(Number);
-        months += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${MO_SHORT[mm - 1]} ${dd2}</span>`;
+        months += `<span class="cc-proj-tick" ${posStyle(x0(iso), void 0, x(iso), void 0)}>${MO_SHORT[mm - 1]} ${dd2}</span>`;
       }
     } else {
       let [y, m] = lo.split("-").map(Number);
@@ -58123,7 +58222,7 @@
       for (; ; ) {
         const iso = `${y}-${pad3(m)}-01`;
         if (iso > hi) break;
-        months += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${MO_SHORT[m - 1]}${m === 1 ? ` \u2019${String(y % 100).padStart(2, "0")}` : ""}</span>`;
+        months += `<span class="cc-proj-tick" ${posStyle(x0(iso), void 0, x(iso), void 0)}>${MO_SHORT[m - 1]}${m === 1 ? ` \u2019${String(y % 100).padStart(2, "0")}` : ""}</span>`;
         m += 1;
         if (m > 12) {
           m = 1;
@@ -58131,14 +58230,17 @@
         }
       }
     }
+    const foldable = p3.tasks.length > PROJ_MAX_ROWS;
+    const chevOpen = anim ? anim === "out" : showAll;
+    const chevron = foldable ? `<button class="cc-dtodo-fold cc-proj-fold" data-projfold="${esc(p3.key)}" aria-expanded="${chevOpen}" title="Show all / top items"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M6.75 1.5 L17.25 12 L6.75 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : "";
     return `
-    <section class="cc-dd-sec cc-proj">
-      <div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(p3.key)}</span><span class="cc-dd-sec-count">${p3.tasks.length}</span>${hiddenN > 0 ? `<span class="cc-proj-more">+${hiddenN} more</span>` : ""}</div>
+    <section class="cc-dd-sec cc-proj"${anim ? ` data-panim="${anim}"` : ""}>
+      <div class="cc-dd-sec-head cc-proj-head${foldable ? " cc-proj-head-foldable" : ""}"><span class="cc-dd-sec-title">${esc(p3.key)}</span><span class="cc-dd-sec-count">${p3.tasks.length}</span>${hiddenN > 0 ? `<span class="cc-proj-more">+${hiddenN} more</span>` : ""}${chevron}</div>
       <div class="cc-proj-chart${p3.deadlines.length ? " cc-proj-hasdls" : ""}${p3.events.length ? " cc-proj-hasevs" : ""}">
         <div class="cc-proj-labels">${rows.map((r) => r.split("|||")[0]).join("")}</div>
         <div class="cc-proj-plot">
           <div class="cc-proj-plotarea">
-            ${vlines}${nowLine}
+            ${viewMark}${vlines}${nowLine}
             ${rows.map((r) => r.split("|||")[1]).join("")}
             ${evBoxes}
           </div>
@@ -58148,19 +58250,47 @@
       </div>
     </section>`;
   }
+  function rerenderProjPanel(panel) {
+    bustHTML(panel);
+    const sig = scopeSig.get(panel);
+    if (sig) {
+      const [scope, key2] = sig.split("|");
+      scopeSig.delete(panel);
+      renderScopePanel(panel, scope, key2);
+    } else {
+      const iso = isoOf.get(panel);
+      if (iso) renderPanel(panel, iso);
+    }
+  }
+  function playProjAnim(panel) {
+    for (const sec of Array.from(panel.querySelectorAll("[data-panim]"))) {
+      const grow = sec.dataset.panim === "in";
+      void sec.offsetHeight;
+      sec.classList.add("cc-proj-anim");
+      sec.querySelector(".cc-proj-fold")?.setAttribute("aria-expanded", String(grow));
+      for (const el of Array.from(sec.querySelectorAll("[data-to]"))) {
+        const [l, w] = (el.dataset.to ?? "").split("|");
+        el.style.left = `${l}%`;
+        if (w) el.style.width = `${w}%`;
+      }
+      for (const r of Array.from(sec.querySelectorAll(".cc-proj-x"))) {
+        r.classList.toggle("cc-proj-x0", !grow);
+      }
+    }
+  }
   function renderPanel(el, viewIso) {
     const scroll = scrollOf.get(el) ?? el;
     isoOf.set(el, viewIso);
     if (tab2 === "proj") {
-      const r = projHTML(viewIso.slice(0, 10), viewIso.slice(0, 10));
-      scroll.innerHTML = r.html;
+      const r = projHTML(viewIso.slice(0, 10), viewIso.slice(0, 10), "day");
+      setHTML(scroll, r.html);
       scroll.scrollTop = scrollByIso[viewIso] ?? 0;
       flatOf.set(el, r.flat);
       return;
     }
     if (tab2 === "note") {
       const text9 = notes[viewIso] || "";
-      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : emptyNoteHTML("day");
+      setHTML(scroll, text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : emptyNoteHTML("day"));
       scroll.scrollTop = scrollByIso[viewIso] ?? 0;
       flatOf.delete(el);
       return;
@@ -58168,26 +58298,42 @@
     ensureTodos();
     const sections = sectionsForDay(allTodos, viewIso);
     const kids = childrenIndex(allTodos);
+    panelRows = 0;
+    panelBudget = (scrollByIso[viewIso] ?? 0) > 0 ? Infinity : deferBudgetDefault;
     const flat = [];
-    const renderTree = (t2, visible, out) => {
+    const renderTree = (t2, visible, out, tail) => {
       flat.push(t2);
       const idx = flat.length - 1;
       const children = kids.get(`${scopeKey(t2)}\0${t2.line}`) ?? [];
       const folded = children.length > 0 && collapsed.has(foldKey(t2));
       if (visible) {
         const fold = { foldable: children.length > 0, folded, hidden: folded ? subtree(t2, kids).length - 1 : 0 };
-        out.push(rowHTML(t2, idx, viewIso, fold));
+        emitRow(out, tail, rowHTML(t2, idx, viewIso, fold));
       }
-      for (const c of children) renderTree(c, visible && !folded, out);
+      for (const c of children) renderTree(c, visible && !folded, out, tail);
     };
-    const secHTML = sections.map((s2) => {
+    const tails = [];
+    const secHTML = sections.map((s2, si) => {
       const out = [];
-      for (const t2 of s2.items) renderTree(t2, true, out);
-      return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span></div><ul class="cc-dtodo-list">${out.join("")}</ul></section>`;
+      const tail = [];
+      let head2 = "";
+      if (s2.done && s2.items.length > DONE_SHOW) {
+        const dk = `day|${viewIso}`;
+        const open2 = doneExpanded.has(dk);
+        s2.items.forEach((t2, i3) => renderTree(t2, open2 || i3 < DONE_SHOW, out, tail));
+        head2 = doneHeadHTML(dk, s2.items.length, open2);
+      } else {
+        for (const t2 of s2.items) renderTree(t2, true, out, tail);
+      }
+      tails[si] = tail;
+      return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span>${head2}</div><ul class="cc-dtodo-list" data-sec="${si}">${out.join("")}</ul></section>`;
     }).join("");
     flatOf.set(el, flat);
     const body3 = sections.length ? secHTML : emptyListHTML(todoPrefs.day);
-    scroll.innerHTML = (todoPrefs.day.deadlines ? deadlineHTML(viewIso) : "") + body3;
+    const html10 = (todoPrefs.day.deadlines ? deadlineHTML(viewIso) : "") + body3;
+    if (setHTML(scroll, html10, html10 + " " + tails.map((t2) => t2.join("")).join(""))) {
+      commitTails(scroll, tails);
+    }
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;
   }
   function rangeDeadlineHTML(title, startIso, endIso) {
@@ -58247,44 +58393,67 @@
     const start = scope === "week" ? key2 : `${key2}-01`;
     const end = scope === "week" ? addDays(key2, 6) : monthEndIso(key2);
     if (tab2 === "proj") {
-      const r = projHTML(start, end);
-      scroll.innerHTML = r.html;
+      const r = projHTML(start, end, scope);
+      setHTML(scroll, r.html);
       flatOf.set(el, r.flat);
       return;
     }
     if (tab2 === "note") {
       const text9 = notes[noteKey] || "";
-      scroll.innerHTML = text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : emptyNoteHTML(scope);
-      decorateTaskItems(scroll);
+      if (setHTML(scroll, text9.trim() ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text9)}</div>` : emptyNoteHTML(scope))) {
+        decorateTaskItems(scroll);
+      }
       flatOf.delete(el);
       return;
     }
     const word = scope === "week" ? "this week" : "this month";
+    panelRows = 0;
+    panelBudget = deferBudgetDefault;
     const sections = rangeTodoSections(start, end, word, scope).map((s2) => ({
       ...s2,
       items: s2.items.map((t2) => t2.dailyDate === noteKey ? { ...t2, eventTitle: "" } : t2)
     }));
     const kids = childrenIndex(allTodos);
     const flat = [];
-    const secHTML = sections.map((s2) => {
-      const rows = s2.items.map((t2) => subtree(t2, kids).map((n) => {
-        flat.push(n);
-        return rowHTML(n, flat.length - 1, today);
-      }).join("")).join("");
-      return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span></div><ul class="cc-dtodo-list">${rows}</ul></section>`;
+    const tails = [];
+    const secHTML = sections.map((s2, si) => {
+      const dk = `${scope}|${key2}`;
+      const capped = s2.done && s2.items.length > DONE_SHOW;
+      const open2 = !capped || doneExpanded.has(dk);
+      const roots = open2 ? s2.items : s2.items.slice(0, DONE_SHOW);
+      const out = [];
+      const tail = [];
+      for (const t2 of roots) {
+        for (const n of subtree(t2, kids)) {
+          flat.push(n);
+          emitRow(out, tail, rowHTML(n, flat.length - 1, today));
+        }
+      }
+      tails[si] = tail;
+      const head2 = capped ? doneHeadHTML(dk, s2.items.length, doneExpanded.has(dk)) : "";
+      return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s2.title)}</span><span class="cc-dtodo-sec-count">${s2.items.length}</span>${head2}</div><ul class="cc-dtodo-list" data-sec="${si}">${out.join("")}</ul></section>`;
     }).join("");
     flatOf.set(el, flat);
     const pr = todoPrefs[scope];
-    scroll.innerHTML = (pr.deadlines ? rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end) : "") + (sections.length ? secHTML : emptyListHTML(pr));
+    const html10 = (pr.deadlines ? rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end) : "") + (sections.length ? secHTML : emptyListHTML(pr));
+    if (setHTML(scroll, html10, html10 + "\0" + tails.map((t2) => t2.join("")).join(""))) {
+      commitTails(scroll, tails);
+    }
   }
   var liveShown = false;
   var liveMode = "";
   var dayViewShown = false;
   function guarded(what, fn) {
+    const bench = window.CKBENCH;
+    const t0 = bench?.on ? performance.now() : 0;
     try {
       fn();
     } catch (e) {
       post({ type: "err", where: what, message: String(e?.stack ?? e) });
+    }
+    if (bench?.on) {
+      const d = performance.now() - t0;
+      if (d > 2) (bench.units ??= []).push([what, Math.round(d * 10) / 10]);
     }
   }
   function apply() {
@@ -58323,7 +58492,15 @@
       bOp,
       shift: shift2
     } = last;
-    if (reveal < 0.02) {
+    const mid = (v) => v > 1e-3 && v < 0.999;
+    const inMotion = mid(reveal) || mid(p3) || mid(wP) || mid(mP) || mid(scopeT);
+    if (inMotion) lastMotionAt = performance.now();
+    const layerOpOf = (name2) => name2 === aName ? aOp : name2 === bName ? bOp : 0;
+    const renderGate = (layer2, what, fn) => {
+      if (!inMotion || layerOpOf(layer2) > 1e-3) guarded(what, fn);
+    };
+    const dayActive = reveal >= 0.02 && (scopeT > 0.5 ? scopeB : scopeA) === "day";
+    if (!dayActive) {
       if (dayViewShown) {
         dayViewShown = false;
         scrollByIso = {};
@@ -58335,9 +58512,12 @@
       P0.scroll.scrollTop = 0;
       P1.scroll.scrollTop = 0;
     }
-    root5.style.left = `${maskX.toFixed(1)}px`;
-    root5.style.width = `${Math.max(0, maskW).toFixed(1)}px`;
-    root5.style.transform = `translate(${(-shift2).toFixed(1)}px, ${dy.toFixed(1)}px)`;
+    const geomLive = reveal >= 0.02;
+    if (geomLive) {
+      root5.style.left = `${maskX.toFixed(1)}px`;
+      root5.style.width = `${Math.max(0, maskW).toFixed(1)}px`;
+      root5.style.transform = `translate(${(-shift2).toFixed(1)}px, ${dy.toFixed(1)}px)`;
+    }
     root5.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
     const layers = { day: panelsEl, week: weekLayer, month: monthLayer };
     const t2 = scopeT;
@@ -58354,10 +58534,12 @@
         w = bW;
         op2 = bOp;
       }
-      el.style.left = `${(x - maskX).toFixed(1)}px`;
-      el.style.width = `${Math.max(0, w).toFixed(1)}px`;
-      el.style.transform = "none";
-      el.style.opacity = op2.toFixed(3);
+      if (geomLive) {
+        el.style.left = `${(x - maskX).toFixed(1)}px`;
+        el.style.width = `${Math.max(0, w).toFixed(1)}px`;
+        el.style.transform = "none";
+        el.style.opacity = op2.toFixed(3);
+      }
       el.style.pointerEvents = op2 > 0.999 ? "auto" : "none";
       if (name2 === scopeName) {
         liveL = x - maskX;
@@ -58374,14 +58556,14 @@
       mpB = t22;
     }
     if (mKeyA) {
-      guarded(`month:${mKeyA}`, () => renderScopePanel(mpA, "month", mKeyA));
+      renderGate("month", `month:${mKeyA}`, () => renderScopePanel(mpA, "month", mKeyA));
       scopeKeyOf.set(mpA, mKeyA);
       mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
       mpA.style.opacity = (1 - mP).toFixed(3);
       mpA.style.pointerEvents = mP < 1e-3 ? "auto" : "none";
     }
     if (mKeyA && mKeyB && mP > 1e-3) {
-      guarded(`month:${mKeyB}`, () => renderScopePanel(mpB, "month", mKeyB));
+      renderGate("month", `month:${mKeyB}`, () => renderScopePanel(mpB, "month", mKeyB));
       scopeKeyOf.set(mpB, mKeyB);
       mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
       mpB.style.opacity = mP.toFixed(3);
@@ -58396,14 +58578,14 @@
       wpB = t3;
     }
     if (wKeyA) {
-      guarded(`week:${wKeyA}`, () => renderScopePanel(wpA, "week", wKeyA));
+      renderGate("week", `week:${wKeyA}`, () => renderScopePanel(wpA, "week", wKeyA));
       scopeKeyOf.set(wpA, wKeyA);
       wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
       wpA.style.opacity = (1 - wP).toFixed(3);
       wpA.style.pointerEvents = wP < 1e-3 ? "auto" : "none";
     }
     if (wKeyA && wKeyB && wP > 1e-3) {
-      guarded(`week:${wKeyB}`, () => renderScopePanel(wpB, "week", wKeyB));
+      renderGate("week", `week:${wKeyB}`, () => renderScopePanel(wpB, "week", wKeyB));
       scopeKeyOf.set(wpB, wKeyB);
       wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
       wpB.style.opacity = wP.toFixed(3);
@@ -58412,7 +58594,7 @@
       wpB.style.opacity = "0";
       wpB.style.pointerEvents = "none";
     }
-    if (isoOf.get(p0) !== from) guarded(`day:${from}`, () => renderPanel(p0, from));
+    if (isoOf.get(p0) !== from) renderGate("day", `day:${from}`, () => renderPanel(p0, from));
     const atRest = !to || p3 <= 1e-4;
     if (atRest) {
       p0.style.transform = "translateX(0)";
@@ -58421,7 +58603,7 @@
       p1.style.opacity = "0";
       p1.style.pointerEvents = "none";
     } else {
-      if (isoOf.get(p1) !== to) guarded(`day:${to}`, () => renderPanel(p1, to));
+      if (isoOf.get(p1) !== to) renderGate("day", `day:${to}`, () => renderPanel(p1, to));
       p0.style.transform = `translateX(${(-dir * p3 * 100).toFixed(3)}%)`;
       p0.style.opacity = (1 - p3).toFixed(3);
       p1.style.transform = `translateX(${(dir * (1 - p3) * 100).toFixed(3)}%)`;
@@ -58452,16 +58634,18 @@
       const text9 = notes[liveKey] || "";
       if (liveIso !== liveKey) {
         liveIso = liveKey;
+        liveText = text9;
+        noteEd.setValue(text9);
         liveScope = scopeName;
         noteEd.setPlaceholder(scopeName === "day" ? "Daily Note (Markdown)\u2026" : scopeName === "week" ? "Weekly Note (Markdown)\u2026" : "Monthly Note (Markdown)\u2026");
-        const m = text9.trim() ? "preview" : "edit";
+        const m = editJump || !text9.trim() ? "edit" : "preview";
         if (m !== noteMode) {
           noteMode = m;
           liveMode = "";
           post({ type: "noteMode", mode: m });
         }
       }
-      if (text9 !== liveText) {
+      if (text9 !== liveText && pushedNoteSeq >= noteSeq) {
         liveText = text9;
         noteEd.setValue(text9);
       }
@@ -58469,6 +58653,14 @@
         liveMode = noteMode;
         noteEd.setMode(noteMode);
       }
+    }
+    if (pendingNoteFocus) {
+      if (!showLive) pendingNoteFocus.unmounted = true;
+      else if (!pendingNoteFocus.key || pendingNoteFocus.key === liveKey) {
+        const p4 = pendingNoteFocus;
+        pendingNoteFocus = null;
+        p4.fire();
+      } else if (pendingNoteFocus.unmounted) cancelNoteFocus();
     }
     liveShown = showLive;
     applyNav();
@@ -58558,7 +58750,10 @@
       entityDirty = true;
       selfEditAt = performance.now();
     }
-    if (row2) setRowDone(row2, ok4 ? !wasDone : wasDone);
+    if (row2) {
+      setRowDone(row2, ok4 ? !wasDone : wasDone);
+      bustHTML(panel);
+    }
   }
   function panelOf(e) {
     return e.target.closest(".cc-dd-panel");
@@ -58568,6 +58763,8 @@
     if (el.classList.contains("cc-dd-range")) {
       deadlineRange = el.value;
       const sec = el.closest(".cc-dd-ddl-sec");
+      const pn = panelOf(e);
+      if (pn) bustHTML(pn);
       if (sec) sec.outerHTML = deadlineHTML(sec.dataset.iso ?? last.from);
       return;
     }
@@ -58578,6 +58775,39 @@
   });
   root5.addEventListener("click", (e) => {
     const panel = panelOf(e);
+    const df = e.target.closest("[data-donefold]");
+    if (df && panel) {
+      const dk = df.dataset.donefold ?? "";
+      if (doneExpanded.has(dk)) doneExpanded.delete(dk);
+      else doneExpanded.add(dk);
+      rerenderProjPanel(panel);
+      applyNav();
+      return;
+    }
+    const pf = e.target.closest("[data-projfold]");
+    if (pf && panel) {
+      const k = pf.dataset.projfold ?? "";
+      ensureProjects();
+      const proj = projects.find((pr) => pr.key === k);
+      if (!proj || proj.tasks.length <= PROJ_MAX_ROWS) return;
+      if (projExpanded.has(k)) {
+        projExpanded.delete(k);
+        projAnim.set(k, "out");
+      } else {
+        for (const prev of projExpanded) projAnim.set(prev, "out");
+        projExpanded.clear();
+        projExpanded.add(k);
+        projAnim.set(k, "in");
+      }
+      for (const el of [...scopeSig.keys()]) if (el !== panel) scopeSig.delete(el);
+      for (const el of [p0, p1]) if (el !== panel) isoOf.delete(el);
+      clearTimeout(projSettle.get(panel));
+      rerenderProjPanel(panel);
+      projAnim.clear();
+      playProjAnim(panel);
+      projSettle.set(panel, window.setTimeout(() => rerenderProjPanel(panel), PROJ_ANIM_MS + 60));
+      return;
+    }
     const foldEl = e.target.closest("[data-fold]");
     if (foldEl && panel) {
       const t2 = (flatOf.get(panel) ?? [])[Number(foldEl.dataset.fold)];
@@ -58617,9 +58847,11 @@
       deadlines = d.deadlines || [];
       today = d.today || "";
       notes = d.dailyNotes || {};
+      pushedNoteSeq = d.noteSeq ?? pushedNoteSeq;
       todosDirty = true;
       projectsDirty = true;
       entityDirty = true;
+      window.setTimeout(() => guarded("prewarmTodos", ensureTodos), 30);
       if (!last.from) last.from = d.viewIso || today;
       if (performance.now() - selfEditAt < SELF_ECHO_MS) return;
       isoOf.delete(p0);
@@ -58639,7 +58871,12 @@
       if (t2 !== tab2) applyTab(t2);
       else apply();
     },
+    setDeferBudget(n) {
+      deferBudgetDefault = n > 0 ? n : DEFER_BUDGET;
+    },
+    // bench A/B hook
     setNoteMode(m) {
+      if (m === "preview") cancelNoteFocus();
       noteMode = m;
       liveMode = "";
       apply();
@@ -58702,32 +58939,21 @@
       toggleFold(p0, t2, open2);
     },
     // Enter on the NOTE stop / ⌘E → focus the live editor. `line` (a todo-row jump): once the
-    // editor is up, SELECT that source line so the jumped-to item arrives highlighted.
-    noteEdit(ring = false, line = null) {
+    // editor is up, SELECT that source line so the jumped-to item arrives highlighted. `key`
+    // (same jump): the target note's storage key — the focus fires only when THAT note mounts.
+    noteEdit(ring = false, line = null, key2 = null) {
       editingNote = true;
       editingRing = ring;
       applyNav();
+      editJump = true;
+      pendingNoteFocus = { key: key2, unmounted: false, fire: () => {
+        editJump = false;
+        noteEd.setMode("edit");
+        noteEd.focus();
+        if (line) noteEd.selectLine(line);
+      } };
       noteModeUser("edit");
-      const tryFocus = (left) => {
-        if (noteLive.style.display !== "none") {
-          noteEd.setMode("edit");
-          noteEd.focus();
-          if (line) noteEd.selectLine(line);
-        } else if (left > 0) {
-          requestAnimationFrame(() => tryFocus(left - 1));
-        } else {
-          post({ type: "err", where: "noteEdit-stuck", message: JSON.stringify({
-            tab: tab2,
-            noteMode,
-            liveMode,
-            liveShown,
-            liveIso,
-            display: noteLive.style.display,
-            last
-          }) });
-        }
-      };
-      queueMicrotask(() => tryFocus(90));
+      apply();
     }
   };
   post({ type: "ready" });

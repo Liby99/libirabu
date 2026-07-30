@@ -156,7 +156,23 @@ let noteMode: "edit" | "preview" = "edit";
 let notes: Record<string, string> = {};
 let liveIso = "";                                      // the note KEY the live editor currently holds
 let liveText = "";                                     // the note value currently in the editor (detects external changes)
+// Ordering handshake with Swift for the live editor (engine.dashNoteSeq): every noteChange we
+// post carries an incrementing seq, and every data push carries the last seq Swift had
+// incorporated when that JSON was built. The JSON cache + coalesced rebuild make pushes lag a
+// typing burst by a few keystrokes — adopting such a push would wipe the newest characters
+// (they'd flicker back on the next push, or be lost for good if further typing raced the revert).
+// The editor only adopts a push that has CAUGHT UP with its own counter; genuine external
+// rewrites (checkbox toggles, engine undo, cloud sync) arrive caught-up and still sync in.
+let noteSeq = 0;       // our latest posted edit
+let pushedNoteSeq = 0; // the seq the latest data push had incorporated
 let liveScope: "day" | "week" | "month" = "day";       // which scope the live editor is anchored to
+let editJump = false;                                  // a noteEdit jump is mid-flight (see CK.noteEdit)
+// A registered noteEdit focus (⌘E / todo-row jump), resolved by apply() the moment the live editor
+// mounts — the end of the travel+reveal animation chain. `key`: the jump's target note (null = ⌘E,
+// any note); `unmounted`: the editor has been down at least once since registration, so a later
+// mount of a DIFFERENT note means the flight was interrupted → the stale focus is dropped.
+let pendingNoteFocus: { key: string | null; unmounted: boolean; fire: () => void } | null = null;
+function cancelNoteFocus() { pendingNoteFocus = null; editJump = false; }
 const SCOPE_WORD = { day: "daily", week: "weekly", month: "monthly" } as const;
 // Empty-note preview: an invitation with a link into the markdown editor (see the root click
 // delegation — `.cc-dd-note-write` switches to edit mode). Used by the LIVE preview and the
@@ -168,7 +184,12 @@ const noteEd = createNoteEditor({
   editorEl: document.getElementById("note-editor")!,
   previewEl: document.getElementById("note-preview")!,
   placeholder: "Daily Note (Markdown)…",
-  onChange: (value) => { notes[liveIso] = value; liveText = value; todosDirty = true; projectsDirty = true; entityDirty = true; post({ type: "noteChange", date: liveIso, value }); },
+  onChange: (value) => {
+    notes[liveIso] = value; liveText = value;
+    noteSeq += 1;
+    todosDirty = true; projectsDirty = true; entityDirty = true;
+    post({ type: "noteChange", date: liveIso, value, seq: noteSeq });
+  },
   // ⌘S → preview, and (if we were keyboard-focused via Tab) hand focus back to the calendar's NOTE ring.
   onPreview: () => { noteModeUser("preview"); post({ type: "navNoteExit" }); },
   onExit: () => post({ type: "navNoteExit" }),             // Escape in the editor → back to the NOTE ring
@@ -209,9 +230,13 @@ function applyNav() {
   noteLive.classList.toggle("cc-nav-on", navStop === "note" && (!editingNote || editingRing));
   applyTodoCursor();
 }
-function applyTab(t: "todo" | "note" | "proj") { tab = t; isoOf.delete(p0); isoOf.delete(p1); scopeSig.clear(); apply(); }
+function applyTab(t: "todo" | "note" | "proj") {
+  if (t !== "note") cancelNoteFocus();   // leaving the NOTE tab supersedes a pending jump-focus
+  tab = t; isoOf.delete(p0); isoOf.delete(p1); scopeSig.clear(); apply();
+}
 // A user action IN the webview (⌘S / ⌘-click) → change mode + tell Swift so the native toggle updates.
 function noteModeUser(m: "edit" | "preview") {
+  if (m === "preview") cancelNoteFocus();   // an explicit preview supersedes a pending jump-focus
   if (noteMode === m) return;
   noteMode = m; liveMode = ""; post({ type: "noteMode", mode: m }); apply();
 }
@@ -332,9 +357,10 @@ function sectionsForDay(todos: ParsedTodo[], viewIso: string): Section[] {
   // upcoming task doesn't vanish just because it isn't p:!!!.
   const lowSoon = plain.filter((t) => (t.priority ?? 0) < HIGH_PRIORITY && dueDate(t) > viewIso && dueDate(t) <= soonEnd).sort(byOp);
   const recentStart = addDays(viewIso, -RECENT_DONE_DAYS);
+  // Full list — the render layer caps it at DONE_SHOW behind the "Show all N" expander.
   const completed = roots
     .filter((t) => t.done && t.doneDate && t.doneDate.slice(0, 10) >= recentStart && t.doneDate.slice(0, 10) <= viewIso)
-    .sort((a, b) => { const d = a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0; return d !== 0 ? d : cmpTie(a, b); }).slice(0, 12);
+    .sort((a, b) => { const d = a.doneDate! < b.doneDate! ? 1 : a.doneDate! > b.doneDate! ? -1 : 0; return d !== 0 ? d : cmpTie(a, b); });
   return [
     { key: "dueDay", title: isToday ? "Today’s Items" : "Due This Day", items: dueThisDay },
     { key: "overdue", title: "Overdue", items: overdue },
@@ -442,6 +468,81 @@ function toggleFold(panel: HTMLElement, t: ParsedTodo, open: boolean) {
 }
 
 // ── Rendering ───────────────────────────────────────────────────────────────────────────────────
+// Rendered-markup memo: setData busts every render cache (sig/iso), but on most data pushes most
+// panels rebuild to the IDENTICAL markup — skip the innerHTML write (parse + style + layout) when
+// nothing changed. Cleared for a panel whenever its DOM is mutated IN PLACE (checkbox strike,
+// proj-chart animation, deadline-range swap), so a skipped write can never preserve divergent DOM.
+const htmlOf = new WeakMap<HTMLElement, string>();
+/** `memoKey` must cover ALL content the render decided on (above-fold + any held-back tail) —
+ *  two renders with the same visible markup but different tails must not memo-match. */
+function setHTML(scroll: HTMLElement, html: string, memoKey = html): boolean {
+  if (htmlOf.get(scroll) === memoKey) return false;
+  htmlOf.set(scroll, memoKey);
+  scroll.innerHTML = html;
+  return true;
+}
+function bustHTML(panel: HTMLElement) {
+  const sc = scrollOf.get(panel) ?? (panel.firstElementChild as HTMLElement | null);
+  if (sc) htmlOf.delete(sc);
+}
+
+// ── On-demand rendering window ──────────────────────────────────────────────────────────────────
+// Panels render mid-animation (⌘B pin slide, week/month turns, day pager — a fresh panel's first
+// content render lands on a moving frame), and a todo-heavy month pays HTML parse + style +
+// layout for hundreds of rows nobody can see below the fold. Rows beyond DEFER_BUDGET
+// (≈ two viewport-heights) are NOT put in the DOM at all: their markup is held per section
+// (pendingTails) and appended in ONE insertAdjacentHTML pass per section once the carousel has
+// been still for a beat — the tail's whole cost lands on a static frame. `flat`/data-idx stay
+// complete from the start, so toggles and folds resolve identically before and after the reveal.
+const DEFER_BUDGET = 60;
+let deferBudgetDefault = DEFER_BUDGET;   // CK.setDeferBudget overrides (bench A/B: 1e9 = defer off)
+let panelRows = 0;                 // rows emitted by the render in progress (reset per panel)
+let panelBudget = DEFER_BUDGET;    // Infinity when restoring a deep remembered scroll
+let lastMotionAt = 0;              // stamped by apply() while any carousel axis is mid-flight
+const pendingTails = new WeakMap<HTMLElement, string[][]>();  // scroll → per-section held rows
+const revealPending = new WeakSet<HTMLElement>();
+/** Route a row above or below the fold. Above → `out` (rendered now); below → `tail` (held). */
+function emitRow(out: string[], tail: string[], html: string) {
+  (++panelRows > panelBudget ? tail : out).push(html);
+}
+/** Adopt the render's held rows (replacing any previous pending set) + arm the settle reveal. */
+function commitTails(scroll: HTMLElement, tails: string[][]) {
+  if (tails.some((t) => t.length)) {
+    pendingTails.set(scroll, tails);
+    scheduleReveal(scroll);
+  } else {
+    pendingTails.delete(scroll);
+  }
+}
+function scheduleReveal(scroll: HTMLElement) {
+  if (revealPending.has(scroll)) return;
+  revealPending.add(scroll);
+  const check = () => {
+    if (performance.now() - lastMotionAt < 150) { window.setTimeout(check, 180); return; }
+    revealPending.delete(scroll);
+    const tails = pendingTails.get(scroll);
+    if (!tails) return;   // a fresh render superseded this reveal with nothing held back
+    pendingTails.delete(scroll);
+    for (const ul of Array.from(scroll.querySelectorAll<HTMLElement>("ul[data-sec]"))) {
+      const tail = tails[Number(ul.dataset.sec ?? -1)];
+      if (tail?.length) ul.insertAdjacentHTML("beforeend", tail.join(""));
+    }
+  };
+  window.setTimeout(check, 200);
+}
+
+// ── "Completed" cap: show the top DONE_SHOW, the rest behind a header chevron ───────────────────
+// A month of finished todos (with subtrees) easily runs to hundreds of rows — the list defaults
+// to the 10 most-recent roots. Disclosure mirrors the PROJ panel's title-row chevron: it rides
+// the section header's right edge, points right while capped / down when everything shows, with
+// a "+N more" hint beside the count. Expansion is session-scoped, keyed per panel view.
+const DONE_SHOW = 10;
+const doneExpanded = new Set<string>();
+/** The Completed header's extra chrome: the "+N more" hint (collapsed only) + the fold chevron. */
+const doneHeadHTML = (key: string, total: number, open: boolean) =>
+  (open ? "" : `<span class="cc-proj-more">+${total - DONE_SHOW} more</span>`) +
+  `<button class="cc-dtodo-fold cc-done-fold" data-donefold="${esc(key)}" aria-expanded="${open}" title="Show all / top items"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M6.75 1.5 L17.25 12 L6.75 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+
 interface RowFold { foldable: boolean; folded: boolean; hidden: number; }
 function rowHTML(t: ParsedTodo, idx: number, viewIso: string, fold?: RowFold): string {
   const date = opDate(t), overdue = date < viewIso;
@@ -697,6 +798,17 @@ function projectScore(p: Project): number {
 // Relevance ranking inside a project: open state, priority, activity recency, near/overdue due.
 // Transparent + additive so the weights are tunable in one place. Top 8 rows per project.
 const PROJ_MAX_ROWS = 8;
+// Projects the user expanded (title-row chevron) to show ALL todo rows instead of the top-8
+// relevance cut. At most ONE key at a time (accordion — expanding a project collapses the
+// previous one). Module state so the choice survives re-renders, data pushes, and tab switches.
+const projExpanded = new Set<string>();
+// One-shot toggle-animation directives for the NEXT projChartHTML render: "in" = the extra rows
+// unmask + the timeline re-projects from the capped scale; "out" = the reverse (outgoing rows
+// still render so they can shrink away). Consumed by the toggled panel's render only — cleared
+// immediately after, so every other panel renders plain.
+const projAnim = new Map<string, "in" | "out">();
+const PROJ_ANIM_MS = 280; // keep in sync with the .cc-proj-anim transition durations
+const projSettle = new Map<HTMLElement, number>(); // per-panel settle-re-render timer
 function projScore(x: ProjTask): number {
   let s = 0;
   if (!x.t.done) s += 4;
@@ -715,7 +827,7 @@ function projScore(x: ProjTask): number {
 /// Returns the html AND the flat todo list in render order — the caller registers it in flatOf,
 /// so the rows are FULLY interactive TODO items (checkbox toggling + title-click open) through
 /// the exact same delegation paths as the TODO tab, just formatted as a gantt.
-function projHTML(rs: string, re: string): { html: string; flat: ParsedTodo[] } {
+function projHTML(rs: string, re: string, scope: "day" | "week" | "month"): { html: string; flat: ParsedTodo[] } {
   if (!today) return { html: "", flat: [] }; // pre-data tick — nothing to chart yet
   ensureProjects();
   const shown = projects.filter((p) =>
@@ -727,47 +839,75 @@ function projHTML(rs: string, re: string): { html: string; flat: ParsedTodo[] } 
   }
   // No page title — the panel's own header (the Canvas "… DASHBOARD" bars + PROJ tab) names it;
   // the first project section starts right at the top.
-  return { html: shown.map((p) => projChartHTML(p, flat)).join(""), flat };
+  return { html: shown.map((p) => projChartHTML(p, flat, { rs, re, scope })).join(""), flat };
 }
 
 const MO_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function projChartHTML(p: Project, flat: ParsedTodo[]): string {
-  const tasks = [...p.tasks].sort((a, b) => projScore(b) - projScore(a)).slice(0, PROJ_MAX_ROWS)
+function projChartHTML(p: Project, flat: ParsedTodo[],
+                       view: { rs: string; re: string; scope: "day" | "week" | "month" }): string {
+  const anim = projAnim.get(p.key); // this render is frame 0 of an expand/collapse toggle
+  const showAll = projExpanded.has(p.key);
+  const byScore = [...p.tasks].sort((a, b) => projScore(b) - projScore(a));
+  const capped = byScore.slice(0, PROJ_MAX_ROWS);
+  // A collapse ("out") still renders ALL rows — the outgoing ones shrink to nothing before the
+  // settle re-render drops them. Chart order stays chronological in every state, and the capped
+  // set is a subset of the full one, so revealed rows read as INSERTIONS between the kept rows.
+  const tasks = (showAll || anim === "out" ? byScore : capped).slice()
     .sort((a, b) => (a.start < b.start ? -1 : 1)); // chart order: chronological
-  const hiddenN = p.tasks.length - tasks.length;
+  const extra = anim ? new Set(byScore.slice(PROJ_MAX_ROWS)) : new Set<ProjTask>();
+  const hiddenN = showAll ? 0 : p.tasks.length - capped.length;
   const dlIsos = p.deadlines.map((d) => `${d.year}-${pad(d.month + 1)}-${pad(d.day)}`);
-  // Time range: earliest visible start → max(now, latest deadline). "Show the future" — a CFP
-  // next month extends the chart past the now-line.
-  let lo = today, hi = today;
-  for (const x of tasks) {
-    if (x.start < lo) lo = x.start;
-    if (x.start > hi) hi = x.start; // a FUTURE start: (planned-ahead work) stubs at its date
-    const e = x.end ?? today;
-    if (e > hi) hi = e;
-    if (x.due && x.due > hi) hi = x.due; // an uncrossed due renders as a tick — keep it in range
-  }
-  for (const iso of dlIsos) {
-    if (iso < lo) lo = iso;
-    if (iso > hi) hi = iso;
-  }
-  for (const ev of p.events) {
-    if (ev.start < lo) lo = ev.start;
-    if (ev.end > hi) hi = ev.end;
-  }
-  // Visual breathing room: a day on the left, a few days past the last due/deadline/now.
-  lo = addDays(lo, -1);
-  hi = addDays(hi, 3);
+  // Time range for a task set: earliest visible start → max(now, latest deadline). "Show the
+  // future" — a CFP next month extends the chart past the now-line. Plus visual breathing room:
+  // a day on the left, a few days past the last due/deadline/now.
+  const rangeOf = (ts: ProjTask[]) => {
+    let rlo = today, rhi = today;
+    for (const it of ts) {
+      if (it.start < rlo) rlo = it.start;
+      if (it.start > rhi) rhi = it.start; // a FUTURE start: (planned-ahead work) stubs at its date
+      const e = it.end ?? today;
+      if (e > rhi) rhi = e;
+      if (it.due && it.due > rhi) rhi = it.due; // an uncrossed due renders as a tick — keep it in range
+    }
+    for (const iso of dlIsos) {
+      if (iso < rlo) rlo = iso;
+      if (iso > rhi) rhi = iso;
+    }
+    for (const ev of p.events) {
+      if (ev.start < rlo) rlo = ev.start;
+      if (ev.end > rhi) rhi = ev.end;
+    }
+    // The CURRENT VIEW's window (the day/week/month this panel is loaded from) is always in
+    // frame — its marker must never clamp to an edge.
+    if (view.rs < rlo) rlo = view.rs;
+    if (view.re > rhi) rhi = view.re;
+    return { lo: addDays(rlo, -1), hi: addDays(rhi, 3) };
+  };
+  // FINAL projection (the destination scale) + the PRE-toggle one: the horizontal half of the
+  // toggle animation slides every positioned element between the two. Outside a toggle they
+  // coincide and only the final coordinates are emitted.
+  const fin = rangeOf(showAll ? byScore : capped);
+  const pre = anim ? rangeOf(anim === "in" ? capped : byScore) : fin;
+  const { lo, hi } = fin;
   const span = Math.max(1, daysBetween(lo, hi));
-  const x = (iso: string) => Math.max(0, Math.min(100, (daysBetween(lo, iso) / span) * 100));
+  const preSpan = Math.max(1, daysBetween(pre.lo, pre.hi));
+  // `frac` = intraday offset (0..1) — only the wall-clock NOW line uses it.
+  const x = (iso: string, frac = 0) => Math.max(0, Math.min(100, ((daysBetween(lo, iso) + frac) / span) * 100));
+  const x0 = (iso: string, frac = 0) => Math.max(0, Math.min(100, ((daysBetween(pre.lo, iso) + frac) / preSpan) * 100));
+  // Inline style = the animation's START coordinates; data-to = the FINAL ones (playProjAnim
+  // flips to them once the start layout commits, riding the .cc-proj-anim transitions).
+  const posStyle = (l0: number, w0: number | undefined, l1: number, w1: number | undefined) => {
+    const st = `style="left:${l0.toFixed(2)}%${w0 !== undefined ? `;width:${w0.toFixed(2)}%` : ""}"`;
+    return anim ? `${st} data-to="${l1.toFixed(2)}${w1 !== undefined ? `|${w1.toFixed(2)}` : ""}"` : st;
+  };
   // Bar colors ride the house `.cc-ev-<color>` classes (they define --ev-color; unknown names
   // fall to cc-ev-default). NOT the --event-*-border vars — those are never actually defined.
   const EV_COLORS = new Set(["red", "blue", "green", "yellow", "purple", "orange", "cyan",
                              "darkgreen", "indigo"]);
   const evc = (c: string) => `cc-ev-${EV_COLORS.has(c) ? c : "default"}`;
-  const seg = (a: string, b: string, cls: string, color: string) => {
-    const l = x(a), w = Math.max(0.8, x(b) - x(a));
-    return `<span class="cc-proj-bar ${cls} ${evc(color)}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%"></span>`;
-  };
+  const seg = (a: string, b: string, cls: string, color: string) =>
+    `<span class="cc-proj-bar ${cls} ${evc(color)}" ${posStyle(
+      x0(a), Math.max(0.8, x0(b) - x0(a)), x(a), Math.max(0.8, x(b) - x(a)))}></span>`;
   const rows = tasks.map((t) => {
     // The bar taxonomy (created/due/done):
     //   · created only            → one bar, created → now
@@ -785,7 +925,7 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     } else {
       bars = seg(t.start, end, kind, t.color);
       if (t.due && t.due > end) {
-        bars += `<span class="cc-proj-due ${evc(t.color)}" style="left:${x(t.due).toFixed(2)}%"></span>`;
+        bars += `<span class="cc-proj-due ${evc(t.color)}" ${posStyle(x0(t.due), undefined, x(t.due), undefined)}></span>`;
       }
     }
     // A REAL todo row, gantt-formatted: the same checkbox as the TODO list (same class → the
@@ -793,25 +933,49 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     // title (data-open → open the event drawer / jump to the source note).
     const idx = flat.length;
     flat.push(t.t);
-    return `<div class="cc-proj-lrow${t.end ? " cc-proj-lrow-done" : ""}"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t.t.text)}">${esc(t.t.text)}</span></div>|||<div class="cc-proj-track">${bars}</div>`;
+    // A beyond-the-cap row in a toggle animation: cc-proj-x marks it (label row AND track), and
+    // cc-proj-x0 is the collapsed pose — baked in for an expand (grows from 0), applied by
+    // playProjAnim for a collapse (shrinks to 0).
+    const xcls = extra.has(t) ? (anim === "in" ? " cc-proj-x cc-proj-x0" : " cc-proj-x") : "";
+    return `<div class="cc-proj-lrow${t.end ? " cc-proj-lrow-done" : ""}${xcls}"><input type="checkbox" class="cc-dtodo-check" data-idx="${idx}"${t.end ? " checked" : ""}><span class="cc-proj-ltext" data-open="${idx}" role="button" tabindex="0" title="${esc(t.t.text)}">${esc(t.t.text)}</span></div>|||<div class="cc-proj-track${xcls}">${bars}</div>`;
   });
   // Event boxes: rounded regions spanning ALL tracks (no lane of their own) over the event's
   // date range, the event's name written along the box's top edge. The box body ignores the
   // pointer (task checkboxes/bars stay fully usable through it); the NAME opens the event.
   const evBoxes = [...p.events].sort((a, b) => (a.start < b.start ? -1 : 1)).map((ev) => {
     const l = x(ev.start), w = Math.max(1.2, x(addDays(ev.end, 1)) - l); // end-day inclusive
-    return `<div class="cc-proj-evbox ${evc(ev.color)}" style="left:${l.toFixed(2)}%;width:${w.toFixed(2)}%">
+    const l0 = x0(ev.start), w0 = Math.max(1.2, x0(addDays(ev.end, 1)) - l0);
+    return `<div class="cc-proj-evbox ${evc(ev.color)}" ${posStyle(l0, w0, l, w)}>
       <span class="cc-proj-evname" data-ddl="${esc(ev.id)}" role="button" tabindex="0" title="${esc(ev.title)}">${esc(ev.title)}</span>
     </div>`;
   }).join("");
   // Deadline rules + the now-line span the row area; the title sits in the top strip, CENTERED
   // on its rule and in the deadline's own color (same alignment language as the event names).
   const vlines = p.deadlines.map((d, i) => {
-    const iso = dlIsos[i], l = x(iso);
-    return `<div class="cc-proj-vline cc-proj-dlline ${evc(d.color)}" style="left:${l.toFixed(2)}%"></div>
-      <div class="cc-proj-vlabel ${evc(d.color)}" style="left:${l.toFixed(2)}%" data-ddl="${esc(d.id)}" role="button" tabindex="0" title="${esc(d.title)}">${esc(d.title)}</div>`;
+    const iso = dlIsos[i];
+    return `<div class="cc-proj-vline cc-proj-dlline ${evc(d.color)}" ${posStyle(x0(iso), undefined, x(iso), undefined)}></div>
+      <div class="cc-proj-vlabel ${evc(d.color)}" ${posStyle(x0(iso), undefined, x(iso), undefined)} data-ddl="${esc(d.id)}" role="button" tabindex="0" title="${esc(d.title)}">${esc(d.title)}</div>`;
   }).join("");
-  const nowLine = `<div class="cc-proj-vline cc-proj-nowline" style="left:${x(today).toFixed(2)}%"></div>`;
+  // NOW = the literal wall clock (client machine, intraday-precise), in the accent red. Distinct
+  // from the CURRENT VIEW marker below: the scope window this PROJ panel is loaded from.
+  const wall = new Date();
+  const nowFrac = (wall.getHours() * 60 + wall.getMinutes()) / 1440;
+  // The line's cap: an accent capsule pill reading "now" in the headroom strip — over event
+  // names and the view label, but under deadline labels (their z-order, see dashboard.css).
+  const nowLine = `<div class="cc-proj-vline cc-proj-nowline" ${posStyle(x0(today, nowFrac), undefined, x(today, nowFrac), undefined)}></div>
+    <div class="cc-proj-nowpill" ${posStyle(x0(today, nowFrac), undefined, x(today, nowFrac), undefined)}>now</div>`;
+  // CURRENT VIEW: a day draws a solid dark rule (the now-line's old look); a week/month draws a
+  // red-tinted band with solid red edges over the rows, its "This Week/Month" label riding the
+  // HEADROOM strip above all todo rows (same home as the now pill), centered on the band.
+  let viewMark = "";
+  if (view.scope === "day") {
+    viewMark = `<div class="cc-proj-vline cc-proj-dayline" ${posStyle(x0(view.rs), undefined, x(view.rs), undefined)}></div>`;
+  } else {
+    const vl1 = x(view.rs), vw1 = Math.max(0.8, x(addDays(view.re, 1)) - vl1); // end-day inclusive
+    const vl0 = x0(view.rs), vw0 = Math.max(0.8, x0(addDays(view.re, 1)) - vl0);
+    viewMark = `<div class="cc-proj-viewband" ${posStyle(vl0, vw0, vl1, vw1)}></div>
+      <div class="cc-proj-viewlabel" ${posStyle(vl0 + vw0 / 2, undefined, vl1 + vw1 / 2, undefined)}>${view.scope === "week" ? "This Week" : "This Month"}</div>`;
+  }
   // Axis 1: relative days from now (past "Nd ago", future "in Nd"), step scaled to the span —
   // short projects tick weekly so a two-week chart isn't a bare "now".
   const step = span <= 42 ? 7 : span <= 100 ? 30 : span <= 240 ? 60 : 90;
@@ -821,7 +985,7 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     if (iso > hi) break;
     if (iso < lo) continue;
     const label = k === 0 ? "now" : k < 0 ? `${-k}d ago` : `in ${k}d`;
-    ticks += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${label}</span>`;
+    ticks += `<span class="cc-proj-tick" ${posStyle(x0(iso), undefined, x(iso), undefined)}>${label}</span>`;
   }
   // Axis 2: calendar boundaries — months, or WEEK boundaries (Sundays, "Jul 6") when the span
   // is short enough that a month row would be sparse or empty.
@@ -831,7 +995,7 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     const dow = new Date(Date.UTC(y0, m0 - 1, d0)).getUTCDay();
     for (let iso = addDays(lo, (7 - dow) % 7); iso <= hi; iso = addDays(iso, 7)) {
       const [, mm, dd] = iso.split("-").map(Number);
-      months += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${MO_SHORT[mm - 1]} ${dd}</span>`;
+      months += `<span class="cc-proj-tick" ${posStyle(x0(iso), undefined, x(iso), undefined)}>${MO_SHORT[mm - 1]} ${dd}</span>`;
     }
   } else {
     let [y, m] = lo.split("-").map(Number);
@@ -839,18 +1003,28 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     for (;;) {
       const iso = `${y}-${pad(m)}-01`;
       if (iso > hi) break;
-      months += `<span class="cc-proj-tick" style="left:${x(iso).toFixed(2)}%">${MO_SHORT[m - 1]}${m === 1 ? ` ’${String(y % 100).padStart(2, "0")}` : ""}</span>`;
+      months += `<span class="cc-proj-tick" ${posStyle(x0(iso), undefined, x(iso), undefined)}>${MO_SHORT[m - 1]}${m === 1 ? ` ’${String(y % 100).padStart(2, "0")}` : ""}</span>`;
       m += 1; if (m > 12) { m = 1; y += 1; }
     }
   }
+  // Title-row chevron (same disclosure language as the nested-todo fold): points right while the
+  // list is relevance-capped, down once every todo row is visible. It's the LAST flex item — it
+  // rides the row's right edge. Only projects with rows beyond the cap get one (and only their
+  // title rows read as clickable); everything else has nothing to toggle. During a toggle it
+  // renders the PRE-toggle pose; playProjAnim flips it so the rotation transitions along.
+  const foldable = p.tasks.length > PROJ_MAX_ROWS;
+  const chevOpen = anim ? anim === "out" : showAll;
+  const chevron = foldable
+    ? `<button class="cc-dtodo-fold cc-proj-fold" data-projfold="${esc(p.key)}" aria-expanded="${chevOpen}" title="Show all / top items"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M6.75 1.5 L17.25 12 L6.75 22.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+    : "";
   return `
-    <section class="cc-dd-sec cc-proj">
-      <div class="cc-dd-sec-head"><span class="cc-dd-sec-title">${esc(p.key)}</span><span class="cc-dd-sec-count">${p.tasks.length}</span>${hiddenN > 0 ? `<span class="cc-proj-more">+${hiddenN} more</span>` : ""}</div>
+    <section class="cc-dd-sec cc-proj"${anim ? ` data-panim="${anim}"` : ""}>
+      <div class="cc-dd-sec-head cc-proj-head${foldable ? " cc-proj-head-foldable" : ""}"><span class="cc-dd-sec-title">${esc(p.key)}</span><span class="cc-dd-sec-count">${p.tasks.length}</span>${hiddenN > 0 ? `<span class="cc-proj-more">+${hiddenN} more</span>` : ""}${chevron}</div>
       <div class="cc-proj-chart${p.deadlines.length ? " cc-proj-hasdls" : ""}${p.events.length ? " cc-proj-hasevs" : ""}">
         <div class="cc-proj-labels">${rows.map((r) => r.split("|||")[0]).join("")}</div>
         <div class="cc-proj-plot">
           <div class="cc-proj-plotarea">
-            ${vlines}${nowLine}
+            ${viewMark}${vlines}${nowLine}
             ${rows.map((r) => r.split("|||")[1]).join("")}
             ${evBoxes}
           </div>
@@ -861,14 +1035,51 @@ function projChartHTML(p: Project, flat: ParsedTodo[]): string {
     </section>`;
 }
 
+// Re-render whichever kind of panel (daily p0/p1 or a weekly/monthly scope sub-panel) hosts a
+// PROJ chart, resolving its render key the way its own renderer left it.
+function rerenderProjPanel(panel: HTMLElement) {
+  bustHTML(panel);   // the chart animation mutated rendered DOM in place — never skip this write
+  const sig = scopeSig.get(panel);
+  if (sig) { // a scope sub-panel — its scope + key live in the render signature
+    const [scope, key] = sig.split("|");
+    scopeSig.delete(panel);
+    renderScopePanel(panel, scope as "week" | "month", key);
+  } else {
+    const iso = isoOf.get(panel);
+    if (iso) renderPanel(panel, iso);
+  }
+}
+
+// Play a chart toggle on the freshly-rendered section(s) carrying data-panim: the render baked
+// in the START layout (pre-toggle timeline coordinates inline; expand-rows at their collapsed
+// pose). Commit it, then flip everything to the target in one transition pass — the extra rows
+// unmask/collapse vertically (height clips a full-size row: a mask, never a squash) while every
+// bar/tick/rule/box slides onto the destination timeline scale.
+function playProjAnim(panel: HTMLElement) {
+  for (const sec of Array.from(panel.querySelectorAll<HTMLElement>("[data-panim]"))) {
+    const grow = sec.dataset.panim === "in";
+    void sec.offsetHeight; // commit the start layout so the flips below transition
+    sec.classList.add("cc-proj-anim");
+    sec.querySelector(".cc-proj-fold")?.setAttribute("aria-expanded", String(grow));
+    for (const el of Array.from(sec.querySelectorAll<HTMLElement>("[data-to]"))) {
+      const [l, w] = (el.dataset.to ?? "").split("|");
+      el.style.left = `${l}%`;
+      if (w) el.style.width = `${w}%`;
+    }
+    for (const r of Array.from(sec.querySelectorAll<HTMLElement>(".cc-proj-x"))) {
+      r.classList.toggle("cc-proj-x0", !grow);
+    }
+  }
+}
+
 // Render one day's content into a panel's inner scroller. TODO → the grouped list; NOTE → a static
 // markdown preview of that day's note (so the note carousels per-day like the list).
 function renderPanel(el: HTMLElement, viewIso: string) {
   const scroll = scrollOf.get(el) ?? el;
   isoOf.set(el, viewIso);
   if (tab === "proj") {
-    const r = projHTML(viewIso.slice(0, 10), viewIso.slice(0, 10));
-    scroll.innerHTML = r.html;
+    const r = projHTML(viewIso.slice(0, 10), viewIso.slice(0, 10), "day");
+    setHTML(scroll, r.html);
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;
     flatOf.set(el, r.flat); // gantt rows ARE todo rows — checkbox/open delegation resolves here
     return;
@@ -877,9 +1088,9 @@ function renderPanel(el: HTMLElement, viewIso: string) {
     // Content-based: a note with content shows its rendered preview; an empty day shows the editor
     // placeholder — the SAME representation the settled panel uses, so scrolling never flips modes.
     const text = notes[viewIso] || "";
-    scroll.innerHTML = text.trim()
+    setHTML(scroll, text.trim()
       ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text)}</div>`
-      : emptyNoteHTML("day");
+      : emptyNoteHTML("day"));
     scroll.scrollTop = scrollByIso[viewIso] ?? 0;   // restore THIS day's own scroll (see the todo branch)
     flatOf.delete(el);
     return;
@@ -887,29 +1098,49 @@ function renderPanel(el: HTMLElement, viewIso: string) {
   ensureTodos();                                       // lazy: rebuild only if data changed since last view
   const sections = sectionsForDay(allTodos, viewIso);  // sections hold ROOT todos only
   const kids = childrenIndex(allTodos);
+  // Defer below-the-fold rows — EXCEPT when restoring a deep remembered scroll (the restored
+  // offset must land on real laid-out rows, not a hidden tail).
+  panelRows = 0;
+  panelBudget = (scrollByIso[viewIso] ?? 0) > 0 ? Infinity : deferBudgetDefault;
   // Flatten each root's full subtree in render order. `flat` always holds EVERY todo — including
   // ones hidden inside a folded parent — so data-idx values are stable regardless of fold state;
   // only the emitted rows change. Checkbox toggles and keyboard nav resolve rows via data-idx.
   const flat: ParsedTodo[] = [];
-  const renderTree = (t: ParsedTodo, visible: boolean, out: string[]) => {
+  const renderTree = (t: ParsedTodo, visible: boolean, out: string[], tail: string[]) => {
     flat.push(t);
     const idx = flat.length - 1;
     const children = kids.get(`${scopeKey(t)}\0${t.line}`) ?? [];
     const folded = children.length > 0 && collapsed.has(foldKey(t));
     if (visible) {
       const fold: RowFold = { foldable: children.length > 0, folded, hidden: folded ? subtree(t, kids).length - 1 : 0 };
-      out.push(rowHTML(t, idx, viewIso, fold));
+      emitRow(out, tail, rowHTML(t, idx, viewIso, fold));
     }
-    for (const c of children) renderTree(c, visible && !folded, out);
+    for (const c of children) renderTree(c, visible && !folded, out, tail);
   };
-  const secHTML = sections.map((s) => {
+  const tails: string[][] = [];
+  const secHTML = sections.map((s, si) => {
     const out: string[] = [];
-    for (const t of s.items) renderTree(t, true, out);
-    return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${out.join("")}</ul></section>`;
+    const tail: string[] = [];
+    let head = "";
+    if (s.done && s.items.length > DONE_SHOW) {
+      // Completed: cap at DONE_SHOW roots; the rest render invisibly (renderTree pushes them
+      // into `flat` regardless, keeping data-idx stable) behind the header chevron.
+      const dk = `day|${viewIso}`;
+      const open = doneExpanded.has(dk);
+      s.items.forEach((t, i) => renderTree(t, open || i < DONE_SHOW, out, tail));
+      head = doneHeadHTML(dk, s.items.length, open);
+    } else {
+      for (const t of s.items) renderTree(t, true, out, tail);
+    }
+    tails[si] = tail;
+    return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span>${head}</div><ul class="cc-dtodo-list" data-sec="${si}">${out.join("")}</ul></section>`;
   }).join("");
   flatOf.set(el, flat);
   const body = sections.length ? secHTML : emptyListHTML(todoPrefs.day);
-  scroll.innerHTML = (todoPrefs.day.deadlines ? deadlineHTML(viewIso) : "") + body;
+  const html = (todoPrefs.day.deadlines ? deadlineHTML(viewIso) : "") + body;
+  if (setHTML(scroll, html, html + " " + tails.map((t) => t.join("")).join(""))) {
+    commitTails(scroll, tails);
+  }
   // The two panels are RECYCLED across days and `daily.dom` advances mid-swipe (setDayProgress), so a
   // panel is re-rendered for a new day WHILE it's on screen. Restore THIS day's own remembered scroll
   // (0 for a day we haven't scrolled) — keyed by iso, so it never inherits the other panel's offset and
@@ -990,21 +1221,23 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
   const start = scope === "week" ? key : `${key}-01`;
   const end = scope === "week" ? addDays(key, 6) : monthEndIso(key);
   if (tab === "proj") {
-    const r = projHTML(start, end);
-    scroll.innerHTML = r.html;
+    const r = projHTML(start, end, scope);
+    setHTML(scroll, r.html);
     flatOf.set(el, r.flat); // gantt rows ARE todo rows — checkbox/open delegation resolves here
     return;
   }
   if (tab === "note") {
     const text = notes[noteKey] || "";
-    scroll.innerHTML = text.trim()
+    if (setHTML(scroll, text.trim()
       ? `<div class="cc-dw-md cc-dd-note-md">${renderMarkdown(text)}</div>`
-      : emptyNoteHTML(scope);
-    decorateTaskItems(scroll); // checked items strike through, same as the live preview
+      : emptyNoteHTML(scope))) {
+      decorateTaskItems(scroll); // checked items strike through, same as the live preview
+    }
     flatOf.delete(el);
     return;
   }
   const word = scope === "week" ? "this week" : "this month";
+  panelRows = 0; panelBudget = deferBudgetDefault; // scope panels always render fresh at scroll 0
   // The scope note's OWN todos drop their "Weekly/Monthly note · …" prefix inside their own
   // panel (shallow clones — the soft-link fields still point at the right note line).
   const sections = rangeTodoSections(start, end, word, scope).map((s) => ({
@@ -1014,17 +1247,37 @@ function renderScopePanel(el: HTMLElement, scope: "week" | "month", key: string)
   // (checkbox toggles resolve rows through it), so hidden==none here: every subtree row lists.
   const kids = childrenIndex(allTodos);
   const flat: ParsedTodo[] = [];
-  const secHTML = sections.map((s) => {
-    const rows = s.items.map((t) => subtree(t, kids).map((n) => { flat.push(n); return rowHTML(n, flat.length - 1, today); }).join("")).join("");
-    return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span></div><ul class="cc-dtodo-list">${rows}</ul></section>`;
+  const tails: string[][] = [];
+  const secHTML = sections.map((s, si) => {
+    // Completed this week/month: cap at the DONE_SHOW most recent roots behind the header
+    // chevron — a month of finished items (subtrees included) otherwise dominates the panel.
+    // Hidden roots aren't rendered OR pushed to flat (data-idx only has to match rendered rows).
+    const dk = `${scope}|${key}`;
+    const capped = s.done && s.items.length > DONE_SHOW;
+    const open = !capped || doneExpanded.has(dk);
+    const roots = open ? s.items : s.items.slice(0, DONE_SHOW);
+    const out: string[] = [];
+    const tail: string[] = [];
+    for (const t of roots) {
+      for (const n of subtree(t, kids)) {
+        flat.push(n);
+        emitRow(out, tail, rowHTML(n, flat.length - 1, today));
+      }
+    }
+    tails[si] = tail;
+    const head = capped ? doneHeadHTML(dk, s.items.length, doneExpanded.has(dk)) : "";
+    return `<section class="cc-dtodo-sec"><div class="cc-dtodo-sec-head"><span class="cc-dtodo-sec-title">${esc(s.title)}</span><span class="cc-dtodo-sec-count">${s.items.length}</span>${head}</div><ul class="cc-dtodo-list" data-sec="${si}">${out.join("")}</ul></section>`;
   }).join("");
   flatOf.set(el, flat);
   const pr = todoPrefs[scope];
-  scroll.innerHTML =
+  const html =
     (pr.deadlines
       ? rangeDeadlineHTML(scope === "week" ? "Deadlines in this week" : "Deadlines in this month", start, end)
       : "") +
     (sections.length ? secHTML : emptyListHTML(pr));
+  if (setHTML(scroll, html, html + " " + tails.map((t) => t.join("")).join(""))) {
+    commitTails(scroll, tails);
+  }
 }
 
 let liveShown = false, liveMode = "";
@@ -1039,18 +1292,42 @@ let dayViewShown = false;   // true once the dashboard is revealed (day view); r
 // each render and report it to Swift (Coordinator logs to the Xcode console) so the underlying
 // bug is visible instead of wedging the dashboard.
 function guarded(what: string, fn: () => void) {
+  // Bench attribution: while the injected recorder is live (CKBENCH — see benchWebStart), stamp
+  // each named render unit >2ms into its `units` list. Dead code in normal runs.
+  const bench = (window as any).CKBENCH;
+  const t0 = bench?.on ? performance.now() : 0;
   try { fn(); } catch (e) {
     post({ type: "err", where: what, message: String((e as Error)?.stack ?? e) });
+  }
+  if (bench?.on) {
+    const d = performance.now() - t0;
+    if (d > 2) (bench.units ??= []).push([what, Math.round(d * 10) / 10]);
   }
 }
 function apply() {
   const { from, to, dir, p, reveal, slide, scopeA, scopeB, scopeT, dy, mFrom, mTo, mDy0, mDy1, mP,
           mKeyA, mKeyB, wFrom, wTo, wP, wKeyA, wKeyB,
           maskX, maskW, aName, aX, aW, aOp, bName, bX, bW, bOp, shift } = last;
-  // Leaving day view (reveal fell to hidden) forgets every day's scroll, so re-entering day view always
-  // starts at the top — the scroll doesn't carry across a trip out to week/month view. The reset on
-  // re-entry restores from the (now-empty) map, i.e. 0, without re-rendering the unchanged panels.
-  if (reveal < 0.02) {
+  // Any carousel axis mid-flight (pin/zoom reveal, day pager, week/month turns) → defer-reveals
+  // hold off until the motion has been still for a beat (see scheduleReveal).
+  const mid = (v: number) => v > 0.001 && v < 0.999;
+  const inMotion = mid(reveal) || mid(p) || mid(wP) || mid(mP) || mid(scopeT);
+  if (inMotion) lastMotionAt = performance.now();
+  // Render gate: a layer that is INVISIBLE right now (op 0 — e.g. the day panels while a ⌘B
+  // slide reveals the month panel) must not pay its content render mid-animation. Skipping
+  // leaves that panel's cache stale (isoOf / scopeSig), so the settled tick that ends every
+  // animation re-runs apply() with inMotion=false and renders it on a static frame.
+  const layerOpOf = (name: string) => (name === aName ? aOp : name === bName ? bOp : 0);
+  const renderGate = (layer: string, what: string, fn: () => void) => {
+    if (!inMotion || layerOpOf(layer) > 0.001) guarded(what, fn);
+  };
+  // Leaving day view forgets every day's scroll, so re-entering day view always starts at the
+  // top — the scroll doesn't carry across a trip out to week/month view. Keyed on the DAY SCOPE
+  // being active, not on `reveal` alone: the ⌘B pin reveal shares the reveal signal, and busting
+  // the day panels on every pin toggle re-rendered them invisibly at month/week level — hundreds
+  // of KB of string garbage per toggle, whose JSC GC pauses were the visible mid-slide web jank.
+  const dayActive = reveal >= 0.02 && (scopeT > 0.5 ? scopeB : scopeA) === "day";
+  if (!dayActive) {
     if (dayViewShown) { dayViewShown = false; scrollByIso = {}; }
   } else if (!dayViewShown) {
     dayViewShown = true;
@@ -1062,12 +1339,23 @@ function apply() {
   // #dash IS the mask: positioned + sized to the live clip region (frame-local px from Swift's
   // dashScopePanels — the SAME numbers the Canvas header clips with). The accordion dy rides as
   // a transform; the reveal FADE is native (view alphaValue — see setPanelAlpha).
-  root.style.left = `${maskX.toFixed(1)}px`;
-  root.style.width = `${Math.max(0, maskW).toFixed(1)}px`;
-  // `shift` = the drawer canvas-shift (engine.drawerShift). The scene slides left by the same
-  // amount (.offset(-drawerShift)), so carrying it here keeps the pinned week/month panel moving
-  // WITH the canvas while the drawer opens. 0 at day level (the dashboard owns the right there).
-  root.style.transform = `translate(${(-shift).toFixed(1)}px, ${dy.toFixed(1)}px)`;
+  //
+  // GEOMETRY FREEZE while faded out (reveal < 0.02): the retracted mask collapses to width 0,
+  // which throws away the panel's painted tiles — so every ⌘B re-open started with 30-70ms of
+  // first-paint in the web/GPU process, stuttering the slide's first frames (worse the denser
+  // the month). Keep the LAST OPEN geometry instead: the content stays laid out and painted at
+  // its open position — invisible behind the native alpha floor (setPanelAlpha keepLive) and
+  // inert (pointerEvents none + the native interactiveLeftX gate) — so the next slide starts
+  // with warm tiles. Writes resume on the first tick with reveal ≥ 0.02 (still ~invisible).
+  const geomLive = reveal >= 0.02;
+  if (geomLive) {
+    root.style.left = `${maskX.toFixed(1)}px`;
+    root.style.width = `${Math.max(0, maskW).toFixed(1)}px`;
+    // `shift` = the drawer canvas-shift (engine.drawerShift). The scene slides left by the same
+    // amount (.offset(-drawerShift)), so carrying it here keeps the pinned week/month panel moving
+    // WITH the canvas while the drawer opens. 0 at day level (the dashboard owns the right there).
+    root.style.transform = `translate(${(-shift).toFixed(1)}px, ${dy.toFixed(1)}px)`;
+  }
   root.style.pointerEvents = reveal > 0.999 ? "auto" : "none";
   // ── Zoom-scope carousel: each panel is placed at its OWN target width and absolute position
   // (dashScopePanels' numbers, frame-local → mask-local by subtracting maskX) — exactly the
@@ -1081,10 +1369,12 @@ function apply() {
     let x = 0, w = 0, op = 0;
     if (name === aName) { x = aX; w = aW; op = aOp; }
     else if (name === bName) { x = bX; w = bW; op = bOp; }
-    el.style.left = `${(x - maskX).toFixed(1)}px`;
-    el.style.width = `${Math.max(0, w).toFixed(1)}px`;
-    el.style.transform = "none";
-    el.style.opacity = op.toFixed(3);
+    if (geomLive) {
+      el.style.left = `${(x - maskX).toFixed(1)}px`;
+      el.style.width = `${Math.max(0, w).toFixed(1)}px`;
+      el.style.transform = "none";
+      el.style.opacity = op.toFixed(3);
+    }
     el.style.pointerEvents = op > 0.999 ? "auto" : "none";
     if (name === scopeName) { liveL = x - maskX; liveW = Math.max(0, w); }
   }
@@ -1105,7 +1395,7 @@ function apply() {
     const t2 = mpA; mpA = mpB; mpB = t2;
   }
   if (mKeyA) {
-    guarded(`month:${mKeyA}`, () => renderScopePanel(mpA, "month", mKeyA)); scopeKeyOf.set(mpA, mKeyA);
+    renderGate("month", `month:${mKeyA}`, () => renderScopePanel(mpA, "month", mKeyA)); scopeKeyOf.set(mpA, mKeyA);
     mpA.style.transform = `translateY(${mDy0.toFixed(1)}px)`;
     mpA.style.opacity = (1 - mP).toFixed(3);
     // Interactive only at rest — a faded sub-panel sits ON TOP of its sibling in DOM order and
@@ -1113,7 +1403,7 @@ function apply() {
     mpA.style.pointerEvents = mP < 0.001 ? "auto" : "none";
   }
   if (mKeyA && mKeyB && mP > 0.001) {
-    guarded(`month:${mKeyB}`, () => renderScopePanel(mpB, "month", mKeyB)); scopeKeyOf.set(mpB, mKeyB);
+    renderGate("month", `month:${mKeyB}`, () => renderScopePanel(mpB, "month", mKeyB)); scopeKeyOf.set(mpB, mKeyB);
     mpB.style.transform = `translateY(${mDy1.toFixed(1)}px)`;
     mpB.style.opacity = mP.toFixed(3);
     mpB.style.pointerEvents = "none";
@@ -1128,14 +1418,14 @@ function apply() {
     const t3 = wpA; wpA = wpB; wpB = t3;
   }
   if (wKeyA) {
-    guarded(`week:${wKeyA}`, () => renderScopePanel(wpA, "week", wKeyA)); scopeKeyOf.set(wpA, wKeyA);
+    renderGate("week", `week:${wKeyA}`, () => renderScopePanel(wpA, "week", wKeyA)); scopeKeyOf.set(wpA, wKeyA);
     wpA.style.transform = `translateX(${(-wP * 100).toFixed(3)}%)`;
     wpA.style.opacity = (1 - wP).toFixed(3);
     // Same at-rest gate as the month pair; the week turn rests at BOTH ends (wP 0 or 1).
     wpA.style.pointerEvents = wP < 0.001 ? "auto" : "none";
   }
   if (wKeyA && wKeyB && wP > 0.001) {
-    guarded(`week:${wKeyB}`, () => renderScopePanel(wpB, "week", wKeyB)); scopeKeyOf.set(wpB, wKeyB);
+    renderGate("week", `week:${wKeyB}`, () => renderScopePanel(wpB, "week", wKeyB)); scopeKeyOf.set(wpB, wKeyB);
     wpB.style.transform = `translateX(${((1 - wP) * 100).toFixed(3)}%)`;
     wpB.style.opacity = wP.toFixed(3);
     wpB.style.pointerEvents = wP > 0.999 ? "auto" : "none";
@@ -1143,13 +1433,13 @@ function apply() {
     wpB.style.opacity = "0";
     wpB.style.pointerEvents = "none";
   }
-  if (isoOf.get(p0) !== from) guarded(`day:${from}`, () => renderPanel(p0, from));
+  if (isoOf.get(p0) !== from) renderGate("day", `day:${from}`, () => renderPanel(p0, from));
   const atRest = !to || p <= 0.0001;
   if (atRest) {                                   // single centered panel
     p0.style.transform = "translateX(0)"; p0.style.opacity = "1"; p0.style.pointerEvents = "auto";
     p1.style.opacity = "0"; p1.style.pointerEvents = "none";
   } else {
-    if (isoOf.get(p1) !== to) guarded(`day:${to}`, () => renderPanel(p1, to));
+    if (isoOf.get(p1) !== to) renderGate("day", `day:${to}`, () => renderPanel(p1, to));
     // current slides out by -dir·p, fades to 1−p; incoming enters from dir·(1−p), fades to p.
     p0.style.transform = `translateX(${(-dir * p * 100).toFixed(3)}%)`; p0.style.opacity = (1 - p).toFixed(3);
     p1.style.transform = `translateX(${(dir * (1 - p) * 100).toFixed(3)}%)`; p1.style.opacity = p.toFixed(3);
@@ -1179,20 +1469,40 @@ function apply() {
     const text = notes[liveKey] || "";
     if (liveIso !== liveKey) {
       liveIso = liveKey;
+      // Anchor swap: ALWAYS adopt the new note's text. The seq gate below protects the CURRENT
+      // doc from stale echoes of our own typing — a different note must show regardless of how
+      // far Swift's payload lags our (old-note) edits.
+      liveText = text; noteEd.setValue(text);
       liveScope = scopeName as "day" | "week" | "month";
       // The empty-note hint names the scope we're editing (matches the static previews).
       noteEd.setPlaceholder(scopeName === "day" ? "Daily Note (Markdown)…"
         : scopeName === "week" ? "Weekly Note (Markdown)…" : "Monthly Note (Markdown)…");
-      // Content-based default for the note we landed on; tell Swift so the native toggle reflects it.
-      const m = text.trim() ? "preview" : "edit";
+      // Content-based default for the note we landed on; tell Swift so the native toggle reflects
+      // it. NOT while a noteEdit jump is in flight: the jump's explicit "edit" intent must win —
+      // the landed note always HAS content (it contains the clicked todo), so the default would
+      // say "preview", round-trip through Swift, and flip the editor back to the preview AFTER
+      // the jump's focus + line selection landed (losing all three).
+      const m = editJump || !text.trim() ? "edit" : "preview";
       if (m !== noteMode) { noteMode = m; liveMode = ""; post({ type: "noteMode", mode: m }); }
     }
-    // Sync the editor to THIS day's note. Re-set whenever it changed underneath us — e.g. a checkbox
-    // toggled in the TODO tab rewrote this same day's note (adding `[x]` + a `done:` stamp) — so the
-    // preview never keeps showing the stale, pre-toggle text. (setValue is a no-op when unchanged, and
-    // matches the editor doc while the user types, so this won't fight live editing.)
-    if (text !== liveText) { liveText = text; noteEd.setValue(text); }
+    // Sync the editor to THIS note. Re-set when it changed underneath us — e.g. a checkbox toggled
+    // in the TODO tab rewrote this same note (adding `[x]` + a `done:` stamp) — so the editor never
+    // keeps stale, pre-toggle text. ONLY from a push that has caught up with our own edits
+    // (pushedNoteSeq): a lagging payload is a stale echo of our typing and must never rewrite the
+    // doc — not even after blur (⌘S → preview flickered old text back exactly that way).
+    if (text !== liveText && pushedNoteSeq >= noteSeq) { liveText = text; noteEd.setValue(text); }
     if (!liveShown || liveMode !== noteMode) { liveMode = noteMode; noteEd.setMode(noteMode); }
+  }
+  // Resolve a pending noteEdit focus (⌘E / todo-row jump): the apply that mounts the live editor
+  // IS the end of the animation chain — no polling, no deadline. With a target key (a jump), fire
+  // only when THAT note mounts: the pre-jump note may still be up when the jump is registered
+  // (keep waiting), while coming to rest on some OTHER note after an unmount means the flight was
+  // interrupted — drop the stale focus instead of hijacking a later NOTE-tab visit.
+  if (pendingNoteFocus) {
+    if (!showLive) pendingNoteFocus.unmounted = true;
+    else if (!pendingNoteFocus.key || pendingNoteFocus.key === liveKey) {
+      const p = pendingNoteFocus; pendingNoteFocus = null; p.fire();
+    } else if (pendingNoteFocus.unmounted) cancelNoteFocus();
   }
   liveShown = showLive;
   applyNav();   // keep the keyboard-nav ring on the (possibly re-rendered) focused row / note
@@ -1281,7 +1591,7 @@ function toggle(panel: HTMLElement, idx: number) {
     }
   }
   if (ok) { todosDirty = true; projectsDirty = true; entityDirty = true; selfEditAt = performance.now(); }   // suppress the setData echo's re-sort
-  if (row) setRowDone(row, ok ? !wasDone : wasDone);               // animate in place (revert native flip if unchanged)
+  if (row) { setRowDone(row, ok ? !wasDone : wasDone); bustHTML(panel); }   // animate in place (revert native flip if unchanged); DOM diverged → drop the markup memo
 }
 
 // Event delegation — resolve which panel the target belongs to, then its cached flat list.
@@ -1291,6 +1601,8 @@ root.addEventListener("change", (e) => {
   if (el.classList.contains("cc-dd-range")) {   // the Upcoming-Deadlines window dropdown
     deadlineRange = (el as HTMLSelectElement).value as DeadlineRange;
     const sec = el.closest(".cc-dd-ddl-sec") as HTMLElement | null;
+    const pn = panelOf(e);
+    if (pn) bustHTML(pn);   // in-place section swap → the panel's markup memo no longer matches
     if (sec) sec.outerHTML = deadlineHTML(sec.dataset.iso ?? last.from);   // re-render just this section
     return;
   }
@@ -1300,6 +1612,47 @@ root.addEventListener("change", (e) => {
 });
 root.addEventListener("click", (e) => {
   const panel = panelOf(e);
+  // "Show all N / Show top 10" on a Completed section → flip this view's expansion and re-render
+  // the panel in place (rerenderProjPanel resolves scope/day panels generically, despite the name).
+  const df = (e.target as HTMLElement).closest("[data-donefold]") as HTMLElement | null;
+  if (df && panel) {
+    const dk = df.dataset.donefold ?? "";
+    if (doneExpanded.has(dk)) doneExpanded.delete(dk);
+    else doneExpanded.add(dk);
+    rerenderProjPanel(panel);
+    applyNav();
+    return;
+  }
+  // PROJ title-row chevron → toggle this project between the top-8 relevance cut and ALL rows.
+  // Accordion: at most one project open, so expanding one collapses the previously-open one in
+  // the same animated pass. The clicked panel renders the toggle's start frame (projAnim), the
+  // transition plays, then a settle re-render restores the canonical DOM.
+  const pf = (e.target as HTMLElement).closest("[data-projfold]") as HTMLElement | null;
+  if (pf && panel) {
+    const k = pf.dataset.projfold ?? "";
+    ensureProjects();
+    const proj = projects.find((pr) => pr.key === k);
+    if (!proj || proj.tasks.length <= PROJ_MAX_ROWS) return; // nothing capped — the chevron is inert
+    if (projExpanded.has(k)) {
+      projExpanded.delete(k);
+      projAnim.set(k, "out");
+    } else {
+      for (const prev of projExpanded) projAnim.set(prev, "out"); // accordion: close the open one
+      projExpanded.clear();
+      projExpanded.add(k);
+      projAnim.set(k, "in");
+    }
+    // Other panels render their own copies of these charts — bust their caches so they pick up
+    // the new expanded set on their next pass (the clicked panel keeps its animating render).
+    for (const el of [...scopeSig.keys()]) if (el !== panel) scopeSig.delete(el);
+    for (const el of [p0, p1]) if (el !== panel) isoOf.delete(el);
+    clearTimeout(projSettle.get(panel));
+    rerenderProjPanel(panel); // frame 0: start states baked in (projAnim consumed by this render)
+    projAnim.clear();
+    playProjAnim(panel);
+    projSettle.set(panel, window.setTimeout(() => rerenderProjPanel(panel), PROJ_ANIM_MS + 60));
+    return;
+  }
   // Disclosure chevron → animated fold/unfold of that row's subtree (see toggleFold).
   const foldEl = (e.target as HTMLElement).closest("[data-fold]") as HTMLElement | null;
   if (foldEl && panel) {
@@ -1337,7 +1690,12 @@ root.addEventListener("click", (e) => {
     const d = JSON.parse(json);
     events = d.events || []; deadlines = d.deadlines || []; today = d.today || "";
     notes = d.dailyNotes || {};
+    pushedNoteSeq = d.noteSeq ?? pushedNoteSeq; // how far this payload lags our noteChange posts
     todosDirty = true; projectsDirty = true; entityDirty = true; // re-aggregate todos + the project index on next render
+    // Pre-warm the todo index off this tick: left lazy, the re-tokenize of EVERY note lands
+    // inside the first panel render after the change — which is usually mid-animation (⌘B slide,
+    // a swipe crossing). A breath later, on a quiet frame, is where that work belongs.
+    window.setTimeout(() => guarded("prewarmTodos", ensureTodos), 30);
     if (!last.from) last.from = d.viewIso || today;
     // If this data push is just the echo of a checkbox WE just toggled, update the data but leave the
     // panels in place — the checked row stays put (mid-animation) and only migrates to "Recently
@@ -1356,7 +1714,9 @@ root.addEventListener("click", (e) => {
   // A no-change push still re-runs apply() (cheap — every render is cache-guarded): the native
   // toggles double as a manual repair path if the tick pipeline ever wedges with stale state.
   setTab(t: "todo" | "note" | "proj") { if (t !== tab) applyTab(t); else apply(); },
+  setDeferBudget(n: number) { deferBudgetDefault = n > 0 ? n : DEFER_BUDGET; },   // bench A/B hook
   setNoteMode(m: "edit" | "preview") {                       // native edit/preview toggle (no echo back)
+    if (m === "preview") cancelNoteFocus();   // an explicit preview supersedes a pending jump-focus
     noteMode = m; liveMode = ""; apply();
   },
   setInactive(on: boolean) { scrim.classList.toggle("on", on); },   // drawer open → blur + block the dashboard
@@ -1400,30 +1760,25 @@ root.addEventListener("click", (e) => {
     toggleFold(p0, t, open);   // same animated path as the chevron click
   },
   // Enter on the NOTE stop / ⌘E → focus the live editor. `line` (a todo-row jump): once the
-  // editor is up, SELECT that source line so the jumped-to item arrives highlighted.
-  noteEdit(ring = false, line: number | null = null) {
+  // editor is up, SELECT that source line so the jumped-to item arrives highlighted. `key`
+  // (same jump): the target note's storage key — the focus fires only when THAT note mounts.
+  noteEdit(ring = false, line: number | null = null, key: string | null = null) {
     editingNote = true; editingRing = ring; applyNav();
+    editJump = true;   // suppress the landing's content-based preview default until the focus lands
+    // The live overlay may not be visible YET: ⌘E can arrive before the tab switch (CK.setTab),
+    // and a todo-row jump first TRAVELS to the note's view (fly-to-day / week / month). The focus
+    // is registered as a pending callback that apply() invokes on the exact render that mounts
+    // the live editor — the true end of the animation chain (a hidden CodeMirror ignores
+    // focus(), and a polling deadline mis-scales with the display's refresh rate). apply()'s
+    // fire/cancel rules drop it if the user supersedes the jump first (tab away / preview /
+    // an interrupted flight coming to rest on a different note).
+    pendingNoteFocus = { key, unmounted: false, fire: () => {
+      editJump = false;
+      noteEd.setMode("edit"); noteEd.focus();
+      if (line) noteEd.selectLine(line);
+    } };
     noteModeUser("edit");
-    // The live overlay may not be visible YET: ⌘E can arrive before the tab switch
-    // (CK.setTab) and the next tick reveal it — retry across a few frames until apply()
-    // has shown it, so the caret reliably lands (a hidden CodeMirror ignores focus()).
-    const tryFocus = (left: number) => {
-      if (noteLive.style.display !== "none") {
-        noteEd.setMode("edit"); noteEd.focus();
-        if (line) noteEd.selectLine(line);
-      } else if (left > 0) {
-        requestAnimationFrame(() => tryFocus(left - 1));
-      } else {
-        // Gave up — the live overlay never mounted (the "toggle says Editor but only the
-        // preview shows" wedge). Dump every input of the showLive gate to the Swift log so
-        // the failing condition is identifiable from the Xcode console.
-        post({ type: "err", where: "noteEdit-stuck", message: JSON.stringify({
-          tab, noteMode, liveMode, liveShown, liveIso,
-          display: noteLive.style.display, last,
-        }) });
-      }
-    };
-    queueMicrotask(() => tryFocus(90)); // ~1.5s — covers a full fly-to-day + panel reveal
+    apply();   // already at rest on the target note (⌘E / same-day jump) → fires right here
   },
 };
 post({ type: "ready" });
