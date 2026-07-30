@@ -228,6 +228,7 @@ public struct CalendarView: View {
             demo.eventMenuHook = { id, r in ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: r) }
             demo.dashTodoFocusHook = { dashCarousel.navFocus(.todo) }
             demo.dashTodoToggleHook = { dashCarousel.navActivate() }
+            demo.dashWebCarousel = dashCarousel
             demo.closeEventMenuHook = { ui.eventMenu = nil }
             demo.searchState = search
             demo.startIfDemo(engine: engine, size: size)
@@ -578,7 +579,15 @@ public struct CalendarView: View {
                                // the same slide the scene gets via .offset(-drawerShift), so the pinned
                                // panel moves WITH the canvas instead of sitting still under the drawer.
                                shiftX: Double(engine.drawerShift),
-                               gutterShiftX: Double(engine.gutterShift))
+                               gutterShiftX: Double(engine.gutterShift),
+                               // Month/week level (where ⌘B can present) or presented → keep the
+                               // webview technically visible EVEN RETRACTED, so the pin slide
+                               // never pays WebKit's unhide full-document repaint mid-animation
+                               // (measured 26-35ms web frames at slide start on a todo-heavy
+                               // month). Year keeps true hidden (the hover-flicker case); the
+                               // hit gate (interactiveLeftX) still keeps clicks off the webview.
+                               keepLive: engine.chrome.dashPresented
+                                   || engine.chrome.level == 1 || engine.chrome.level == 2)
                     .frame(width: 0, height: 0)
             }
         }

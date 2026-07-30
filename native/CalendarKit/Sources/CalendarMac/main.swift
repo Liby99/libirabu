@@ -57,6 +57,10 @@ import CalendarEngine
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // Bench/demo runs: float the window. Repeated launches stop winning macOS's
+        // focus-stealing arbitration, and an occluded window suspends the dashboard WKWebView's
+        // page ("hidden" visibilityState → no rAF), silently blanking the web-side bench stats.
+        if demo { window.level = .floating }
         if demo { exportContentRect() }
         // Dev/screenshot affordance: open the Help window on launch (used to capture Help GIFs/screens).
         if ProcessInfo.processInfo.environment["CC_OPEN_HELP"] != nil {

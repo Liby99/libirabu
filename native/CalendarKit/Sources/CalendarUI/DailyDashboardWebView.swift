@@ -31,16 +31,24 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     /// layer, safe). Panel MOTION stays in CSS: transforming the WKWebView's own layer
     /// (sublayerTransform) fought WebKit's remote-layer commits — each web-process commit
     /// re-asserted its geometry, alternating shifted/reset frames, i.e. flicker.
-    func setPanelAlpha(_ alpha: CGFloat) {
-        if alphaValue != alpha {
-            alphaValue = alpha
+    /// `keepLive`: the ⌘B panel is PRESENTED (pin intent on — flips at press, clears at retract
+    /// end). Un-hiding a WKWebView costs a full-document style/layout/paint in the web process
+    /// (~30-50ms on a todo-heavy month), so doing it lazily on the first reveal tick dropped web
+    /// frames right at the slide's start. While presented, floor the alpha just above the hide
+    /// threshold — the view stays technically visible (invisible to the eye) and the repaint cost
+    /// never lands mid-slide. Hidden semantics (mouse tracking, cursor, hit-test) stay for the
+    /// genuinely-retracted state.
+    func setPanelAlpha(_ alpha: CGFloat, keepLive: Bool = false) {
+        let a = keepLive ? max(alpha, 0.011) : alpha
+        if alphaValue != a {
+            alphaValue = a
         }
         // Fully faded (year view / pre-reveal) → actually HIDDEN. An invisible-but-present
         // WKWebView still runs WebKit's own mouse tracking and sets the WEB cursor (CSS pointer
         // over its unseen rows) against the calendar's grab hand — the year-view hover flicker —
         // and its stale interactiveLeftX could swallow clicks. Hidden removes it from tracking,
         // hit-testing, and cursor updates in one move; the first reveal tick un-hides it.
-        let hide = alpha < 0.01
+        let hide = a < 0.01
         if isHidden != hide {
             isHidden = hide
         }
@@ -189,8 +197,8 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
               maskX: Double = 0, maskW: Double = 0,
               aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0,
               bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0,
-              shiftX: Double = 0) {
-        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(mKeyA)|\(mKeyB)|\(wFrom)|\(wTo)|\(Int((wP * 1000).rounded()))|\(wKeyA)|\(wKeyB)|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))|\(Int(shiftX.rounded()))"
+              shiftX: Double = 0, keepLive: Bool = false) {
+        let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(mKeyA)|\(mKeyB)|\(wFrom)|\(wTo)|\(Int((wP * 1000).rounded()))|\(wKeyA)|\(wKeyB)|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))|\(Int(shiftX.rounded()))|\(keepLive)"
         if key == lastKey {
             return
         }
@@ -199,7 +207,7 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         // The hit gate tracks the live mask edge so only the panel area belongs to the webview
         // (shifted left with the content while the drawer canvas-shift is riding).
         if let ptw = web as? PassThroughWebView {
-            ptw.setPanelAlpha(CGFloat(reveal))
+            ptw.setPanelAlpha(CGFloat(reveal), keepLive: keepLive)
             ptw.interactiveLeftX = CGFloat(maskX - shiftX)
         }
         func r4(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
@@ -233,6 +241,63 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             "\"\""
     }
 
+    /// ── Webview frame bench (CC_DEMO=bench-*) ──────────────────────────────────────────────────
+    /// The panel's content renders in the WebKit CONTENT PROCESS — the app-side frame counter can
+    /// read a flawless 120fps while the panel itself janks. These install/collect a rAF timestamp
+    /// recorder in the page, so bench scenes can report the page's own frame cadence next to the
+    /// native one. (rAF stops while WebKit considers the view invisible — interpret retracted
+    /// phases accordingly; the swipe/toggle scenes keep the panel on screen.)
+    func benchWebStart() {
+        guard ready, web != nil else { return }
+        // A/B: CC_WEB_DEFER_OFF=1 disables the on-demand row window (everything renders inline,
+        // the pre-window behavior).
+        if ProcessInfo.processInfo.environment["CC_WEB_DEFER_OFF"] != nil {
+            eval("CK.setDeferBudget(1e9)")
+        }
+        // Alongside the rAF clock: SLOW CK.TICK APPLIES — every frame of page work is driven
+        // through CK.tick (WebKit has no 'longtask' observer), so wrapping it catches real JS +
+        // forced-layout cost directly. A big rAF gap with no slow tick = the page was merely
+        // suspended while hidden (an artifact, nothing was on screen); WITH one = actual jank.
+        eval("""
+        (function(){ window.CKBENCH = { on: true, t: [], lt: [], epoch: [Date.now(), performance.now()] };
+          if (window.CK && !CKBENCH.orig) {
+            CKBENCH.orig = CK.tick; CKBENCH.origData = CK.setData;
+            const wrap = function(fn){ return function(a){ const t0 = performance.now();
+              fn.call(CK, a); const d = performance.now() - t0;
+              if (d > 4) CKBENCH.lt.push([t0, Math.round(d * 10) / 10]); }; };
+            CK.tick = wrap(CKBENCH.orig); CK.setData = wrap(CKBENCH.origData);
+          }
+          function lp(ts){ if (!CKBENCH.on) return; CKBENCH.t.push(ts); requestAnimationFrame(lp); }
+          requestAnimationFrame(lp); })()
+        """)
+    }
+
+    /// Stop the recorder and return the page's rAF timestamps (ms, performance.now clock), its
+    /// slow CK.tick/setData applies [(start, duration)], and named render units >2ms (guarded()).
+    func benchWebCollect() async -> (frames: [Double], longTasks: [[Double]], units: [[Any]],
+                                     epoch: [Double]) {
+        guard ready, let web else { return ([], [], [], []) }
+        return await withCheckedContinuation { cont in
+            web.evaluateJavaScript(
+                """
+                (window.CKBENCH ? (CKBENCH.on = false,
+                  CKBENCH.orig && (CK.tick = CKBENCH.orig, CK.setData = CKBENCH.origData,
+                                   CKBENCH.orig = null),
+                  JSON.stringify({t: CKBENCH.t, lt: CKBENCH.lt, units: CKBENCH.units || [],
+                                  epoch: CKBENCH.epoch, vis: document.visibilityState})) : '{}')
+                """
+            ) { r, _ in
+                let obj = (r as? String).flatMap { s in
+                    (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [String: Any]
+                }
+                cont.resume(returning: (obj?["t"] as? [Double] ?? [],
+                                        obj?["lt"] as? [[Double]] ?? [],
+                                        obj?["units"] as? [[Any]] ?? [],
+                                        obj?["epoch"] as? [Double] ?? []))
+            }
+        }
+    }
+
     /// ── Keyboard-nav bridge (Tab into the dashboard TODO / NOTE stops) ──
     private func eval(_ s: String) {
         if ready {
@@ -262,14 +327,18 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
     /// `ring: true` (⌘E while keyboard mode was already on) keeps the dashed nav ring visible
     /// around the editor while the caret blinks inside it. `line`: a todo-row jump — once the
     /// editor lands, that source line is SELECTED (the clicked item arrives highlighted).
-    func focusNoteEditor(ring: Bool = false, line: Int? = nil) {
+    /// `key` (same jump): the target note's storage key ("YYYY-MM-DD" / "week:…" / "month:…") —
+    /// the JS side holds the focus as a callback until the live editor mounts THAT note (the end
+    /// of the fly-to animation), and drops it if the flight is interrupted or superseded.
+    func focusNoteEditor(ring: Bool = false, line: Int? = nil, key: String? = nil) {
         guard let w = web as? PassThroughWebView else { return }
         // Defer to the NEXT runloop tick: this is called from within the Enter keyDown dispatch, and
         // making the web view first responder synchronously mid-keyDown routes that same Enter into the
         // freshly-focused CodeMirror as a stray newline. Letting the keyDown finish first avoids that.
         DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             w.allowFocus(); w.window?.makeFirstResponder(w)
-            self?.eval("CK.noteEdit(\(ring), \(line.map(String.init) ?? "null"))")
+            self.eval("CK.noteEdit(\(ring), \(line.map(String.init) ?? "null"), \(key.map(self.js) ?? "null"))")
         }
     }
 }
@@ -396,6 +465,7 @@ struct CarouselDriver: NSViewRepresentable {
     var bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0 // incoming (transitions)
     var shiftX: Double = 0 // drawer canvas-shift (engine.drawerShift): content rides the canvas slide
     var gutterShiftX: Double = 0 // gutter hide (engine.gutterShift): body-level frame/offset rides it
+    var keepLive: Bool = false // ⌘B panel presented → alpha-floor the webview (see setPanelAlpha)
     func makeNSView(context: Context) -> NSView {
         NSView()
     }
@@ -409,7 +479,7 @@ struct CarouselDriver: NSViewRepresentable {
                       maskX: maskX, maskW: maskW,
                       aName: aName, aX: aX, aW: aW, aOp: aOp,
                       bName: bName, bX: bX, bW: bW, bOp: bOp,
-                      shiftX: shiftX)
+                      shiftX: shiftX, keepLive: keepLive)
         anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
                  headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
                  monthP: mP, monthDir: mDir, scopeT: scopeT, weekP: wP,
@@ -435,7 +505,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
     var onDeselect: () -> Void
     var onTab: (DashTab) -> Void
     var onNoteMode: (NotesMode) -> Void
-    var onNoteChange: (_ date: String, _ value: String) -> Void
+    var onNoteChange: (_ date: String, _ value: String, _ seq: Int) -> Void
     var onOpenLink: (URL) -> Void
     var onJumpDay: (_ date: String, _ line: Int?) -> Void
     var onCloseDrawer: () -> Void
@@ -451,7 +521,24 @@ struct DailyDashboardWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let cfg = WKWebViewConfiguration()
         cfg.userContentController.add(context.coordinator, name: "ck")
+        // WebKit caps page rendering updates near 60fps by default (a power policy), so on a
+        // 120Hz display the panel's CSS-driven slides trail the native canvas at half rate —
+        // measured web 60.0fps flat vs native 118.5 (bench-dash-toggle web_* stats). Lift the cap
+        // through the feature-flag SPI when present (guards make missing SPI a silent no-op →
+        // stays at 60). CC_WEB120_OFF=1 restores the default for A/B.
+        Self.liftWeb60Cap(cfg.preferences)
         let web = PassThroughWebView(frame: .zero, configuration: cfg) // forwards horizontal scroll + pinch
+        // Bench/demo runs only: keep the page "visible" even when the window is occluded (bench
+        // launches often land behind the active Space/full-screen app — occlusion suspends the
+        // page's rendering updates and the web-side frame recorder flatlines). Real runs keep the
+        // power-saving default. Guarded SPI: absent → occluded runs simply report no web frames.
+        if CalendarEngine.isDemoMode {
+            let sel = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+            if web.responds(to: sel) {
+                typealias SetBool = @convention(c) (NSObject, Selector, Bool) -> Void
+                unsafeBitCast(web.method(for: sel), to: SetBool.self)(web, sel, false)
+            }
+        }
         // Launch state = fully-faded state: HIDDEN until the first reveal tick. The tick driver
         // isn't mounted at year level, so without this a fresh launch left the view present at
         // its default alpha 1 — visually blank (CSS reveal 0) but with WebKit's mouse tracking
@@ -498,6 +585,27 @@ struct DailyDashboardWebView: NSViewRepresentable {
         Bundle.module.resourceURL?.appendingPathComponent("editor", isDirectory: true)
     }
 
+    /// Disable WebKit's "PreferPageRenderingUpdatesNear60FPS" feature on `prefs` so the page
+    /// renders at the display's real refresh rate (120 on ProMotion). No public API exists; the
+    /// flag is reached through the WKPreferences feature-list SPI, every step guarded so an OS
+    /// that renames/removes it degrades to the stock 60fps cap instead of crashing.
+    static func liftWeb60Cap(_ prefs: WKPreferences) {
+        guard ProcessInfo.processInfo.environment["CC_WEB120_OFF"] == nil else { return }
+        let listSel = NSSelectorFromString("_features")
+        let setSel = NSSelectorFromString("_setEnabled:forFeature:")
+        guard let cls = WKPreferences.self as AnyObject as? NSObject.Type,
+              cls.responds(to: listSel), prefs.responds(to: setSel),
+              let features = cls.perform(listSel)?.takeUnretainedValue() as? [NSObject],
+              let flag = features.first(where: {
+                  ($0.value(forKey: "key") as? String) == "PreferPageRenderingUpdatesNear60FPSEnabled"
+              })
+        else { return }
+        // _setEnabled: takes a BOOL — perform(_:with:) would box it as an object, so go
+        // through the raw IMP with the proper C signature.
+        typealias SetEnabled = @convention(c) (NSObject, Selector, Bool, NSObject) -> Void
+        unsafeBitCast(prefs.method(for: setSel), to: SetEnabled.self)(prefs, setSel, false, flag)
+    }
+
     private func themeVars() -> [String: String] {
         [
             "--accent-dark": cssColor(theme.text),
@@ -522,7 +630,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
         var onDeselect: () -> Void
         var onTab: (DashTab) -> Void
         var onNoteMode: (NotesMode) -> Void
-        var onNoteChange: (_ date: String, _ value: String) -> Void
+        var onNoteChange: (_ date: String, _ value: String, _ seq: Int) -> Void
         var onOpenLink: (URL) -> Void
         var onJumpDay: (String, Int?) -> Void
         var onCloseDrawer: () -> Void
@@ -538,7 +646,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
         init(carousel: DashboardCarousel,
              onToggle: @escaping (String, String?, String) -> Void, onOpen: @escaping (String) -> Void,
              onDeselect: @escaping () -> Void, onTab: @escaping (DashTab) -> Void,
-             onNoteMode: @escaping (NotesMode) -> Void, onNoteChange: @escaping (String, String) -> Void,
+             onNoteMode: @escaping (NotesMode) -> Void, onNoteChange: @escaping (String, String, Int) -> Void,
              onOpenLink: @escaping (URL) -> Void, onJumpDay: @escaping (String, Int?) -> Void,
              onCloseDrawer: @escaping () -> Void, onNoteExit: @escaping () -> Void,
              onNavTab: @escaping (Bool) -> Void) {
@@ -620,7 +728,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
                 onNoteMode((body["mode"] as? String) == "preview" ? .preview : .edit)
             case "noteChange":
                 if let date = body["date"] as? String, let v = body["value"] as? String {
-                    onNoteChange(date, v)
+                    onNoteChange(date, v, body["seq"] as? Int ?? 0)
                 }
             case "jumpDay":
                 if let date = body["date"] as? String {
@@ -740,38 +848,50 @@ struct DailyDashboardOverlay: View {
             onToggle: { id, occKey, value in engine.applyTodoNote(eventId: id, occKey: occKey, value: value) },
             onOpen: onOpen, onDeselect: { engine.deselect() },
             onTab: { tab = $0 }, onNoteMode: { noteMode = $0 },
-            onNoteChange: { date, value in engine.setDailyNote(date, value) },
+            // Record the post's seq BEFORE applying it, so any JSON built from here on carries it
+            // (the editor refuses payloads older than its latest post — see engine.dashNoteSeq).
+            onNoteChange: { date, value, seq in
+                engine.dashNoteSeq = seq
+                engine.setDailyNote(date, value)
+            },
             onOpenLink: { NSWorkspace.shared.open($0) },
             onJumpDay: { [carousel] date, line in
                 // "YYYY-MM-DD" → fly to that day (like Today), then open its NOTE tab on landing.
                 // Scope-note keys (weekly/monthly todos — TODO list rows and gantt titles alike):
                 // "week:<sunday-iso>" → that week view; "month:<YYYY-MM>" → that month view — both
                 // land with the panel pinned open on the NOTE tab (the note the todo lives in).
-                // `line` (the clicked todo's source line): the editor focuses and SELECTS it —
-                // CK.noteEdit's frame-retry waits out the travel + panel reveal.
+                // `line` (the clicked todo's source line): the editor focuses and SELECTS it once
+                // the live editor mounts the target note — `date` doubles as that note's storage
+                // key, so CK.noteEdit holds the focus as a callback until the fly-to animation
+                // actually lands on it (and drops it if the flight is interrupted).
+                // The NOTE tab is selected ON LANDING (not at flight start): CalendarView's
+                // "leaving day view → snap to TODO" level reset fires during the travel and would
+                // clobber an early switch; the landing callback runs after it by construction.
                 if date.hasPrefix("week:") {
                     let c = date.dropFirst(5).split(separator: "-").compactMap { Int($0) }
                     guard c.count == 3 else { return }
-                    engine.jumpToWeek(c[0], c[1] - 1, c[2])
+                    engine.jumpToWeek(c[0], c[1] - 1, c[2], onLand: {
+                        tab = .note
+                        carousel.focusNoteEditor(line: line, key: date)
+                    })
                     engine.pinDashboard()
-                    tab = .note
-                    carousel.focusNoteEditor(line: line)
                     return
                 }
                 if date.hasPrefix("month:") {
                     let c = date.dropFirst(6).split(separator: "-").compactMap { Int($0) }
                     guard c.count == 2 else { return }
-                    engine.setView(year: c[0], zoom: "month", focusedMonth: c[1] - 1)
+                    engine.jumpToMonth(c[0], c[1] - 1, onLand: {
+                        tab = .note
+                        carousel.focusNoteEditor(line: line, key: date)
+                    })
                     engine.pinDashboard()
-                    tab = .note
-                    carousel.focusNoteEditor(line: line)
                     return
                 }
                 let c = date.split(separator: "-").compactMap { Int($0) }
                 guard c.count == 3 else { return }
                 engine.jumpToDay(c[0], c[1] - 1, c[2], onLand: {
                     tab = .note
-                    carousel.focusNoteEditor(line: line)
+                    carousel.focusNoteEditor(line: line, key: date)
                 })
             },
             onCloseDrawer: onCloseDrawer,

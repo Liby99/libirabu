@@ -43,6 +43,9 @@ public final class DemoController {
     // toggle — keyboard-focus the first row, then activate it (check animation + strike-through + persist).
     @ObservationIgnored var dashTodoFocusHook: (() -> Void)?
     @ObservationIgnored var dashTodoToggleHook: (() -> Void)?
+    // The dashboard webview conduit (wired by CalendarView): bench scenes record the PAGE's own
+    // rAF frame cadence through it — the web content process janks invisibly to benchTick.
+    @ObservationIgnored var dashWebCarousel: DashboardCarousel?
 
     // search-demo scene hooks (wired by CalendarView.setupOnAppear): open the toolbar search bar, and the
     // live SearchState the field binds to — the scene types into it and reads the results.
@@ -108,6 +111,8 @@ public final class DemoController {
         case "bench-year-fling": await sceneBenchYearFling()
         case "bench-month-swipe": await sceneBenchMonthSwipe()
         case "bench-week-swipe": await sceneBenchWeekSwipe()
+        case "bench-dash-toggle": await sceneBenchDashToggle()
+        case "bench-dash-edit": await sceneBenchDashEdit()
         case "bench-pinch-zoom": await sceneBenchPinchZoom()
         case "bench-notify-plan": await sceneBenchNotifyPlan()
         default:
@@ -991,9 +996,17 @@ public final class DemoController {
         if weeks.count < 2 { weeks = [2, 3] }
         engine.demoGoToWeek(month: month, week: CGFloat(weeks[0]))
         try? await pause(0.8)
+        // CC_BENCH_DASH=1 → run the same swipes with the ⌘B side panel PINNED OPEN (the reported
+        // regression: week paging with the dashboard out). Pin before recording so the pin tween
+        // itself doesn't pollute the swipe stats (bench-dash-toggle measures that separately).
+        if env["CC_BENCH_DASH"] != nil, !engine.dashPinned {
+            engine.toggleDashPin()
+            for _ in 0 ..< 50 { engine.wake(); try? await pause(0.016) } // ride out the 0.3s reveal
+        }
         benchFrames.removeAll()
         RenderProf.reset()
         benchActive = true
+        dashWebCarousel?.benchWebStart() // page-side rAF recorder (no-op when no webview mounted)
         RenderProf.mark("benchBegin")
         // The pager's cell width — mirrors WeekPager: the visible window inside the padding + gutter.
         let dayW = max(1, (size.width - Layout.padLeft - Layout.padRight - Layout.labelW) / Layout.weekDaysVisible)
@@ -1018,7 +1031,120 @@ public final class DemoController {
         }
         RenderProf.mark("benchEnd")
         benchActive = false
-        writeBenchResults()
+        let web = await dashWebCarousel?.benchWebCollect()
+            ?? (frames: [], longTasks: [], units: [], epoch: [])
+        writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
+                          webEpoch: web.epoch)
+    }
+
+    /// ⌘B dashboard-pin toggle benchmark: repeatedly open/retract the pinned side panel at MONTH or
+    /// WEEK level (CC_BENCH_DASH_LEVEL=month|week, default month; CC_BENCH_WEEK_MONTH picks the month
+    /// for both). Each toggle runs the 0.3s dashPinTween, during which dashPin re-derives the WHOLE
+    /// month/week geometry every frame (day widths shrink/grow) AND the panel webview rides the mask
+    /// edge — the reported "⌘B drops the framerate" cost. Toggle windows are recorded as moving
+    /// phases so the stats isolate the tween frames from the settles between.
+    private func sceneBenchDashToggle() async {
+        guard let engine else { return }
+        try? await pause(1.2)
+        let env = ProcessInfo.processInfo.environment
+        let month = max(0, min(11, env["CC_BENCH_WEEK_MONTH"].flatMap { Int($0) } ?? 5))
+        if env["CC_BENCH_DASH_LEVEL"] == "week" {
+            engine.demoGoToWeek(month: month, week: 2)
+        } else {
+            engine.setView(zoom: "month", focusedMonth: month)
+        }
+        try? await pause(1.0)
+        // Deterministic start: panel retracted (dashPinned persists in UserDefaults across runs).
+        if engine.dashPinned {
+            engine.toggleDashPin()
+            for _ in 0 ..< 40 { engine.wake(); try? await pause(0.016) }
+        }
+        benchFrames.removeAll()
+        RenderProf.reset()
+        benchActive = true
+        dashWebCarousel?.benchWebStart() // page-side rAF recorder (no-op when no webview mounted)
+        RenderProf.mark("benchBegin")
+        // CC_BENCH_DASH_PERIOD=secs → RAPID toggling: fire ⌘B every `period` seconds (0.35 ≈ the
+        // "hammering cmd+b 2-3×/sec" repro), so each toggle RETARGETS the still-running 0.3s pin
+        // tween (and the gutter slide) mid-flight — the panel never rests. One continuous moving
+        // window spans the whole burst. Without the env: 3 settled open/close cycles (the default).
+        if let period = env["CC_BENCH_DASH_PERIOD"].flatMap({ Double($0) }) {
+            let toggles = max(2, env["CC_BENCH_DASH_TOGGLES"].flatMap { Int($0) } ?? 12)
+            moveStart = Date.timeIntervalSinceReferenceDate
+            for _ in 0 ..< toggles {
+                engine.toggleDashPin()
+                let steps = max(1, Int(period / 0.016))
+                for _ in 0 ..< steps { engine.wake(); try? await pause(0.016) }
+            }
+            // Ride out the last tween so its tail frames stay inside the moving window.
+            for _ in 0 ..< 28 { engine.wake(); try? await pause(0.016) }
+            benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
+        } else {
+            for _ in 0 ..< 6 { // 3 full open/close cycles
+                engine.toggleDashPin()
+                moveStart = Date.timeIntervalSinceReferenceDate
+                // Keep the render loop awake through the 0.3s tween + a short settle (the wake loop
+                // is what a real ⌘B gets from the tween's own animation pump). The MOVING window
+                // records only the tween itself — deferred content that fills in on the settled
+                // frames right after is by design (invisible), not jank.
+                for _ in 0 ..< 28 { engine.wake(); try? await pause(0.016) }
+                benchMoves.append((moveStart, moveStart + 0.32))
+                try? await pause(0.25)
+            }
+        }
+        RenderProf.mark("benchEnd")
+        benchActive = false
+        let web = await dashWebCarousel?.benchWebCollect()
+            ?? (frames: [], longTasks: [], units: [], epoch: [])
+        writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
+                          webEpoch: web.epoch)
+    }
+
+    /// Dashboard EDIT-ECHO benchmark: with the ⌘B panel pinned open (month or week level, same
+    /// CC_BENCH_DASH_LEVEL knob), append characters to TODAY's daily note at typing cadence.
+    /// Every edit bumps editGen → a fresh dashboardDataJSON → CK.setData in the page — the path a
+    /// notepad keystroke's echo takes, which re-renders every mounted panel. With a note-heavy
+    /// store this is where "typing in the notepad feels laggy" lives. Measures native frames +
+    /// the page's rAF cadence + slow setData/tick applies (web_* / WEB-SLOWTICK fields).
+    private func sceneBenchDashEdit() async {
+        guard let engine else { return }
+        try? await pause(1.2)
+        let env = ProcessInfo.processInfo.environment
+        let month = max(0, min(11, env["CC_BENCH_WEEK_MONTH"].flatMap { Int($0) } ?? 6))
+        if env["CC_BENCH_DASH_LEVEL"] == "week" {
+            engine.demoGoToWeek(month: month, week: 2)
+        } else {
+            engine.setView(zoom: "month", focusedMonth: month)
+        }
+        try? await pause(1.0)
+        if !engine.dashPinned {
+            engine.toggleDashPin()
+        }
+        for _ in 0 ..< 60 { engine.wake(); try? await pause(0.016) } // panel out + first render settled
+        benchFrames.removeAll()
+        RenderProf.reset()
+        benchActive = true
+        dashWebCarousel?.benchWebStart()
+        RenderProf.mark("benchBegin")
+        // Type a burst into today's note: 40 appends at ~70ms (a brisk ~14 cps typist). The note
+        // already carries a todo line so every keystroke re-tokenizes real content.
+        let iso = String(format: "%04d-%02d-15", engine.year, month + 1)
+        let base = engine.dailyNote(iso)
+        var text = base.isEmpty ? "- [ ] bench typing target" : base
+        moveStart = Date.timeIntervalSinceReferenceDate
+        for i in 0 ..< 40 {
+            text += String(UnicodeScalar(97 + i % 26)!)
+            engine.setDailyNote(iso, text)
+            for _ in 0 ..< 4 { engine.wake(); try? await pause(0.0175) }
+        }
+        benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
+        RenderProf.mark("benchEnd")
+        benchActive = false
+        engine.setDailyNote(iso, base) // leave the throwaway store's note as found
+        let web = await dashWebCarousel?.benchWebCollect()
+            ?? (frames: [], longTasks: [], units: [], epoch: [])
+        writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
+                          webEpoch: web.epoch)
     }
 
     /// Continuous pinch-zoom benchmark: year → day → year (z 0→3→0) driven through the REAL magnify
@@ -1077,8 +1203,13 @@ public final class DemoController {
         }
     }
 
+    private func webEpoch0(_ e: [Double]) -> Double { e[0] } // (helper keeps the closure typable)
+
     /// Frame-time stats over the recorded ticks → $CC_DEMO_DATADIR/bench.json.
-    private func writeBenchResults() {
+    /// `webFrames`: the dashboard PAGE's own rAF timestamps (ms) — reported as web_* fields so the
+    /// content process's cadence sits next to the native one (it janks invisibly to benchTick).
+    private func writeBenchResults(webFrames: [Double] = [], webLongTasks: [[Double]] = [],
+                                   webUnits: [[Any]] = [], webEpoch: [Double] = []) {
         guard let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty,
               benchFrames.count > 2 else { return }
         let deltas = zip(benchFrames.dropFirst(), benchFrames).map { $0 - $1 }.filter { $0 > 0 }
@@ -1138,6 +1269,66 @@ public final class DemoController {
             out2["moving_max_ms"] = r2(ms.last! * 1000)
             out2["moving_hitches"] = movingDeltas.filter { $0 > 1.0 / 30.0 }.count
             out2["hitch_offsets_s"] = hitchOffsets
+        }
+        // Webview (content-process) frame cadence over the same run, from the injected rAF
+        // recorder. Same stat shapes as the native side, prefixed web_.
+        if webFrames.count > 5 {
+            let wd = zip(webFrames.dropFirst(), webFrames).map { ($0 - $1) / 1000 }.filter { $0 > 0 }
+            if !wd.isEmpty {
+                let ws = wd.sorted()
+                let span = (webFrames.last! - webFrames.first!) / 1000
+                out2["web_frames"] = wd.count + 1
+                out2["web_avg_fps"] = r2(Double(wd.count) / span)
+                out2["web_p50_ms"] = r2(ws[ws.count / 2] * 1000)
+                out2["web_p95_ms"] = r2(ws[min(ws.count - 1, Int(Double(ws.count) * 0.95))] * 1000)
+                out2["web_max_ms"] = r2(ws.last! * 1000)
+                out2["web_hitches"] = wd.filter { $0 > 1.0 / 30.0 }.count
+            }
+        }
+        if !webLongTasks.isEmpty {
+            let durs = webLongTasks.compactMap { $0.count == 2 ? $0[1] : nil }
+            out2["web_longtasks"] = durs.count
+            out2["web_longtask_ms"] = r2(durs.reduce(0, +))
+            out2["web_longtask_max_ms"] = r2(durs.max() ?? 0)
+        }
+        // Web frames windowed to the MOVING phases: converts the page's performance.now clock to
+        // Date-epoch via the recorder's [Date.now, performance.now] pair, then keeps only frame
+        // deltas ending inside a recorded gesture window — a long web frame on a static settle
+        // (the defer-reveal) is invisible; one mid-slide is the jank the user sees.
+        if webFrames.count > 5, webEpoch.count == 2, !benchMoves.isEmpty {
+            let toRef = { (t: Double) -> Double in
+                (self.webEpoch0(webEpoch) + (t - webEpoch[1])) / 1000 - 978_307_200
+            }
+            var mv: [Double] = []
+            for (t2, t1) in zip(webFrames.dropFirst(), webFrames) {
+                let r = toRef(t2)
+                if benchMoves.contains(where: { r > $0.0 && r <= $0.1 + 0.02 }), t2 > t1 {
+                    mv.append((t2 - t1) / 1000)
+                }
+            }
+            if !mv.isEmpty {
+                let ms = mv.sorted()
+                out2["web_moving_p95_ms"] = r2(ms[min(ms.count - 1, Int(Double(ms.count) * 0.95))] * 1000)
+                out2["web_moving_max_ms"] = r2(ms.last! * 1000)
+                out2["web_moving_hitches"] = mv.filter { $0 > 1.0 / 30.0 }.count
+            }
+            // Every big web frame gap, stamped by its offset from the nearest turn start —
+            // separates mid-slide jank (offset < tween) from post-slide fill-in (offset > tween).
+            var gaps: [String] = []
+            for (t2, t1) in zip(webFrames.dropFirst(), webFrames) where t2 - t1 > 25 {
+                let r = toRef(t2)
+                let near = benchMoves.map { r - $0.0 }.min(by: { abs($0) < abs($1) }) ?? -99
+                gaps.append(String(format: "%.0fms@%+.3fs", t2 - t1, near))
+            }
+            if !gaps.isEmpty { out2["web_gaps"] = gaps }
+        }
+        if !webUnits.isEmpty {
+            // Named page-render units >2ms (guarded()): "what 12.3" strings, slowest first.
+            let named = webUnits.compactMap { u -> (String, Double)? in
+                guard u.count == 2, let n = u[0] as? String, let d = u[1] as? Double else { return nil }
+                return (n, d)
+            }.sorted { $0.1 > $1.1 }
+            out2["web_units"] = named.prefix(12).map { "\($0.0) \($0.1)" }
         }
         // Per-layer CPU attribution (CC_PROF=1): each draw layer's [samples, avg-ms, total-ms, peak-ms].
         // NB: main-thread CPU only — glass GPU compositing is invisible here (see RenderProfiler).

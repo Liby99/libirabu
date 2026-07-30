@@ -64,6 +64,8 @@ struct MarkdownWebEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let cfg = WKWebViewConfiguration()
         cfg.userContentController.add(context.coordinator, name: "ck")
+        // Same 60fps-cap lift as the dashboard panel (typing/scroll feel on 120Hz displays).
+        DailyDashboardWebView.liftWeb60Cap(cfg.preferences)
         let web: WKWebView
         if let forwarder {
             let pt = PassThroughWebView(frame: .zero, configuration: cfg); pt.forwarder = forwarder; web = pt

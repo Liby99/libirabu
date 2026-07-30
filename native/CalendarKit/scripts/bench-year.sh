@@ -27,6 +27,7 @@ case "${PAYLOAD:-display}" in
   empty)   cp bench/empty.json "$TMP/data.json" ;;    # stored 2026 bands only (the light fixture)
   dump)    cp "$HOME/.magical-bench/data.json" "$TMP/data.json" ;;  # CC_DUMP_DISPLAY of the REAL app (heavy: 1007 ev)
   dense)   cp bench/year-dense-2026.json "$TMP/data.json" ;;  # stress: real dump densified (3000 ev / ~500 bands @87% lane fill)
+  todos)   cp bench/todo-dense-2026.json "$TMP/data.json" ;;  # stress: real store + ~500 July todos (scripts/gen-todo-dense.py)
   full)    cp "$HOME/Library/Application Support/CalendarKit/data.json" "$TMP/data.json" ;;  # raw live store
   *) echo "unknown PAYLOAD=${PAYLOAD}"; exit 1 ;;
 esac
@@ -35,7 +36,9 @@ echo "Launching bench scene (throwaway store at $TMP; payload=${PAYLOAD:-display
 env CC_DEMO="$SCENE" CC_DEMO_DATADIR="$TMP" \
   ${WINDOW:+CC_WINDOW="$WINDOW"} ${HOVER:+CC_BENCH_HOVER=1} ${DWELL:+CC_BENCH_DWELL=1} ${MONTHS:+CC_BENCH_MONTHS="$MONTHS"} ${MOUNTALL:+CC_BENCH_MOUNT_ALL=1} \
   ${WEEKS:+CC_BENCH_WEEKS="$WEEKS"} ${WEEK_MONTH:+CC_BENCH_WEEK_MONTH="$WEEK_MONTH"} \
-  ${PROF:+CC_PROF=1} ${PERF_OFF:+CC_PERF_OFF=1} ${FLING_STEPS:+CC_BENCH_FLING_STEPS="$FLING_STEPS"} \
+  ${DASH:+CC_BENCH_DASH=1} ${DASH_LEVEL:+CC_BENCH_DASH_LEVEL="$DASH_LEVEL"} \
+  ${DASH_PERIOD:+CC_BENCH_DASH_PERIOD="$DASH_PERIOD"} ${DASH_TOGGLES:+CC_BENCH_DASH_TOGGLES="$DASH_TOGGLES"} \
+  ${PROF:+CC_PROF=1} ${PERF_OFF:+CC_PERF_OFF=1} ${DASHJSON_OFF:+CC_DASHJSON_OFF=1} ${WEB120_OFF:+CC_WEB120_OFF=1} ${WEB_DEFER_OFF:+CC_WEB_DEFER_OFF=1} ${FLING_STEPS:+CC_BENCH_FLING_STEPS="$FLING_STEPS"} \
   ${SWIPE_STEPS:+CC_BENCH_SWIPE_STEPS="$SWIPE_STEPS"} ${SWIPE_GAP:+CC_BENCH_SWIPE_GAP="$SWIPE_GAP"} "$BIN" &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
@@ -47,7 +50,7 @@ sleep 0.2
 
 # Tag results with the git branch (worktree-aware) so per-optimization branches compare cleanly.
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
-python3 - "$TMP/bench.json" "$BRANCH|$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}/dwell=${DWELL:-0}${MONTHS:+/m=$MONTHS}${WEEKS:+/w=$WEEKS}${WEEK_MONTH:+/wm=$WEEK_MONTH}${SWIPE_STEPS:+/ss=$SWIPE_STEPS}" <<'PY'
+python3 - "$TMP/bench.json" "$BRANCH|$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}/dwell=${DWELL:-0}${MONTHS:+/m=$MONTHS}${WEEKS:+/w=$WEEKS}${WEEK_MONTH:+/wm=$WEEK_MONTH}${SWIPE_STEPS:+/ss=$SWIPE_STEPS}${DASH:+/dash=1}${DASH_LEVEL:+/dl=$DASH_LEVEL}${DASH_PERIOD:+/dp=$DASH_PERIOD}${DASHJSON_OFF:+/djoff=1}${WEB120_OFF:+/w120off=1}${WEB_DEFER_OFF:+/wdoff=1}" <<'PY'
 import json, sys, datetime
 r = json.load(open(sys.argv[1]))
 line = (f"{datetime.datetime.now():%Y-%m-%d %H:%M} [{sys.argv[2]}] "
@@ -55,9 +58,14 @@ line = (f"{datetime.datetime.now():%Y-%m-%d %H:%M} [{sys.argv[2]}] "
         f"p50 {r['frame_ms_p50']:.2f} ms | p95 {r['frame_ms_p95']:.2f} ms | "
         f"max {r['frame_ms_max']:.1f} ms | hitches(>33ms) {r['hitches_over_33ms']} | "
         + (f"MOVING: {r['moving_avg_fps']:.1f} fps p95 {r['moving_p95_ms']:.1f} ms hitches {r['moving_hitches']} | " if 'moving_avg_fps' in r else '')
+        + (f"WEB: {r['web_avg_fps']:.1f} fps p50 {r['web_p50_ms']:.1f} p95 {r['web_p95_ms']:.1f} max {r['web_max_ms']:.1f} ms hitches {r['web_hitches']} | " if 'web_avg_fps' in r else '')
+        + (f"WEB-MOVING: p95 {r['web_moving_p95_ms']:.1f} max {r['web_moving_max_ms']:.1f} ms hitches {r['web_moving_hitches']} | " if 'web_moving_p95_ms' in r else '')
+        + (f"WEB-SLOWTICK: {r['web_longtasks']}x {r['web_longtask_ms']:.0f} ms (max {r['web_longtask_max_ms']:.0f}) | " if 'web_longtasks' in r else '')
         + f"{r['frames']} frames / {r['seconds']:.2f} s")
 print("\n== bench ==\n" + line)
 if 'hitch_offsets_s' in r: print('hitch offsets within turn (s):', r['hitch_offsets_s'])
+if 'web_units' in r: print('web units >2ms (name ms):', ', '.join(r['web_units']))
+if 'web_gaps' in r: print('web gaps >25ms (len@offset-from-turn):', ', '.join(r['web_gaps']))
 if 'layers_ms' in r:
     print("\n-- per-layer CPU (main thread) --")
     print(f"  {'layer':<16}{'samples':>9}{'avg ms':>9}{'total ms':>10}{'peak ms':>9}")
