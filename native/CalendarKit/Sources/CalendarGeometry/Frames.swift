@@ -367,6 +367,65 @@ public func dashRevealTotal(_ g: SceneInput) -> CGFloat {
     return max(day, presence)
 }
 
+/// One native dashboard BODY sub-panel's per-frame placement: the scope-panel geometry
+/// (dashScopePanels) COMPOSED with its in-panel carousel — the week→week slide (weekDashTurn)
+/// and the month page-turn band ride (frameFor) — into a flat list of (scope, key, frame,
+/// translation, opacity). ONE brain: the Canvas header draws from these same primitives; the
+/// native panel bodies must consume THIS list rather than re-deriving any motion, so the two
+/// can never drift. Day panels are omitted (the day dashboard isn't native yet).
+public struct DashBodyPanel: Equatable, Sendable {
+    public var scope: String // "week" | "month"
+    public var key: String // week: the Sunday's ISO; month: "YYYY-MM"
+    public var x: CGFloat // panel frame left (geometry space)
+    public var w: CGFloat // the panel's own width
+    public var dx: CGFloat // in-panel slide (week turn), applied inside the clipped frame
+    public var dy: CGFloat // vertical ride: accordion + month page-turn (bandY − topPad)
+    public var op: CGFloat // scope cross-fade × turn fade
+}
+
+public func dashBodyPanels(_ g: SceneInput) -> [DashBodyPanel] {
+    guard let scope = dashScopePanels(g) else { return [] }
+    var out: [DashBodyPanel] = []
+    for p in [scope.a, scope.b].compactMap({ $0 }) where p.op > 0.001 {
+        switch p.name {
+        case "week":
+            let wt = weekDashTurn(g)
+            if wt.p > 0.001, wt.p < 0.999, !wt.toKey.isEmpty {
+                out.append(DashBodyPanel(scope: "week", key: wt.fromKey, x: p.x, w: p.w,
+                                         dx: -wt.p * p.w, dy: 0, op: p.op * (1 - wt.p)))
+                out.append(DashBodyPanel(scope: "week", key: wt.toKey, x: p.x, w: p.w,
+                                         dx: (1 - wt.p) * p.w, dy: 0, op: p.op * wt.p))
+            } else {
+                let key = wt.p >= 0.999 && !wt.toKey.isEmpty ? wt.toKey : wt.fromKey
+                out.append(DashBodyPanel(scope: "week", key: key, x: p.x, w: p.w,
+                                         dx: 0, dy: 0, op: p.op))
+            }
+        case "month":
+            // The body rides the FOCUSED BAND's animated frame — the accordion entrance AND the
+            // page-turn's staggered travel both live in frameFor's bandY, exactly what the
+            // header anchors to (headerTopY). dy is relative to the resting top.
+            let cur = frameFor(g.focus, g, anim: g.monthAnim)
+            let keyA = String(format: "%04d-%02d", g.year, g.focus + 1)
+            if let a = g.monthAnim, (0 ... 11).contains(g.focus + a.dir), a.p > 0.001 {
+                let inc = frameFor(g.focus + a.dir, g, anim: g.monthAnim)
+                let keyB = String(format: "%04d-%02d", g.year, g.focus + a.dir + 1)
+                out.append(DashBodyPanel(scope: "month", key: keyA, x: p.x, w: p.w,
+                                         dx: 0, dy: cur.bandY - Layout.topPad,
+                                         op: p.op * (1 - a.p)))
+                out.append(DashBodyPanel(scope: "month", key: keyB, x: p.x, w: p.w,
+                                         dx: 0, dy: inc.bandY - Layout.topPad,
+                                         op: p.op * a.p))
+            } else {
+                out.append(DashBodyPanel(scope: "month", key: keyA, x: p.x, w: p.w,
+                                         dx: 0, dy: cur.bandY - Layout.topPad, op: p.op))
+            }
+        default:
+            break // "day": still the webview's panel
+        }
+    }
+    return out
+}
+
 /// The dashboard's left edge, ANIMATED — every panel-region clip (content, bands, deadlines,
 /// chrome) uses this so they reveal together. Three regimes, composed:
 ///   • unpinned: flush right until day opens; eases to the daily split across z 2→3 (classic).

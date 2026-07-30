@@ -549,34 +549,31 @@ public struct CalendarView: View {
                 // left edge at labelW, and never moves — no level-boundary snap).
                 let scopeGeom = dashScopePanels(input)
                 // Native dashboard (webview retirement, cc.nativeDash): ALL tabs of the pinned
-                // week/month panel render NATIVELY, transition-complete — BOTH scope panels of a
-                // zoom cross-fade, each positioned by its OWN dashScopePanels geometry, with the
-                // week/month turns handled inside NativePanelHost from the same per-frame values
-                // the Canvas header draws with (header and body stay in lockstep — the desync the
-                // webview bridge never fully closed). A DAY panel in the pair (week↔day zoom)
-                // falls back to the webview wholesale: the day dashboard isn't native yet, and a
-                // half-native cross-fade would double-render one side.
+                // week/month panel render NATIVELY as REAL carousel members — the flat sub-panel
+                // list (dashBodyPanels: scope cross-fades × week-turn slides × month band rides)
+                // comes from the geometry layer, the SAME brain the Canvas header draws from, and
+                // is applied here as plain frame/offset/opacity. No motion is derived in the view
+                // layer, so header and body cannot drift. A DAY panel in the transition pair
+                // (week↔day zoom) falls back to the webview wholesale: the day dashboard isn't
+                // native yet, and a half-native cross-fade would double-render one side.
                 let dayInvolved = scopeGeom?.a.name == "day" || scopeGeom?.b?.name == "day"
-                let nativeTodo = NativeDash.enabled && scopeGeom != nil && !dayInvolved
-                if nativeTodo, let sg = scopeGeom {
-                    let livePanels = ([sg.a] + (sg.b.map { [$0] } ?? []))
-                        .filter { $0.op > 0.001 && ($0.name == "week" || $0.name == "month") }
+                let bodyPanels = dashBodyPanels(input)
+                let nativeTodo = NativeDash.enabled && !bodyPanels.isEmpty && !dayInvolved
+                if nativeTodo {
                     let top = Layout.topPad + Layout.monthH + 14
-                    let ph = max(1, input.vp.h - top - Layout.bottomPad)
-                    ForEach(livePanels.indices, id: \.self) { i in
-                        let panel = livePanels[i]
+                    ForEach(bodyPanels.indices, id: \.self) { i in
+                        let panel = bodyPanels[i]
                         let pw = max(1, panel.w - 14)
+                        let ph = max(1, input.vp.h - top - panel.dy - Layout.bottomPad)
                         let px = Layout.padLeft + panel.x + 8 - engine.gutterShift
-                        NativePanelHost(engine: engine, scope: panel.name, tab: dashTab,
-                                        theme: theme,
-                                        wFromKey: wt.fromKey, wToKey: wt.toKey, wP: CGFloat(wt.p),
-                                        mKeyA: mKeyA, mKeyB: mKeyB, mP: CGFloat(mP),
-                                        mDy0: fHeader.bandY - fRest.bandY,
-                                        mDy1: fHeader2.bandY - fRest.bandY,
-                                        noteMode: $noteMode,
+                        NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
+                                        tab: dashTab, theme: theme, noteMode: $noteMode,
                                         onOpen: { id in engine.revealAndSelect(id: id) })
                             .frame(width: pw, height: ph)
-                            .position(x: px + pw / 2, y: top + ph / 2)
+                            .offset(x: panel.dx) // in-panel slide, clipped to the panel frame
+                            .frame(width: pw, height: ph)
+                            .clipped()
+                            .position(x: px + pw / 2, y: top + panel.dy + ph / 2)
                             .offset(x: sceneDX)
                             .opacity(Double(panel.op) * Double(c.reveal))
                     }
