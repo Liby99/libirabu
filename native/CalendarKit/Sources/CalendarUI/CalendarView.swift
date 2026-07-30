@@ -565,7 +565,10 @@ public struct CalendarView: View {
                         let panel = bodyPanels[i]
                         let pw = max(1, panel.w - 14)
                         let ph = max(1, input.vp.h - top - panel.dy - Layout.bottomPad)
-                        let px = Layout.padLeft + panel.x + 8 - engine.gutterShift
+                        // GEOMETRY-space x only: the trailing .offset(x: sceneDX) applies
+                        // padLeft − gutterShift for every scene sibling — adding them here too
+                        // double-shifted the panel (visibly leftward once the gutter hid).
+                        let px = panel.x + 8
                         NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
                                         tab: dashTab, theme: theme, noteMode: $noteMode,
                                         onOpen: { id in engine.revealAndSelect(id: id) })
