@@ -28,6 +28,10 @@ public struct CalendarItems: Sendable {
 struct DisplayCaches {
     /// Bumped on every edit → invalidates all the per-(year, gen) caches below.
     var editGen = 0
+    /// Bumped on daily/scope NOTE edits only. Notes never affect the calendar display, so a
+    /// notepad keystroke must not invalidate the event/band caches above — but the dashboard
+    /// payload (dashJSONCache) keys on (editGen, noteGen) and must see it.
+    var noteGen = 0
     /// Bumped when the deadline-label sides must re-solve.
     var deadlineGen = 0
     /// Keyed by display year, NOT a single slot: week/day view in Jan (Dec) reads the focus year AND
@@ -84,6 +88,7 @@ struct AnimState {
     var tlScrollTween: Tween? // timeline (hour) scroll glide
     var weekTween: Tween?
     var dayTween: Tween? // fractional-day glide (day view "scroll to today")
+    var monthGlide: Tween? // fractional-month glide (month view jumpToMonth — animated pagination)
     var shiftTween: Tween? // drawer canvas-shift
     var gutterTween: Tween? // gutter hide/show slide (narrow window + pinned dashboard)
     var dashPinTween: Tween? // pinned weekly/monthly dashboard slide (⌘B toggle)
@@ -92,6 +97,8 @@ struct AnimState {
     var scrollTweenDone: (() -> Void)?
     var flipDone: (() -> Void)?
     var dayLandDone: (() -> Void)?
+    var weekLandDone: (() -> Void)? // jumpToWeek settled at week view (e.g. open a weekly note's NOTE tab)
+    var monthLandDone: (() -> Void)? // jumpToMonth settled at month view (glide or zoom path)
     var zoomAnchorHour: CGFloat? // hour held at `zoomAnchorY` for the duration of a zoom
     var zoomAnchorY: CGFloat? // viewport y to hold it at (nil = viewport centre)
     var monthAnim: PageAnim? // vertical month↕month page-turn (nil = settled)

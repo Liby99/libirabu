@@ -115,9 +115,45 @@ public final class CalendarEngine {
     /// drawer note editor's completions. Non-persistent. See entityIndexJSON().
     var entityIdxCache: (gen: Int, json: String)?
     var entityIdxWork: DispatchWorkItem? // coalesced async refresh (never scans on a keystroke)
+
+    /// Dashboard WebView payload JSON, cached per (editGen, noteGen, viewed day, real today). The
+    /// dashboard overlay's body re-evaluates EVERY FRAME while anything animates (⌘B pin slide,
+    /// week swipes, zoom) and used to rebuild the whole payload each time — ~30% of the frame
+    /// budget went to String(format:) date strings + JSONEncoder over every item (the "⌘B tanks
+    /// the framerate" bug). The payload only actually changes on edits (editGen/noteGen) and
+    /// navigation (viewIso/today), so cache on those. Gen-only staleness (an edit burst — e.g.
+    /// notepad typing) serves the STALE payload and refreshes COALESCED (dashJSONWork), so a
+    /// keystroke costs zero rebuilds on the frame path; see dashboardDataJSON.
+    var dashJSONCache: (gen: Int, noteGen: Int, viewIso: String, today: String, json: String)?
+    var dashJSONWork: DispatchWorkItem? // coalesced burst refresh (never rebuilds on a keystroke)
+    /// Ordering handshake with the dashboard note editor: the editor numbers every noteChange post
+    /// and the host records the latest here BEFORE applying it; buildDashboardDataJSON stamps the
+    /// payload with the value it incorporated. The editor then ignores payloads older than its own
+    /// counter — the cached/coalesced JSON can lag a typing burst by a few keystrokes, and adopting
+    /// such an echo would wipe the newest characters.
+    public var dashNoteSeq = 0
+    // Land callbacks fire when the jump's final tween completes — which happens INSIDE sceneInput,
+    // i.e. mid-render. The callbacks write SwiftUI state (the dashboard tab), so defer them off the
+    // render pass; the hop also sequences them AFTER any chrome.level onChange work already queued
+    // (the "leaving day view → TODO tab" reset must not clobber a landing's NOTE-tab switch).
     func fireDayLand() {
         if let cb = anim.dayLandDone {
-            anim.dayLandDone = nil; cb()
+            anim.dayLandDone = nil
+            DispatchQueue.main.async { cb() }
+        }
+    }
+
+    func fireWeekLand() {
+        if let cb = anim.weekLandDone {
+            anim.weekLandDone = nil
+            DispatchQueue.main.async { cb() }
+        }
+    }
+
+    func fireMonthLand() {
+        if let cb = anim.monthLandDone {
+            anim.monthLandDone = nil
+            DispatchQueue.main.async { cb() }
         }
     }
 
@@ -688,9 +724,12 @@ public final class CalendarEngine {
                 if let cb = anim.zTweenDone {
                     anim.zTweenDone = nil; cb()
                 } // sequenced next phase (e.g. go-to-today)
-                if level(z) == 3 {
-                    fireDayLand()
-                } // a jumpToDay landed at day view
+                switch level(z) { // a jump's fly-in settled at its target level
+                case 3: fireDayLand()
+                case 2: fireWeekLand()
+                case 1: fireMonthLand()
+                default: break
+                }
             }
         }
         if var st = anim.scrollTween {
@@ -741,6 +780,26 @@ public final class CalendarEngine {
         } else if weekDashHold != nil, weekDashCruise == nil, !scroll.liveWeekScrolling,
                   anim.weekTween == nil, date.timeIntervalSince(weekDashIdleAt) > 0.3 {
             settleWeekDash(restWeek: (week * 7).rounded() / 7)
+        }
+        if let mg = anim.monthGlide {
+            // Fractional-month glide (jumpToMonth): the tween is a continuous month position; floor →
+            // the anchor month, the fraction → a page-turn — the same decomposition setMonthProgress
+            // projects from the pager scroll, so the glide looks like fast pagination. The pager's
+            // scroll view sits untouched during the glide (setMonthProgress is gated off); landing
+            // re-syncs it to the new focus via monthResync.
+            if mg.isComplete(at: date) {
+                focus = max(0, min(11, Int(mg.to.rounded())))
+                anim.monthAnim = nil; anim.monthGlide = nil
+                pushChrome(); chrome.monthResync &+= 1
+                fireMonthLand()
+            } else {
+                let f = mg.value(at: date)
+                let m = max(0, min(11, Int(f.rounded(.down))))
+                let frac = f - CGFloat(m)
+                focus = m
+                anim.monthAnim = frac > 0.001 ? PageAnim(dir: 1, p: min(0.999, frac)) : nil
+                pushChrome()
+            }
         }
         if let dt = anim.dayTween {
             // Fractional-day glide: floor → the anchor day, the fraction → a ±1 day-page so the day column

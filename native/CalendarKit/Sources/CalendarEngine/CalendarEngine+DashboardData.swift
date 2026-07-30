@@ -25,6 +25,11 @@ extension CalendarEngine {
                                                                                                         today: String; var dailyNotes: [
                                                                                                             String: String
                                                                                                         ]
+        // The last editor-post sequence number this payload has INCORPORATED (see dashNoteSeq).
+        // The JSON cache + coalesced rebuild mean a push can lag the live note editor by a few
+        // keystrokes; the editor compares this against its own counter and refuses to adopt a
+        // payload older than its latest post (which would wipe the newest characters).
+        var noteSeq: Int
     }
 
     private func wall(_ y: Int, _ m0: Int, _ d: Int, _ hour: CGFloat? = nil) -> String {
@@ -87,7 +92,52 @@ extension CalendarEngine {
     }
 
     /// The JSON the dashboard WebView consumes: contexts + deadlines + the viewed day + real today.
+    /// Cached per (editGen, noteGen, viewIso, today) — see dashJSONCache. This is on the overlay's
+    /// per-frame body path, so a cache miss must stay the EXCEPTION, never the rule:
+    ///   • fresh cache → return it (the every-animated-frame case);
+    ///   • gens stale, same view (an edit burst — notepad typing, checkbox toggles): return the
+    ///     STALE payload now and rebuild ONCE, coalesced 0.3s past the burst (the editing webview
+    ///     already applied its own change locally, so nobody needs this mid-burst);
+    ///   • no cache / view changed (navigation): rebuild inline — the panel must not show
+    ///     another day's content.
     public func dashboardDataJSON() -> String {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        let today = String(format: "%04d-%02d-%02d", c.year ?? year, c.month ?? 1, c.day ?? 1)
+        let r = resolveDate(year, focus, daily.dom)
+        let viewIso = r.map { wall($0.year, $0.month, $0.day) } ?? wall(year, focus, daily.dom)
+        // Kill-switch (A/B): CC_DASHJSON_OFF=1 rebuilds every call, the pre-cache behavior.
+        if let cached = dashJSONCache, cached.viewIso == viewIso, cached.today == today,
+           !Self.dashJSONCacheOff {
+            if cached.gen == caches.editGen, cached.noteGen == caches.noteGen {
+                return cached.json
+            }
+            scheduleDashJSONRefresh(viewIso: viewIso, today: today)
+            return cached.json
+        }
+        dashJSONWork?.cancel(); dashJSONWork = nil
+        let json = buildDashboardDataJSON(viewIso: viewIso, today: today)
+        dashJSONCache = (caches.editGen, caches.noteGen, viewIso, today, json)
+        return json
+    }
+
+    /// One rebuild, 0.3s after the last edit of a burst (matches the undo/entity-index coalescers).
+    /// wake() so the settled frame re-runs the overlay body, which then reads the fresh cache.
+    private func scheduleDashJSONRefresh(viewIso: String, today: String) {
+        guard dashJSONWork == nil else { return } // already scheduled — later edits ride the same window
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.dashJSONWork = nil
+            let json = self.buildDashboardDataJSON(viewIso: viewIso, today: today)
+            self.dashJSONCache = (self.caches.editGen, self.caches.noteGen, viewIso, today, json)
+            self.wake()
+        }
+        dashJSONWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    static let dashJSONCacheOff = ProcessInfo.processInfo.environment["CC_DASHJSON_OFF"] != nil
+
+    private func buildDashboardDataJSON(viewIso: String, today: String) -> String {
         let dls = items.deadlines.map { d0 -> DashDeadline in let d = displayDeadline(d0)
             return DashDeadline(
                 id: d0.id,
@@ -99,16 +149,13 @@ extension CalendarEngine {
                 color: d.color
             )
         }
-        let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
-        let today = String(format: "%04d-%02d-%02d", c.year ?? year, c.month ?? 1, c.day ?? 1)
-        let r = resolveDate(year, focus, daily.dom)
-        let viewIso = r.map { wall($0.year, $0.month, $0.day) } ?? wall(year, focus, daily.dom)
         let payload = DashPayload(
             events: todoContexts(),
             deadlines: dls,
             viewIso: viewIso,
             today: today,
-            dailyNotes: items.dailyNotes
+            dailyNotes: items.dailyNotes,
+            noteSeq: dashNoteSeq
         )
         return (try? JSONEncoder().encode(payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
@@ -282,6 +329,9 @@ extension CalendarEngine {
         } else {
             items.dailyNotes[iso] = v
         }
+        // Daily notes feed the dashboard payload — noteGen (NOT editGen: a notepad keystroke
+        // must not invalidate the event/band display caches) keeps dashJSONCache honest.
+        caches.noteGen &+= 1
         schedulePersist()
     }
 
@@ -290,6 +340,7 @@ extension CalendarEngine {
         for (iso, v) in notes where !v.isEmpty {
             items.dailyNotes[iso] = v
         }
+        caches.noteGen &+= 1
         schedulePersist()
     }
 
