@@ -466,17 +466,22 @@ struct CarouselDriver: NSViewRepresentable {
     var shiftX: Double = 0 // drawer canvas-shift (engine.drawerShift): content rides the canvas slide
     var gutterShiftX: Double = 0 // gutter hide (engine.gutterShift): body-level frame/offset rides it
     var keepLive: Bool = false // ⌘B panel presented → alpha-floor the webview (see setPanelAlpha)
+    // Native dashboard active (cc.nativeDash, week/month tabs): blank the WEBVIEW only — alpha 0
+    // via reveal, hit gate pushed off via maskX — while `anim` (the native tabs/chrome state)
+    // keeps the REAL values. Zeroing reveal for both hid the native tab rows entirely.
+    var webBlank: Bool = false
     func makeNSView(context: Context) -> NSView {
         NSView()
     }
 
     func updateNSView(_ v: NSView, context: Context) {
-        carousel.tick(from: from, to: to, dir: dir, p: p, reveal: reveal, slide: slide,
+        carousel.tick(from: from, to: to, dir: dir, p: p,
+                      reveal: webBlank ? 0 : reveal, slide: slide,
                       scopeA: scopeA, scopeB: scopeB, scopeT: scopeT,
                       dy: webDy, mFrom: mFrom, mTo: mTo, mDy0: mDy0, mDy1: mDy1, mP: mP,
                       mKeyA: mKeyA, mKeyB: mKeyB,
                       wFrom: wFrom, wTo: wTo, wP: wP, wKeyA: wKeyA, wKeyB: wKeyB,
-                      maskX: maskX, maskW: maskW,
+                      maskX: webBlank ? 1e9 : maskX, maskW: maskW,
                       aName: aName, aX: aX, aW: aW, aOp: aOp,
                       bName: bName, bX: bX, bW: bW, bOp: bOp,
                       shiftX: shiftX, keepLive: keepLive)

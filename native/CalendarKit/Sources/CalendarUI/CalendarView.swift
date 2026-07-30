@@ -562,10 +562,7 @@ public struct CalendarView: View {
                 let dayInvolved = scopeGeom?.a.name == "day" || scopeGeom?.b?.name == "day"
                 let nativeTodo = NativeDash.enabled && !dayInvolved && scopeGeom != nil
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
-                               // Native TODO tab: blank the webview (alpha 0 via reveal) and push
-                               // its hit gate off-screen (maskX → +inf) so clicks land on the
-                               // native panel; switching to NOTE/PROJ restores both per frame.
-                               dir: c.dir, p: c.p, reveal: nativeTodo ? 0 : c.reveal, slide: slide,
+                               dir: c.dir, p: c.p, reveal: c.reveal, slide: slide,
                                scopeA: sA, scopeB: sB, scopeT: sT,
                                headerTopY: Double(fHeader.bandY),
                                headerTopY2: Double(fHeader2.bandY),
@@ -581,8 +578,7 @@ public struct CalendarView: View {
                                mKeyA: mKeyA, mKeyB: mKeyB,
                                wFrom: wt.from, wTo: wt.to, wP: Double(wt.p),
                                wKeyA: wt.fromKey, wKeyB: wt.toKey,
-                               maskX: nativeTodo ? 1e9
-                                   : Double((scopeGeom?.mask ?? vpw) - Layout.labelW - engine.gutterShift),
+                               maskX: Double((scopeGeom?.mask ?? vpw) - Layout.labelW - engine.gutterShift),
                                maskW: Double(vpw - (scopeGeom?.mask ?? vpw)),
                                aName: scopeGeom?.a.name ?? "",
                                aX: Double((scopeGeom?.a.x ?? 0) - Layout.labelW - engine.gutterShift),
@@ -604,7 +600,10 @@ public struct CalendarView: View {
                                // month). Year keeps true hidden (the hover-flicker case); the
                                // hit gate (interactiveLeftX) still keeps clicks off the webview.
                                keepLive: engine.chrome.dashPresented
-                                   || engine.chrome.level == 1 || engine.chrome.level == 2)
+                                   || engine.chrome.level == 1 || engine.chrome.level == 2,
+                               // Blank the WEBVIEW ONLY while the native panels own these tabs;
+                               // the native tabs/chrome keep reading the real values via `anim`.
+                               webBlank: nativeTodo)
                     .frame(width: 0, height: 0)
             }
         }
