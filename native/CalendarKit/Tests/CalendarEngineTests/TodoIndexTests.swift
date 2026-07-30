@@ -1,0 +1,160 @@
+// TodoIndex (the Swift todo tokenizer/index) vs the golden vectors generated from the legacy web
+// tokenizer (todos.ts) — scripts/gen-todo-vectors.sh wrote Fixtures/todo-vectors.json once; the
+// Swift port must parse the same corpus to identical structures. Plus behavior tests for the
+// soft-link write primitives (toggle / created-stamp scan) and the feed ordering.
+
+@testable import CalendarEngine
+import XCTest
+
+final class TodoIndexTests: XCTestCase {
+    // ── Golden vectors ─────────────────────────────────────────────────────────────────────────
+
+    private struct Fixture: Decodable {
+        struct Event: Decodable {
+            var id: String, kind: String, title: String, color: String
+            var tags: [String], start: String, end: String
+            var originTz: String?
+            var notes: String?
+            var occurrenceNotes: [String: String]?
+        }
+
+        var today: String
+        var events: [Event]
+        var dailyNotes: [String: String]
+    }
+
+    private func loadFixture() throws -> (Fixture, [String: Any]) {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "Fixtures/todo-vectors",
+                                                  withExtension: "json"))
+        let data = try Data(contentsOf: url)
+        let fixture = try JSONDecoder().decode(Fixture.self, from: data)
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let expected = try XCTUnwrap(root["expected"] as? [String: Any])
+        return (fixture, expected)
+    }
+
+    private func sources(_ f: Fixture) -> [TodoSource] {
+        f.events.map { e in
+            TodoSource(id: e.id, kind: e.kind, title: e.title, color: e.color, tags: e.tags,
+                       start: e.start, end: e.end, originTz: e.originTz,
+                       notes: e.notes, occurrenceNotes: e.occurrenceNotes)
+        }
+    }
+
+    /// Canonical identity for order-insensitive comparison (the JS sort tiebreaks with
+    /// localeCompare, which the port intentionally does not reproduce).
+    private func key(_ d: [String: Any]) -> String {
+        let ev = d["eventId"] as? String ?? ""
+        let occ = d["occurrenceKey"] as? String ?? ""
+        let daily = d["dailyDate"] as? String ?? ""
+        let line = d["line"] as? Int ?? 0
+        return "\(ev)|\(occ)|\(daily)|\(String(format: "%04d", line))"
+    }
+
+    /// JS JSON carries explicit nulls for optional fields; Swift's Codable omits nil keys. Strip
+    /// nulls so both sides compare on present values only.
+    private func stripNulls(_ d: [String: Any]) -> [String: Any] {
+        d.filter { !($0.value is NSNull) }
+    }
+
+    private func encode(_ todos: [ParsedTodo]) throws -> [[String: Any]] {
+        let data = try JSONEncoder().encode(todos)
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+    }
+
+    private func compare(_ actual: [ParsedTodo], _ expectedAny: Any?,
+                         _ label: String) throws {
+        let expected = try XCTUnwrap(expectedAny as? [[String: Any]], "\(label): expected array")
+        let a = try encode(actual).sorted { key($0) < key($1) }
+        let e = expected.map(stripNulls).sorted { key($0) < key($1) }
+        XCTAssertEqual(a.count, e.count, "\(label): count")
+        for (av, ev) in zip(a, e) {
+            XCTAssertEqual(av as NSDictionary, ev as NSDictionary,
+                           "\(label): mismatch at \(key(av)) — raw: \(av["raw"] ?? "?")")
+        }
+    }
+
+    func testGoldenVectorsIndex() throws {
+        let (fixture, expected) = try loadFixture()
+        let actual = TodoIndex.indexTodos(sources(fixture), today: fixture.today)
+        try compare(actual, expected["index"], "index")
+    }
+
+    func testGoldenVectorsDailyNotes() throws {
+        let (fixture, expected) = try loadFixture()
+        let daily = try XCTUnwrap(expected["daily"] as? [String: Any])
+        for (date, notes) in fixture.dailyNotes {
+            let actual = TodoIndex.parseDailyNoteTodos(date: date, notes: notes,
+                                                       today: fixture.today)
+            try compare(actual, daily[date], "daily[\(date)]")
+        }
+    }
+
+    // ── Soft-link write primitives ─────────────────────────────────────────────────────────────
+
+    func testToggleOnAppendsStampAndOffStripsIt() {
+        let note = "- [ ] write tests due:2026-08-01\n- [x] old done:2026-07-01"
+        let on = TodoIndex.toggleTodoLine(note, line: 1, stamp: "2026-07-30T10:00")
+        XCTAssertEqual(on, "- [x] write tests due:2026-08-01 done:2026-07-30T10:00\n- [x] old done:2026-07-01")
+        let off = TodoIndex.toggleTodoLine(on!, line: 1)
+        XCTAssertEqual(off, "- [ ] write tests due:2026-08-01\n- [x] old done:2026-07-01")
+        // Unchecking line 2 strips its stale stamp too.
+        XCTAssertEqual(TodoIndex.toggleTodoLine(note, line: 2), "- [ ] write tests due:2026-08-01\n- [ ] old")
+    }
+
+    func testToggleStaleAnchorAndNoOp() {
+        let note = "- [ ] a\nprose line"
+        XCTAssertNil(TodoIndex.toggleTodoLine(note, line: 2)) // not a task line
+        XCTAssertNil(TodoIndex.toggleTodoLine(note, line: 9)) // line gone
+        // Explicit set to the current state with no stamp change → the SAME text (no-op contract).
+        XCTAssertEqual(TodoIndex.toggleTodoLine(note, line: 1, checked: false), note)
+    }
+
+    func testLinesNeedingCreated() {
+        let note = """
+        - [ ] no stamp
+          - [ ] child never stamped
+        - [ ] has one created:2026-07-01
+        - [x] done no stamp
+        """
+        XCTAssertEqual(TodoIndex.linesNeedingCreated(note), [1, 4])
+    }
+
+    // ── Ordering ───────────────────────────────────────────────────────────────────────────────
+
+    func testFeedOrdering() {
+        func todo(_ text: String, due: String? = nil, pri: Int? = nil,
+                  done: Bool = false, active: Bool = true) -> ParsedTodo {
+            ParsedTodo(raw: text, text: text, done: done, doneDate: nil, created: nil,
+                       source: "daily", eventId: "", eventTitle: "", eventKind: "daily",
+                       occurrenceKey: nil, dailyDate: "2026-07-30", line: 1, indent: 0,
+                       parentLine: nil, priority: pri, due: due, dueTz: nil,
+                       dueSource: "event", followup: nil, start: nil, active: active,
+                       tags: [], people: [], projects: [], funding: [], entities: [:],
+                       links: [], color: nil, colorSource: "event")
+        }
+        let sorted = [
+            todo("undated"),
+            todo("done", done: true, active: false),
+            todo("later", due: "2026-08-02"),
+            todo("soon-low", due: "2026-08-01", pri: 1),
+            todo("soon-high", due: "2026-08-01", pri: 3),
+        ].sorted(by: TodoIndex.orderedBefore)
+        XCTAssertEqual(sorted.map(\.text),
+                       ["soon-high", "soon-low", "later", "undated", "done"])
+    }
+
+    // ── Tokenizer spot checks (grammar corners the vectors also cover, kept close for triage) ──
+
+    func testEmailNeverTokenizes() {
+        let t = TodoIndex.tokenizeLine("email tommy@cs.jhu.edu stays text")
+        XCTAssertEqual(t.text, "email tommy@cs.jhu.edu stays text")
+        XCTAssertTrue(t.entities.isEmpty)
+    }
+
+    func testLinkContentsAreMasked() {
+        let t = TodoIndex.tokenizeLine("read [the paper](https://example.com/p#frag) #real")
+        XCTAssertEqual(t.tags, ["real"])
+        XCTAssertEqual(t.links, [TodoLink(label: "the paper", url: "https://example.com/p#frag")])
+    }
+}

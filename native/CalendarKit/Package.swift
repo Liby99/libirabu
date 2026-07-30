@@ -39,7 +39,8 @@ let package = Package(
         .executableTarget(name: "CalendarMac", dependencies: ["CalendarUI"]),
         .executableTarget(name: "AssistantEvalRunner", dependencies: ["CalendarUI"]),
         .testTarget(name: "CalendarGeometryTests", dependencies: ["CalendarGeometry"]),
-        .testTarget(name: "CalendarEngineTests", dependencies: ["CalendarEngine", "CalendarGeometry"]),
+        .testTarget(name: "CalendarEngineTests", dependencies: ["CalendarEngine", "CalendarGeometry"],
+                    resources: [.copy("Fixtures")]),
     ],
     swiftLanguageModes: [.v5]
 )
