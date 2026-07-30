@@ -548,8 +548,37 @@ public struct CalendarView: View {
                 // the webview's frame-local coordinates (the frame spans the full content region,
                 // left edge at labelW, and never moves — no level-boundary snap).
                 let scopeGeom = dashScopePanels(input)
+                // Native dashboard (webview retirement phase 1b, cc.nativeDash): the TODO tab of
+                // the pinned week/month panel renders NATIVELY, positioned by the same panel-A
+                // geometry, riding the pin slide/zoom carousel inside this TimelineView. The
+                // webview is blanked for this tab (reveal 0 + hit gate pushed off) below.
+                let nativeTodo = NativeDash.enabled && dashTab == .todo
+                    && (scopeGeom?.a.name == "week" || scopeGeom?.a.name == "month")
+                if nativeTodo, let sg = scopeGeom, sg.a.op > 0.001 {
+                    let wt0 = weekDashTurn(input)
+                    let top = Layout.topPad + Layout.monthH + 14
+                    let pw = max(1, sg.a.w - 14)
+                    let ph = max(1, input.vp.h - top - Layout.bottomPad)
+                    let px = Layout.padLeft + sg.a.x + 8 - engine.gutterShift
+                    NativeDashPanel(
+                        engine: engine,
+                        scope: sg.a.name,
+                        key: sg.a.name == "week"
+                            ? (wt0.p < 0.5 ? wt0.fromKey : wt0.toKey)
+                            : String(format: "%04d-%02d", input.year, input.focus + 1),
+                        theme: theme,
+                        onOpen: { id in engine.revealAndSelect(id: id) }
+                    )
+                    .frame(width: pw, height: ph)
+                    .position(x: px + pw / 2, y: top + ph / 2)
+                    .offset(x: sceneDX)
+                    .opacity(Double(sg.a.op) * Double(c.reveal))
+                }
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
-                               dir: c.dir, p: c.p, reveal: c.reveal, slide: slide,
+                               // Native TODO tab: blank the webview (alpha 0 via reveal) and push
+                               // its hit gate off-screen (maskX → +inf) so clicks land on the
+                               // native panel; switching to NOTE/PROJ restores both per frame.
+                               dir: c.dir, p: c.p, reveal: nativeTodo ? 0 : c.reveal, slide: slide,
                                scopeA: sA, scopeB: sB, scopeT: sT,
                                headerTopY: Double(fHeader.bandY),
                                headerTopY2: Double(fHeader2.bandY),
@@ -565,7 +594,8 @@ public struct CalendarView: View {
                                mKeyA: mKeyA, mKeyB: mKeyB,
                                wFrom: wt.from, wTo: wt.to, wP: Double(wt.p),
                                wKeyA: wt.fromKey, wKeyB: wt.toKey,
-                               maskX: Double((scopeGeom?.mask ?? vpw) - Layout.labelW - engine.gutterShift),
+                               maskX: nativeTodo ? 1e9
+                                   : Double((scopeGeom?.mask ?? vpw) - Layout.labelW - engine.gutterShift),
                                maskW: Double(vpw - (scopeGeom?.mask ?? vpw)),
                                aName: scopeGeom?.a.name ?? "",
                                aX: Double((scopeGeom?.a.x ?? 0) - Layout.labelW - engine.gutterShift),

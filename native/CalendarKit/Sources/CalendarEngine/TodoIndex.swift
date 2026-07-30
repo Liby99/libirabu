@@ -180,7 +180,7 @@ public enum TodoIndex {
     static func pad2(_ n: Int) -> String { String(format: "%02d", n) }
 
     /// `30d` / `2w` / `3m` / `1y` added to a base `YYYY-MM-DD` date.
-    static func addDuration(_ baseIso: String, _ n: Int, _ unit: Character) -> String {
+    public static func addDuration(_ baseIso: String, _ n: Int, _ unit: Character) -> String {
         let p = baseIso.prefix(10).split(separator: "-").compactMap { Int($0) }
         guard p.count == 3 else { return baseIso }
         var c = DateComponents(year: p[0], month: p[1], day: p[2])

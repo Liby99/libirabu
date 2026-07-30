@@ -94,7 +94,7 @@ extension CalendarEngine {
     }
 
     /// "YYYY-MM" → its last day's ISO date.
-    static func monthEndIso(_ ym: String) -> String {
+    public static func monthEndIso(_ ym: String) -> String {
         let p = ym.split(separator: "-").compactMap { Int($0) }
         guard p.count == 2 else { return ym }
         return String(format: "%04d-%02d-%02d", p[0], p[1], daysInMonth(p[0], p[1] - 1))
