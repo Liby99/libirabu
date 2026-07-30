@@ -126,6 +126,10 @@ public final class CalendarEngine {
     /// keystroke costs zero rebuilds on the frame path; see dashboardDataJSON.
     var dashJSONCache: (gen: Int, noteGen: Int, viewIso: String, today: String, json: String)?
     var dashJSONWork: DispatchWorkItem? // coalesced burst refresh (never rebuilds on a keystroke)
+
+    /// The native TODO feed (webview retirement): the fully-parsed index over the whole store,
+    /// cached per (editGen, noteGen, today) — see CalendarEngine+TodoFeed.
+    var todoFeedCache: (gen: Int, noteGen: Int, today: String, todos: [ParsedTodo])?
     /// Ordering handshake with the dashboard note editor: the editor numbers every noteChange post
     /// and the host records the latest here BEFORE applying it; buildDashboardDataJSON stamps the
     /// payload with the value it incorporated. The editor then ignores payloads older than its own
