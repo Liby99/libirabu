@@ -267,19 +267,14 @@ private struct TodoRow: View {
             DashCheckbox(checked: todo.done, size: 13, action: onToggle)
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 0) {
-                        if todo.parentLine == nil, !todo.eventTitle.isEmpty,
-                           todo.source == "event" {
-                            Text("\(todo.eventTitle) · ")
-                                .font(.system(size: 12))
-                                .foregroundStyle(theme.text.opacity(0.4))
-                        }
-                        Text(todo.text)
-                            .font(.system(size: 12))
-                            .strikethrough(todo.done, color: theme.text.opacity(0.5))
-                            .foregroundStyle(theme.text.opacity(todo.done ? 0.4 : 0.78))
-                    }
-                    .lineLimit(2)
+                    // ONE text box: the provenance prefix and the content are inline SEGMENTS of
+                    // the same Text (concatenation), so a long item wraps normally — continuation
+                    // lines flow back under the prefix, exactly like the webview row. Separate
+                    // views in an HStack could never do that.
+                    titleText
+                        .font(.system(size: 12))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 6) {
                         if let p = todo.priority {
                             Text(String(repeating: "!", count: p))
@@ -303,5 +298,17 @@ private struct TodoRow: View {
             .buttonStyle(.plain)
         }
         .padding(.leading, CGFloat(min(todo.indent, 6)) * 16)
+    }
+
+    /// The row's single wrapped text: "Event · " prefix (dimmed) + content, as inline segments.
+    private var titleText: Text {
+        let content = Text(todo.text)
+            .strikethrough(todo.done, color: theme.text.opacity(0.5))
+            .foregroundStyle(theme.text.opacity(todo.done ? 0.4 : 0.78))
+        guard todo.parentLine == nil, !todo.eventTitle.isEmpty, todo.source == "event" else {
+            return content
+        }
+        return Text("\(todo.eventTitle) · ")
+            .foregroundStyle(theme.text.opacity(0.4)) + content
     }
 }
