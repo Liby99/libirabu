@@ -559,27 +559,33 @@ public struct CalendarView: View {
                 let dayInvolved = scopeGeom?.a.name == "day" || scopeGeom?.b?.name == "day"
                 let bodyPanels = dashBodyPanels(input)
                 let nativeTodo = NativeDash.enabled && !bodyPanels.isEmpty && !dayInvolved
-                if nativeTodo {
-                    let top = Layout.topPad + Layout.monthH + 14
-                    ForEach(bodyPanels.indices, id: \.self) { i in
-                        let panel = bodyPanels[i]
-                        let pw = max(1, panel.w - 14)
-                        let ph = max(1, input.vp.h - top - panel.dy - Layout.bottomPad)
-                        // GEOMETRY-space x only: the trailing .offset(x: sceneDX) applies
-                        // padLeft − gutterShift for every scene sibling — adding them here too
-                        // double-shifted the panel (visibly leftward once the gutter hid).
-                        let px = panel.x + 8
-                        NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
-                                        tab: dashTab, theme: theme, noteMode: $noteMode,
-                                        onOpen: { id in engine.revealAndSelect(id: id) })
-                            .frame(width: pw, height: ph)
-                            .offset(x: panel.dx) // in-panel slide, clipped to the panel frame
-                            .frame(width: pw, height: ph)
-                            .clipped()
-                            .position(x: px + pw / 2, y: top + panel.dy + ph / 2)
-                            .offset(x: sceneDX)
-                            .opacity(Double(panel.op) * Double(c.reveal))
+                if nativeTodo, let sg = scopeGeom {
+                    // The native #dash: ONE container framed to the mask region (scope.mask →
+                    // right edge) and clipped, exactly the header's clipRect — panels slide
+                    // within it and are cut at the mask like the Canvas chrome. Panel placement
+                    // reuses the header's OWN inset math (drawPanelChrome): content left =
+                    // panelLeft + 25, right = panelLeft + width − 18, body top = the header's
+                    // bottom bar (topY + Layout.monthH, dy-anchored) + the web's 14px gap.
+                    let maskW = max(1, input.vp.w - sg.mask)
+                    ZStack(alignment: .topLeading) {
+                        ForEach(bodyPanels.indices, id: \.self) { i in
+                            let panel = bodyPanels[i]
+                            let bx = panel.x + panel.dx + 25 - sg.mask
+                            let pw = max(1, panel.w - 25 - 18)
+                            let top = Layout.topPad + panel.dy + Layout.monthH + 14
+                            let ph = max(1, input.vp.h - top - Layout.bottomPad)
+                            NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
+                                            tab: dashTab, theme: theme, noteMode: $noteMode,
+                                            onOpen: { id in engine.revealAndSelect(id: id) })
+                                .frame(width: pw, height: ph)
+                                .position(x: bx + pw / 2, y: top + ph / 2)
+                                .opacity(Double(panel.op) * Double(c.reveal))
+                        }
                     }
+                    .frame(width: maskW, height: input.vp.h)
+                    .clipped()
+                    .position(x: sg.mask + maskW / 2, y: input.vp.h / 2)
+                    .offset(x: sceneDX)
                 }
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
                                // Native TODO tab: blank the webview (alpha 0 via reveal) and push
