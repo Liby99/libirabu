@@ -130,6 +130,8 @@ public final class CalendarEngine {
     /// The native TODO feed (webview retirement): the fully-parsed index over the whole store,
     /// cached per (editGen, noteGen, today) — see CalendarEngine+TodoFeed.
     var todoFeedCache: (gen: Int, noteGen: Int, today: String, todos: [ParsedTodo])?
+    /// The native PROJECTS index, same cadence — see ProjIndex.
+    var projFeedCache: (gen: Int, noteGen: Int, today: String, projects: [Project])?
     /// Ordering handshake with the dashboard note editor: the editor numbers every noteChange post
     /// and the host records the latest here BEFORE applying it; buildDashboardDataJSON stamps the
     /// payload with the value it incorporated. The editor then ignores payloads older than its own

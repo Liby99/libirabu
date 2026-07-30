@@ -121,8 +121,10 @@ struct NativeDashPanel: View {
 
     // ── Actions (the same soft-link writes the webview posted back) ──────────────────────────
 
-    private func toggle(_ t: ParsedTodo) {
-        let stamp = Self.todayIso() + "T" + Self.clockNow()
+    /// Flip a todo's checkbox in its source note (done-stamped), through the engine's own write
+    /// paths. Shared by the TODO and PROJ panels.
+    static func toggleTodo(_ engine: CalendarEngine, _ t: ParsedTodo) {
+        let stamp = todayIso() + "T" + clockNow()
         if t.source == "daily" {
             let key = t.dailyDate ?? ""
             let cur = engine.dailyNote(key)
@@ -136,6 +138,10 @@ struct NativeDashPanel: View {
                 engine.applyTodoNote(eventId: t.eventId, occKey: t.occurrenceKey, value: next)
             }
         }
+    }
+
+    private func toggle(_ t: ParsedTodo) {
+        Self.toggleTodo(engine, t)
     }
 
     private func openRow(_ t: ParsedTodo) {
@@ -181,8 +187,8 @@ struct NativeDashPanel: View {
 }
 
 /// A section header: uppercase title, count badge, optional "+N more" hint + expansion chevron
-/// (the PROJ panel's disclosure language).
-private struct SectionHeader: View {
+/// (the PROJ panel's disclosure language). Shared with NativeProjPanel.
+struct SectionHeader: View {
     let title: String
     let count: Int
     let hidden: Int

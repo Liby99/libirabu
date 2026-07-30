@@ -548,11 +548,11 @@ public struct CalendarView: View {
                 // the webview's frame-local coordinates (the frame spans the full content region,
                 // left edge at labelW, and never moves — no level-boundary snap).
                 let scopeGeom = dashScopePanels(input)
-                // Native dashboard (webview retirement phase 1b, cc.nativeDash): the TODO tab of
-                // the pinned week/month panel renders NATIVELY, positioned by the same panel-A
+                // Native dashboard (webview retirement, cc.nativeDash): the TODO and PROJ tabs of
+                // the pinned week/month panel render NATIVELY, positioned by the same panel-A
                 // geometry, riding the pin slide/zoom carousel inside this TimelineView. The
-                // webview is blanked for this tab (reveal 0 + hit gate pushed off) below.
-                let nativeTodo = NativeDash.enabled && dashTab == .todo
+                // webview is blanked for these tabs (reveal 0 + hit gate pushed off) below.
+                let nativeTodo = NativeDash.enabled && (dashTab == .todo || dashTab == .proj)
                     && (scopeGeom?.a.name == "week" || scopeGeom?.a.name == "month")
                 if nativeTodo, let sg = scopeGeom, sg.a.op > 0.001 {
                     let wt0 = weekDashTurn(input)
@@ -560,15 +560,20 @@ public struct CalendarView: View {
                     let pw = max(1, sg.a.w - 14)
                     let ph = max(1, input.vp.h - top - Layout.bottomPad)
                     let px = Layout.padLeft + sg.a.x + 8 - engine.gutterShift
-                    NativeDashPanel(
-                        engine: engine,
-                        scope: sg.a.name,
-                        key: sg.a.name == "week"
-                            ? (wt0.p < 0.5 ? wt0.fromKey : wt0.toKey)
-                            : String(format: "%04d-%02d", input.year, input.focus + 1),
-                        theme: theme,
-                        onOpen: { id in engine.revealAndSelect(id: id) }
-                    )
+                    let panelKey = sg.a.name == "week"
+                        ? (wt0.p < 0.5 ? wt0.fromKey : wt0.toKey)
+                        : String(format: "%04d-%02d", input.year, input.focus + 1)
+                    Group {
+                        if dashTab == .proj {
+                            NativeProjPanel(engine: engine, scope: sg.a.name, key: panelKey,
+                                            theme: theme,
+                                            onOpen: { id in engine.revealAndSelect(id: id) })
+                        } else {
+                            NativeDashPanel(engine: engine, scope: sg.a.name, key: panelKey,
+                                            theme: theme,
+                                            onOpen: { id in engine.revealAndSelect(id: id) })
+                        }
+                    }
                     .frame(width: pw, height: ph)
                     .position(x: px + pw / 2, y: top + ph / 2)
                     .offset(x: sceneDX)
