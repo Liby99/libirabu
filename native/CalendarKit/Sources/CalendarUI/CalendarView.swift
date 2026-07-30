@@ -548,11 +548,12 @@ public struct CalendarView: View {
                 // the webview's frame-local coordinates (the frame spans the full content region,
                 // left edge at labelW, and never moves — no level-boundary snap).
                 let scopeGeom = dashScopePanels(input)
-                // Native dashboard (webview retirement, cc.nativeDash): the TODO and PROJ tabs of
-                // the pinned week/month panel render NATIVELY, positioned by the same panel-A
-                // geometry, riding the pin slide/zoom carousel inside this TimelineView. The
-                // webview is blanked for these tabs (reveal 0 + hit gate pushed off) below.
-                let nativeTodo = NativeDash.enabled && (dashTab == .todo || dashTab == .proj)
+                // Native dashboard (webview retirement, cc.nativeDash): ALL tabs of the pinned
+                // week/month panel render NATIVELY — TODO/PROJ lists, and the NOTE tab's
+                // editor/preview — positioned by the same panel-A geometry, riding the pin slide/
+                // zoom carousel inside this TimelineView. The webview is blanked for these tabs
+                // (reveal 0 + hit gate pushed off) below.
+                let nativeTodo = NativeDash.enabled
                     && (scopeGeom?.a.name == "week" || scopeGeom?.a.name == "month")
                 if nativeTodo, let sg = scopeGeom, sg.a.op > 0.001 {
                     let wt0 = weekDashTurn(input)
@@ -564,11 +565,15 @@ public struct CalendarView: View {
                         ? (wt0.p < 0.5 ? wt0.fromKey : wt0.toKey)
                         : String(format: "%04d-%02d", input.year, input.focus + 1)
                     Group {
-                        if dashTab == .proj {
+                        switch dashTab {
+                        case .proj:
                             NativeProjPanel(engine: engine, scope: sg.a.name, key: panelKey,
                                             theme: theme,
                                             onOpen: { id in engine.revealAndSelect(id: id) })
-                        } else {
+                        case .note:
+                            NativeNotePanel(engine: engine, scope: sg.a.name, key: panelKey,
+                                            theme: theme, noteMode: $noteMode)
+                        case .todo:
                             NativeDashPanel(engine: engine, scope: sg.a.name, key: panelKey,
                                             theme: theme,
                                             onOpen: { id in engine.revealAndSelect(id: id) })
