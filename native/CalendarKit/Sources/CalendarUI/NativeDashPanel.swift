@@ -165,9 +165,7 @@ struct NativeDashPanel: View {
         let days = daysBetween(today, d)
         if days == 1 { return "tomorrow" }
         if days == -1 { return "yesterday" }
-        if days < 0 { return "\(-days)d over" }
-        if days <= 14 { return "in \(days)d" }
-        return d
+        return days < 0 ? "\(-days)d ago" : "in \(days)d"
     }
 
     static func daysBetween(_ a: String, _ b: String) -> Int {
@@ -252,8 +250,12 @@ private struct DeadlineRowView: View {
     }
 }
 
-/// One todo row: checkbox, indented text with a provenance prefix, and compact meta chips
-/// (priority bangs, relative due, tags). Toggling flips the source line in place.
+/// One todo row — a faithful port of the webview's .cc-dtodo styling: 15px rounded checkbox,
+/// 13px title (prefix + content as inline segments of ONE wrapped text; accent-grey prefix,
+/// accent-grey + strike when done), then the 11px meta row — priority bangs (mono-heavy red;
+/// levels 4-5 as a white-on-red badge), "↪ follow up …" in teal (red when overdue) OR the
+/// relative due (accent-grey; red semibold when overdue), boxed project chips (≤2), and #tags
+/// in the ACCENT color (≤3).
 private struct TodoRow: View {
     let todo: ParsedTodo
     let today: String
@@ -261,54 +263,78 @@ private struct TodoRow: View {
     var onToggle: () -> Void
     var onOpen: () -> Void
 
+    private static let followupTeal = Color(red: 0x4F / 255.0, green: 0xB0 / 255.0, blue: 0xB0 / 255.0)
+
     var body: some View {
-        let overdue = !todo.done && TodoFeed.opDate(todo) < today
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
-            DashCheckbox(checked: todo.done, size: 13, action: onToggle)
+        HStack(alignment: .top, spacing: 8) {
+            DashCheckbox(checked: todo.done, size: 15, action: onToggle)
+                .padding(.top, 2) // .cc-dtodo-check margin-top
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 1) {
-                    // ONE text box: the provenance prefix and the content are inline SEGMENTS of
-                    // the same Text (concatenation), so a long item wraps normally — continuation
-                    // lines flow back under the prefix, exactly like the webview row. Separate
-                    // views in an HStack could never do that.
                     titleText
-                        .font(.system(size: 12))
+                        .font(.system(size: 13))
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 6) {
-                        if let p = todo.priority {
-                            Text(String(repeating: "!", count: p))
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(theme.eventBorder("red"))
-                        }
-                        if !todo.done {
-                            Text(NativeDashPanel.relDue(today, TodoFeed.opDate(todo)))
-                                .font(.system(size: 10))
-                                .foregroundStyle(overdue ? theme.eventBorder("red")
-                                    : theme.text.opacity(0.5))
-                        }
-                        ForEach(todo.tags.prefix(3), id: \.self) { tag in
-                            Text("#\(tag)")
-                                .font(.system(size: 10))
-                                .foregroundStyle(theme.accentGrey)
-                        }
-                    }
+                    metaRow
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
         .padding(.leading, CGFloat(min(todo.indent, 6)) * 16)
     }
 
-    /// The row's single wrapped text: "Event · " prefix (dimmed) + content, as inline segments.
+    /// The row's single wrapped text: "Event · " prefix (accent-grey) + content, inline segments.
     private var titleText: Text {
         let content = Text(todo.text)
-            .strikethrough(todo.done, color: theme.text.opacity(0.5))
-            .foregroundStyle(theme.text.opacity(todo.done ? 0.4 : 0.78))
+            .strikethrough(todo.done, color: theme.accentGrey)
+            .foregroundStyle(todo.done ? theme.accentGrey : theme.text)
         guard todo.parentLine == nil, !todo.eventTitle.isEmpty, todo.source == "event" else {
             return content
         }
-        return Text("\(todo.eventTitle) · ")
-            .foregroundStyle(theme.text.opacity(0.4)) + content
+        return Text("\(todo.eventTitle) · ").foregroundStyle(theme.accentGrey) + content
+    }
+
+    private var metaRow: some View {
+        let opd = TodoFeed.opDate(todo)
+        let overdue = opd < today
+        let red = theme.eventBorder("red")
+        return HStack(spacing: 6) {
+            if let p = todo.priority {
+                let bangs = Text(String(repeating: "!", count: p))
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .kerning(-0.5)
+                if p >= 4 { // levels 4-5: white on red badge
+                    bangs.foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(red))
+                } else {
+                    bangs.foregroundStyle(red)
+                }
+            }
+            if let f = todo.followup {
+                Text("↪ follow up \(NativeDashPanel.relDue(today, f))")
+                    .font(.system(size: 11, weight: overdue ? .semibold : .medium))
+                    .foregroundStyle(overdue ? red : Self.followupTeal)
+            } else {
+                Text(NativeDashPanel.relDue(today, opd))
+                    .font(.system(size: 11, weight: overdue ? .semibold : .regular))
+                    .foregroundStyle(overdue ? red : theme.accentGrey)
+            }
+            ForEach(todo.projects.prefix(2), id: \.self) { proj in
+                Text(proj)
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.text.opacity(0.8))
+                    .padding(.horizontal, 5).padding(.vertical, 0.5)
+                    .background(Capsule().fill(theme.accentGrey.opacity(0.10)))
+                    .overlay(Capsule().strokeBorder(theme.accentGrey.opacity(0.45), lineWidth: 1))
+            }
+            ForEach(todo.tags.prefix(3), id: \.self) { tag in
+                Text("#\(tag)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.accent.opacity(0.85))
+            }
+        }
     }
 }
+

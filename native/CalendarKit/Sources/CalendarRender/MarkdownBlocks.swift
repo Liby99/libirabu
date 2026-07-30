@@ -17,21 +17,23 @@ public struct DashCheckbox: View {
     let size: CGFloat
     var action: (() -> Void)?
 
-    public init(checked: Bool, size: CGFloat = 14, action: (() -> Void)? = nil) {
+    public init(checked: Bool, size: CGFloat = 15, action: (() -> Void)? = nil) {
         self.checked = checked; self.size = size; self.action = action
     }
 
     public var body: some View {
+        // The webview's .cc-dtodo-check: 15px box, 5px radius, 1.5px accent-grey border;
+        // checked = the ACCENT fill with a white check.
         let box = ZStack {
             if checked {
-                RoundedRectangle(cornerRadius: size * 0.29)
+                RoundedRectangle(cornerRadius: size * 0.33)
                     .fill(Theme.accent)
                 Image(systemName: "checkmark")
-                    .font(.system(size: size * 0.58, weight: .bold))
+                    .font(.system(size: size * 0.55, weight: .bold))
                     .foregroundStyle(.white)
             } else {
-                RoundedRectangle(cornerRadius: size * 0.29)
-                    .strokeBorder(Color.secondary.opacity(0.55), lineWidth: 1.2)
+                RoundedRectangle(cornerRadius: size * 0.33)
+                    .strokeBorder(Color.secondary.opacity(0.55), lineWidth: 1.5)
             }
         }
         .frame(width: size, height: size)
