@@ -43,7 +43,7 @@ struct NativeDashPanel: View {
         let kids = TodoFeed.childrenIndex(todos)
 
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 16) {
                 if prefs.deadlines {
                     deadlineSection(start: start, end: end, today: today)
                 }
@@ -83,7 +83,7 @@ struct NativeDashPanel: View {
         let open = !capped || doneOpen.contains(s.key)
         let roots = open ? s.items : Array(s.items.prefix(Self.doneShow))
         let rows: [ParsedTodo] = roots.flatMap { TodoFeed.subtree($0, kids) }
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 6) {
             SectionHeader(title: s.title, count: s.items.count,
                           hidden: capped && !open ? s.items.count - Self.doneShow : 0,
                           chevron: capped, open: open, theme: theme) {
@@ -200,9 +200,9 @@ struct SectionHeader: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(title.uppercased())
-                .font(.system(size: 11, weight: .bold))
-                .kerning(0.6)
-                .foregroundStyle(theme.text.opacity(0.7))
+                .font(.system(size: 10.5, weight: .semibold))
+                .kerning(0.8)
+                .foregroundStyle(theme.text.opacity(0.55))
             Text("\(count)")
                 .font(.system(size: 10, weight: .semibold))
                 .padding(.horizontal, 6).padding(.vertical, 2)
@@ -264,13 +264,7 @@ private struct TodoRow: View {
     var body: some View {
         let overdue = !todo.done && TodoFeed.opDate(todo) < today
         HStack(alignment: .firstTextBaseline, spacing: 7) {
-            Button(action: onToggle) {
-                Image(systemName: todo.done ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 13))
-                    .foregroundStyle(todo.done ? theme.eventBorder(todo.color ?? "red")
-                        : theme.accentGrey)
-            }
-            .buttonStyle(.plain)
+            DashCheckbox(checked: todo.done, size: 13, action: onToggle)
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 0) {
@@ -278,12 +272,12 @@ private struct TodoRow: View {
                            todo.source == "event" {
                             Text("\(todo.eventTitle) · ")
                                 .font(.system(size: 12))
-                                .foregroundStyle(theme.text.opacity(0.45))
+                                .foregroundStyle(theme.text.opacity(0.4))
                         }
                         Text(todo.text)
                             .font(.system(size: 12))
                             .strikethrough(todo.done, color: theme.text.opacity(0.5))
-                            .foregroundStyle(todo.done ? theme.text.opacity(0.45) : theme.text)
+                            .foregroundStyle(theme.text.opacity(todo.done ? 0.4 : 0.78))
                     }
                     .lineLimit(2)
                     HStack(spacing: 6) {

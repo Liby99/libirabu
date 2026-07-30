@@ -9,6 +9,41 @@
 import CalendarEngine
 import SwiftUI
 
+/// The house checkbox for todo rows everywhere native (dashboard lists, gantt labels, note
+/// previews): a ROUNDED square, stroked grey when open, filled with the ACCENT (red) and a white
+/// check when done — matching the webview's styling, not SF Symbols' sharp squares.
+public struct DashCheckbox: View {
+    let checked: Bool
+    let size: CGFloat
+    var action: (() -> Void)?
+
+    public init(checked: Bool, size: CGFloat = 14, action: (() -> Void)? = nil) {
+        self.checked = checked; self.size = size; self.action = action
+    }
+
+    public var body: some View {
+        let box = ZStack {
+            if checked {
+                RoundedRectangle(cornerRadius: size * 0.29)
+                    .fill(Theme.accent)
+                Image(systemName: "checkmark")
+                    .font(.system(size: size * 0.58, weight: .bold))
+                    .foregroundStyle(.white)
+            } else {
+                RoundedRectangle(cornerRadius: size * 0.29)
+                    .strokeBorder(Color.secondary.opacity(0.55), lineWidth: 1.2)
+            }
+        }
+        .frame(width: size, height: size)
+        if let action {
+            Button(action: action) { box.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+        } else {
+            box
+        }
+    }
+}
+
 public struct MarkdownBlocksView: View {
     let text: String
     let accent: Color // checked todos + quote bars pick this up
@@ -166,14 +201,8 @@ public struct MarkdownBlocksView: View {
     /// preview got from remarkTodoTokens.
     private func todoRow(_ b: Block, done: Bool, tok: TodoLineTokens, indent: Int) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            let box = Image(systemName: done ? "checkmark.square.fill" : "square")
-                .font(.system(size: 15))
-                .foregroundStyle(done ? accent : Color.secondary)
-            if let onToggle {
-                Button { onToggle(b.id) } label: { box }.buttonStyle(.plain)
-            } else {
-                box
-            }
+            DashCheckbox(checked: done, size: 14,
+                         action: onToggle.map { f in { f(b.id) } })
             (todoText(tok, done: done) + chips(tok))
                 .font(.callout)
         }

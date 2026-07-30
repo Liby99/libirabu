@@ -107,17 +107,12 @@ private struct ProjChart: View {
 
     private func labelRow(_ t: ProjTask) -> some View {
         HStack(spacing: 5) {
-            Button { onToggle(t) } label: {
-                Image(systemName: t.end != nil ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 11))
-                    .foregroundStyle(t.end != nil ? theme.eventBorder(t.color) : theme.accentGrey)
-            }
-            .buttonStyle(.plain)
+            DashCheckbox(checked: t.end != nil, size: 11) { onToggle(t) }
             Button { onOpen(t.todo.eventId) } label: {
                 Text(t.todo.text)
                     .font(.system(size: 11))
                     .strikethrough(t.end != nil, color: theme.text.opacity(0.4))
-                    .foregroundStyle(t.end != nil ? theme.text.opacity(0.45) : theme.text)
+                    .foregroundStyle(theme.text.opacity(t.end != nil ? 0.4 : 0.78))
                     .lineLimit(1)
             }
             .buttonStyle(.plain)

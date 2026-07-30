@@ -556,37 +556,11 @@ public struct CalendarView: View {
                 // layer, so header and body cannot drift. A DAY panel in the transition pair
                 // (week↔day zoom) falls back to the webview wholesale: the day dashboard isn't
                 // native yet, and a half-native cross-fade would double-render one side.
+                // Native dashboard (cc.nativeDash): the BODY lives in its own hit-testable
+                // overlay above the input catcher (nativeDashOverlay — the whole scene here is
+                // allowsHitTesting(false)); this scope only decides the webview blanking below.
                 let dayInvolved = scopeGeom?.a.name == "day" || scopeGeom?.b?.name == "day"
-                let bodyPanels = dashBodyPanels(input)
-                let nativeTodo = NativeDash.enabled && !bodyPanels.isEmpty && !dayInvolved
-                if nativeTodo, let sg = scopeGeom {
-                    // The native #dash: ONE container framed to the mask region (scope.mask →
-                    // right edge) and clipped, exactly the header's clipRect — panels slide
-                    // within it and are cut at the mask like the Canvas chrome. Panel placement
-                    // reuses the header's OWN inset math (drawPanelChrome): content left =
-                    // panelLeft + 25, right = panelLeft + width − 18, body top = the header's
-                    // bottom bar (topY + Layout.monthH, dy-anchored) + the web's 14px gap.
-                    let maskW = max(1, input.vp.w - sg.mask)
-                    ZStack(alignment: .topLeading) {
-                        ForEach(bodyPanels.indices, id: \.self) { i in
-                            let panel = bodyPanels[i]
-                            let bx = panel.x + panel.dx + 25 - sg.mask
-                            let pw = max(1, panel.w - 25 - 18)
-                            let top = Layout.topPad + panel.dy + Layout.monthH + 14
-                            let ph = max(1, input.vp.h - top - Layout.bottomPad)
-                            NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
-                                            tab: dashTab, theme: theme, noteMode: $noteMode,
-                                            onOpen: { id in engine.revealAndSelect(id: id) })
-                                .frame(width: pw, height: ph)
-                                .position(x: bx + pw / 2, y: top + ph / 2)
-                                .opacity(Double(panel.op) * Double(c.reveal))
-                        }
-                    }
-                    .frame(width: maskW, height: input.vp.h)
-                    .clipped()
-                    .position(x: sg.mask + maskW / 2, y: input.vp.h / 2)
-                    .offset(x: sceneDX)
-                }
+                let nativeTodo = NativeDash.enabled && !dayInvolved && scopeGeom != nil
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
                                // Native TODO tab: blank the webview (alpha 0 via reveal) and push
                                // its hit gate off-screen (maskX → +inf) so clicks land on the
@@ -637,6 +611,44 @@ public struct CalendarView: View {
         .opacity(input.flipFade) // whole-calendar fade during a year flip
         .blur(radius: ui.openEventId != nil ? 5 : 0) // drawer open → soft-blur behind the scrim
         .offset(x: -engine.drawerShift) // slide left so the drawer item is revealed/centered
+    }
+
+    /// The native dashboard BODY panels for this frame (cc.nativeDash): ONE container framed to
+    /// the mask region (scope.mask → right edge) and clipped — the header's clipRect — with each
+    /// sub-panel from dashBodyPanels placed by the header's OWN inset math (drawPanelChrome):
+    /// content left = panelLeft + 25, right = panelLeft + width − 18, top = the header's bottom
+    /// bar (topY + Layout.monthH, dy-anchored to the band frame) + the overlay's 14px gap.
+    @ViewBuilder
+    private func nativeDashOverlay(theme: Theme) -> some View {
+        let input = engine.snapshotInput()
+        let dayInvolved: Bool = {
+            guard let sg = dashScopePanels(input) else { return false }
+            return sg.a.name == "day" || sg.b?.name == "day"
+        }()
+        let bodyPanels = dashBodyPanels(input)
+        let c = engine.dashboardCarousel()
+        if !dayInvolved, !bodyPanels.isEmpty, let sg = dashScopePanels(input) {
+            let maskW = max(1, input.vp.w - sg.mask)
+            ZStack(alignment: .topLeading) {
+                ForEach(bodyPanels.indices, id: \.self) { i in
+                    let panel = bodyPanels[i]
+                    let bx = panel.x + panel.dx + 25 - sg.mask
+                    let pw = max(1, panel.w - 25 - 18)
+                    let top = Layout.topPad + panel.dy + Layout.monthH + 14
+                    let ph = max(1, input.vp.h - top - Layout.bottomPad)
+                    NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
+                                    tab: dashTab, theme: theme, noteMode: $noteMode,
+                                    onOpen: { id in engine.revealAndSelect(id: id) })
+                        .frame(width: pw, height: ph)
+                        .position(x: bx + pw / 2, y: top + ph / 2)
+                        .opacity(Double(panel.op) * Double(c.reveal))
+                }
+            }
+            .frame(width: maskW, height: input.vp.h)
+            .clipped()
+            .position(x: sg.mask + maskW / 2, y: input.vp.h / 2)
+            .offset(x: Layout.padLeft - engine.gutterShift)
+        }
     }
 
     /// The clicked event lifted sharp above the drawer scrim (a second render of just that box).
@@ -754,6 +766,22 @@ public struct CalendarView: View {
                                 // close (the WKWebView layer ignores the SwiftUI scrim/allowsHitTesting anyway).
                                 .allowsHitTesting(engine.chrome.level == 3
                                     || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)))
+                        }
+                    }
+                    // Native dashboard BODY (cc.nativeDash): its own overlay ABOVE the input
+                    // catcher so scroll/click interactions are real (the scene subtree is
+                    // allowsHitTesting(false) wholesale). A second TimelineView on the same
+                    // clock reading snapshotInput() — the frame the main loop already computed —
+                    // so tweens never double-advance and the body stays in per-frame lockstep
+                    // with the Canvas header.
+                    .overlay {
+                        if NativeDash.enabled {
+                            TimelineView(.animation(minimumInterval: nil,
+                                                    paused: !engine.renderClock.awake)) { _ in
+                                nativeDashOverlay(theme: theme)
+                            }
+                            .allowsHitTesting(ui.openEventId == nil && engine.chrome.dashPinned
+                                && (1 ... 2).contains(engine.chrome.level))
                         }
                     }
                     // TODO/NOTE tabs + note edit/preview toggle — SEPARATE overlays ABOVE the WebView so the
