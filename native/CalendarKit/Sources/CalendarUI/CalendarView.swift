@@ -549,40 +549,37 @@ public struct CalendarView: View {
                 // left edge at labelW, and never moves — no level-boundary snap).
                 let scopeGeom = dashScopePanels(input)
                 // Native dashboard (webview retirement, cc.nativeDash): ALL tabs of the pinned
-                // week/month panel render NATIVELY — TODO/PROJ lists, and the NOTE tab's
-                // editor/preview — positioned by the same panel-A geometry, riding the pin slide/
-                // zoom carousel inside this TimelineView. The webview is blanked for these tabs
-                // (reveal 0 + hit gate pushed off) below.
-                let nativeTodo = NativeDash.enabled
-                    && (scopeGeom?.a.name == "week" || scopeGeom?.a.name == "month")
-                if nativeTodo, let sg = scopeGeom, sg.a.op > 0.001 {
-                    let wt0 = weekDashTurn(input)
+                // week/month panel render NATIVELY, transition-complete — BOTH scope panels of a
+                // zoom cross-fade, each positioned by its OWN dashScopePanels geometry, with the
+                // week/month turns handled inside NativePanelHost from the same per-frame values
+                // the Canvas header draws with (header and body stay in lockstep — the desync the
+                // webview bridge never fully closed). A DAY panel in the pair (week↔day zoom)
+                // falls back to the webview wholesale: the day dashboard isn't native yet, and a
+                // half-native cross-fade would double-render one side.
+                let dayInvolved = scopeGeom?.a.name == "day" || scopeGeom?.b?.name == "day"
+                let nativeTodo = NativeDash.enabled && scopeGeom != nil && !dayInvolved
+                if nativeTodo, let sg = scopeGeom {
+                    let livePanels = ([sg.a] + (sg.b.map { [$0] } ?? []))
+                        .filter { $0.op > 0.001 && ($0.name == "week" || $0.name == "month") }
                     let top = Layout.topPad + Layout.monthH + 14
-                    let pw = max(1, sg.a.w - 14)
                     let ph = max(1, input.vp.h - top - Layout.bottomPad)
-                    let px = Layout.padLeft + sg.a.x + 8 - engine.gutterShift
-                    let panelKey = sg.a.name == "week"
-                        ? (wt0.p < 0.5 ? wt0.fromKey : wt0.toKey)
-                        : String(format: "%04d-%02d", input.year, input.focus + 1)
-                    Group {
-                        switch dashTab {
-                        case .proj:
-                            NativeProjPanel(engine: engine, scope: sg.a.name, key: panelKey,
-                                            theme: theme,
-                                            onOpen: { id in engine.revealAndSelect(id: id) })
-                        case .note:
-                            NativeNotePanel(engine: engine, scope: sg.a.name, key: panelKey,
-                                            theme: theme, noteMode: $noteMode)
-                        case .todo:
-                            NativeDashPanel(engine: engine, scope: sg.a.name, key: panelKey,
-                                            theme: theme,
-                                            onOpen: { id in engine.revealAndSelect(id: id) })
-                        }
+                    ForEach(livePanels.indices, id: \.self) { i in
+                        let panel = livePanels[i]
+                        let pw = max(1, panel.w - 14)
+                        let px = Layout.padLeft + panel.x + 8 - engine.gutterShift
+                        NativePanelHost(engine: engine, scope: panel.name, tab: dashTab,
+                                        theme: theme,
+                                        wFromKey: wt.fromKey, wToKey: wt.toKey, wP: CGFloat(wt.p),
+                                        mKeyA: mKeyA, mKeyB: mKeyB, mP: CGFloat(mP),
+                                        mDy0: fHeader.bandY - fRest.bandY,
+                                        mDy1: fHeader2.bandY - fRest.bandY,
+                                        noteMode: $noteMode,
+                                        onOpen: { id in engine.revealAndSelect(id: id) })
+                            .frame(width: pw, height: ph)
+                            .position(x: px + pw / 2, y: top + ph / 2)
+                            .offset(x: sceneDX)
+                            .opacity(Double(panel.op) * Double(c.reveal))
                     }
-                    .frame(width: pw, height: ph)
-                    .position(x: px + pw / 2, y: top + ph / 2)
-                    .offset(x: sceneDX)
-                    .opacity(Double(sg.a.op) * Double(c.reveal))
                 }
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
                                // Native TODO tab: blank the webview (alpha 0 via reveal) and push
