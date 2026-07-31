@@ -148,7 +148,7 @@ private struct ProjChart: View {
 
     private var headroom: CGFloat { project.deadlines.isEmpty && project.events.isEmpty ? 18 : 36 }
     private var chartHeight: CGFloat {
-        headroom + CGFloat(tasks.count) * NativeProjPanel.rowH + 34 // + the two axis rows
+        headroom + CGFloat(tasks.count) * NativeProjPanel.rowH + 36 // + the two axis rows
     }
 
     var body: some View {
@@ -365,20 +365,31 @@ private struct ProjChart: View {
         let span = s.span
         let step = span <= 42 ? 7 : span <= 100 ? 30 : span <= 240 ? 60 : 90
         let firstK = Int(ceil(Double(-ProjIndex.daysBetween(s.lo, today)) / Double(step))) * step
+        let axisColor = theme.text.opacity(0.5)
+        let lineY = plotH + 17 // the .cc-proj-months border-top: between the two axis rows
+        Rectangle().fill(Color.gray.opacity(0.25))
+            .frame(width: w, height: 1)
+            .offset(y: lineY)
         ForEach(Array(stride(from: firstK, through: firstK + 12 * step, by: step)), id: \.self) { k in
             let iso = TodoIndex.addDuration(today, k, "d")
             if iso >= s.lo, iso <= s.hi {
                 Text(k == 0 ? "now" : k < 0 ? "\(-k)d ago" : "in \(k)d")
                     .font(.system(size: 10))
-                    .foregroundStyle(theme.text.opacity(0.5))
+                    .foregroundStyle(axisColor)
                     .position(x: s.x(iso) * w, y: plotH + 9)
+                Rectangle().fill(axisColor) // its tick: above the line, pointing down at it
+                    .frame(width: 1, height: 3)
+                    .position(x: s.x(iso) * w, y: lineY - 1)
             }
         }
         ForEach(calendarTicks(s), id: \.0) { iso, label in
             Text(label)
                 .font(.system(size: 10))
-                .foregroundStyle(theme.text.opacity(0.5))
-                .position(x: s.x(iso) * w, y: plotH + 24)
+                .foregroundStyle(axisColor)
+                .position(x: s.x(iso) * w, y: plotH + 26)
+            Rectangle().fill(axisColor) // its tick: below the line
+                .frame(width: 1, height: 3)
+                .position(x: s.x(iso) * w, y: lineY + 2)
         }
     }
 
