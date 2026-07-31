@@ -94,6 +94,10 @@ final class TodoFeedTests: XCTestCase {
         XCTAssertEqual(first.map(\.text), ["cached item"])
         XCTAssertEqual(engine.todoFeed(today: today).map(\.text), first.map(\.text)) // cache hit
         engine.setDailyNote("2026-07-30", "- [ ] cached item due:today\n- [ ] second")
-        XCTAssertEqual(engine.todoFeed(today: today).count, 2) // noteGen bump invalidated
+        // Serve-stale contract: a gen-only-stale read returns the OLD feed (the rebuild is
+        // coalesced off the frame path); an explicit self-edit refresh lands the new parse.
+        XCTAssertEqual(engine.todoFeed(today: today).count, 1)
+        engine.todoFeedRefreshNow(today: today)
+        XCTAssertEqual(engine.todoFeed(today: today).count, 2)
     }
 }
