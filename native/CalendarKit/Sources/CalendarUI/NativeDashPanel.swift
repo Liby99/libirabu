@@ -91,7 +91,9 @@ struct NativeDashPanel: View {
             }
             ForEach(rows.indices, id: \.self) { i in
                 let t = rows[i]
-                TodoRow(todo: t, today: today, theme: theme,
+                TodoRow(todo: t, today: today,
+                        ownNoteKey: scope == "week" ? "week:\(key)" : "month:\(key)",
+                        theme: theme,
                         onToggle: { toggle(t) },
                         onOpen: { openRow(t) })
             }
@@ -261,6 +263,7 @@ private struct DeadlineRowView: View {
 private struct TodoRow: View {
     let todo: ParsedTodo
     let today: String
+    var ownNoteKey: String = "" // the hosting panel's own scope-note key — its items drop the prefix
     let theme: Theme
     var onToggle: () -> Void
     var onOpen: () -> Void
@@ -307,7 +310,13 @@ private struct TodoRow: View {
         let content = Text(todo.text)
             .strikethrough(todo.done, color: theme.accentGrey)
             .foregroundStyle(contentColor)
-        guard todo.parentLine == nil, !todo.eventTitle.isEmpty, todo.source == "event" else {
+        // The web's prefix rule (rowHTML): EVERY source shows its provenance — event titles and
+        // note titles ("Daily note · 2026-07-28", "Weekly note · …") alike — except sub-items,
+        // the panel's OWN scope note (its title would be redundant inside its own panel), and
+        // today's daily note.
+        let ownNote = todo.source == "daily"
+            && (todo.dailyDate == ownNoteKey || todo.dailyDate == today)
+        guard todo.parentLine == nil, !todo.eventTitle.isEmpty, !ownNote else {
             return content
         }
         return Text("\(todo.eventTitle) · ").foregroundStyle(theme.accentGrey) + content
