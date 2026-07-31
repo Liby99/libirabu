@@ -60,13 +60,13 @@ struct NativeDashPanel: View {
                                                word: word, prefs: prefs)
         let live = Dictionary(todos.map { (Self.anchor($0), $0) }, uniquingKeysWith: { a, _ in a })
 
-        // Register the VISIBLE rows (display order) for the keyboard cursor — off the render
-        // pass, and only from the settled panel (nav during a transition sub-panel is moot).
+        // Register the VISIBLE rows (display order, fold-aware) for the keyboard cursor — off
+        // the render pass, and only from the settled panel.
         let displayRows: [ParsedTodo] = sections.flatMap { sec -> [ParsedTodo] in
             let capped = sec.done && sec.items.count > Self.doneShow
                 && !doneOpen.contains(sec.key)
             let roots = capped ? Array(sec.items.prefix(Self.doneShow)) : sec.items
-            return roots.flatMap { TodoFeed.subtree($0, kids) }.map { live[Self.anchor($0)] ?? $0 }
+            return visibleItems(roots: roots, kids: kids).map { live[Self.anchor($0.todo)] ?? $0.todo }
         }
         let _ = { if let nav { DispatchQueue.main.async { nav.rows = displayRows } } }()
         ScrollViewReader { proxy in
@@ -104,6 +104,41 @@ struct NativeDashPanel: View {
     /// A todo's soft-link identity (note scope + line) — stable across a toggle, unlike tieKey
     /// (whose raw-line component changes when `[ ]` flips or a done: stamp lands).
     static func anchor(_ t: ParsedTodo) -> String { "\(TodoFeed.scopeKey(t))\0\(t.line)" }
+
+    /// One visible row of the fold-aware tree walk.
+    struct RowItem {
+        let todo: ParsedTodo
+        let foldable: Bool
+        let folded: Bool
+        let hidden: Int // subtree rows hidden under a folded parent
+    }
+
+    private var collapsedSet: Set<String> { nav?.collapsedSubs ?? [] }
+
+    private func toggleFold(_ t: ParsedTodo) {
+        guard let nav else { return }
+        let a = Self.anchor(t)
+        withAnimation(.easeInOut(duration: 0.17)) {
+            if nav.collapsedSubs.contains(a) { nav.collapsedSubs.remove(a) }
+            else { nav.collapsedSubs.insert(a) }
+        }
+        engine.wake()
+    }
+
+    /// Walk each root's subtree skipping folded parents' descendants (the web's collapsed set).
+    private func visibleItems(roots: [ParsedTodo],
+                              kids: [String: [ParsedTodo]]) -> [RowItem] {
+        var out: [RowItem] = []
+        func walk(_ t: ParsedTodo) {
+            let children = kids["\(TodoFeed.scopeKey(t))\0\(t.line)"] ?? []
+            let folded = !children.isEmpty && collapsedSet.contains(Self.anchor(t))
+            out.append(RowItem(todo: t, foldable: !children.isEmpty, folded: folded,
+                               hidden: folded ? TodoFeed.subtree(t, kids).count - 1 : 0))
+            if !folded { for c in children { walk(c) } }
+        }
+        for r in roots { walk(r) }
+        return out
+    }
 
     /// The frozen list structure, refreshed only at FULL-RENDER boundaries: first render, panel
     /// re-key / prefs change, or a data change we didn't make ourselves.
@@ -185,7 +220,7 @@ struct NativeDashPanel: View {
         let capped = s.done && s.items.count > Self.doneShow
         let open = !capped || doneOpen.contains(s.key)
         let roots = open ? s.items : Array(s.items.prefix(Self.doneShow))
-        let rows: [ParsedTodo] = roots.flatMap { TodoFeed.subtree($0, kids) }
+        let rows = visibleItems(roots: roots, kids: kids)
         VStack(alignment: .leading, spacing: 5) {
             SectionHeader(title: s.title, count: s.items.count,
                           hidden: capped && !open ? s.items.count - Self.doneShow : 0,
@@ -196,15 +231,18 @@ struct NativeDashPanel: View {
                 // Frozen placement, LIVE content: the row renders the current parse of its
                 // source line (checkbox state, strike, ✓ label update the moment it's toggled)
                 // while its position in the list stays frozen.
-                let t = live[Self.anchor(rows[i])] ?? rows[i]
+                let item = rows[i]
+                let t = live[Self.anchor(item.todo)] ?? item.todo
                 let focused = nav.map {
                     $0.active && $0.currentRow.map(Self.anchor) == Self.anchor(t)
                 } ?? false
                 TodoRow(todo: t, today: today,
                         ownNoteKey: scope == "week" ? "week:\(key)" : "month:\(key)",
                         theme: theme, focused: focused,
+                        foldable: item.foldable, folded: item.folded, hiddenSubs: item.hidden,
                         onToggle: { toggle(t) },
-                        onOpen: { openRow(t) })
+                        onOpen: { openRow(t) },
+                        onFold: { toggleFold(t) })
                     .id(Self.anchor(t))
             }
         }
@@ -402,8 +440,12 @@ private struct TodoRow: View {
     var ownNoteKey: String = "" // the hosting panel's own scope-note key — its items drop the prefix
     let theme: Theme
     var focused: Bool = false // keyboard cursor here → dashed accent ring
+    var foldable: Bool = false // has sub-items → trailing disclosure chevron
+    var folded: Bool = false
+    var hiddenSubs: Int = 0 // rows hidden under this folded parent ("+N sub")
     var onToggle: () -> Void
     var onOpen: () -> Void
+    var onFold: () -> Void = {}
 
     private static let followupTeal = Color(red: 0x4F / 255.0, green: 0xB0 / 255.0, blue: 0xB0 / 255.0)
 
@@ -434,6 +476,19 @@ private struct TodoRow: View {
                 .onHover { hovering = $0 }
             }
             .buttonStyle(.plain)
+            if foldable {
+                Spacer(minLength: 4)
+                Button(action: onFold) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .rotationEffect(.degrees(folded ? 0 : 90))
+                        .foregroundStyle(theme.accentGrey)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Fold / unfold sub-items")
+            }
         }
         .onChange(of: todo.done, initial: true) { _, done in
             if strike < 0 {
@@ -452,6 +507,19 @@ private struct TodoRow: View {
                 .padding(.horizontal, -4)
         )
         .padding(.leading, CGFloat(min(todo.indent, 6)) * 18) // --nest × 18px
+        .background(alignment: .topLeading) {
+            // Editor-style indent guides: a vertical line per ancestor level, dropped from under
+            // that level's checkbox (x = level·18 + checkbox center), spanning this row's full
+            // height — contiguous sibling rows join into one continuous line.
+            GeometryReader { g in
+                ForEach(0 ..< min(todo.indent, 6), id: \.self) { level in
+                    Rectangle()
+                        .fill(theme.accentGrey.opacity(0.35))
+                        .frame(width: 1, height: g.size.height)
+                        .offset(x: CGFloat(level) * 18 + 7)
+                }
+            }
+        }
     }
 
     /// Two copies of the SAME wrapped text with COMPLEMENTARY left/right masks — the struck copy
@@ -553,6 +621,11 @@ private struct TodoRow: View {
                 Text("#\(tag)")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.accent.opacity(0.85))
+            }
+            if folded, hiddenSubs > 0 {
+                Text("+\(hiddenSubs) sub")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.text.opacity(0.55))
             }
         }
     }

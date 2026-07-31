@@ -11,6 +11,9 @@ import Observation
 @MainActor @Observable final class NativeDashNavModel {
     var active = false // the TODO stop is keyboard-focused → the row ring shows
     var cursor = 0 // index into `rows` (display order)
+    /// Folded PARENT rows (by soft-link anchor) — shared so the chevron click and the keyboard
+    /// ←/→ fold commands drive the same state, and it survives panel re-keys.
+    var collapsedSubs: Set<String> = []
     /// The visible rows, registered by the panel per render (LIVE todos, frozen order).
     /// @ObservationIgnored: registration happens per frame — it must not invalidate views;
     /// the ring keys on `active`/`cursor` only.

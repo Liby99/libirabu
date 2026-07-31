@@ -299,8 +299,15 @@ public struct CalendarView: View {
                         // Note rows: the fly-to-note flow needs view context — via the panel's
                         // row click for now (Enter parity lands with the editor revamp).
                     }
-                case .fold, .editNote:
-                    break // pinned panels have no folds; editor focus comes with the revamp
+                case let .fold(open):
+                    if let t = dashNav.currentRow {
+                        let a = NativeDashPanel.anchor(t)
+                        if open { dashNav.collapsedSubs.remove(a) }
+                        else { dashNav.collapsedSubs.insert(a) }
+                        engine.wake()
+                    }
+                case .editNote:
+                    break // editor focus comes with the editor revamp
                 }
                 engine.wake()
                 return
