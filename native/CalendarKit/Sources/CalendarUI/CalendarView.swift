@@ -856,6 +856,13 @@ public struct CalendarView: View {
                             TimelineView(.animation(minimumInterval: nil,
                                                     paused: !engine.renderClock.awake)) { _ in
                                 nativeDashOverlay(theme: theme)
+                                    // Drawer open: the panels are part of the calendar surface —
+                                    // they ride the SAME slide + soft-blur the scene gets (the
+                                    // webview rode along via shiftX). INSIDE the per-frame pass:
+                                    // drawerShift is an engine tween, so reading it out here
+                                    // would sample once per body eval and TELEPORT into place.
+                                    .blur(radius: ui.openEventId != nil ? 5 : 0)
+                                    .offset(x: -engine.drawerShift)
                             }
                             // Pinch over the native panels must still zoom the CALENDAR (the
                             // webview forwarded magnify to the input catcher; a hit-testable
@@ -888,12 +895,6 @@ public struct CalendarView: View {
                             )
                             .allowsHitTesting(ui.openEventId == nil && engine.chrome.dashPinned
                                 && (1 ... 2).contains(engine.chrome.level))
-                            // Drawer open: the panels are part of the calendar surface, so they
-                            // ride the SAME slide + soft-blur the scene gets (scene layer, above)
-                            // — the webview version rode along via its shiftX. The scrim overlay
-                            // mounts later in the chain, so it dims them too.
-                            .blur(radius: ui.openEventId != nil ? 5 : 0)
-                            .offset(x: -engine.drawerShift)
                         }
                     }
                     // TODO/NOTE tabs + note edit/preview toggle — SEPARATE overlays ABOVE the WebView so the
