@@ -22,6 +22,20 @@ struct NativeProjPanel: View {
 
     @State private var expanded: String? // accordion: at most one project shows ALL rows
 
+    /// The TODO panel's freeze pattern: the project ORDER and each project's score-ranked task
+    /// membership are frozen per render basis and refreshed only at full-render boundaries
+    /// (first render, panel re-key, or an EXTERNAL data change). A self-toggle adopts its own
+    /// write's stamp instead, so checking a box re-renders the same chart shape — no project
+    /// reshuffle mid-click — and the @State write is ALSO what re-renders the panel instantly
+    /// while the carousel's render clock sleeps (nothing else invalidates a paused panel).
+    private struct Frozen {
+        var basis: String // scope|key
+        var stamp: String // engine.todoDataStamp the structure was built from / has adopted
+        var order: [(key: String, ranked: [String])] // project → byScore task anchors
+    }
+
+    @State private var frozen: Frozen?
+
     static let rowH: CGFloat = 26 // row pitch (label row == track row)
     static let trackH: CGFloat = 20 // the grey track's height within the row
     /// Bar-segment opacity — tune to taste. The web shipped .85; lightened to .80 so the
@@ -31,23 +45,46 @@ struct NativeProjPanel: View {
     var body: some View {
         let today = NativeDashPanel.todayIso()
         let (rs, re) = range
-        let projects = ProjIndex.shown(engine.projFeed(today: today), rs: rs, re: re)
+        let feed = ProjIndex.shown(engine.projFeed(today: today), rs: rs, re: re)
+        let order = frozenOrder(feed, today: today)
+        let byKey = Dictionary(feed.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        let liveTask = Dictionary(feed.flatMap { p in p.tasks.map { (NativeDashPanel.anchor($0.todo), $0) } },
+                                  uniquingKeysWith: { a, _ in a })
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                if projects.isEmpty {
+                if order.isEmpty {
                     Text("No projects here yet. Tag todo items with @project:your-project — they show up right here.")
                         .font(.system(size: 12))
                         .foregroundStyle(theme.text.opacity(0.5))
                         .padding(.top, 6)
                 }
-                ForEach(projects, id: \.key) { p in
-                    projectSection(p, today: today, rs: rs, re: re)
+                ForEach(order, id: \.key) { entry in
+                    if let p = byKey[entry.key] {
+                        projectSection(p, ranked: entry.ranked, liveTask: liveTask,
+                                       today: today, rs: rs, re: re)
+                    }
                 }
             }
             .padding(.trailing, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.hidden)
+    }
+
+    /// See Frozen. Rebuilt only when basis/stamp move; @State writes hop off the render pass.
+    private func frozenOrder(_ projects: [Project], today: String) -> [(key: String, ranked: [String])] {
+        let basis = "\(scope)|\(key)"
+        let stamp = engine.todoDataStamp
+        if let f = frozen, f.basis == basis, f.stamp == stamp { return f.order }
+        let order = projects.map { p in
+            (key: p.key,
+             ranked: p.tasks
+                 .sorted { ProjIndex.taskScore($0, today: today) > ProjIndex.taskScore($1, today: today) }
+                 .map { NativeDashPanel.anchor($0.todo) })
+        }
+        let f = Frozen(basis: basis, stamp: stamp, order: order)
+        DispatchQueue.main.async { frozen = f }
+        return order
     }
 
     private var range: (String, String) {
@@ -57,17 +94,18 @@ struct NativeProjPanel: View {
     }
 
     @ViewBuilder
-    private func projectSection(_ p: Project, today: String, rs: String, re: String) -> some View {
+    private func projectSection(_ p: Project, ranked: [String], liveTask: [String: ProjTask],
+                                today: String, rs: String, re: String) -> some View {
         let showAll = expanded == p.key
-        let byScore = p.tasks.sorted {
-            ProjIndex.taskScore($0, today: today) > ProjIndex.taskScore($1, today: today)
-        }
+        // FROZEN membership/rank, LIVE rows: each anchor renders the current parse of its line
+        // in its frozen slot (checked state updates in place, no reshuffle).
+        let byScore = ranked.compactMap { liveTask[$0] }
         let visible = (showAll ? byScore : Array(byScore.prefix(ProjIndex.maxRows)))
             .sorted { $0.start < $1.start } // chart order: chronological
-        let foldable = p.tasks.count > ProjIndex.maxRows
+        let foldable = byScore.count > ProjIndex.maxRows
         VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: p.key, count: p.tasks.count,
-                          hidden: showAll ? 0 : p.tasks.count - visible.count,
+            SectionHeader(title: p.key, count: byScore.count,
+                          hidden: showAll ? 0 : byScore.count - visible.count,
                           chevron: foldable, open: showAll, theme: theme) {
                 withAnimation(.easeInOut(duration: 0.28)) { // = PROJ_ANIM_MS
                     expanded = showAll ? nil : p.key // accordion: opening one closes the other
@@ -78,6 +116,10 @@ struct NativeProjPanel: View {
                       onToggle: { t in
                           NativeDashPanel.toggleTodo(engine, t.todo)
                           engine.todoFeedRefreshNow(today: today) // serve-stale: land it NOW
+                          // Our own write: adopt its stamp (no refreeze/reshuffle) — and this
+                          // @State write is what re-renders the panel RIGHT NOW; the paused
+                          // render clock wouldn't until the next mouse move woke it.
+                          frozen?.stamp = engine.todoDataStamp
                       },
                       onOpen: { id in onOpen(id) },
                       onOpenTodo: { t in
