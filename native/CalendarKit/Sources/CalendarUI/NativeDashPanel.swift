@@ -28,6 +28,7 @@ struct NativeDashPanel: View {
     let key: String // week: the Sunday's ISO; month: "YYYY-MM"
     let theme: Theme
     var settings: DashTodoSettings? // layering prefs (⚙) — nil falls back to scope defaults
+    var nav: NativeDashNavModel? // keyboard row cursor (⌘B focus / arrows / Space / Enter)
     var onOpen: (String) -> Void // event todo row → open that event (the drawer)
     var onJump: (String) -> Void = { _ in } // note todo row → fly to its note (storage key)
 
@@ -59,25 +60,42 @@ struct NativeDashPanel: View {
                                                word: word, prefs: prefs)
         let live = Dictionary(todos.map { (Self.anchor($0), $0) }, uniquingKeysWith: { a, _ in a })
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                if prefs.deadlines {
-                    deadlineSection(start: start, end: end, today: today)
+        // Register the VISIBLE rows (display order) for the keyboard cursor — off the render
+        // pass, and only from the settled panel (nav during a transition sub-panel is moot).
+        let displayRows: [ParsedTodo] = sections.flatMap { sec -> [ParsedTodo] in
+            let capped = sec.done && sec.items.count > Self.doneShow
+                && !doneOpen.contains(sec.key)
+            let roots = capped ? Array(sec.items.prefix(Self.doneShow)) : sec.items
+            return roots.flatMap { TodoFeed.subtree($0, kids) }.map { live[Self.anchor($0)] ?? $0 }
+        }
+        let _ = { if let nav { DispatchQueue.main.async { nav.rows = displayRows } } }()
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if prefs.deadlines {
+                        deadlineSection(start: start, end: end, today: today)
+                    }
+                    ForEach(sections, id: \.key) { s in
+                        section(s, kids: kids, live: live, today: today)
+                    }
+                    if sections.isEmpty {
+                        Text("Nothing on the list — you’re clear. Add “- [ ] …” items to an event’s note or this scope’s notepad.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.text.opacity(0.5))
+                            .padding(.top, 6)
+                    }
                 }
-                ForEach(sections, id: \.key) { s in
-                    section(s, kids: kids, live: live, today: today)
-                }
-                if sections.isEmpty {
-                    Text("Nothing on the list — you’re clear. Add “- [ ] …” items to an event’s note or this scope’s notepad.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(theme.text.opacity(0.5))
-                        .padding(.top, 6)
+                .padding(.trailing, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.hidden)
+            .onChange(of: nav?.cursor ?? -1) { _, c in
+                guard let nav, nav.active, displayRows.indices.contains(c) else { return }
+                withAnimation(.easeOut(duration: 0.15)) {
+                    proxy.scrollTo(Self.anchor(displayRows[c]), anchor: .center)
                 }
             }
-            .padding(.trailing, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .scrollIndicators(.hidden)
         // Right-click anywhere in the panel = the cog's layering menu (single-sourced from
         // DashTodoCatalog, writing through DashTodoSettings — same as the webview's popup).
         .contextMenu { prefsMenu }
@@ -179,9 +197,12 @@ struct NativeDashPanel: View {
                 // source line (checkbox state, strike, ✓ label update the moment it's toggled)
                 // while its position in the list stays frozen.
                 let t = live[Self.anchor(rows[i])] ?? rows[i]
+                let focused = nav.map {
+                    $0.active && $0.currentRow.map(Self.anchor) == Self.anchor(t)
+                } ?? false
                 TodoRow(todo: t, today: today,
                         ownNoteKey: scope == "week" ? "week:\(key)" : "month:\(key)",
-                        theme: theme,
+                        theme: theme, focused: focused,
                         onToggle: { toggle(t) },
                         onOpen: { openRow(t) })
                     .id(Self.anchor(t))
@@ -365,6 +386,7 @@ private struct TodoRow: View {
     let today: String
     var ownNoteKey: String = "" // the hosting panel's own scope-note key — its items drop the prefix
     let theme: Theme
+    var focused: Bool = false // keyboard cursor here → dashed accent ring
     var onToggle: () -> Void
     var onOpen: () -> Void
 
@@ -407,6 +429,13 @@ private struct TodoRow: View {
         }
         .padding(.vertical, 5) // roomier than the web row box, per taste
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Keyboard cursor: the dashed accent ring around the whole row (the web's nav ring).
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(Theme.accent.opacity(focused ? 0.8 : 0),
+                              style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                .padding(.horizontal, -4)
+        )
         .padding(.leading, CGFloat(min(todo.indent, 6)) * 18) // --nest × 18px
     }
 

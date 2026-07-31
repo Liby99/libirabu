@@ -24,6 +24,7 @@ public struct CalendarView: View {
     @State private var dashTab: DashTab = .todo // dashboard TODO/NOTE tab
     @State private var demo = DemoController() // scripted GIF-recording cursor + scenes (CC_DEMO mode)
     @State private var noteMode: NotesMode = .edit // daily-note edit/preview (native toggle mirrors JS)
+    @State private var dashNav = NativeDashNavModel() // native pinned-panel keyboard row cursor
     @State private var search = SearchState() // toolbar event search (⌘F / magnifyingglass)
     @State private var searchAnchor: CGPoint = .zero // content stack's window-space origin (for dropdown alignment)
     @State private var searchCloseWork: DispatchWorkItem? // pending "unmount the bar after it collapses"
@@ -267,7 +268,32 @@ public struct CalendarView: View {
         }
         // Day-view dashboard Tab stops (TODO / NOTE): the engine's keyboard system drives the WebView's row
         // cursor + note-editor focus through this bridge, and switches the native TODO/NOTE tab to match.
-        engine.onDashCommand = { [carousel = dashCarousel, tabBinding = $dashTab, engine] cmd in
+        engine.onDashCommand = { [carousel = dashCarousel, tabBinding = $dashTab, engine,
+                                  dashNav, ui] cmd in
+            // Native pinned panel (cc.nativeDash, week/month): the row cursor lives in the
+            // native nav model — same key system, no webview bridge. Day view falls through
+            // to the webview path below.
+            if NativeDash.enabled, (1 ... 2).contains(engine.chrome.level) {
+                switch cmd {
+                case let .focus(stop):
+                    if stop == .todo { tabBinding.wrappedValue = .todo; dashNav.focus() }
+                    else { dashNav.blur(); if stop == .note { tabBinding.wrappedValue = .note } }
+                case let .move(d):
+                    dashNav.move(d)
+                case .activate:
+                    if let t = dashNav.currentRow { NativeDashPanel.toggleTodo(engine, t) }
+                case .open:
+                    if let t = dashNav.currentRow {
+                        if t.source == "event" { ui.openEventId = sourceId(of: t.eventId) }
+                        // Note rows: the fly-to-note flow needs view context — via the panel's
+                        // row click for now (Enter parity lands with the editor revamp).
+                    }
+                case .fold, .editNote:
+                    break // pinned panels have no folds; editor focus comes with the revamp
+                }
+                engine.wake()
+                return
+            }
             switch cmd {
             case let .focus(stop):
                 if stop == .todo {
@@ -658,7 +684,7 @@ public struct CalendarView: View {
                     let ph = max(1, input.vp.h - top - Layout.bottomPad)
                     NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
                                     tab: dashTab, theme: theme, settings: todoSettings,
-                                    noteMode: $noteMode,
+                                    nav: dashNav, noteMode: $noteMode,
                                     // Event rows open the DRAWER (the web's data-open path);
                                     // note rows fly to their note, landing on the NOTE tab.
                                     onOpen: { id in ui.openEventId = sourceId(of: id) },
@@ -1209,12 +1235,15 @@ private struct ViewPrefObservers: ViewModifier {
                 engine.toggleDashPin()
                 dashTab = stop
                 focusWeekMonthTab(stop)
+                if stop == .todo, NativeDash.enabled { engine.dashFocusEntry(.todo) }
             } else if dashTab != stop {
                 dashTab = stop
                 focusWeekMonthTab(stop)
+                if stop == .todo, NativeDash.enabled { engine.dashFocusEntry(.todo) }
                 engine.wake()
             } else {
                 engine.toggleDashPin() // already on that tab → retract
+                if NativeDash.enabled { engine.dashExitFocus() }
                 carousel.regateWebFocus()
             }
         default:

@@ -15,6 +15,7 @@ struct NativePanelHost: View {
     let tab: DashTab
     let theme: Theme
     var settings: DashTodoSettings?
+    var nav: NativeDashNavModel?
     @Binding var noteMode: NotesMode
     var onOpen: (String) -> Void
     var onJump: (String) -> Void = { _ in }
@@ -28,7 +29,7 @@ struct NativePanelHost: View {
                             noteMode: $noteMode)
         case .todo:
             NativeDashPanel(engine: engine, scope: scope, key: key, theme: theme,
-                            settings: settings, onOpen: onOpen, onJump: onJump)
+                            settings: settings, nav: nav, onOpen: onOpen, onJump: onJump)
         }
     }
 }
