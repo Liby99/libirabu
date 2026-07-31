@@ -454,13 +454,22 @@ private struct TodoRow: View {
         .padding(.leading, CGFloat(min(todo.indent, 6)) * 18) // --nest × 18px
     }
 
-    /// Two copies of the SAME wrapped text stacked: the plain one beneath, the struck+dimmed one
-    /// above, revealed left-to-right by the animated `strike` mask — the web's progressive
-    /// strike-through, wrapping across lines with the layout identical by construction.
+    /// Two copies of the SAME wrapped text with COMPLEMENTARY left/right masks — the struck copy
+    /// replaces the plain one as the `strike` front sweeps (layering it on top let the
+    /// full-strength base bleed through and killed the dimming). The struck presentation is the
+    /// plain text with a PRONOUNCED text-color strike, then ONE opacity over the whole thing.
     private var animatedTitle: some View {
         ZStack(alignment: .topLeading) {
             title(struck: false)
+                .mask(
+                    GeometryReader { g in
+                        Rectangle()
+                            .frame(width: g.size.width * max(0, 1 - strike), alignment: .trailing)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                )
             title(struck: true)
+                .opacity(hovering ? 0.62 : 0.45) // the entire struck unit dims as one
                 .mask(
                     GeometryReader { g in
                         Rectangle()
@@ -481,12 +490,11 @@ private struct TodoRow: View {
     /// The row's single wrapped text: "Event · " prefix (accent-grey) + content, inline segments.
     /// Hover tints the CONTENT (not the prefix) to the accent — done rows to the full text color.
     private func titleText(struck: Bool) -> Text {
-        // Done rows fade WAY back as a unit: text AND strike line at the same light opacity,
-        // so a completed item reads as one faint struck-through ghost.
-        let doneTone = theme.accentGrey.opacity(hovering ? 0.6 : 0.42)
-        let contentColor = struck ? doneTone : (hovering ? Theme.accent : theme.text)
+        // The struck copy keeps FULL text color with a full-color strike — a pronounced line —
+        // and the dimming comes from the single .opacity applied to the whole copy above.
+        let contentColor = struck ? theme.text : (hovering ? Theme.accent : theme.text)
         let content = Text(todo.text)
-            .strikethrough(struck, color: doneTone)
+            .strikethrough(struck, color: theme.text)
             .foregroundStyle(contentColor)
         // The web's prefix rule (rowHTML): EVERY source shows its provenance — event titles and
         // note titles ("Daily note · 2026-07-28", "Weekly note · …") alike — except sub-items,
@@ -497,8 +505,7 @@ private struct TodoRow: View {
         guard todo.parentLine == nil, !todo.eventTitle.isEmpty, !ownNote else {
             return content
         }
-        return Text("\(todo.eventTitle) · ")
-            .foregroundStyle(struck ? theme.accentGrey.opacity(0.38) : theme.accentGrey) + content
+        return Text("\(todo.eventTitle) · ").foregroundStyle(theme.accentGrey) + content
     }
 
     private var metaRow: some View {
