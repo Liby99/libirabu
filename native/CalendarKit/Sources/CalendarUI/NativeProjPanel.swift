@@ -293,18 +293,21 @@ private struct ProjChart: View {
                 .frame(width: width, height: rowsH)
                 .offset(x: l, y: headroom)
                 .allowsHitTesting(false)
+            // The name rides centered on the box: SAME placement chain as the box itself
+            // (a box-width positioning frame + the identical offset), so the two centers
+            // coincide by construction — the chip just overhangs symmetrically if wider.
             Button { onOpen(ev.id) } label: {
                 Text(ev.title)
                     .font(.system(size: 10.5, weight: .bold))
                     .foregroundStyle(color)
                     .lineLimit(1)
-                    .frame(maxWidth: max(36, width))
                     .fixedSize()
             }
             .buttonStyle(.plain)
             .handCursor()
             .labelChip(theme, hover: { frontLabel = $0 ? ev.id : nil })
-            .position(x: l + width / 2, y: headroom - 24)
+            .frame(width: width, height: 18)
+            .offset(x: l, y: headroom - 33)
             .zIndex(frontLabel == ev.id ? 10 : 2)
         }
     }
