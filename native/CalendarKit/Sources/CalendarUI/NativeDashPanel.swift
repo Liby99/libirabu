@@ -43,7 +43,7 @@ struct NativeDashPanel: View {
         let kids = TodoFeed.childrenIndex(todos)
 
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 24) {
                 if prefs.deadlines {
                     deadlineSection(start: start, end: end, today: today)
                 }
@@ -83,7 +83,7 @@ struct NativeDashPanel: View {
         let open = !capped || doneOpen.contains(s.key)
         let roots = open ? s.items : Array(s.items.prefix(Self.doneShow))
         let rows: [ParsedTodo] = roots.flatMap { TodoFeed.subtree($0, kids) }
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 5) {
             SectionHeader(title: s.title, count: s.items.count,
                           hidden: capped && !open ? s.items.count - Self.doneShow : 0,
                           chevron: capped, open: open, theme: theme) {
@@ -239,7 +239,7 @@ private struct DeadlineRowView: View {
 
     var body: some View {
         Button(action: onOpen) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Circle().fill(theme.eventBorder(deadline.color)).frame(width: 7, height: 7)
                 Text(deadline.title.isEmpty ? "(untitled)" : deadline.title)
                     .font(.system(size: 12))
@@ -249,6 +249,7 @@ private struct DeadlineRowView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(theme.text.opacity(0.5))
             }
+            .padding(.vertical, 3)
         }
         .buttonStyle(.plain)
     }
@@ -273,11 +274,11 @@ private struct TodoRow: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
+        HStack(alignment: .top, spacing: 12) {
             DashCheckbox(checked: todo.done, size: 15, action: onToggle)
                 .padding(.top, 2) // .cc-dtodo-check margin-top
             Button(action: onOpen) {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 3) {
                     titleText
                         .font(.system(size: 13))
                         .multilineTextAlignment(.leading)
@@ -297,7 +298,7 @@ private struct TodoRow: View {
             .buttonStyle(.plain)
             .onHover { hovering = $0 }
         }
-        .padding(.vertical, 3) // .cc-dtodo row padding
+        .padding(.vertical, 5) // roomier than the web row box, per taste
         .padding(.leading, CGFloat(min(todo.indent, 6)) * 18) // --nest × 18px
     }
 
@@ -326,7 +327,7 @@ private struct TodoRow: View {
         let opd = TodoFeed.opDate(todo)
         let overdue = opd < today
         let red = theme.eventBorder("red")
-        return HStack(spacing: 6) {
+        return HStack(spacing: 8) {
             if let p = todo.priority {
                 let bangs = Text(String(repeating: "!", count: p))
                     .font(.system(size: 11, weight: .heavy, design: .monospaced))
