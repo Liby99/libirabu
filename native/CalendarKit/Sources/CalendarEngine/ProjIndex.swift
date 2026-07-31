@@ -185,16 +185,20 @@ public enum ProjIndex {
 }
 
 extension CalendarEngine {
-    /// The built project list, cached per (editGen, noteGen, today) like the todo feed.
+    /// The built project list, cached per (editGen, noteGen, today) like the todo feed — and,
+    /// like it, gen-only staleness serves the STALE list and rebuilds once the coalesced feed
+    /// refresh lands (projFeed keys off the CACHED feed's gens, so it settles one beat after).
     public func projFeed(today: String) -> [Project] {
-        if let c = projFeedCache, c.gen == caches.editGen, c.noteGen == caches.noteGen,
-           c.today == today {
+        let feedGens = todoFeedCache.map { ($0.gen, $0.noteGen) } ?? (-1, -1)
+        if let c = projFeedCache, c.today == today,
+           c.gen == feedGens.0, c.noteGen == feedGens.1 {
             return c.projects
         }
         let dls = items.deadlines.map { displayDeadline($0) }
         let projects = ProjIndex.build(todos: todoFeed(today: today), sources: todoSources(),
                                        deadlines: dls, today: today)
-        projFeedCache = (caches.editGen, caches.noteGen, today, projects)
+        let gens = todoFeedCache.map { ($0.gen, $0.noteGen) } ?? (caches.editGen, caches.noteGen)
+        projFeedCache = (gens.0, gens.1, today, projects)
         return projects
     }
 }

@@ -250,6 +250,9 @@ struct NativeDashPanel: View {
                 engine.applyTodoNote(eventId: t.eventId, occKey: t.occurrenceKey, value: next)
             }
         }
+        // Self-edit: rebuild the feed NOW (the serve-stale path would leave this row's checkbox
+        // visually stale for the coalescing window otherwise).
+        engine.todoFeedRefreshNow(today: todayIso())
     }
 
     private func toggle(_ t: ParsedTodo) {

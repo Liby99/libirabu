@@ -54,13 +54,47 @@ extension CalendarEngine {
     }
 
     /// The full parsed feed — event todos + every daily/weekly/monthly note's todos — cached per
-    /// (editGen, noteGen, today). This is what the native panels section per view; the parse runs
-    /// once per edit, never per frame.
+    /// (editGen, noteGen, today). This is what the native panels section per view. A cache miss
+    /// must stay OFF the frame path: gen-only staleness (an edit or an import/sync burst) serves
+    /// the STALE feed and rebuilds ONCE, coalesced shortly after the burst — sync storms can
+    /// bump editGen many times in a row, and each inline rebuild (several× slower in debug)
+    /// landed as a dropped frame. Only a cold start (no cache — pre-warmed at launch anyway) or
+    /// a day rollover builds inline.
     public func todoFeed(today: String) -> [ParsedTodo] {
-        if let c = todoFeedCache, c.gen == caches.editGen, c.noteGen == caches.noteGen,
-           c.today == today {
+        if let c = todoFeedCache, c.today == today {
+            if c.gen == caches.editGen, c.noteGen == caches.noteGen {
+                return c.todos
+            }
+            scheduleTodoFeedRefresh(today: today)
             return c.todos
         }
+        todoFeedWork?.cancel(); todoFeedWork = nil
+        return buildTodoFeed(today: today)
+    }
+
+    /// Immediate rebuild for a SELF-EDIT (a checkbox toggle the panel itself just made): the
+    /// row's visuals must reflect the write on the very next frame — one inline parse per user
+    /// click is fine; it's the burst/frame path that must never pay it.
+    public func todoFeedRefreshNow(today: String) {
+        todoFeedWork?.cancel(); todoFeedWork = nil
+        _ = buildTodoFeed(today: today)
+    }
+
+    /// One rebuild, shortly after the last edit of a burst; wake() so the settled frame re-reads.
+    private func scheduleTodoFeedRefresh(today: String) {
+        guard todoFeedWork == nil else { return } // later edits ride the same window
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.todoFeedWork = nil
+            _ = self.buildTodoFeed(today: today)
+            self.wake()
+        }
+        todoFeedWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+    }
+
+    @discardableResult
+    private func buildTodoFeed(today: String) -> [ParsedTodo] {
         var todos = TodoIndex.indexTodos(todoSources(), today: today)
         for (key, text) in items.dailyNotes.sorted(by: { $0.key < $1.key }) {
             if key.hasPrefix("week:") {
