@@ -37,7 +37,8 @@ struct NativePanelHost: View, Equatable {
     var body: some View {
         switch tab {
         case .proj:
-            NativeProjPanel(engine: engine, scope: scope, key: key, theme: theme, onOpen: onOpen)
+            NativeProjPanel(engine: engine, scope: scope, key: key, theme: theme,
+                            onOpen: onOpen, onJump: onJump)
         case .note:
             NativeNotePanel(engine: engine, scope: scope, key: key, theme: theme,
                             noteMode: $noteMode)

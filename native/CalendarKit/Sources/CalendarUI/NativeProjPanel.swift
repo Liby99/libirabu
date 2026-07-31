@@ -18,6 +18,7 @@ struct NativeProjPanel: View {
     let key: String
     let theme: Theme
     var onOpen: (String) -> Void
+    var onJump: (String) -> Void = { _ in }
 
     @State private var expanded: String? // accordion: at most one project shows ALL rows
 
@@ -74,8 +75,15 @@ struct NativeProjPanel: View {
             }
             ProjChart(project: p, tasks: visible, today: today, rs: rs, re: re, scope: scope,
                       theme: theme,
-                      onToggle: { NativeDashPanel.toggleTodo(engine, $0.todo) },
-                      onOpen: { id in onOpen(id) })
+                      onToggle: { t in
+                          NativeDashPanel.toggleTodo(engine, t.todo)
+                          engine.todoFeedRefreshNow(today: today) // serve-stale: land it NOW
+                      },
+                      onOpen: { id in onOpen(id) },
+                      onOpenTodo: { t in
+                          if t.source == "event" { onOpen(t.eventId) } // event drawer
+                          else if let key = t.dailyDate { onJump(key) } // fly to the note
+                      })
         }
     }
 }
@@ -92,6 +100,7 @@ private struct ProjChart: View {
     let theme: Theme
     var onToggle: (ProjTask) -> Void
     var onOpen: (String) -> Void
+    var onOpenTodo: (ParsedTodo) -> Void
 
     @State private var frontLabel: String? // hovered deadline/event label: raised above the rest
 
@@ -125,7 +134,7 @@ private struct ProjChart: View {
         return HStack(spacing: 8) {
             DashCheckbox(checked: done, size: 15) { onToggle(t) }
                 .handCursor()
-            Button { onOpen(t.todo.eventId) } label: {
+            Button { onOpenTodo(t.todo) } label: {
                 Text(t.todo.text)
                     .font(.system(size: 13)) // the TODO list's row size
                     .strikethrough(done, color: theme.accentGrey)
@@ -134,7 +143,6 @@ private struct ProjChart: View {
             }
             .buttonStyle(.plain)
             .handCursor()
-            .disabled(t.todo.source != "event")
         }
         .frame(height: NativeProjPanel.rowH, alignment: .leading)
         .help(t.todo.text)
