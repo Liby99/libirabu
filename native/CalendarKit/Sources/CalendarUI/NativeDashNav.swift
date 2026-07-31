@@ -14,10 +14,17 @@ import Observation
     /// Folded PARENT rows (by soft-link anchor) — shared so the chevron click and the keyboard
     /// ←/→ fold commands drive the same state, and it survives panel re-keys.
     var collapsedSubs: Set<String> = []
-    /// The visible rows, registered by the panel per render (LIVE todos, frozen order).
+    /// The visible rows, registered PER PANEL (keyed by scope|key) on each panel render —
+    /// every mounted panel (live or parked) keeps its own entry fresh, and `activePanel`
+    /// (pointed at the settled live panel by the overlay each frame) selects whose rows the
+    /// cursor walks. Keyed registration is what lets a parked panel re-enter the carousel
+    /// with ZERO re-evaluation: nothing about its host has to change.
     /// @ObservationIgnored: registration happens per frame — it must not invalidate views;
     /// the ring keys on `active`/`cursor` only.
-    @ObservationIgnored var rows: [ParsedTodo] = []
+    @ObservationIgnored var rowsByPanel: [String: [ParsedTodo]] = [:]
+    @ObservationIgnored var activePanel = ""
+
+    var rows: [ParsedTodo] { rowsByPanel[activePanel] ?? [] }
 
     var currentRow: ParsedTodo? {
         rows.indices.contains(cursor) ? rows[cursor] : nil

@@ -43,6 +43,37 @@ enum NativeDash {
     /// (open/jump/toggle) are ignored while a pinch is in flight or just ended.
     @MainActor static var lastPinch: Date = .distantPast
     @MainActor static var tapsSuppressed: Bool { Date().timeIntervalSince(lastPinch) < 0.35 }
+
+    /// Panels whose content has been BUILT (the webview's renderGate, in set form): a key
+    /// enters when its sheet first rests; until then the carousel slot renders empty, keeping
+    /// the dense first build off gesture frames. Bounded: navigation only ever adds a handful
+    /// of keys per session; trimmed wholesale if it somehow balloons.
+    @MainActor static var builtPanels: Set<String> = [] {
+        didSet { if builtPanels.count > 64 { builtPanels.removeAll() } }
+    }
+
+    /// Recently-shown panels PARKED MOUNTED (most-recent last, capped): once built, a panel
+    /// leaving the carousel keeps its view alive at opacity 0 instead of unmounting — its
+    /// frozen structure and scroll survive, so swiping BACK to it carousels real content with
+    /// no rebuild (the webview's recycled panel pair, generalized). Plain per-frame state.
+    @MainActor static var parkedPanels: [DashBodyPanel] = []
+
+    /// Upsert this frame's live panels into the parking LRU (built ones only — an unbuilt
+    /// slot has nothing worth keeping alive).
+    @MainActor static func parkPanels(_ live: [DashBodyPanel]) {
+        for p in live where builtPanels.contains(p.panelId) {
+            parkedPanels.removeAll { $0.panelId == p.panelId }
+            parkedPanels.append(p)
+        }
+        if parkedPanels.count > 6 { parkedPanels.removeFirst(parkedPanels.count - 6) }
+    }
+
+    /// Panels the row registry may keep entries for (parked + live). Everything else is gone
+    /// from the view tree and its rows are stale.
+    @MainActor static func trimNavRows(_ nav: NativeDashNavModel, liveIds: Set<String>) {
+        let keep = liveIds.union(parkedPanels.map(\.panelId))
+        nav.rowsByPanel = nav.rowsByPanel.filter { keep.contains($0.key) }
+    }
 }
 
 struct NativeDashPanel: View {
@@ -93,7 +124,10 @@ struct NativeDashPanel: View {
             return flatten(visibleTree(roots: roots, kids: kids))
                 .map { live[Self.anchor($0.todo)] ?? $0.todo }
         }
-        let _ = { if let nav { DispatchQueue.main.async { nav.rows = displayRows } } }()
+        let _ = { if let nav {
+            let pid = scope + "|" + key
+            DispatchQueue.main.async { nav.rowsByPanel[pid] = displayRows }
+        } }()
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {

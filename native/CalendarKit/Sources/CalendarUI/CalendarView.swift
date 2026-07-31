@@ -688,31 +688,64 @@ public struct CalendarView: View {
         if !bodyPanels.isEmpty, let sg = dashScopePanels(input) {
             let maskW = max(1, input.vp.w - sg.mask)
             ZStack(alignment: .topLeading) {
-                ForEach(bodyPanels.indices, id: \.self) { i in
-                    let panel = bodyPanels[i]
+                // Panels are identified by scope|key (NOT list position): a panel keeps its view
+                // identity — @State, scroll — from mid-turn into rest, and state never bleeds
+                // between different keys sharing a list slot. Built panels that LEFT the
+                // carousel stay mounted, parked at opacity 0 (isLive false): unmounting them
+                // made every revisit re-run the full dense build on a gesture frame.
+                let liveIds = Set(bodyPanels.map(\.panelId))
+                let _ = {
+                    NativeDash.parkPanels(bodyPanels)
+                    NativeDash.trimNavRows(dashNav, liveIds: liveIds)
+                    // Point the keyboard registry at the settled live panel (plain per-frame
+                    // assignment; @ObservationIgnored, so no invalidation).
+                    if let settled = bodyPanels.first(where: { $0.op >= 0.999 && abs($0.dx) < 0.5 }) {
+                        dashNav.activePanel = settled.panelId
+                    }
+                }()
+                let parked = NativeDash.parkedPanels.filter { !liveIds.contains($0.panelId) }
+                ForEach(bodyPanels + parked, id: \.panelId) { panel in
+                    let isLive = liveIds.contains(panel.panelId)
                     let bx = panel.x + panel.dx + 25 - sg.mask
                     let pw = max(1, panel.w - 25 - 18)
                     let top = Layout.topPad + panel.dy + Layout.monthH + 14
                     let ph = max(1, input.vp.h - top - Layout.bottomPad)
-                    NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
-                                    tab: dashTab, theme: theme,
-                                    dataStamp: engine.todoDataStamp,
-                                    settings: todoSettings,
-                                    nav: dashNav, noteMode: $noteMode,
-                                    // Event rows open the DRAWER (the web's data-open path);
-                                    // note rows fly to their note, landing on the NOTE tab.
-                                    onOpen: { id in
-                                        guard !NativeDash.tapsSuppressed else { return }
-                                        ui.openEventId = sourceId(of: id)
-                                    },
-                                    onJump: { key in
-                                        guard !NativeDash.tapsSuppressed else { return }
-                                        jumpToNoteKey(key)
-                                    })
-                        .equatable() // per-frame re-eval stops HERE; only frame/opacity move
-                        .frame(width: pw, height: ph)
-                        .position(x: bx + pw / 2, y: top + ph / 2)
-                        .opacity(Double(panel.op) * Double(c.reveal))
+                    // The webview's renderGate, ported: a panel's CONTENT builds only once its
+                    // sheet is AT REST (full opacity, no in-panel slide). A freshly-keyed panel
+                    // entering mid-swipe renders an empty slot — the full section/tree build of
+                    // a dense month (~40-60ms) must NEVER run on a gesture frame; it lands on
+                    // the rest frame instead. Once built, the key stays in the built-set, so
+                    // revisits and subsequent turns carousel REAL content, like the web's
+                    // recycled panels. The set is plain state mutated during the per-frame pass
+                    // (this closure re-runs every awake frame — no SwiftUI invalidation needed).
+                    let atRest = panel.op >= 0.999 && abs(panel.dx) < 0.5
+                    let _ = { if atRest { NativeDash.builtPanels.insert(panel.panelId) } }()
+                    if NativeDash.builtPanels.contains(panel.panelId) {
+                        NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
+                                        tab: dashTab, theme: theme,
+                                        dataStamp: engine.todoDataStamp,
+                                        settings: todoSettings,
+                                        nav: dashNav, noteMode: $noteMode,
+                                        // Event rows open the DRAWER (the web's data-open path);
+                                        // note rows fly to their note, landing on the NOTE tab.
+                                        onOpen: { id in
+                                            guard !NativeDash.tapsSuppressed else { return }
+                                            ui.openEventId = sourceId(of: id)
+                                        },
+                                        onJump: { key in
+                                            guard !NativeDash.tapsSuppressed else { return }
+                                            jumpToNoteKey(key)
+                                        })
+                            .equatable() // per-frame re-eval stops HERE; only frame/opacity move
+                            .frame(width: pw, height: ph)
+                            .position(x: bx + pw / 2, y: top + ph / 2)
+                            .opacity(isLive ? Double(panel.op) * Double(c.reveal) : 0)
+                            .allowsHitTesting(isLive)
+                    } else {
+                        Color.clear
+                            .frame(width: pw, height: ph)
+                            .position(x: bx + pw / 2, y: top + ph / 2)
+                    }
                 }
             }
             .frame(width: maskW, height: input.vp.h)
