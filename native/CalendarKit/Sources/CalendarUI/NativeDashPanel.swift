@@ -401,6 +401,7 @@ struct SectionHeader: View {
                         .foregroundStyle(theme.accentGrey)
                 }
                 .buttonStyle(.plain)
+                .pointerStyle(.link)
                 .help("Show all / top items")
             }
         }
@@ -440,6 +441,7 @@ private struct DeadlineRowView: View {
             )
         }
         .buttonStyle(.plain)
+        .pointerStyle(.link)
         .onHover { hovering = $0 }
     }
 }
@@ -501,6 +503,7 @@ private struct TodoSubtree: View {
                         .frame(width: 10)
                         .contentShape(Rectangle())
                         .offset(x: 2.5)
+                        .pointerStyle(.link)
                         .onHover { guideHover = $0 }
                         .onTapGesture { ctx.foldAndCenter(node.item.todo) }
                 }
@@ -542,6 +545,7 @@ private struct TodoRow: View {
         HStack(alignment: .top, spacing: 12) {
             DashCheckbox(checked: todo.done, size: 15, action: onToggle)
                 .padding(.top, 2) // .cc-dtodo-check margin-top
+                .pointerStyle(.link)
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 3) {
                     animatedTitle
@@ -559,6 +563,7 @@ private struct TodoRow: View {
                 .onHover { hovering = $0 }
             }
             .buttonStyle(.plain)
+            .pointerStyle(.link)
             if foldable {
                 Spacer(minLength: 4)
                 Button(action: onFold) {
@@ -570,6 +575,7 @@ private struct TodoRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .pointerStyle(.link)
                 .help("Fold / unfold sub-items")
             }
         }
