@@ -25,6 +25,7 @@ public struct CalendarView: View {
     @State private var demo = DemoController() // scripted GIF-recording cursor + scenes (CC_DEMO mode)
     @State private var noteMode: NotesMode = .edit // daily-note edit/preview (native toggle mirrors JS)
     @State private var dashNav = NativeDashNavModel() // native pinned-panel keyboard row cursor
+    @State private var dashPinchMag: CGFloat? // in-flight pinch over the native panels (nil = none)
     @State private var search = SearchState() // toolbar event search (⌘F / magnifyingglass)
     @State private var searchAnchor: CGPoint = .zero // content stack's window-space origin (for dropdown alignment)
     @State private var searchCloseWork: DispatchWorkItem? // pending "unmount the bar after it collapses"
@@ -830,6 +831,33 @@ public struct CalendarView: View {
                                                     paused: !engine.renderClock.awake)) { _ in
                                 nativeDashOverlay(theme: theme)
                             }
+                            // Pinch over the native panels must still zoom the CALENDAR (the
+                            // webview forwarded magnify to the input catcher; a hit-testable
+                            // SwiftUI overlay would swallow it). Feed the exact same engine
+                            // call, with the same geometry-space conversion point(e) does.
+                            .simultaneousGesture(
+                                MagnifyGesture()
+                                    .onChanged { v in
+                                        let pt = CGPoint(
+                                            x: v.startLocation.x - Layout.padLeft
+                                                + engine.drawerShift + engine.gutterShift,
+                                            y: v.startLocation.y
+                                        )
+                                        let delta = v.magnification - (dashPinchMag ?? 1)
+                                        engine.onMagnify(delta: delta, at: pt,
+                                                         began: dashPinchMag == nil, ended: false)
+                                        dashPinchMag = v.magnification
+                                    }
+                                    .onEnded { v in
+                                        let pt = CGPoint(
+                                            x: v.startLocation.x - Layout.padLeft
+                                                + engine.drawerShift + engine.gutterShift,
+                                            y: v.startLocation.y
+                                        )
+                                        engine.onMagnify(delta: 0, at: pt, began: false, ended: true)
+                                        dashPinchMag = nil
+                                    }
+                            )
                             .allowsHitTesting(ui.openEventId == nil && engine.chrome.dashPinned
                                 && (1 ... 2).contains(engine.chrome.level))
                         }
