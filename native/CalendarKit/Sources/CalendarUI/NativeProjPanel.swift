@@ -90,6 +90,8 @@ private struct ProjChart: View {
     var onToggle: (ProjTask) -> Void
     var onOpen: (String) -> Void
 
+    @State private var frontLabel: String? // hovered deadline/event label: raised above the rest
+
     private var headroom: CGFloat { project.deadlines.isEmpty && project.events.isEmpty ? 18 : 36 }
     private var chartHeight: CGFloat {
         headroom + CGFloat(tasks.count) * NativeProjPanel.rowH + 34 // + the two axis rows
@@ -178,13 +180,15 @@ private struct ProjChart: View {
             let iso = String(format: "%04d-%02d-%02d", d.year, d.month + 1, d.day)
             let px = s.x(iso) * w
             let color = theme.eventBorder(d.color)
+            // The rule runs from just under its top-layer label all the way down the tracks.
+            let lineTop: CGFloat = 15
             Path { p in // .cc-proj-dlline: thin + DASHED in the deadline's own color
                 p.move(to: .zero)
-                p.addLine(to: CGPoint(x: 0, y: marksH))
+                p.addLine(to: CGPoint(x: 0, y: rowTop + marksH - lineTop))
             }
             .stroke(color.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-            .frame(width: 1, height: marksH)
-            .offset(x: px, y: rowTop)
+            .frame(width: 1, height: rowTop + marksH - lineTop)
+            .offset(x: px, y: lineTop)
             Button { onOpen(d.id) } label: {
                 Text(d.title.isEmpty ? "(deadline)" : d.title)
                     .font(.system(size: 10.5, weight: .medium))
@@ -194,7 +198,9 @@ private struct ProjChart: View {
             }
             .buttonStyle(.plain)
             .handCursor()
+            .labelChip(theme, hover: { frontLabel = $0 ? d.id : nil })
             .position(x: px, y: 7)
+            .zIndex(frontLabel == d.id ? 10 : 3)
         }
     }
 
@@ -290,10 +296,13 @@ private struct ProjChart: View {
                     .foregroundStyle(color)
                     .lineLimit(1)
                     .frame(maxWidth: max(36, width))
+                    .fixedSize()
             }
             .buttonStyle(.plain)
             .handCursor()
+            .labelChip(theme, hover: { frontLabel = $0 ? ev.id : nil })
             .position(x: l + width / 2, y: headroom - 24)
+            .zIndex(frontLabel == ev.id ? 10 : 2)
         }
     }
 
@@ -351,6 +360,18 @@ private struct ProjChart: View {
             }
         }
         return out
+    }
+}
+
+private extension View {
+    /// Headroom-label chip: an opaque page-background pill behind deadline/event names so
+    /// overlapping labels mask each other instead of colliding glyph-on-glyph; slight
+    /// horizontal padding extends the mask past the text, and hover reports up so the
+    /// hovered chip can be raised above every other label.
+    func labelChip(_ theme: Theme, hover: @escaping (Bool) -> Void) -> some View {
+        padding(.horizontal, 5).padding(.vertical, 1.5)
+            .background(RoundedRectangle(cornerRadius: 5).fill(theme.bg))
+            .onHover(perform: hover)
     }
 }
 
