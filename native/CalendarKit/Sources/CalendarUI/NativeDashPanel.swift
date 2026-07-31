@@ -353,28 +353,40 @@ struct SectionHeader: View {
     }
 }
 
-/// One deadline row: color dot, title, relative-due + time label; click navigates to it.
+/// One deadline row (the web's .cc-dd-ddl): color dot, title filling the row, and the
+/// relative-due + time label RIGHT-ALIGNED at the row's edge; hover washes the row and tints
+/// the title; click navigates to the deadline.
 private struct DeadlineRowView: View {
     let deadline: Deadline
     let label: String
     let theme: Theme
     var onOpen: () -> Void
 
+    @State private var hovering = false
+
     var body: some View {
         Button(action: onOpen) {
-            HStack(spacing: 8) {
-                Circle().fill(theme.eventBorder(deadline.color)).frame(width: 7, height: 7)
+            HStack(spacing: 7) {
+                Circle().fill(theme.eventBorder(deadline.color)).frame(width: 8, height: 8)
                 Text(deadline.title.isEmpty ? "(untitled)" : deadline.title)
                     .font(.system(size: 12))
-                    .foregroundStyle(theme.text)
+                    .foregroundStyle(hovering ? Theme.accent : theme.text)
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading) // flex:1 → label right-aligns
                 Text(label)
-                    .font(.system(size: 10))
-                    .foregroundStyle(theme.text.opacity(0.5))
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.text.opacity(0.6))
             }
             .padding(.vertical, 3)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(hovering ? theme.accentGrey.opacity(0.14) : .clear)
+                    .padding(.horizontal, -4)
+            )
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 
