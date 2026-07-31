@@ -66,7 +66,8 @@ struct NativeDashPanel: View {
             let capped = sec.done && sec.items.count > Self.doneShow
                 && !doneOpen.contains(sec.key)
             let roots = capped ? Array(sec.items.prefix(Self.doneShow)) : sec.items
-            return visibleItems(roots: roots, kids: kids).map { live[Self.anchor($0.todo)] ?? $0.todo }
+            return flatten(visibleTree(roots: roots, kids: kids))
+                .map { live[Self.anchor($0.todo)] ?? $0.todo }
         }
         let _ = { if let nav { DispatchQueue.main.async { nav.rows = displayRows } } }()
         ScrollViewReader { proxy in
@@ -111,19 +112,22 @@ struct NativeDashPanel: View {
         let foldable: Bool
         let folded: Bool
         let hidden: Int // subtree rows hidden under a folded parent
-        let ancestors: [String] // parent-chain anchors by depth (guides fold through these)
+    }
+
+    /// The fold-aware subtree: rendered RECURSIVELY (TodoSubtree) so each parent's children live
+    /// in one zero-spacing wrapper that draws a CONTINUOUS guide border.
+    struct RowNode {
+        let item: RowItem
+        let children: [RowNode]
     }
 
     private var collapsedSet: Set<String> { nav?.collapsedSubs ?? [] }
 
-    @State private var hoveredGuide: String? // the ancestor anchor whose guide line is hovered
-
-    /// Click on an indent guide: fold THAT ancestor level and smoothly center its row.
-    private func guideTap(_ item: RowItem, level: Int, proxy: ScrollViewProxy?) {
-        guard item.ancestors.indices.contains(level), let nav else { return }
-        let a = item.ancestors[level]
+    /// Click on a subtree's guide line: fold that parent and smoothly center its row.
+    private func foldAndCenter(_ t: ParsedTodo, proxy: ScrollViewProxy?) {
+        guard let nav else { return }
+        let a = Self.anchor(t)
         withAnimation(.easeInOut(duration: 0.2)) { nav.collapsedSubs.insert(a) }
-        hoveredGuide = nil
         engine.wake()
         withAnimation(.easeInOut(duration: 0.3)) { proxy?.scrollTo(a, anchor: .center) }
     }
@@ -138,22 +142,21 @@ struct NativeDashPanel: View {
         engine.wake()
     }
 
-    /// Walk each root's subtree skipping folded parents' descendants (the web's collapsed set).
-    private func visibleItems(roots: [ParsedTodo],
-                              kids: [String: [ParsedTodo]]) -> [RowItem] {
-        var out: [RowItem] = []
-        func walk(_ t: ParsedTodo, _ ancestors: [String]) {
+    /// Build each root's fold-aware subtree (folded parents keep no children).
+    private func visibleTree(roots: [ParsedTodo],
+                             kids: [String: [ParsedTodo]]) -> [RowNode] {
+        func node(_ t: ParsedTodo) -> RowNode {
             let children = kids["\(TodoFeed.scopeKey(t))\0\(t.line)"] ?? []
             let folded = !children.isEmpty && collapsedSet.contains(Self.anchor(t))
-            out.append(RowItem(todo: t, foldable: !children.isEmpty, folded: folded,
-                               hidden: folded ? TodoFeed.subtree(t, kids).count - 1 : 0,
-                               ancestors: ancestors))
-            if !folded {
-                for c in children { walk(c, ancestors + [Self.anchor(t)]) }
-            }
+            let item = RowItem(todo: t, foldable: !children.isEmpty, folded: folded,
+                               hidden: folded ? TodoFeed.subtree(t, kids).count - 1 : 0)
+            return RowNode(item: item, children: folded ? [] : children.map(node))
         }
-        for r in roots { walk(r, []) }
-        return out
+        return roots.map(node)
+    }
+
+    private func flatten(_ nodes: [RowNode]) -> [RowItem] {
+        nodes.flatMap { [$0.item] + flatten($0.children) }
     }
 
     /// The frozen list structure, refreshed only at FULL-RENDER boundaries: first render, panel
@@ -237,38 +240,26 @@ struct NativeDashPanel: View {
         let capped = s.done && s.items.count > Self.doneShow
         let open = !capped || doneOpen.contains(s.key)
         let roots = open ? s.items : Array(s.items.prefix(Self.doneShow))
-        let rows = visibleItems(roots: roots, kids: kids)
+        let tree = visibleTree(roots: roots, kids: kids)
+        let ctx = TodoSubtree.Ctx(
+            today: today,
+            ownNoteKey: scope == "week" ? "week:\(key)" : "month:\(key)",
+            theme: theme, live: live, nav: nav,
+            toggle: { self.toggle($0) },
+            open: { self.openRow($0) },
+            fold: { self.toggleFold($0) },
+            foldAndCenter: { t in self.foldAndCenter(t, proxy: proxy) }
+        )
         VStack(alignment: .leading, spacing: 5) {
             SectionHeader(title: s.title, count: s.items.count,
                           hidden: capped && !open ? s.items.count - Self.doneShow : 0,
                           chevron: capped, open: open, theme: theme) {
                 if open { doneOpen.remove(s.key) } else { doneOpen.insert(s.key) }
             }
-            ForEach(rows.indices, id: \.self) { i in
-                // Frozen placement, LIVE content: the row renders the current parse of its
-                // source line (checkbox state, strike, ✓ label update the moment it's toggled)
-                // while its position in the list stays frozen.
-                let item = rows[i]
-                let t = live[Self.anchor(item.todo)] ?? item.todo
-                let focused = nav.map {
-                    $0.active && $0.currentRow.map(Self.anchor) == Self.anchor(t)
-                } ?? false
-                TodoRow(todo: t, today: today,
-                        ownNoteKey: scope == "week" ? "week:\(key)" : "month:\(key)",
-                        theme: theme, focused: focused,
-                        foldable: item.foldable, folded: item.folded, hiddenSubs: item.hidden,
-                        thickGuide: hoveredGuide.flatMap { item.ancestors.firstIndex(of: $0) },
-                        onToggle: { toggle(t) },
-                        onOpen: { openRow(t) },
-                        onFold: { toggleFold(t) },
-                        onGuideHover: { level, inside in
-                            guard item.ancestors.indices.contains(level) else { return }
-                            let a = item.ancestors[level]
-                            if inside { hoveredGuide = a }
-                            else if hoveredGuide == a { hoveredGuide = nil }
-                        },
-                        onGuideTap: { level in guideTap(item, level: level, proxy: proxy) })
-                    .id(Self.anchor(t))
+            // Recursive subtrees: zero-spacing wrappers own the CONTINUOUS guide borders; each
+            // row still renders the LIVE parse of its line in its frozen position.
+            ForEach(tree.indices, id: \.self) { i in
+                TodoSubtree(node: tree[i], ctx: ctx)
             }
         }
     }
@@ -453,6 +444,73 @@ private struct DeadlineRowView: View {
     }
 }
 
+/// One fold-aware subtree, rendered recursively: the parent row, then its children inside a
+/// ZERO-SPACING wrapper indented 18pt — whose leading border is ONE continuous guide line from
+/// just below the parent's checkbox down through the last visible descendant (per the user's
+/// wrapper-with-left-border design; per-row segments left dashed gaps at the inter-row margins).
+/// The line carries a ~10pt hover band: hovering thickens the whole line; clicking folds THIS
+/// parent and smoothly centers its row.
+private struct TodoSubtree: View {
+    struct Ctx {
+        let today: String
+        let ownNoteKey: String
+        let theme: Theme
+        let live: [String: ParsedTodo]
+        let nav: NativeDashNavModel?
+        let toggle: (ParsedTodo) -> Void
+        let open: (ParsedTodo) -> Void
+        let fold: (ParsedTodo) -> Void
+        let foldAndCenter: (ParsedTodo) -> Void
+    }
+
+    let node: NativeDashPanel.RowNode
+    let ctx: Ctx
+
+    @State private var guideHover = false
+
+    var body: some View {
+        let t = ctx.live[NativeDashPanel.anchor(node.item.todo)] ?? node.item.todo
+        let focused = ctx.nav.map {
+            $0.active && $0.currentRow.map(NativeDashPanel.anchor) == NativeDashPanel.anchor(t)
+        } ?? false
+        VStack(alignment: .leading, spacing: 0) {
+            TodoRow(todo: t, today: ctx.today, ownNoteKey: ctx.ownNoteKey, theme: ctx.theme,
+                    focused: focused, foldable: node.item.foldable, folded: node.item.folded,
+                    hiddenSubs: node.item.hidden,
+                    onToggle: { ctx.toggle(t) },
+                    onOpen: { ctx.open(t) },
+                    onFold: { ctx.fold(t) })
+                .id(NativeDashPanel.anchor(t))
+            if !node.children.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(node.children.indices, id: \.self) { i in
+                        TodoSubtree(node: node.children[i], ctx: ctx)
+                    }
+                }
+                .padding(.leading, 18)
+            }
+        }
+        .background(alignment: .topLeading) {
+            if !node.children.isEmpty {
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .fill(ctx.theme.accentGrey.opacity(guideHover ? 0.75 : 0.35))
+                        .frame(width: guideHover ? 2 : 1)
+                        .offset(x: guideHover ? 6.5 : 7)
+                    Color.clear
+                        .frame(width: 10)
+                        .contentShape(Rectangle())
+                        .offset(x: 2.5)
+                        .onHover { guideHover = $0 }
+                        .onTapGesture { ctx.foldAndCenter(node.item.todo) }
+                }
+                .padding(.top, 25) // start just below the parent's checkbox (5 + 2 + 15 + gap)
+                .padding(.bottom, 7) // stop just short of the last child's bottom padding
+            }
+        }
+    }
+}
+
 /// One todo row — a faithful port of the webview's .cc-dtodo styling: 15px rounded checkbox,
 /// 13px title (prefix + content as inline segments of ONE wrapped text; accent-grey prefix,
 /// accent-grey + strike when done), then the 11px meta row — priority bangs (mono-heavy red;
@@ -468,12 +526,9 @@ private struct TodoRow: View {
     var foldable: Bool = false // has sub-items → trailing disclosure chevron
     var folded: Bool = false
     var hiddenSubs: Int = 0 // rows hidden under this folded parent ("+N sub")
-    var thickGuide: Int? // the hovered guide's level for THIS row (whole line thickens)
     var onToggle: () -> Void
     var onOpen: () -> Void
     var onFold: () -> Void = {}
-    var onGuideHover: (Int, Bool) -> Void = { _, _ in }
-    var onGuideTap: (Int) -> Void = { _ in }
 
     private static let followupTeal = Color(red: 0x4F / 255.0, green: 0xB0 / 255.0, blue: 0xB0 / 255.0)
 
@@ -534,29 +589,8 @@ private struct TodoRow: View {
                               style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                 .padding(.horizontal, -4)
         )
-        .padding(.leading, CGFloat(min(todo.indent, 6)) * 18) // --nest × 18px
-        .background(alignment: .topLeading) {
-            // Editor-style indent guides: a vertical line per ancestor level, dropped from under
-            // that level's checkbox (x = level·18 + checkbox center), spanning this row's full
-            // height — contiguous sibling rows join into one continuous line. Each line has a
-            // ~10pt hover/click band: hover thickens the WHOLE line (panel-shared state), click
-            // folds that ancestor level and centers its row.
-            GeometryReader { g in
-                ForEach(0 ..< min(todo.indent, 6), id: \.self) { level in
-                    let thick = thickGuide == level
-                    Rectangle()
-                        .fill(theme.accentGrey.opacity(thick ? 0.75 : 0.35))
-                        .frame(width: thick ? 2 : 1, height: g.size.height)
-                        .offset(x: CGFloat(level) * 18 + (thick ? 6.5 : 7))
-                    Color.clear
-                        .frame(width: 10, height: g.size.height)
-                        .contentShape(Rectangle())
-                        .offset(x: CGFloat(level) * 18 + 2.5)
-                        .onHover { onGuideHover(level, $0) }
-                        .onTapGesture { onGuideTap(level) }
-                }
-            }
-        }
+        // Indentation is STRUCTURAL now (TodoSubtree nests children in padded wrappers whose
+        // borders are the continuous guide lines) — the row itself carries no indent.
     }
 
     /// Two copies of the SAME wrapped text with COMPLEMENTARY left/right masks — the struck copy
