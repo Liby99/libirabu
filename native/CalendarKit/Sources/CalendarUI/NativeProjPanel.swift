@@ -135,11 +135,7 @@ private struct ProjChart: View {
             DashCheckbox(checked: done, size: 15) { onToggle(t) }
                 .handCursor()
             Button { onOpenTodo(t.todo) } label: {
-                Text(t.todo.text)
-                    .font(.system(size: 13)) // the TODO list's row size
-                    .strikethrough(done, color: theme.accentGrey)
-                    .foregroundStyle(done ? theme.accentGrey : theme.text)
-                    .lineLimit(1)
+                ProjLabelTitle(text: t.todo.text, done: done, theme: theme)
             }
             .buttonStyle(.plain)
             .handCursor()
@@ -374,6 +370,53 @@ private struct ProjChart: View {
             }
         }
         return out
+    }
+}
+
+/// The gantt label's check/uncheck animation — the TODO panel's mechanism, single-line: two
+/// copies of the SAME text under COMPLEMENTARY left/right masks, the struck accent-grey copy
+/// REPLACING the plain one as the `strike` front sweeps (0.26s), retracting on uncheck.
+private struct ProjLabelTitle: View {
+    let text: String
+    let done: Bool
+    let theme: Theme
+
+    @State private var strike: CGFloat = -1 // -1 = unseeded (first render settles, no sweep)
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            title(struck: false)
+                .mask(
+                    GeometryReader { g in
+                        Rectangle()
+                            .frame(width: g.size.width * max(0, 1 - strike), alignment: .trailing)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                )
+            title(struck: true)
+                .mask(
+                    GeometryReader { g in
+                        Rectangle()
+                            .frame(width: g.size.width * max(0, strike), alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                )
+        }
+        .onChange(of: done, initial: true) { _, d in
+            if strike < 0 {
+                strike = d ? 1 : 0
+            } else {
+                withAnimation(.easeInOut(duration: 0.26)) { strike = d ? 1 : 0 }
+            }
+        }
+    }
+
+    private func title(struck: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 13)) // the TODO list's row size
+            .strikethrough(struck, color: theme.accentGrey)
+            .foregroundStyle(struck ? theme.accentGrey : theme.text)
+            .lineLimit(1)
     }
 }
 
