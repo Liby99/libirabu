@@ -1096,10 +1096,13 @@ public struct CalendarView: View {
                             engine.updateDrawerShift(id: id, drawerWidth: w)
                         }
                     }
-                    // Leaving day view → snap the dashboard back to the TODO tab (the NOTE editor is a
-                    // day-level-only surface; this keeps the zoom-out reveal driven by the TODO WebView).
+                    // WEBVIEW FALLBACK only: leaving day view snapped the dashboard back to the
+                    // TODO tab (the zoom-out reveal was driven by the TODO WebView). Native
+                    // panels keep the active tab CONSISTENT across level changes — week PROJ
+                    // zooms out to month PROJ, and so on for every tab/zoom/slide; note-jumps
+                    // still flip to NOTE via their onLand, after the navigation animation.
                     .onChange(of: engine.chrome.level) {
-                        _, lvl in if lvl != 3 {
+                        _, lvl in if lvl != 3, !NativeDash.enabled {
                             dashTab = .todo
                         }
                     }
