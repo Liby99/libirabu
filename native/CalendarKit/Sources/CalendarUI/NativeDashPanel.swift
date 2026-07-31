@@ -518,12 +518,14 @@ private struct TodoRow: View {
                     .foregroundStyle(overdue ? red : theme.accentGrey)
             }
             ForEach(todo.done ? [] : todo.projects.prefix(2), id: \.self) { proj in
+                // Project pill: a slight ACCENT (red) tint — wash + border — so a project reads
+                // as belonging to the app's accent system, distinct from grey #tags.
                 Text(proj)
                     .font(.system(size: 10))
                     .foregroundStyle(theme.text.opacity(0.8))
                     .padding(.horizontal, 5).padding(.vertical, 0.5)
-                    .background(Capsule().fill(theme.accentGrey.opacity(0.10)))
-                    .overlay(Capsule().strokeBorder(theme.accentGrey.opacity(0.45), lineWidth: 1))
+                    .background(Capsule().fill(Theme.accent.opacity(0.08)))
+                    .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1))
             }
             ForEach(todo.done ? [] : todo.tags.prefix(3), id: \.self) { tag in
                 Text("#\(tag)")
