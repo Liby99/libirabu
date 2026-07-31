@@ -466,11 +466,13 @@ private struct TodoRow: View {
     /// The row's single wrapped text: "Event · " prefix (accent-grey) + content, inline segments.
     /// Hover tints the CONTENT (not the prefix) to the accent — done rows to the full text color.
     private func titleText(struck: Bool) -> Text {
+        // Done rows read MUCH lighter than open ones (well past the web's plain accent-grey),
+        // while the strike line stays comparatively dark — a light word, a dense line.
         let contentColor = struck
-            ? (hovering ? theme.text : theme.accentGrey)
+            ? (hovering ? theme.text.opacity(0.6) : theme.accentGrey.opacity(0.55))
             : (hovering ? Theme.accent : theme.text)
         let content = Text(todo.text)
-            .strikethrough(struck, color: theme.accentGrey)
+            .strikethrough(struck, color: theme.text.opacity(0.55))
             .foregroundStyle(contentColor)
         // The web's prefix rule (rowHTML): EVERY source shows its provenance — event titles and
         // note titles ("Daily note · 2026-07-28", "Weekly note · …") alike — except sub-items,
@@ -481,7 +483,8 @@ private struct TodoRow: View {
         guard todo.parentLine == nil, !todo.eventTitle.isEmpty, !ownNote else {
             return content
         }
-        return Text("\(todo.eventTitle) · ").foregroundStyle(theme.accentGrey) + content
+        return Text("\(todo.eventTitle) · ")
+            .foregroundStyle(struck ? theme.accentGrey.opacity(0.5) : theme.accentGrey) + content
     }
 
     private var metaRow: some View {
@@ -493,7 +496,7 @@ private struct TodoRow: View {
                 // The web's done meta: a single "✓ <finished rel · time>" in dark green.
                 Text("✓ \(todo.doneDate.map { NativeDashPanel.finishedLabel(today, $0) } ?? "done")")
                     .font(.system(size: 11))
-                    .foregroundStyle(theme.eventBorder("darkgreen").opacity(0.85))
+                    .foregroundStyle(theme.eventBorder("darkgreen").opacity(0.6))
             } else if let p = todo.priority {
                 let bangs = Text(String(repeating: "!", count: p))
                     .font(.system(size: 11, weight: .heavy, design: .monospaced))
