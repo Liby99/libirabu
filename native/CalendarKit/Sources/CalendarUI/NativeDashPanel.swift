@@ -386,6 +386,15 @@ private struct TodoRow: View {
                     metaRow
                 }
                 .contentShape(Rectangle())
+                // Hover wash on the TEXT REGION only (back to the web's .cc-dtodo-main:hover):
+                // a rounded accent-grey fill bled slightly past the content so layout never
+                // shifts. The title tint rides the same hover state.
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(hovering ? theme.accentGrey.opacity(0.14) : .clear)
+                        .padding(.horizontal, -6).padding(.vertical, -3)
+                )
+                .onHover { hovering = $0 }
             }
             .buttonStyle(.plain)
         }
@@ -398,15 +407,6 @@ private struct TodoRow: View {
         }
         .padding(.vertical, 5) // roomier than the web row box, per taste
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Whole-row hover: the accent-grey wash spans the FULL row — checkbox through the
-        // panel's right edge — bled slightly wider so layout never shifts. The title tint
-        // (accent; done rows → full text color) rides the same hover state.
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(hovering ? theme.accentGrey.opacity(0.14) : .clear)
-                .padding(.horizontal, -6)
-        )
-        .onHover { hovering = $0 }
         .padding(.leading, CGFloat(min(todo.indent, 6)) * 18) // --nest × 18px
     }
 
