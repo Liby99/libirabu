@@ -932,6 +932,7 @@ public final class DemoController {
         try? await pause(1.2)
         engine.setView(zoom: "month", focusedMonth: 5) // June
         try? await pause(0.8)
+        await benchDashSetup() // CC_BENCH_DASH / CC_BENCH_DASH_TAB: swipe with the panel out
         benchFrames.removeAll()
         RenderProf.reset()
         benchActive = true
@@ -1002,10 +1003,7 @@ public final class DemoController {
         // CC_BENCH_DASH=1 → run the same swipes with the ⌘B side panel PINNED OPEN (the reported
         // regression: week paging with the dashboard out). Pin before recording so the pin tween
         // itself doesn't pollute the swipe stats (bench-dash-toggle measures that separately).
-        if env["CC_BENCH_DASH"] != nil, !engine.dashPinned {
-            engine.toggleDashPin()
-            for _ in 0 ..< 50 { engine.wake(); try? await pause(0.016) } // ride out the 0.3s reveal
-        }
+        await benchDashSetup() // CC_BENCH_DASH / CC_BENCH_DASH_TAB
         benchFrames.removeAll()
         RenderProf.reset()
         benchActive = true
@@ -1188,6 +1186,25 @@ public final class DemoController {
                           webEpoch: web.epoch)
     }
 
+    /// CC_BENCH_DASH=1 → pin the ⌘B panel open (instant persisted pin — the pin TWEEN is
+    /// bench-dash-toggle's own subject) before recording; CC_BENCH_DASH_TAB=proj|note
+    /// additionally flips the panel to that tab through the same notifications the ⌘J/⌘E menu
+    /// items post, so the swipe/zoom scenes can exercise every panel body, not just TODO.
+    private func benchDashSetup() async {
+        guard let engine else { return }
+        let env = ProcessInfo.processInfo.environment
+        if env["CC_BENCH_DASH"] != nil, !engine.dashPinned {
+            engine.pinDashboard()
+            for _ in 0 ..< 40 { engine.wake(); try? await pause(0.016) }
+        }
+        switch env["CC_BENCH_DASH_TAB"] {
+        case "proj": NotificationCenter.default.post(name: .focusDashProj, object: nil)
+        case "note": NotificationCenter.default.post(name: .focusDashNote, object: nil)
+        default: return
+        }
+        for _ in 0 ..< 40 { engine.wake(); try? await pause(0.016) } // tab carousel + mount
+    }
+
     /// DAY-view horizontal paging: adjacent day↔day swipes through the REAL gesture path
     /// (beginDayGesture / setDayProgress / endDayGesture — the same projection the pager's
     /// scroll feed drives), forward then back, ×2 tours. The native day panels carousel with
@@ -1198,6 +1215,7 @@ public final class DemoController {
         let env = ProcessInfo.processInfo.environment
         engine.jumpToDay(engine.year, 6, 15)
         try? await pause(1.2) // ride out the fly-to + first panel mount
+        await benchDashSetup() // CC_BENCH_DASH_TAB: swipe on the PROJ/NOTE tab too
         benchFrames.removeAll()
         RenderProf.reset()
         benchActive = true
@@ -1268,6 +1286,7 @@ public final class DemoController {
         try? await pause(1.2)
         engine.demoGoToYear(centerMonth: 6) // July centered — the dense month under the pinch anchor
         try? await pause(0.8)
+        await benchDashSetup() // CC_BENCH_DASH: cross every zoom seam with the panel out
         benchFrames.removeAll()
         RenderProf.reset()
         benchActive = true
