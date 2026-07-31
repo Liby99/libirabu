@@ -25,7 +25,7 @@ struct NativeProjPanel: View {
     static let trackH: CGFloat = 20 // the grey track's height within the row
     /// Bar-segment opacity — tune to taste. The web shipped .85; lightened to .80 so the
     /// segments sit a touch softer against the grey tracks.
-    static let barOpacity: Double = 0.80
+    static let barOpacity: Double = 0.60
 
     var body: some View {
         let today = NativeDashPanel.todayIso()
@@ -68,7 +68,7 @@ struct NativeProjPanel: View {
             SectionHeader(title: p.key, count: p.tasks.count,
                           hidden: showAll ? 0 : p.tasks.count - visible.count,
                           chevron: foldable, open: showAll, theme: theme) {
-                withAnimation(.easeInOut(duration: 0.25)) {
+                withAnimation(.easeInOut(duration: 0.28)) { // = PROJ_ANIM_MS
                     expanded = showAll ? nil : p.key // accordion: opening one closes the other
                 }
             }
@@ -108,8 +108,8 @@ private struct ProjChart: View {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 0) {
                     Color.clear.frame(height: headroom)
-                    ForEach(tasks.indices, id: \.self) { i in
-                        labelRow(tasks[i])
+                    ForEach(tasks, id: \.rowId) { t in
+                        labelRow(t).transition(.rowReveal)
                     }
                 }
                 .frame(width: labelW, alignment: .leading)
@@ -227,8 +227,8 @@ private struct ProjChart: View {
     /// width, rgba-grey wash), with the task's bars inset 1pt inside it.
     private func taskTracks(_ s: ChartScale, w: CGFloat) -> some View {
         VStack(spacing: 0) {
-            ForEach(tasks.indices, id: \.self) { i in
-                trackRow(tasks[i], s, w: w)
+            ForEach(tasks, id: \.rowId) { t in
+                trackRow(t, s, w: w).transition(.rowReveal)
             }
         }
         .padding(.top, headroom)
@@ -364,6 +364,35 @@ private struct ProjChart: View {
         }
         return out
     }
+}
+
+private extension ProjTask {
+    /// Stable row identity across expand/collapse re-sorts — the TODO panel's anchor
+    /// (source scope key + line number). Index identity made SwiftUI read a mid-list
+    /// insertion as "every row after it changed content, new rows appended at the end".
+    var rowId: String { NativeDashPanel.anchor(todo) }
+}
+
+/// Expand/collapse row reveal — the web's unmasking clip: the row's SLOT animates
+/// 0 -> full height over full-size content (no glyph scaling), fading in alongside.
+private struct RowReveal: ViewModifier, Animatable {
+    var f: CGFloat // 0 = collapsed slot, 1 = full row
+    var animatableData: CGFloat {
+        get { f }
+        set { f = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .frame(height: NativeProjPanel.rowH * f, alignment: .center)
+            .clipped()
+            .opacity(Double(f))
+    }
+}
+
+private extension AnyTransition {
+    static let rowReveal = AnyTransition.modifier(active: RowReveal(f: 0),
+                                                  identity: RowReveal(f: 1))
 }
 
 private extension View {
