@@ -114,6 +114,8 @@ public final class DemoController {
         case "bench-dash-toggle": await sceneBenchDashToggle()
         case "bench-dash-edit": await sceneBenchDashEdit()
         case "bench-dash-zoomin": await sceneBenchDashZoomIn()
+        case "bench-day-swipe": await sceneBenchDaySwipe()
+        case "bench-day-zoomin": await sceneBenchDayZoomIn()
         case "bench-pinch-zoom": await sceneBenchPinchZoom()
         case "bench-notify-plan": await sceneBenchNotifyPlan()
         default:
@@ -1182,6 +1184,77 @@ public final class DemoController {
                        atomically: true, encoding: .utf8)
         }
         let web = await dashWebCarousel?.benchWebCollect() ?? (frames: [], longTasks: [], units: [], epoch: [])
+        writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
+                          webEpoch: web.epoch)
+    }
+
+    /// DAY-view horizontal paging: adjacent day↔day swipes through the REAL gesture path
+    /// (beginDayGesture / setDayProgress / endDayGesture — the same projection the pager's
+    /// scroll feed drives), forward then back, ×2 tours. The native day panels carousel with
+    /// each swipe; the reported "swipe stops midway" stutter runs exactly this code.
+    private func sceneBenchDaySwipe() async {
+        guard let engine else { return }
+        try? await pause(1.2)
+        let env = ProcessInfo.processInfo.environment
+        engine.jumpToDay(engine.year, 6, 15)
+        try? await pause(1.2) // ride out the fly-to + first panel mount
+        benchFrames.removeAll()
+        RenderProf.reset()
+        benchActive = true
+        dashWebCarousel?.benchWebStart()
+        RenderProf.mark("benchBegin")
+        let steps = max(2, env["CC_BENCH_SWIPE_STEPS"].flatMap { Int($0) } ?? 40)
+        let gap = env["CC_BENCH_SWIPE_GAP"].flatMap { Double($0) } ?? 0.15
+        let legs = [(15, 16), (16, 17), (17, 16), (16, 15)]
+        for (from, to) in legs + legs {
+            let dayW = max(1, engine.daily.frac * (size.width - Layout.labelW))
+            engine.beginDayGesture()
+            moveStart = Date.timeIntervalSinceReferenceDate
+            for i in 0 ... steps {
+                let t = easeOutQuad(CGFloat(i) / CGFloat(steps))
+                let x = (CGFloat(from) - 1 + CGFloat(to - from) * t) * dayW
+                engine.setDayProgress(x)
+                engine.wake()
+                try? await pause(0.008)
+            }
+            benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
+            _ = engine.endDayGesture()
+            try? await pause(gap)
+        }
+        RenderProf.mark("benchEnd")
+        benchActive = false
+        let web = await dashWebCarousel?.benchWebCollect()
+            ?? (frames: [], longTasks: [], units: [], epoch: [])
+        writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
+                          webEpoch: web.epoch)
+    }
+
+    /// The FULL year→today descent ("zoom all the way down to today's daily view"): from the
+    /// year grid, one jumpToDay to today's date — the multi-level fly-to the double-click path
+    /// drives — with the dashboard panels mounting mid-flight. CC_BENCH_DASH=1 pins first.
+    private func sceneBenchDayZoomIn() async {
+        guard let engine else { return }
+        try? await pause(1.4)
+        let c = Calendar.current.dateComponents([.month, .day], from: Date())
+        let month = (c.month ?? 7) - 1
+        engine.demoGoToYear(centerMonth: month)
+        if ProcessInfo.processInfo.environment["CC_BENCH_DASH"] != nil, !engine.dashPinned {
+            engine.pinDashboard()
+        }
+        try? await pause(0.8)
+        benchFrames.removeAll()
+        RenderProf.reset()
+        benchActive = true
+        dashWebCarousel?.benchWebStart()
+        RenderProf.mark("benchBegin")
+        moveStart = Date.timeIntervalSinceReferenceDate
+        engine.jumpToDay(engine.year, month, c.day ?? 15)
+        for _ in 0 ..< 110 { engine.wake(); try? await pause(0.016) } // the whole descent
+        benchMoves.append((moveStart, moveStart + 1.6))
+        RenderProf.mark("benchEnd")
+        benchActive = false
+        let web = await dashWebCarousel?.benchWebCollect()
+            ?? (frames: [], longTasks: [], units: [], epoch: [])
         writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
                           webEpoch: web.epoch)
     }
