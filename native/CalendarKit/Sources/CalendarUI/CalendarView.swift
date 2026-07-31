@@ -707,8 +707,14 @@ public struct CalendarView: View {
                                     nav: dashNav, noteMode: $noteMode,
                                     // Event rows open the DRAWER (the web's data-open path);
                                     // note rows fly to their note, landing on the NOTE tab.
-                                    onOpen: { id in ui.openEventId = sourceId(of: id) },
-                                    onJump: { key in jumpToNoteKey(key) })
+                                    onOpen: { id in
+                                        guard !NativeDash.tapsSuppressed else { return }
+                                        ui.openEventId = sourceId(of: id)
+                                    },
+                                    onJump: { key in
+                                        guard !NativeDash.tapsSuppressed else { return }
+                                        jumpToNoteKey(key)
+                                    })
                         .equatable() // per-frame re-eval stops HERE; only frame/opacity move
                         .frame(width: pw, height: ph)
                         .position(x: bx + pw / 2, y: top + ph / 2)
@@ -867,6 +873,7 @@ public struct CalendarView: View {
                                         engine.onMagnify(delta: delta, at: pt,
                                                          began: dashPinchMag == nil, ended: false)
                                         dashPinchMag = v.magnification
+                                        NativeDash.lastPinch = Date() // suppress row taps
                                     }
                                     .onEnded { v in
                                         let pt = CGPoint(
@@ -876,6 +883,7 @@ public struct CalendarView: View {
                                         )
                                         engine.onMagnify(delta: 0, at: pt, began: false, ended: true)
                                         dashPinchMag = nil
+                                        NativeDash.lastPinch = Date() // lift-off click grace
                                     }
                             )
                             .allowsHitTesting(ui.openEventId == nil && engine.chrome.dashPinned

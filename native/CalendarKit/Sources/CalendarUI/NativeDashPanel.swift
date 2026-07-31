@@ -35,6 +35,14 @@ enum NativeDash {
         UserDefaults.standard.bool(forKey: "cc.nativeDash")
             || ProcessInfo.processInfo.environment["CC_NATIVE_DASH"] != nil
     }
+
+    /// Trackpad-pinch tap suppression: the panel overlay's MagnifyGesture is SIMULTANEOUS with
+    /// the row buttons' click recognizers, and lifting off a pinch (notably with tap-to-click)
+    /// can land as a click on whatever row the cursor hovers — zooming then "clicked" a todo
+    /// and flew to its definition. The pinch handlers stamp this clock; row activations
+    /// (open/jump/toggle) are ignored while a pinch is in flight or just ended.
+    @MainActor static var lastPinch: Date = .distantPast
+    @MainActor static var tapsSuppressed: Bool { Date().timeIntervalSince(lastPinch) < 0.35 }
 }
 
 struct NativeDashPanel: View {
@@ -305,6 +313,8 @@ struct NativeDashPanel: View {
     /// Flip a todo's checkbox in its source note (done-stamped), through the engine's own write
     /// paths. Shared by the TODO and PROJ panels.
     static func toggleTodo(_ engine: CalendarEngine, _ t: ParsedTodo) {
+        guard !NativeDash.tapsSuppressed else { return } // pinch lift-off, not a real click
+
         let stamp = todayIso() + "T" + clockNow()
         if t.source == "daily" {
             let key = t.dailyDate ?? ""
@@ -325,6 +335,8 @@ struct NativeDashPanel: View {
     }
 
     private func toggle(_ t: ParsedTodo) {
+        guard !NativeDash.tapsSuppressed else { return } // pinch lift-off, not a real click
+
         Self.toggleTodo(engine, t)
         // Our own write: adopt its data stamp so the frozen structure is NOT refrozen — the row
         // stays in place, animating; external changes still refreeze on their own stamps.
@@ -332,6 +344,7 @@ struct NativeDashPanel: View {
     }
 
     private func openRow(_ t: ParsedTodo) {
+        guard !NativeDash.tapsSuppressed else { return } // pinch lift-off, not a real click
         if t.source == "event" {
             onOpen(t.eventId) // opens the event drawer, like the web's data-open
         } else if let key = t.dailyDate {
