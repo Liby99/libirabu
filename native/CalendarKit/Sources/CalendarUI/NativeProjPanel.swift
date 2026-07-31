@@ -23,6 +23,9 @@ struct NativeProjPanel: View {
 
     static let rowH: CGFloat = 26 // row pitch (label row == track row)
     static let trackH: CGFloat = 20 // the grey track's height within the row
+    /// Bar-segment opacity — tune to taste. The web shipped .85; lightened to .80 so the
+    /// segments sit a touch softer against the grey tracks.
+    static let barOpacity: Double = 0.80
 
     var body: some View {
         let today = NativeDashPanel.todayIso()
@@ -266,7 +269,7 @@ private struct ProjChart: View {
         let l = s.x(a) * w
         let width = max(5, s.x(b) * w - l)
         return RoundedRectangle(cornerRadius: 3)
-            .fill(color.opacity(0.85)) // .cc-proj-bar: full color at .85, open and done alike
+            .fill(color.opacity(NativeProjPanel.barOpacity)) // open and done alike (see constant)
             .overlay {
                 if over { // past-due portion: the web's 45° hatch
                     Hatch().stroke(Color.black.opacity(0.3), lineWidth: 2.2)
