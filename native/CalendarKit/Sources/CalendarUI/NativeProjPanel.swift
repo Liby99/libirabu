@@ -1,11 +1,11 @@
 // The NATIVE PROJ (gantt) panel — the Swift port of dashboard.ts projChartHTML (webview
 // retirement phase 2), shown for the pinned week/month panel's PROJ tab behind cc.nativeDash.
-// Per project: a label column of REAL todo rows (checkbox toggles the source line, title opens
-// the event) beside a percent-projected timeline — task bars (created/start → done/now), overdue
-// hatching past a crossed due:, due ticks, deadline rules + labels, event boxes, the wall-clock
-// now line, the current-view band, and two axis rows (relative days + calendar boundaries).
-// Top-8 relevance cut with an accordion expand (one project open at a time), animated by SwiftUI
-// instead of the web's hand-rolled two-frame transition choreography.
+// Per project: a label column of REAL todo rows (the house 15px DashCheckbox toggles the source
+// line, titles open the event) beside a percent-projected timeline — every row gets a GREY
+// ROUNDED TRACK (the web's .cc-proj-track) with its bars inset inside; crossed-due segments are
+// hatched; uncrossed dues render as ticks; deadline rules + labels, event boxes, the wall-clock
+// now pill, the This Week/Month band, and two axis rows. Sized for readability: 26pt row pitch,
+// 13pt labels (the TODO list's size), 10pt+ chrome text.
 
 import CalendarEngine
 import CalendarGeometry
@@ -21,18 +21,18 @@ struct NativeProjPanel: View {
 
     @State private var expanded: String? // accordion: at most one project shows ALL rows
 
-    static let rowH: CGFloat = 20
-    static let labelW: CGFloat = 150
+    static let rowH: CGFloat = 26 // row pitch (label row == track row)
+    static let trackH: CGFloat = 20 // the grey track's height within the row
 
     var body: some View {
         let today = NativeDashPanel.todayIso()
         let (rs, re) = range
         let projects = ProjIndex.shown(engine.projFeed(today: today), rs: rs, re: re)
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 22) {
                 if projects.isEmpty {
                     Text("No projects here yet. Tag todo items with @project:your-project — they show up right here.")
-                        .font(.system(size: 11))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.text.opacity(0.5))
                         .padding(.top, 6)
                 }
@@ -61,7 +61,7 @@ struct NativeProjPanel: View {
         let visible = (showAll ? byScore : Array(byScore.prefix(ProjIndex.maxRows)))
             .sorted { $0.start < $1.start } // chart order: chronological
         let foldable = p.tasks.count > ProjIndex.maxRows
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             SectionHeader(title: p.key, count: p.tasks.count,
                           hidden: showAll ? 0 : p.tasks.count - visible.count,
                           chevron: foldable, open: showAll, theme: theme) {
@@ -77,7 +77,8 @@ struct NativeProjPanel: View {
     }
 }
 
-/// One project's chart: label rows beside the percent-projected plot area.
+/// One project's chart: the label column (32% of the width, like the web) beside the projected
+/// plot; label rows and grey tracks share the same row pitch so they stay aligned 1:1.
 private struct ProjChart: View {
     let project: Project
     let tasks: [ProjTask]
@@ -89,54 +90,62 @@ private struct ProjChart: View {
     var onToggle: (ProjTask) -> Void
     var onOpen: (String) -> Void
 
-    private var headroom: CGFloat { project.deadlines.isEmpty && project.events.isEmpty ? 16 : 32 }
+    private var headroom: CGFloat { project.deadlines.isEmpty && project.events.isEmpty ? 18 : 36 }
+    private var chartHeight: CGFloat {
+        headroom + CGFloat(tasks.count) * NativeProjPanel.rowH + 34 // + the two axis rows
+    }
 
     var body: some View {
         let scale = ChartScale(project: project, tasks: tasks, today: today, rs: rs, re: re)
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 0) {
-                Color.clear.frame(height: headroom)
-                ForEach(tasks.indices, id: \.self) { i in
-                    labelRow(tasks[i])
+        GeometryReader { geo in
+            let labelW = max(120, geo.size.width * 0.32)
+            let plotW = max(40, geo.size.width - labelW - 10)
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Color.clear.frame(height: headroom)
+                    ForEach(tasks.indices, id: \.self) { i in
+                        labelRow(tasks[i])
+                    }
                 }
+                .frame(width: labelW, alignment: .leading)
+                plot(scale, w: plotW)
+                    .frame(width: plotW, alignment: .topLeading)
             }
-            .frame(width: NativeProjPanel.labelW, alignment: .leading)
-            plot(scale)
         }
+        .frame(height: chartHeight)
     }
 
     private func labelRow(_ t: ProjTask) -> some View {
-        HStack(spacing: 5) {
-            DashCheckbox(checked: t.end != nil, size: 11) { onToggle(t) }
+        let done = t.end != nil
+        return HStack(spacing: 8) {
+            DashCheckbox(checked: done, size: 15) { onToggle(t) }
+                .handCursor()
             Button { onOpen(t.todo.eventId) } label: {
                 Text(t.todo.text)
-                    .font(.system(size: 11))
-                    .strikethrough(t.end != nil, color: theme.text.opacity(0.4))
-                    .foregroundStyle(theme.text.opacity(t.end != nil ? 0.4 : 0.78))
+                    .font(.system(size: 13)) // the TODO list's row size
+                    .strikethrough(done, color: theme.accentGrey)
+                    .foregroundStyle(done ? theme.accentGrey : theme.text)
                     .lineLimit(1)
             }
             .buttonStyle(.plain)
+            .handCursor()
             .disabled(t.todo.source != "event")
         }
         .frame(height: NativeProjPanel.rowH, alignment: .leading)
         .help(t.todo.text)
     }
 
-    private func plot(_ scale: ChartScale) -> some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let rowsH = CGFloat(tasks.count) * NativeProjPanel.rowH
-            let plotH = headroom + rowsH
-            ZStack(alignment: .topLeading) {
-                viewMark(scale, w: w, plotH: plotH)
-                deadlineRules(scale, w: w, plotH: plotH, rowsH: rowsH)
-                nowLine(scale, w: w, plotH: plotH)
-                taskBars(scale, w: w)
-                eventBoxes(scale, w: w, rowsH: rowsH)
-                axes(scale, w: w, plotH: plotH)
-            }
+    private func plot(_ scale: ChartScale, w: CGFloat) -> some View {
+        let rowsH = CGFloat(tasks.count) * NativeProjPanel.rowH
+        let plotH = headroom + rowsH
+        return ZStack(alignment: .topLeading) {
+            viewMark(scale, w: w, plotH: plotH)
+            deadlineRules(scale, w: w, plotH: plotH)
+            nowLine(scale, w: w, plotH: plotH)
+            taskTracks(scale, w: w)
+            eventBoxes(scale, w: w, rowsH: rowsH)
+            axes(scale, w: w, plotH: plotH)
         }
-        .frame(height: headroom + CGFloat(tasks.count) * NativeProjPanel.rowH + 30)
     }
 
     // ── Overlays ─────────────────────────────────────────────────────────────────────────────
@@ -144,27 +153,21 @@ private struct ProjChart: View {
     @ViewBuilder
     private func viewMark(_ s: ChartScale, w: CGFloat, plotH: CGFloat) -> some View {
         let accent = theme.eventBorder("red")
-        if scope == "day" {
-            Rectangle().fill(theme.text.opacity(0.5)).frame(width: 1, height: plotH)
-                .offset(x: s.x(rs) * w)
-        } else {
-            let l = s.x(rs) * w
-            let r = s.x(TodoIndex.addDuration(re, 1, "d")) * w // end-day inclusive
-            Rectangle().fill(accent.opacity(0.07))
-                .frame(width: max(1, r - l), height: plotH)
-                .offset(x: l)
-            Rectangle().fill(accent.opacity(0.5)).frame(width: 1, height: plotH).offset(x: l)
-            Rectangle().fill(accent.opacity(0.5)).frame(width: 1, height: plotH).offset(x: r)
-            Text(scope == "week" ? "This Week" : "This Month")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(accent.opacity(0.8))
-                .position(x: (l + r) / 2, y: headroom - 8)
-        }
+        let l = s.x(rs) * w
+        let r = s.x(TodoIndex.addDuration(re, 1, "d")) * w // end-day inclusive
+        Rectangle().fill(accent.opacity(0.07))
+            .frame(width: max(1, r - l), height: plotH)
+            .offset(x: l)
+        Rectangle().fill(accent.opacity(0.5)).frame(width: 1, height: plotH).offset(x: l)
+        Rectangle().fill(accent.opacity(0.5)).frame(width: 1, height: plotH).offset(x: r)
+        Text(scope == "week" ? "This Week" : "This Month")
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(accent.opacity(0.8))
+            .position(x: (l + r) / 2, y: headroom - 9)
     }
 
     @ViewBuilder
-    private func deadlineRules(_ s: ChartScale, w: CGFloat, plotH: CGFloat,
-                               rowsH: CGFloat) -> some View {
+    private func deadlineRules(_ s: ChartScale, w: CGFloat, plotH: CGFloat) -> some View {
         ForEach(project.deadlines, id: \.id) { d in
             let iso = String(format: "%04d-%02d-%02d", d.year, d.month + 1, d.day)
             let px = s.x(iso) * w
@@ -174,12 +177,13 @@ private struct ProjChart: View {
                 .offset(x: px)
             Button { onOpen(d.id) } label: {
                 Text(d.title.isEmpty ? "(deadline)" : d.title)
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(color)
                     .lineLimit(1)
             }
             .buttonStyle(.plain)
-            .position(x: px, y: 6)
+            .handCursor()
+            .position(x: px, y: 7)
         }
     }
 
@@ -191,14 +195,16 @@ private struct ProjChart: View {
         let accent = theme.eventBorder("red")
         Rectangle().fill(accent).frame(width: 1.5, height: plotH).offset(x: px)
         Text("now")
-            .font(.system(size: 9, weight: .bold))
+            .font(.system(size: 10.5, weight: .bold))
             .foregroundStyle(.white)
-            .padding(.horizontal, 5).padding(.vertical, 1)
+            .padding(.horizontal, 6).padding(.vertical, 1.5)
             .background(Capsule().fill(accent))
-            .position(x: px, y: headroom - 8)
+            .position(x: px, y: headroom - 9)
     }
 
-    private func taskBars(_ s: ChartScale, w: CGFloat) -> some View {
+    /// The row area: one GREY ROUNDED TRACK per task (the web's .cc-proj-track — full plot
+    /// width, rgba-grey wash), with the task's bars inset 1pt inside it.
+    private func taskTracks(_ s: ChartScale, w: CGFloat) -> some View {
         VStack(spacing: 0) {
             ForEach(tasks.indices, id: \.self) { i in
                 trackRow(tasks[i], s, w: w)
@@ -211,36 +217,45 @@ private struct ProjChart: View {
     private func trackRow(_ t: ProjTask, _ s: ChartScale, w: CGFloat) -> some View {
         let color = theme.eventBorder(t.color)
         let end = t.end ?? today
-        let done = t.end != nil
         ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.gray.opacity(0.12)) // the missing grey track
+                .frame(width: w, height: NativeProjPanel.trackH)
             // The bar taxonomy: one solid bar to done/now; a crossed due splits solid|hatched;
-            // an uncrossed future due renders as a small vertical tick.
+            // an uncrossed future due renders as a tick in the row's color.
             if let due = t.due, end > due {
                 if t.start < due {
-                    bar(s, w, t.start, due, color, dim: done, over: false)
-                    bar(s, w, due, end, color, dim: done, over: true)
+                    bar(s, w, t.start, due, color, over: false)
+                    bar(s, w, due, end, color, over: true)
                 } else {
-                    bar(s, w, t.start, end, color, dim: done, over: true)
+                    bar(s, w, t.start, end, color, over: true)
                 }
             } else {
-                bar(s, w, t.start, end, color, dim: done, over: false)
+                bar(s, w, t.start, end, color, over: false)
                 if let due = t.due, due > end {
-                    Rectangle().fill(color)
-                        .frame(width: 2, height: 11)
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(color.opacity(0.8))
+                        .frame(width: 2, height: NativeProjPanel.trackH)
                         .offset(x: s.x(due) * w - 1)
                 }
             }
         }
-        .frame(height: NativeProjPanel.rowH, alignment: .leading)
+        .frame(width: w, height: NativeProjPanel.rowH, alignment: .leading)
     }
 
     private func bar(_ s: ChartScale, _ w: CGFloat, _ a: String, _ b: String, _ color: Color,
-                     dim: Bool, over: Bool) -> some View {
+                     over: Bool) -> some View {
         let l = s.x(a) * w
-        let width = max(4, s.x(b) * w - l)
-        return RoundedRectangle(cornerRadius: 2.5)
-            .fill(color.opacity(dim ? 0.35 : over ? 0.5 : 0.85))
-            .frame(width: width, height: 5)
+        let width = max(5, s.x(b) * w - l)
+        return RoundedRectangle(cornerRadius: 3)
+            .fill(color.opacity(0.85)) // .cc-proj-bar: full color at .85, open and done alike
+            .overlay {
+                if over { // past-due portion: the web's 45° hatch
+                    Hatch().stroke(Color.black.opacity(0.3), lineWidth: 2.2)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+            }
+            .frame(width: width, height: NativeProjPanel.trackH - 2)
             .offset(x: l)
     }
 
@@ -250,22 +265,23 @@ private struct ProjChart: View {
             let ev = project.events[i]
             let color = theme.eventBorder(ev.color)
             let l = s.x(ev.start) * w
-            let width = max(6, s.x(TodoIndex.addDuration(ev.end, 1, "d")) * w - l)
-            RoundedRectangle(cornerRadius: 4)
-                .strokeBorder(color.opacity(0.55), lineWidth: 1)
-                .background(RoundedRectangle(cornerRadius: 4).fill(color.opacity(0.06)))
+            let width = max(8, s.x(TodoIndex.addDuration(ev.end, 1, "d")) * w - l)
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(color.opacity(0.6), lineWidth: 1.5)
+                .background(RoundedRectangle(cornerRadius: 7).fill(color.opacity(0.08)))
                 .frame(width: width, height: rowsH)
                 .offset(x: l, y: headroom)
                 .allowsHitTesting(false)
             Button { onOpen(ev.id) } label: {
                 Text(ev.title)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 10.5, weight: .bold))
                     .foregroundStyle(color)
                     .lineLimit(1)
-                    .frame(maxWidth: max(30, width))
+                    .frame(maxWidth: max(36, width))
             }
             .buttonStyle(.plain)
-            .position(x: l + width / 2, y: 22)
+            .handCursor()
+            .position(x: l + width / 2, y: headroom - 24)
         }
     }
 
@@ -280,16 +296,16 @@ private struct ProjChart: View {
             let iso = TodoIndex.addDuration(today, k, "d")
             if iso >= s.lo, iso <= s.hi {
                 Text(k == 0 ? "now" : k < 0 ? "\(-k)d ago" : "in \(k)d")
-                    .font(.system(size: 8))
-                    .foregroundStyle(theme.text.opacity(0.45))
-                    .position(x: s.x(iso) * w, y: plotH + 7)
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.text.opacity(0.5))
+                    .position(x: s.x(iso) * w, y: plotH + 9)
             }
         }
         ForEach(calendarTicks(s), id: \.0) { iso, label in
             Text(label)
-                .font(.system(size: 8))
-                .foregroundStyle(theme.text.opacity(0.45))
-                .position(x: s.x(iso) * w, y: plotH + 20)
+                .font(.system(size: 10))
+                .foregroundStyle(theme.text.opacity(0.5))
+                .position(x: s.x(iso) * w, y: plotH + 24)
         }
     }
 
@@ -323,6 +339,21 @@ private struct ProjChart: View {
             }
         }
         return out
+    }
+}
+
+/// The 45° hatch for past-due bar segments (the web's repeating-linear-gradient stripes).
+private struct Hatch: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let step: CGFloat = 6
+        var x = -rect.height // start off-left so diagonals cover the whole rect
+        while x < rect.width {
+            p.move(to: CGPoint(x: x, y: rect.maxY))
+            p.addLine(to: CGPoint(x: x + rect.height, y: rect.minY))
+            x += step
+        }
+        return p
     }
 }
 
