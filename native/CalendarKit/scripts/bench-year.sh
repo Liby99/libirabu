@@ -37,7 +37,7 @@ env CC_DEMO="$SCENE" CC_DEMO_DATADIR="$TMP" \
   ${WINDOW:+CC_WINDOW="$WINDOW"} ${HOVER:+CC_BENCH_HOVER=1} ${DWELL:+CC_BENCH_DWELL=1} ${MONTHS:+CC_BENCH_MONTHS="$MONTHS"} ${MOUNTALL:+CC_BENCH_MOUNT_ALL=1} \
   ${WEEKS:+CC_BENCH_WEEKS="$WEEKS"} ${WEEK_MONTH:+CC_BENCH_WEEK_MONTH="$WEEK_MONTH"} \
   ${DASH:+CC_BENCH_DASH=1} ${DASH_LEVEL:+CC_BENCH_DASH_LEVEL="$DASH_LEVEL"} \
-  ${DASH_PERIOD:+CC_BENCH_DASH_PERIOD="$DASH_PERIOD"} ${DASH_TOGGLES:+CC_BENCH_DASH_TOGGLES="$DASH_TOGGLES"} \
+  ${DASH_PERIOD:+CC_BENCH_DASH_PERIOD="$DASH_PERIOD"} ${DASH_TOGGLES:+CC_BENCH_DASH_TOGGLES="$DASH_TOGGLES"} ${NATIVE:+CC_NATIVE_DASH=1} \
   ${PROF:+CC_PROF=1} ${PERF_OFF:+CC_PERF_OFF=1} ${DASHJSON_OFF:+CC_DASHJSON_OFF=1} ${WEB120_OFF:+CC_WEB120_OFF=1} ${WEB_DEFER_OFF:+CC_WEB_DEFER_OFF=1} ${FLING_STEPS:+CC_BENCH_FLING_STEPS="$FLING_STEPS"} \
   ${SWIPE_STEPS:+CC_BENCH_SWIPE_STEPS="$SWIPE_STEPS"} ${SWIPE_GAP:+CC_BENCH_SWIPE_GAP="$SWIPE_GAP"} "$BIN" &
 APP_PID=$!
@@ -45,12 +45,13 @@ trap 'kill "$APP_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
 # The scene takes ~10s (settle + two pace-locked glides); wait for its results file.
 for _ in $(seq 1 300); do [ -f "$TMP/bench.json" ] && break; sleep 0.2; done
+[ -f "$TMP/todofeed-ms.txt" ] && echo "cold todoFeed rebuild: $(cat "$TMP/todofeed-ms.txt") ms"
 [ -f "$TMP/bench.json" ] || { echo "bench never produced results"; exit 1; }
 sleep 0.2
 
 # Tag results with the git branch (worktree-aware) so per-optimization branches compare cleanly.
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
-python3 - "$TMP/bench.json" "$BRANCH|$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}/dwell=${DWELL:-0}${MONTHS:+/m=$MONTHS}${WEEKS:+/w=$WEEKS}${WEEK_MONTH:+/wm=$WEEK_MONTH}${SWIPE_STEPS:+/ss=$SWIPE_STEPS}${DASH:+/dash=1}${DASH_LEVEL:+/dl=$DASH_LEVEL}${DASH_PERIOD:+/dp=$DASH_PERIOD}${DASHJSON_OFF:+/djoff=1}${WEB120_OFF:+/w120off=1}${WEB_DEFER_OFF:+/wdoff=1}" <<'PY'
+python3 - "$TMP/bench.json" "$BRANCH|$SCENE/$CONFIG/${PAYLOAD:-display}/${WINDOW:-1440x840}/hover=${HOVER:-0}/dwell=${DWELL:-0}${MONTHS:+/m=$MONTHS}${WEEKS:+/w=$WEEKS}${WEEK_MONTH:+/wm=$WEEK_MONTH}${SWIPE_STEPS:+/ss=$SWIPE_STEPS}${DASH:+/dash=1}${DASH_LEVEL:+/dl=$DASH_LEVEL}${DASH_PERIOD:+/dp=$DASH_PERIOD}${NATIVE:+/native=1}${DASHJSON_OFF:+/djoff=1}${WEB120_OFF:+/w120off=1}${WEB_DEFER_OFF:+/wdoff=1}" <<'PY'
 import json, sys, datetime
 r = json.load(open(sys.argv[1]))
 line = (f"{datetime.datetime.now():%Y-%m-%d %H:%M} [{sys.argv[2]}] "

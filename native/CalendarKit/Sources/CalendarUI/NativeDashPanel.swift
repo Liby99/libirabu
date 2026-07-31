@@ -71,7 +71,7 @@ struct NativeDashPanel: View {
         let _ = { if let nav { DispatchQueue.main.async { nav.rows = displayRows } } }()
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                LazyVStack(alignment: .leading, spacing: 24) {
                     if prefs.deadlines {
                         deadlineSection(start: start, end: end, today: today)
                     }

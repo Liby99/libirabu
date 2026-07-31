@@ -231,6 +231,16 @@ public struct CalendarView: View {
             demo.dashTodoFocusHook = { dashCarousel.navFocus(.todo) }
             demo.dashTodoToggleHook = { dashCarousel.navActivate() }
             demo.dashWebCarousel = dashCarousel
+            // Native dashboard: pre-build the todo/proj feeds shortly after launch, off any
+            // animation — the first cmd+B / month entry then finds warm caches instead of
+            // paying the cold parse inside its zoom tween.
+            if NativeDash.enabled {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    let today = NativeDashPanel.todayIso()
+                    _ = engine.todoFeed(today: today)
+                    _ = engine.projFeed(today: today)
+                }
+            }
             demo.closeEventMenuHook = { ui.eventMenu = nil }
             demo.searchState = search
             demo.startIfDemo(engine: engine, size: size)
@@ -684,12 +694,15 @@ public struct CalendarView: View {
                     let top = Layout.topPad + panel.dy + Layout.monthH + 14
                     let ph = max(1, input.vp.h - top - Layout.bottomPad)
                     NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
-                                    tab: dashTab, theme: theme, settings: todoSettings,
+                                    tab: dashTab, theme: theme,
+                                    dataStamp: engine.todoDataStamp,
+                                    settings: todoSettings,
                                     nav: dashNav, noteMode: $noteMode,
                                     // Event rows open the DRAWER (the web's data-open path);
                                     // note rows fly to their note, landing on the NOTE tab.
                                     onOpen: { id in ui.openEventId = sourceId(of: id) },
                                     onJump: { key in jumpToNoteKey(key) })
+                        .equatable() // per-frame re-eval stops HERE; only frame/opacity move
                         .frame(width: pw, height: ph)
                         .position(x: bx + pw / 2, y: top + ph / 2)
                         .opacity(Double(panel.op) * Double(c.reveal))

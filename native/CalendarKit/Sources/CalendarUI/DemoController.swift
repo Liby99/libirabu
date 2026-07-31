@@ -113,6 +113,7 @@ public final class DemoController {
         case "bench-week-swipe": await sceneBenchWeekSwipe()
         case "bench-dash-toggle": await sceneBenchDashToggle()
         case "bench-dash-edit": await sceneBenchDashEdit()
+        case "bench-dash-zoomin": await sceneBenchDashZoomIn()
         case "bench-pinch-zoom": await sceneBenchPinchZoom()
         case "bench-notify-plan": await sceneBenchNotifyPlan()
         default:
@@ -1143,6 +1144,44 @@ public final class DemoController {
         engine.setDailyNote(iso, base) // leave the throwaway store's note as found
         let web = await dashWebCarousel?.benchWebCollect()
             ?? (frames: [], longTasks: [], units: [], epoch: [])
+        writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
+                          webEpoch: web.epoch)
+    }
+
+    /// The user's "click into July" freeze repro: launch at YEAR view with the dashboard PINNED,
+    /// then an ANIMATED zoom into the month — the panel presents mid-tween, paying the cold
+    /// todo-feed parse + the panel's first mount inside the animation. Frames are recorded through
+    /// the zoom; afterwards a forced cold rebuild of the feed is timed on its own (noteGen bump →
+    /// todoFeed) and written alongside the frame stats.
+    private func sceneBenchDashZoomIn() async {
+        guard let engine else { return }
+        try? await pause(1.4)
+        engine.demoGoToYear(centerMonth: 6)
+        engine.pinDashboard() // persisted-pin case: the panel pops as the month opens
+        try? await pause(0.8)
+        benchFrames.removeAll()
+        RenderProf.reset()
+        benchActive = true
+        dashWebCarousel?.benchWebStart()
+        RenderProf.mark("benchBegin")
+        moveStart = Date.timeIntervalSinceReferenceDate
+        engine.setView(zoom: "month", focusedMonth: 6) // the animated year→month zoom
+        for _ in 0 ..< 70 { engine.wake(); try? await pause(0.016) }
+        benchMoves.append((moveStart, moveStart + 0.7))
+        RenderProf.mark("benchEnd")
+        benchActive = false
+        // Cold-feed rebuild cost, measured off the animation: bump noteGen, time todoFeed.
+        engine.setDailyNote("2099-01-01", "- [ ] rebuild probe")
+        let t0 = Date()
+        _ = engine.todoFeed(today: NativeDashPanel.todayIso())
+        let feedMs = Date().timeIntervalSince(t0) * 1000
+        engine.setDailyNote("2099-01-01", "")
+        if let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty {
+            try? String(format: "%.1f\n", feedMs)
+                .write(toFile: (dir as NSString).appendingPathComponent("todofeed-ms.txt"),
+                       atomically: true, encoding: .utf8)
+        }
+        let web = await dashWebCarousel?.benchWebCollect() ?? (frames: [], longTasks: [], units: [], epoch: [])
         writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
                           webEpoch: web.epoch)
     }

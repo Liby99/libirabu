@@ -482,8 +482,11 @@ struct CarouselDriver: NSViewRepresentable {
                       mKeyA: mKeyA, mKeyB: mKeyB,
                       wFrom: wFrom, wTo: wTo, wP: wP, wKeyA: wKeyA, wKeyB: wKeyB,
                       maskX: webBlank ? 1e9 : maskX, maskW: maskW,
-                      aName: aName, aX: aX, aW: aW, aOp: aOp,
-                      bName: bName, bX: bX, bW: bW, bOp: bOp,
+                      // Blanked: zero the panel ops too — the page's renderGate then SKIPS the
+                      // content renders entirely (it was invisibly building the full panel DOM
+                      // at first present, stacking on the native mount inside the zoom tween).
+                      aName: aName, aX: aX, aW: aW, aOp: webBlank ? 0 : aOp,
+                      bName: bName, bX: bX, bW: bW, bOp: webBlank ? 0 : bOp,
                       shiftX: shiftX, keepLive: keepLive)
         anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
                  headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
