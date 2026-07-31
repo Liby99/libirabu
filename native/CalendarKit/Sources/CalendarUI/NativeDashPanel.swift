@@ -34,15 +34,30 @@ struct NativeDashPanel: View {
     @State private var doneOpen: Set<String> = [] // per-view completed expansion (session-scoped)
     private static let doneShow = 10
 
+    /// STAY-IN-PLACE (the web's selfEditAt rule): the visible list STRUCTURE (sections, order)
+    /// freezes at each full render; a checkbox toggle updates the row's visuals in place via the
+    /// live lookup but does NOT re-sort — the row migrates to/from Completed only on a real
+    /// re-render (panel re-key, prefs change, or an EXTERNAL data change). `stamp` marks the data
+    /// generation the frozen structure has adopted; toggle() adopts its own write's stamp so only
+    /// changes we didn't make trigger a refreeze.
+    private struct Frozen {
+        var basis: String // key|prefs signature
+        var stamp: String // engine.todoDataStamp the structure was built from / has adopted
+        var sections: [TodoSection]
+        var kids: [String: [ParsedTodo]]
+    }
+
+    @State private var frozen: Frozen?
+
     var body: some View {
         let today = Self.todayIso()
         let (start, end) = range
         let word = scope == "week" ? "this week" : "this month"
         let prefs = effectivePrefs
         let todos = engine.todoFeed(today: today)
-        let sections = TodoFeed.rangeSections(todos, start: start, end: end, word: word,
-                                              prefs: prefs)
-        let kids = TodoFeed.childrenIndex(todos)
+        let (sections, kids) = frozenStructure(todos: todos, start: start, end: end,
+                                               word: word, prefs: prefs)
+        let live = Dictionary(todos.map { (Self.anchor($0), $0) }, uniquingKeysWith: { a, _ in a })
 
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -50,7 +65,7 @@ struct NativeDashPanel: View {
                     deadlineSection(start: start, end: end, today: today)
                 }
                 ForEach(sections, id: \.key) { s in
-                    section(s, kids: kids, today: today)
+                    section(s, kids: kids, live: live, today: today)
                 }
                 if sections.isEmpty {
                     Text("Nothing on the list — you’re clear. Add “- [ ] …” items to an event’s note or this scope’s notepad.")
@@ -66,6 +81,28 @@ struct NativeDashPanel: View {
         // Right-click anywhere in the panel = the cog's layering menu (single-sourced from
         // DashTodoCatalog, writing through DashTodoSettings — same as the webview's popup).
         .contextMenu { prefsMenu }
+    }
+
+    /// A todo's soft-link identity (note scope + line) — stable across a toggle, unlike tieKey
+    /// (whose raw-line component changes when `[ ]` flips or a done: stamp lands).
+    static func anchor(_ t: ParsedTodo) -> String { "\(TodoFeed.scopeKey(t))\0\(t.line)" }
+
+    /// The frozen list structure, refreshed only at FULL-RENDER boundaries: first render, panel
+    /// re-key / prefs change, or a data change we didn't make ourselves.
+    private func frozenStructure(todos: [ParsedTodo], start: String, end: String, word: String,
+                                 prefs: TodoFeedPrefs) -> ([TodoSection], [String: [ParsedTodo]]) {
+        let basis = "\(scope)|\(key)|\(prefs.deadlines)|\(prefs.sections.sorted())|\(prefs.sources.sorted())"
+        let stamp = engine.todoDataStamp
+        if let f = frozen, f.basis == basis, f.stamp == stamp {
+            return (f.sections, f.kids)
+        }
+        let sections = TodoFeed.rangeSections(todos, start: start, end: end, word: word,
+                                              prefs: prefs)
+        let kids = TodoFeed.childrenIndex(todos)
+        // @State writes inside body are deferred; hop off the render pass.
+        let f = Frozen(basis: basis, stamp: stamp, sections: sections, kids: kids)
+        DispatchQueue.main.async { frozen = f }
+        return (sections, kids)
     }
 
     private var dashScope: DashTodoScope { scope == "week" ? .week : .month }
@@ -126,7 +163,7 @@ struct NativeDashPanel: View {
 
     @ViewBuilder
     private func section(_ s: TodoSection, kids: [String: [ParsedTodo]],
-                         today: String) -> some View {
+                         live: [String: ParsedTodo], today: String) -> some View {
         let capped = s.done && s.items.count > Self.doneShow
         let open = !capped || doneOpen.contains(s.key)
         let roots = open ? s.items : Array(s.items.prefix(Self.doneShow))
@@ -138,13 +175,16 @@ struct NativeDashPanel: View {
                 if open { doneOpen.remove(s.key) } else { doneOpen.insert(s.key) }
             }
             ForEach(rows.indices, id: \.self) { i in
-                let t = rows[i]
+                // Frozen placement, LIVE content: the row renders the current parse of its
+                // source line (checkbox state, strike, ✓ label update the moment it's toggled)
+                // while its position in the list stays frozen.
+                let t = live[Self.anchor(rows[i])] ?? rows[i]
                 TodoRow(todo: t, today: today,
                         ownNoteKey: scope == "week" ? "week:\(key)" : "month:\(key)",
                         theme: theme,
                         onToggle: { toggle(t) },
                         onOpen: { openRow(t) })
-                    .id("\(TodoFeed.tieKey(t))")
+                    .id(Self.anchor(t))
             }
         }
     }
@@ -193,6 +233,9 @@ struct NativeDashPanel: View {
 
     private func toggle(_ t: ParsedTodo) {
         Self.toggleTodo(engine, t)
+        // Our own write: adopt its data stamp so the frozen structure is NOT refrozen — the row
+        // stays in place, animating; external changes still refreeze on their own stamps.
+        frozen?.stamp = engine.todoDataStamp
     }
 
     private func openRow(_ t: ParsedTodo) {
@@ -328,6 +371,10 @@ private struct TodoRow: View {
     private static let followupTeal = Color(red: 0x4F / 255.0, green: 0xB0 / 255.0, blue: 0xB0 / 255.0)
 
     @State private var hovering = false
+    // The strike-through DRAWS/RETRACTS left-to-right (the web's character-progressive animation,
+    // as a width-mask over a struck copy of the same text). Seeded to the settled state; animates
+    // on every done flip.
+    @State private var strike: CGFloat = -1 // -1 = unseeded
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -335,15 +382,19 @@ private struct TodoRow: View {
                 .padding(.top, 2) // .cc-dtodo-check margin-top
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 3) {
-                    titleText
-                        .font(.system(size: 13))
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                    animatedTitle
                     metaRow
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+        }
+        .onChange(of: todo.done, initial: true) { _, done in
+            if strike < 0 {
+                strike = done ? 1 : 0 // first render: settled, no animation
+            } else {
+                withAnimation(.easeInOut(duration: 0.26)) { strike = done ? 1 : 0 }
+            }
         }
         .padding(.vertical, 5) // roomier than the web row box, per taste
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -359,14 +410,38 @@ private struct TodoRow: View {
         .padding(.leading, CGFloat(min(todo.indent, 6)) * 18) // --nest × 18px
     }
 
+    /// Two copies of the SAME wrapped text stacked: the plain one beneath, the struck+dimmed one
+    /// above, revealed left-to-right by the animated `strike` mask — the web's progressive
+    /// strike-through, wrapping across lines with the layout identical by construction.
+    private var animatedTitle: some View {
+        ZStack(alignment: .topLeading) {
+            title(struck: false)
+            title(struck: true)
+                .mask(
+                    GeometryReader { g in
+                        Rectangle()
+                            .frame(width: g.size.width * max(0, strike), alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                )
+        }
+    }
+
+    private func title(struck: Bool) -> some View {
+        titleText(struck: struck)
+            .font(.system(size: 13))
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     /// The row's single wrapped text: "Event · " prefix (accent-grey) + content, inline segments.
     /// Hover tints the CONTENT (not the prefix) to the accent — done rows to the full text color.
-    private var titleText: Text {
-        let contentColor = hovering
-            ? (todo.done ? theme.text : Theme.accent)
-            : (todo.done ? theme.accentGrey : theme.text)
+    private func titleText(struck: Bool) -> Text {
+        let contentColor = struck
+            ? (hovering ? theme.text : theme.accentGrey)
+            : (hovering ? Theme.accent : theme.text)
         let content = Text(todo.text)
-            .strikethrough(todo.done, color: theme.accentGrey)
+            .strikethrough(struck, color: theme.accentGrey)
             .foregroundStyle(contentColor)
         // The web's prefix rule (rowHTML): EVERY source shows its provenance — event titles and
         // note titles ("Daily note · 2026-07-28", "Weekly note · …") alike — except sub-items,

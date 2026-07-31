@@ -37,12 +37,22 @@ public struct DashCheckbox: View {
             }
         }
         .frame(width: size, height: size)
+        .animation(.easeInOut(duration: 0.12), value: checked) // fill/border transition
         if let action {
             Button(action: action) { box.contentShape(Rectangle()) }
-                .buttonStyle(.plain)
+                .buttonStyle(PressScaleStyle()) // :active scale, like the CSS
         } else {
             box
         }
+    }
+}
+
+/// The checkbox's press feedback (.cc-dtodo-check:active): a quick 0.9 scale while held.
+private struct PressScaleStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
 

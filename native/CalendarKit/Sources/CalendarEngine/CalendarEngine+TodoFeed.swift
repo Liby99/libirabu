@@ -7,6 +7,12 @@ import CalendarGeometry
 import Foundation
 
 extension CalendarEngine {
+    /// A stamp that changes whenever the todo feed's inputs change (edits or note edits) —
+    /// the native panels use it to tell THEIR OWN toggle's echo apart from external changes
+    /// (the stay-in-place rule: a self-toggle must not re-sort the visible list).
+    public var todoDataStamp: String { "\(caches.editGen)|\(caches.noteGen)" }
+
+
     /// The store as tokenizer inputs. Timed events + deadlines are anchor→view-tz converted (like
     /// the timeline) so the feed's dates match what's drawn; bands are all-day, no conversion.
     func todoSources() -> [TodoSource] {
