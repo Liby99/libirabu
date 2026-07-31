@@ -372,7 +372,7 @@ public func dashRevealTotal(_ g: SceneInput) -> CGFloat {
 /// and the month page-turn band ride (frameFor) — into a flat list of (scope, key, frame,
 /// translation, opacity). ONE brain: the Canvas header draws from these same primitives; the
 /// native panel bodies must consume THIS list rather than re-deriving any motion, so the two
-/// can never drift. Day panels are omitted (the day dashboard isn't native yet).
+/// can never drift. Day panels page with g.daily.anim, exactly like the webview pair did.
 public struct DashBodyPanel: Equatable, Sendable {
     public var scope: String // "week" | "month"
     public var key: String // week: the Sunday's ISO; month: "YYYY-MM"
@@ -419,11 +419,34 @@ public func dashBodyPanels(_ g: SceneInput) -> [DashBodyPanel] {
                 out.append(DashBodyPanel(scope: "month", key: keyA, x: p.x, w: p.w,
                                          dx: 0, dy: cur.bandY - Layout.topPad, op: p.op))
             }
+        case "day":
+            // Day↔day paging (the webview's renderPanel pair): current slides out by
+            // −dir·p·w fading to 1−p; the incoming day enters from dir·(1−p)·w fading to p.
+            let fromKey = dayKeyIso(g.year, g.focus, g.daily.dom)
+            let toKey = g.daily.anim.map { dayKeyIso(g.year, g.focus, g.daily.dom + $0.dir) } ?? ""
+            if let a = g.daily.anim, a.p > 0.001, a.p < 0.999, !toKey.isEmpty {
+                out.append(DashBodyPanel(scope: "day", key: fromKey, x: p.x, w: p.w,
+                                         dx: -CGFloat(a.dir) * a.p * p.w, dy: 0,
+                                         op: p.op * (1 - a.p)))
+                out.append(DashBodyPanel(scope: "day", key: toKey, x: p.x, w: p.w,
+                                         dx: CGFloat(a.dir) * (1 - a.p) * p.w, dy: 0,
+                                         op: p.op * a.p))
+            } else {
+                let key = (g.daily.anim?.p ?? 0) >= 0.999 && !toKey.isEmpty ? toKey : fromKey
+                out.append(DashBodyPanel(scope: "day", key: key, x: p.x, w: p.w,
+                                         dx: 0, dy: 0, op: p.op))
+            }
         default:
-            break // "day": still the webview's panel
+            break
         }
     }
     return out
+}
+
+/// ISO "YYYY-MM-DD" of a focus-relative (possibly spilling) day-of-month — the day panel's key.
+public func dayKeyIso(_ year: Int, _ focus: Int, _ dom: Int) -> String {
+    guard let d = resolveDate(year, focus, dom) else { return "" }
+    return String(format: "%04d-%02d-%02d", d.year, d.month + 1, d.day)
 }
 
 /// The dashboard's left edge, ANIMATED — every panel-region clip (content, bands, deadlines,

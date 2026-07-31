@@ -11,13 +11,14 @@ import SwiftUI
 
 struct NativeNotePanel: View {
     let engine: CalendarEngine
-    let scope: String // "week" | "month"
+    let scope: String // "day" | "week" | "month"
     let key: String
     let theme: Theme
     @Binding var noteMode: NotesMode
 
     var body: some View {
-        let storageKey = scope == "week" ? "week:\(key)" : "month:\(key)"
+        let storageKey = scope == "day" ? key
+            : scope == "week" ? "week:\(key)" : "month:\(key)"
         let text = engine.dailyNote(storageKey)
         Group {
             if noteMode == .edit {
@@ -25,12 +26,12 @@ struct NativeNotePanel: View {
                     storageKey: storageKey,
                     text: text,
                     theme: theme,
-                    placeholder: scope == "week" ? "Weekly Note (Markdown)…" : "Monthly Note (Markdown)…",
+                    placeholder: scope == "day" ? "Daily Note (Markdown)…"
+                        : scope == "week" ? "Weekly Note (Markdown)…" : "Monthly Note (Markdown)…",
                     onText: { engine.setDailyNote(storageKey, $0) }
                 )
             } else if text.trimmingCharacters(in: .whitespaces).isEmpty {
-                Text(scope == "week" ? "No weekly note yet — switch to Editor to write one."
-                    : "No monthly note yet — switch to Editor to write one.")
+                Text("No \(scope == "day" ? "daily" : scope == "week" ? "weekly" : "monthly") note yet — switch to Editor to write one.")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.text.opacity(0.5))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

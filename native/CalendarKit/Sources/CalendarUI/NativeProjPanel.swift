@@ -88,9 +88,11 @@ struct NativeProjPanel: View {
     }
 
     private var range: (String, String) {
-        scope == "week"
-            ? (key, TodoIndex.addDuration(key, 6, "d"))
-            : ("\(key)-01", CalendarEngine.monthEndIso(key))
+        switch scope {
+        case "day": (key, key)
+        case "week": (key, TodoIndex.addDuration(key, 6, "d"))
+        default: ("\(key)-01", CalendarEngine.monthEndIso(key))
+        }
     }
 
     @ViewBuilder
@@ -210,6 +212,12 @@ private struct ProjChart: View {
     private func viewMark(_ s: ChartScale, w: CGFloat, rowTop: CGFloat, marksH: CGFloat) -> some View {
         let l = s.x(rs) * w
         let r = s.x(TodoIndex.addDuration(re, 1, "d")) * w // end-day inclusive
+        if scope == "day" {
+            // .cc-proj-dayline: the viewed day as a single solid dark rule (no band, no label).
+            Rectangle().fill(theme.accentDark.opacity(0.9))
+                .frame(width: 1.5, height: marksH)
+                .offset(x: l, y: rowTop)
+        } else {
         // .cc-proj-viewband: neutral GREY (the accent red is reserved for the now line) —
         // grey wash + solid accent-grey edges, spanning the track rows only.
         Rectangle().fill(Color.gray.opacity(0.14))
@@ -221,6 +229,7 @@ private struct ProjChart: View {
             .font(.system(size: 10.5, weight: .semibold))
             .foregroundStyle(theme.accentGrey)
             .position(x: (l + r) / 2, y: headroom - 9)
+        }
     }
 
     @ViewBuilder

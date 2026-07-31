@@ -661,8 +661,9 @@ final class CatcherView: NSView, NSMenuItemValidation {
         // The NATIVE pinned panel (cc.nativeDash, week/month) owns its own pointer: its rows set
         // the hand via .pointerStyle, which per-move applyCursor here would stomp. Settle to the
         // arrow ONCE on entry (so a grab hand can't linger in), then leave the cursor alone.
-        if let engine, NativeDash.enabled, engine.dashPinned,
-           (1 ... 2).contains(engine.chrome.level), engine.inDayDashboard(p) {
+        if let engine, NativeDash.enabled,
+           engine.chrome.level == 3 || (engine.dashPinned && (1 ... 2).contains(engine.chrome.level)),
+           engine.inDayDashboard(p) {
             if appliedCursor != .arrow { setCursor(.arrow) }
             toolTip = nil
             return

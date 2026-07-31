@@ -72,6 +72,7 @@ struct NativeDashPanel: View {
     }
 
     @State private var frozen: Frozen?
+    @State private var deadlineRange = NativeDashPanel.dayDeadlineRange // day deadline window
 
     var body: some View {
         let today = Self.todayIso()
@@ -191,8 +192,9 @@ struct NativeDashPanel: View {
         if let f = frozen, f.basis == basis, f.stamp == stamp {
             return (f.sections, f.kids)
         }
-        let sections = TodoFeed.rangeSections(todos, start: start, end: end, word: word,
-                                              prefs: prefs)
+        let sections = scope == "day"
+            ? TodoFeed.sectionsForDay(todos, viewIso: key, today: Self.todayIso(), prefs: prefs)
+            : TodoFeed.rangeSections(todos, start: start, end: end, word: word, prefs: prefs)
         let kids = TodoFeed.childrenIndex(todos)
         // @State writes inside body are deferred; hop off the render pass.
         let f = Frozen(basis: basis, stamp: stamp, sections: sections, kids: kids)
@@ -200,11 +202,15 @@ struct NativeDashPanel: View {
         return (sections, kids)
     }
 
-    private var dashScope: DashTodoScope { scope == "week" ? .week : .month }
+    private var dashScope: DashTodoScope {
+        scope == "day" ? .day : scope == "week" ? .week : .month
+    }
 
     /// The user's layering prefs for this scope (⚙ / right-click), falling back to defaults.
     private var effectivePrefs: TodoFeedPrefs {
-        guard let settings else { return scope == "week" ? .week : .month }
+        guard let settings else {
+            return scope == "day" ? .day : scope == "week" ? .week : .month
+        }
         let p = settings[dashScope]
         return TodoFeedPrefs(deadlines: p.deadlines,
                              sections: Array(p.sections), sources: Array(p.sources))
@@ -244,9 +250,11 @@ struct NativeDashPanel: View {
     }
 
     private var range: (String, String) {
-        scope == "week"
-            ? (key, TodoIndex.addDuration(key, 6, "d"))
-            : ("\(key)-01", CalendarEngine.monthEndIso(key))
+        switch scope {
+        case "day": (key, key)
+        case "week": (key, TodoIndex.addDuration(key, 6, "d"))
+        default: ("\(key)-01", CalendarEngine.monthEndIso(key))
+        }
     }
 
     static func todayIso() -> String {
@@ -266,7 +274,7 @@ struct NativeDashPanel: View {
         let tree = visibleTree(roots: roots, kids: kids)
         let ctx = TodoSubtree.Ctx(
             today: today,
-            ownNoteKey: scope == "week" ? "week:\(key)" : "month:\(key)",
+            ownNoteKey: scope == "day" ? key : scope == "week" ? "week:\(key)" : "month:\(key)",
             theme: theme, live: live, nav: nav,
             toggle: { self.toggle($0) },
             open: { self.openRow($0) },
@@ -287,17 +295,73 @@ struct NativeDashPanel: View {
         }
     }
 
+    /// The day scope's deadline window (the web's cc-dd-range dropdown). Session-global like the
+    /// webview's module variable — panels re-key per day, so per-panel @State would reset daily.
+    @MainActor static var dayDeadlineRange = "d30"
+    static let dayDeadlineOpts: [(String, String)] = [
+        ("week", "This week"), ("month", "This month"), ("d30", "30 days"),
+        ("m3", "3 months"), ("m6", "6 months"),
+    ]
+
+    /// The last day (inclusive) to show deadlines through (ports deadlineWindowEnd).
+    static func dayDeadlineEnd(_ viewIso: String, range: String) -> String {
+        let p = viewIso.split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3,
+              let d0 = utcCalendar.date(from: DateComponents(year: p[0], month: p[1], day: p[2]))
+        else { return viewIso }
+        switch range {
+        case "week": // through Saturday
+            return TodoIndex.addDuration(viewIso, 6 - (utcCalendar.component(.weekday, from: d0) - 1), "d")
+        case "month":
+            return CalendarEngine.monthEndIso(String(viewIso.prefix(7)))
+        case "m3", "m6":
+            let months = range == "m3" ? 3 : 6
+            guard let dt = utcCalendar.date(byAdding: .month, value: months, to: d0) else { return viewIso }
+            let c = utcCalendar.dateComponents([.year, .month, .day], from: dt)
+            return String(format: "%04d-%02d-%02d", c.year ?? p[0], c.month ?? p[1], c.day ?? p[2])
+        default:
+            return TodoIndex.addDuration(viewIso, 30, "d")
+        }
+    }
+
     @ViewBuilder
     private func deadlineSection(start: String, end: String, today: String) -> some View {
-        let list: [(Deadline, String)] = engine.viewDeadlines()
+        let day = scope == "day"
+        let winEnd = day ? Self.dayDeadlineEnd(key, range: deadlineRange) : end
+        let all: [(Deadline, String)] = engine.viewDeadlines()
             .map { d in (d, String(format: "%04d-%02d-%02d", d.year, d.month + 1, d.day)) }
-            .filter { $0.1 >= start && $0.1 <= end }
+            .filter { $0.1 >= start && $0.1 <= winEnd }
             .sorted { a, b in a.1 != b.1 ? a.1 < b.1 : a.0.hour < b.0.hour }
-        if !list.isEmpty {
+        let list = day ? Array(all.prefix(10)) : all
+        if !list.isEmpty || day {
             VStack(alignment: .leading, spacing: 5) {
-                SectionHeader(title: "Deadlines in \(scope == "week" ? "this week" : "this month")",
-                              count: list.count, hidden: 0, chevron: false, open: true,
-                              theme: theme, onChevron: {})
+                HStack(spacing: 8) {
+                    SectionHeader(title: day ? "Upcoming Deadlines"
+                                      : "Deadlines in \(scope == "week" ? "this week" : "this month")",
+                                  count: list.count, hidden: 0, chevron: false, open: true,
+                                  theme: theme, onChevron: {})
+                    if day { // the web's window dropdown, as a native menu
+                        Menu {
+                            ForEach(Self.dayDeadlineOpts, id: \.0) { v, label in
+                                Button(label) {
+                                    deadlineRange = v
+                                    Self.dayDeadlineRange = v
+                                }
+                            }
+                        } label: {
+                            Text(Self.dayDeadlineOpts.first { $0.0 == deadlineRange }?.1 ?? "30 days")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.textMuted)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                    }
+                }
+                if list.isEmpty {
+                    Text("No deadlines in this window.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.text.opacity(0.45))
+                }
                 ForEach(list, id: \.0.id) { d, iso in
                     DeadlineRowView(deadline: d, label: "\(Self.relDue(today, iso)) · \(Self.hhmm(d.hour))",
                                     theme: theme) {

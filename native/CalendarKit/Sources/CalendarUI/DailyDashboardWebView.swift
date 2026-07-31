@@ -847,8 +847,9 @@ struct DailyDashboardOverlay: View {
         DailyDashboardWebView(
             carousel: carousel, forwarder: forwarder, data: engine.dashboardDataJSON(),
             tab: tab, noteMode: noteMode, inactive: inactive,
-            // Day view owns the cursor; a PINNED panel at month/week is interactive too.
-            interactive: engine.chrome.level == 3
+            // Day view owns the cursor — via the WEBVIEW only when the native panels aren't
+            // standing in for it (cc.nativeDash blanks the page and takes the cursor yield).
+            interactive: engine.chrome.level == 3 && !NativeDash.enabled
                 || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)),
             todoPrefs: todoSettings?.jsJSON ?? "{}",
             todoMenu: todoMenu,

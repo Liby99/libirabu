@@ -281,10 +281,9 @@ public struct CalendarView: View {
         // cursor + note-editor focus through this bridge, and switches the native TODO/NOTE tab to match.
         engine.onDashCommand = { [carousel = dashCarousel, tabBinding = $dashTab, engine,
                                   dashNav, ui] cmd in
-            // Native pinned panel (cc.nativeDash, week/month): the row cursor lives in the
-            // native nav model — same key system, no webview bridge. Day view falls through
-            // to the webview path below.
-            if NativeDash.enabled, (1 ... 2).contains(engine.chrome.level) {
+            // Native panels (cc.nativeDash, all scopes incl. DAY): the row cursor lives in
+            // the native nav model — same key system, no webview bridge.
+            if NativeDash.enabled, (1 ... 3).contains(engine.chrome.level) {
                 switch cmd {
                 case let .focus(stop):
                     if stop == .todo { tabBinding.wrappedValue = .todo; dashNav.focus() }
@@ -603,8 +602,7 @@ public struct CalendarView: View {
                 // Native dashboard (cc.nativeDash): the BODY lives in its own hit-testable
                 // overlay above the input catcher (nativeDashOverlay — the whole scene here is
                 // allowsHitTesting(false)); this scope only decides the webview blanking below.
-                let dayInvolved = scopeGeom?.a.name == "day" || scopeGeom?.b?.name == "day"
-                let nativeTodo = NativeDash.enabled && !dayInvolved && scopeGeom != nil
+                let nativeTodo = NativeDash.enabled && scopeGeom != nil
                 CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
                                dir: c.dir, p: c.p, reveal: c.reveal, slide: slide,
                                scopeA: sA, scopeB: sB, scopeT: sT,
@@ -893,8 +891,10 @@ public struct CalendarView: View {
                                         NativeDash.lastPinch = Date() // lift-off click grace
                                     }
                             )
-                            .allowsHitTesting(ui.openEventId == nil && engine.chrome.dashPinned
-                                && (1 ... 2).contains(engine.chrome.level))
+                            .allowsHitTesting(ui.openEventId == nil
+                                && (engine.chrome.level == 3
+                                    || (engine.chrome.dashPinned
+                                        && (1 ... 2).contains(engine.chrome.level))))
                         }
                     }
                     // TODO/NOTE tabs + note edit/preview toggle — SEPARATE overlays ABOVE the WebView so the
