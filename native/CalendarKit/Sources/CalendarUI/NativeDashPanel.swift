@@ -76,7 +76,7 @@ struct NativeDashPanel: View {
                         deadlineSection(start: start, end: end, today: today)
                     }
                     ForEach(sections, id: \.key) { s in
-                        section(s, kids: kids, live: live, today: today)
+                        section(s, kids: kids, live: live, today: today, proxy: proxy)
                     }
                     if sections.isEmpty {
                         Text("Nothing on the list — you’re clear. Add “- [ ] …” items to an event’s note or this scope’s notepad.")
@@ -111,9 +111,22 @@ struct NativeDashPanel: View {
         let foldable: Bool
         let folded: Bool
         let hidden: Int // subtree rows hidden under a folded parent
+        let ancestors: [String] // parent-chain anchors by depth (guides fold through these)
     }
 
     private var collapsedSet: Set<String> { nav?.collapsedSubs ?? [] }
+
+    @State private var hoveredGuide: String? // the ancestor anchor whose guide line is hovered
+
+    /// Click on an indent guide: fold THAT ancestor level and smoothly center its row.
+    private func guideTap(_ item: RowItem, level: Int, proxy: ScrollViewProxy?) {
+        guard item.ancestors.indices.contains(level), let nav else { return }
+        let a = item.ancestors[level]
+        withAnimation(.easeInOut(duration: 0.2)) { nav.collapsedSubs.insert(a) }
+        hoveredGuide = nil
+        engine.wake()
+        withAnimation(.easeInOut(duration: 0.3)) { proxy?.scrollTo(a, anchor: .center) }
+    }
 
     private func toggleFold(_ t: ParsedTodo) {
         guard let nav else { return }
@@ -129,14 +142,17 @@ struct NativeDashPanel: View {
     private func visibleItems(roots: [ParsedTodo],
                               kids: [String: [ParsedTodo]]) -> [RowItem] {
         var out: [RowItem] = []
-        func walk(_ t: ParsedTodo) {
+        func walk(_ t: ParsedTodo, _ ancestors: [String]) {
             let children = kids["\(TodoFeed.scopeKey(t))\0\(t.line)"] ?? []
             let folded = !children.isEmpty && collapsedSet.contains(Self.anchor(t))
             out.append(RowItem(todo: t, foldable: !children.isEmpty, folded: folded,
-                               hidden: folded ? TodoFeed.subtree(t, kids).count - 1 : 0))
-            if !folded { for c in children { walk(c) } }
+                               hidden: folded ? TodoFeed.subtree(t, kids).count - 1 : 0,
+                               ancestors: ancestors))
+            if !folded {
+                for c in children { walk(c, ancestors + [Self.anchor(t)]) }
+            }
         }
-        for r in roots { walk(r) }
+        for r in roots { walk(r, []) }
         return out
     }
 
@@ -216,7 +232,8 @@ struct NativeDashPanel: View {
 
     @ViewBuilder
     private func section(_ s: TodoSection, kids: [String: [ParsedTodo]],
-                         live: [String: ParsedTodo], today: String) -> some View {
+                         live: [String: ParsedTodo], today: String,
+                         proxy: ScrollViewProxy? = nil) -> some View {
         let capped = s.done && s.items.count > Self.doneShow
         let open = !capped || doneOpen.contains(s.key)
         let roots = open ? s.items : Array(s.items.prefix(Self.doneShow))
@@ -240,9 +257,17 @@ struct NativeDashPanel: View {
                         ownNoteKey: scope == "week" ? "week:\(key)" : "month:\(key)",
                         theme: theme, focused: focused,
                         foldable: item.foldable, folded: item.folded, hiddenSubs: item.hidden,
+                        thickGuide: hoveredGuide.flatMap { item.ancestors.firstIndex(of: $0) },
                         onToggle: { toggle(t) },
                         onOpen: { openRow(t) },
-                        onFold: { toggleFold(t) })
+                        onFold: { toggleFold(t) },
+                        onGuideHover: { level, inside in
+                            guard item.ancestors.indices.contains(level) else { return }
+                            let a = item.ancestors[level]
+                            if inside { hoveredGuide = a }
+                            else if hoveredGuide == a { hoveredGuide = nil }
+                        },
+                        onGuideTap: { level in guideTap(item, level: level, proxy: proxy) })
                     .id(Self.anchor(t))
             }
         }
@@ -443,9 +468,12 @@ private struct TodoRow: View {
     var foldable: Bool = false // has sub-items → trailing disclosure chevron
     var folded: Bool = false
     var hiddenSubs: Int = 0 // rows hidden under this folded parent ("+N sub")
+    var thickGuide: Int? // the hovered guide's level for THIS row (whole line thickens)
     var onToggle: () -> Void
     var onOpen: () -> Void
     var onFold: () -> Void = {}
+    var onGuideHover: (Int, Bool) -> Void = { _, _ in }
+    var onGuideTap: (Int) -> Void = { _ in }
 
     private static let followupTeal = Color(red: 0x4F / 255.0, green: 0xB0 / 255.0, blue: 0xB0 / 255.0)
 
@@ -510,13 +538,22 @@ private struct TodoRow: View {
         .background(alignment: .topLeading) {
             // Editor-style indent guides: a vertical line per ancestor level, dropped from under
             // that level's checkbox (x = level·18 + checkbox center), spanning this row's full
-            // height — contiguous sibling rows join into one continuous line.
+            // height — contiguous sibling rows join into one continuous line. Each line has a
+            // ~10pt hover/click band: hover thickens the WHOLE line (panel-shared state), click
+            // folds that ancestor level and centers its row.
             GeometryReader { g in
                 ForEach(0 ..< min(todo.indent, 6), id: \.self) { level in
+                    let thick = thickGuide == level
                     Rectangle()
-                        .fill(theme.accentGrey.opacity(0.35))
-                        .frame(width: 1, height: g.size.height)
-                        .offset(x: CGFloat(level) * 18 + 7)
+                        .fill(theme.accentGrey.opacity(thick ? 0.75 : 0.35))
+                        .frame(width: thick ? 2 : 1, height: g.size.height)
+                        .offset(x: CGFloat(level) * 18 + (thick ? 6.5 : 7))
+                    Color.clear
+                        .frame(width: 10, height: g.size.height)
+                        .contentShape(Rectangle())
+                        .offset(x: CGFloat(level) * 18 + 2.5)
+                        .onHover { onGuideHover(level, $0) }
+                        .onTapGesture { onGuideTap(level) }
                 }
             }
         }

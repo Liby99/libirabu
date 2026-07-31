@@ -722,6 +722,11 @@ extension CalendarEngine {
         // NOT in the calendar undo stack: notes are edited in the drawer's CodeMirror, which owns its
         // own undo (Cmd+Z while it's focused). Recording here would let its internal undo re-post the
         // note and pollute the calendar stack. Matches the web (notes are a separate lower layer).
+        // noteGen (never editGen — display caches must not churn on note edits): the dashboards'
+        // todo feed + JSON payload key on it. Without the bump, toggling an EVENT-note todo updated
+        // the store but no generation — the native panel's Equatable gate saw "unchanged" and the
+        // row's checkbox sat stale until an unrelated edit/sync bumped a gen minutes later.
+        caches.noteGen &+= 1
         schedulePersist()
     }
 
@@ -746,6 +751,7 @@ extension CalendarEngine {
         occ[key] = v.isEmpty ? nil : v
         rf.occurrenceNotes = occ.isEmpty ? nil : occ
         items.richById[id] = rf
+        caches.noteGen &+= 1 // same freshness contract as setNotes
         schedulePersist() // per-occurrence note: CodeMirror-owned undo, not the calendar stack (see setNotes)
     }
 }
