@@ -14,6 +14,21 @@ import CalendarGeometry
 import CalendarRender
 import SwiftUI
 
+/// The pointing-hand cursor on hover, set DIRECTLY via NSCursor — SwiftUI's pointerStyle was
+/// silently ineffective under the app's window-spanning input-catcher tracking areas. Works
+/// because the catcher yields the cursor over the native panel (CalendarInputLayer.mouseMoved).
+private struct HandCursor: ViewModifier {
+    func body(content: Content) -> some View {
+        content.onHover { inside in
+            if inside { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
+    }
+}
+
+extension View {
+    func handCursor() -> some View { modifier(HandCursor()) }
+}
+
 enum NativeDash {
     /// The rollout flag: `defaults write … cc.nativeDash -bool YES` or env CC_NATIVE_DASH=1.
     static var enabled: Bool {
@@ -401,7 +416,7 @@ struct SectionHeader: View {
                         .foregroundStyle(theme.accentGrey)
                 }
                 .buttonStyle(.plain)
-                .pointerStyle(.link)
+                .handCursor()
                 .help("Show all / top items")
             }
         }
@@ -441,7 +456,7 @@ private struct DeadlineRowView: View {
             )
         }
         .buttonStyle(.plain)
-        .pointerStyle(.link)
+        .handCursor()
         .onHover { hovering = $0 }
     }
 }
@@ -503,7 +518,7 @@ private struct TodoSubtree: View {
                         .frame(width: 10)
                         .contentShape(Rectangle())
                         .offset(x: 2.5)
-                        .pointerStyle(.link)
+                        .handCursor()
                         .onHover { guideHover = $0 }
                         .onTapGesture { ctx.foldAndCenter(node.item.todo) }
                 }
@@ -545,7 +560,7 @@ private struct TodoRow: View {
         HStack(alignment: .top, spacing: 12) {
             DashCheckbox(checked: todo.done, size: 15, action: onToggle)
                 .padding(.top, 2) // .cc-dtodo-check margin-top
-                .pointerStyle(.link)
+                .handCursor()
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 3) {
                     animatedTitle
@@ -563,7 +578,7 @@ private struct TodoRow: View {
                 .onHover { hovering = $0 }
             }
             .buttonStyle(.plain)
-            .pointerStyle(.link)
+            .handCursor()
             if foldable {
                 Spacer(minLength: 4)
                 Button(action: onFold) {
@@ -575,7 +590,7 @@ private struct TodoRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .pointerStyle(.link)
+                .handCursor()
                 .help("Fold / unfold sub-items")
             }
         }
