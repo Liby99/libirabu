@@ -683,13 +683,9 @@ public struct CalendarView: View {
     @ViewBuilder
     private func nativeDashOverlay(theme: Theme) -> some View {
         let input = engine.snapshotInput()
-        let dayInvolved: Bool = {
-            guard let sg = dashScopePanels(input) else { return false }
-            return sg.a.name == "day" || sg.b?.name == "day"
-        }()
         let bodyPanels = dashBodyPanels(input)
         let c = engine.dashboardCarousel()
-        if !dayInvolved, !bodyPanels.isEmpty, let sg = dashScopePanels(input) {
+        if !bodyPanels.isEmpty, let sg = dashScopePanels(input) {
             let maskW = max(1, input.vp.w - sg.mask)
             ZStack(alignment: .topLeading) {
                 ForEach(bodyPanels.indices, id: \.self) { i in
