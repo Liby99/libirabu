@@ -83,7 +83,7 @@ struct NativeDashPanel: View {
         let open = !capped || doneOpen.contains(s.key)
         let roots = open ? s.items : Array(s.items.prefix(Self.doneShow))
         let rows: [ParsedTodo] = roots.flatMap { TodoFeed.subtree($0, kids) }
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 3) {
             SectionHeader(title: s.title, count: s.items.count,
                           hidden: capped && !open ? s.items.count - Self.doneShow : 0,
                           chevron: capped, open: open, theme: theme) {
@@ -197,10 +197,12 @@ struct SectionHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // The same type as the Canvas header's eyebrow ("MONTHLY DASHBOARD" —
+            // drawPanelChrome): 10pt, 1.5 tracking, theme.textMuted.
             Text(title.uppercased())
-                .font(.system(size: 10.5, weight: .semibold))
-                .kerning(0.8)
-                .foregroundStyle(theme.text.opacity(0.55))
+                .font(.system(size: 10))
+                .kerning(1.5)
+                .foregroundStyle(theme.textMuted)
             Text("\(count)")
                 .font(.system(size: 10, weight: .semibold))
                 .padding(.horizontal, 6).padding(.vertical, 2)
@@ -265,8 +267,10 @@ private struct TodoRow: View {
 
     private static let followupTeal = Color(red: 0x4F / 255.0, green: 0xB0 / 255.0, blue: 0xB0 / 255.0)
 
+    @State private var hovering = false
+
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 9) {
             DashCheckbox(checked: todo.done, size: 15, action: onToggle)
                 .padding(.top, 2) // .cc-dtodo-check margin-top
             Button(action: onOpen) {
@@ -278,17 +282,31 @@ private struct TodoRow: View {
                     metaRow
                 }
                 .contentShape(Rectangle())
+                // .cc-dtodo-main:hover — the accent-grey wash behind the TEXT COLUMN only,
+                // bled out past the content (the CSS padding/negative-margin trick) so layout
+                // never shifts; the title tints to the accent (done rows to full text color).
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(hovering ? theme.accentGrey.opacity(0.14) : .clear)
+                        .padding(.horizontal, -4).padding(.vertical, -1)
+                )
             }
             .buttonStyle(.plain)
+            .onHover { hovering = $0 }
         }
-        .padding(.leading, CGFloat(min(todo.indent, 6)) * 16)
+        .padding(.vertical, 3) // .cc-dtodo row padding
+        .padding(.leading, CGFloat(min(todo.indent, 6)) * 18) // --nest × 18px
     }
 
     /// The row's single wrapped text: "Event · " prefix (accent-grey) + content, inline segments.
+    /// Hover tints the CONTENT (not the prefix) to the accent — done rows to the full text color.
     private var titleText: Text {
+        let contentColor = hovering
+            ? (todo.done ? theme.text : Theme.accent)
+            : (todo.done ? theme.accentGrey : theme.text)
         let content = Text(todo.text)
             .strikethrough(todo.done, color: theme.accentGrey)
-            .foregroundStyle(todo.done ? theme.accentGrey : theme.text)
+            .foregroundStyle(contentColor)
         guard todo.parentLine == nil, !todo.eventTitle.isEmpty, todo.source == "event" else {
             return content
         }
