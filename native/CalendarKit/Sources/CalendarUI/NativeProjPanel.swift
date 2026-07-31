@@ -138,10 +138,15 @@ private struct ProjChart: View {
     private func plot(_ scale: ChartScale, w: CGFloat) -> some View {
         let rowsH = CGFloat(tasks.count) * NativeProjPanel.rowH
         let plotH = headroom + rowsH
+        // Vertical marks span the TRACK ROWS only (the web's plotarea: 2px above the first
+        // track to 2px past the last), never the headroom strip — labels live up there.
+        let trackInset = (NativeProjPanel.rowH - NativeProjPanel.trackH) / 2
+        let rowTop = headroom + trackInset - 2
+        let marksH = rowsH - 2 * trackInset + 4
         return ZStack(alignment: .topLeading) {
-            viewMark(scale, w: w, plotH: plotH)
-            deadlineRules(scale, w: w, plotH: plotH)
-            nowLine(scale, w: w, plotH: plotH)
+            viewMark(scale, w: w, rowTop: rowTop, marksH: marksH)
+            deadlineRules(scale, w: w, rowTop: rowTop, marksH: marksH)
+            nowLine(scale, w: w, rowTop: rowTop, marksH: marksH)
             taskTracks(scale, w: w)
             eventBoxes(scale, w: w, rowsH: rowsH)
             axes(scale, w: w, plotH: plotH)
@@ -151,33 +156,39 @@ private struct ProjChart: View {
     // ── Overlays ─────────────────────────────────────────────────────────────────────────────
 
     @ViewBuilder
-    private func viewMark(_ s: ChartScale, w: CGFloat, plotH: CGFloat) -> some View {
-        let accent = theme.eventBorder("red")
+    private func viewMark(_ s: ChartScale, w: CGFloat, rowTop: CGFloat, marksH: CGFloat) -> some View {
         let l = s.x(rs) * w
         let r = s.x(TodoIndex.addDuration(re, 1, "d")) * w // end-day inclusive
-        Rectangle().fill(accent.opacity(0.07))
-            .frame(width: max(1, r - l), height: plotH)
-            .offset(x: l)
-        Rectangle().fill(accent.opacity(0.5)).frame(width: 1, height: plotH).offset(x: l)
-        Rectangle().fill(accent.opacity(0.5)).frame(width: 1, height: plotH).offset(x: r)
+        // .cc-proj-viewband: neutral GREY (the accent red is reserved for the now line) —
+        // grey wash + solid accent-grey edges, spanning the track rows only.
+        Rectangle().fill(Color.gray.opacity(0.14))
+            .frame(width: max(1, r - l), height: marksH)
+            .offset(x: l, y: rowTop)
+        Rectangle().fill(theme.accentGrey).frame(width: 1.5, height: marksH).offset(x: l, y: rowTop)
+        Rectangle().fill(theme.accentGrey).frame(width: 1.5, height: marksH).offset(x: r - 1.5, y: rowTop)
         Text(scope == "week" ? "This Week" : "This Month")
             .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(accent.opacity(0.8))
+            .foregroundStyle(theme.accentGrey)
             .position(x: (l + r) / 2, y: headroom - 9)
     }
 
     @ViewBuilder
-    private func deadlineRules(_ s: ChartScale, w: CGFloat, plotH: CGFloat) -> some View {
+    private func deadlineRules(_ s: ChartScale, w: CGFloat, rowTop: CGFloat, marksH: CGFloat) -> some View {
         ForEach(project.deadlines, id: \.id) { d in
             let iso = String(format: "%04d-%02d-%02d", d.year, d.month + 1, d.day)
             let px = s.x(iso) * w
             let color = theme.eventBorder(d.color)
-            Rectangle().fill(color.opacity(0.55))
-                .frame(width: 1, height: plotH)
-                .offset(x: px)
+            Path { p in // .cc-proj-dlline: thin + DASHED in the deadline's own color
+                p.move(to: .zero)
+                p.addLine(to: CGPoint(x: 0, y: marksH))
+            }
+            .stroke(color.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            .frame(width: 1, height: marksH)
+            .offset(x: px, y: rowTop)
             Button { onOpen(d.id) } label: {
                 Text(d.title.isEmpty ? "(deadline)" : d.title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 10.5, weight: .medium))
+                    .kerning(0.3)
                     .foregroundStyle(color)
                     .lineLimit(1)
             }
@@ -188,12 +199,13 @@ private struct ProjChart: View {
     }
 
     @ViewBuilder
-    private func nowLine(_ s: ChartScale, w: CGFloat, plotH: CGFloat) -> some View {
+    private func nowLine(_ s: ChartScale, w: CGFloat, rowTop: CGFloat, marksH: CGFloat) -> some View {
         let cal = Calendar.current.dateComponents([.hour, .minute], from: Date())
         let frac = Double((cal.hour ?? 0) * 60 + (cal.minute ?? 0)) / 1440
         let px = s.x(today, frac: frac) * w
         let accent = theme.eventBorder("red")
-        Rectangle().fill(accent).frame(width: 1.5, height: plotH).offset(x: px)
+        Rectangle().fill(accent.opacity(0.95)).frame(width: 1.5, height: marksH)
+            .offset(x: px, y: rowTop)
         Text("now")
             .font(.system(size: 10.5, weight: .bold))
             .foregroundStyle(.white)
