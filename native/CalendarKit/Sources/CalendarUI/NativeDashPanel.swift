@@ -27,7 +27,9 @@ struct NativeDashPanel: View {
     let scope: String // "week" | "month"
     let key: String // week: the Sunday's ISO; month: "YYYY-MM"
     let theme: Theme
-    var onOpen: (String) -> Void // event todo row → open that event
+    var settings: DashTodoSettings? // layering prefs (⚙) — nil falls back to scope defaults
+    var onOpen: (String) -> Void // event todo row → open that event (the drawer)
+    var onJump: (String) -> Void = { _ in } // note todo row → fly to its note (storage key)
 
     @State private var doneOpen: Set<String> = [] // per-view completed expansion (session-scoped)
     private static let doneShow = 10
@@ -36,7 +38,7 @@ struct NativeDashPanel: View {
         let today = Self.todayIso()
         let (start, end) = range
         let word = scope == "week" ? "this week" : "this month"
-        let prefs: TodoFeedPrefs = scope == "week" ? .week : .month
+        let prefs = effectivePrefs
         let todos = engine.todoFeed(today: today)
         let sections = TodoFeed.rangeSections(todos, start: start, end: end, word: word,
                                               prefs: prefs)
@@ -61,6 +63,52 @@ struct NativeDashPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.hidden)
+        // Right-click anywhere in the panel = the cog's layering menu (single-sourced from
+        // DashTodoCatalog, writing through DashTodoSettings — same as the webview's popup).
+        .contextMenu { prefsMenu }
+    }
+
+    private var dashScope: DashTodoScope { scope == "week" ? .week : .month }
+
+    /// The user's layering prefs for this scope (⚙ / right-click), falling back to defaults.
+    private var effectivePrefs: TodoFeedPrefs {
+        guard let settings else { return scope == "week" ? .week : .month }
+        let p = settings[dashScope]
+        return TodoFeedPrefs(deadlines: p.deadlines,
+                             sections: Array(p.sections), sources: Array(p.sources))
+    }
+
+    @ViewBuilder private var prefsMenu: some View {
+        if let settings {
+            Toggle("Display Deadlines", isOn: Binding(
+                get: { settings[dashScope].deadlines },
+                set: { on in settings[dashScope].deadlines = on; engine.wake() }
+            ))
+            Menu("Show Collections") {
+                ForEach(DashTodoCatalog.sections(for: dashScope), id: \.key) { entry in
+                    Toggle(entry.label, isOn: Binding(
+                        get: { settings[dashScope].sections.contains(entry.key) },
+                        set: { on in
+                            if on { settings[dashScope].sections.insert(entry.key) }
+                            else { settings[dashScope].sections.remove(entry.key) }
+                            engine.wake()
+                        }
+                    ))
+                }
+            }
+            Menu("Collect from…") {
+                ForEach(DashTodoCatalog.sources, id: \.key) { entry in
+                    Toggle(entry.label, isOn: Binding(
+                        get: { settings[dashScope].sources.contains(entry.key) },
+                        set: { on in
+                            if on { settings[dashScope].sources.insert(entry.key) }
+                            else { settings[dashScope].sources.remove(entry.key) }
+                            engine.wake()
+                        }
+                    ))
+                }
+            }
+        }
     }
 
     private var range: (String, String) {
@@ -96,6 +144,7 @@ struct NativeDashPanel: View {
                         theme: theme,
                         onToggle: { toggle(t) },
                         onOpen: { openRow(t) })
+                    .id("\(TodoFeed.tieKey(t))")
             }
         }
     }
@@ -148,15 +197,22 @@ struct NativeDashPanel: View {
 
     private func openRow(_ t: ParsedTodo) {
         if t.source == "event" {
-            onOpen(t.eventId)
+            onOpen(t.eventId) // opens the event drawer, like the web's data-open
+        } else if let key = t.dailyDate {
+            onJump(key) // fly to the note's day/week/month, landing on the NOTE tab
         }
-        // Daily/scope rows: the note-jump flow (fly to the note + focus the line) arrives with the
-        // native NOTE tab in phase 3 — until then the row's checkbox is the interaction.
     }
 
     static func clockNow() -> String {
         let c = Calendar.current.dateComponents([.hour, .minute, .second], from: Date())
         return String(format: "%02d:%02d:%02d", c.hour ?? 0, c.minute ?? 0, c.second ?? 0)
+    }
+
+    /// The web's finishedLabel: relative done-day + the stamp's wall time when present.
+    static func finishedLabel(_ viewIso: String, _ stamp: String) -> String {
+        let rel = relDue(viewIso, String(stamp.prefix(10)))
+        guard stamp.count >= 16 else { return rel }
+        return "\(rel) · \(stamp.dropFirst(11).prefix(5))"
     }
 
     /// "today" / "3d over" / "in 3d" / the date — a compact relative-due label.
@@ -329,7 +385,12 @@ private struct TodoRow: View {
         let overdue = opd < today
         let red = theme.eventBorder("red")
         return HStack(spacing: 8) {
-            if let p = todo.priority {
+            if todo.done {
+                // The web's done meta: a single "✓ <finished rel · time>" in dark green.
+                Text("✓ \(todo.doneDate.map { NativeDashPanel.finishedLabel(today, $0) } ?? "done")")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.eventBorder("darkgreen").opacity(0.85))
+            } else if let p = todo.priority {
                 let bangs = Text(String(repeating: "!", count: p))
                     .font(.system(size: 11, weight: .heavy, design: .monospaced))
                     .kerning(-0.5)
@@ -341,16 +402,16 @@ private struct TodoRow: View {
                     bangs.foregroundStyle(red)
                 }
             }
-            if let f = todo.followup {
+            if !todo.done, let f = todo.followup {
                 Text("↪ follow up \(NativeDashPanel.relDue(today, f))")
                     .font(.system(size: 11, weight: overdue ? .semibold : .medium))
                     .foregroundStyle(overdue ? red : Self.followupTeal)
-            } else {
+            } else if !todo.done {
                 Text(NativeDashPanel.relDue(today, opd))
                     .font(.system(size: 11, weight: overdue ? .semibold : .regular))
                     .foregroundStyle(overdue ? red : theme.accentGrey)
             }
-            ForEach(todo.projects.prefix(2), id: \.self) { proj in
+            ForEach(todo.done ? [] : todo.projects.prefix(2), id: \.self) { proj in
                 Text(proj)
                     .font(.system(size: 10))
                     .foregroundStyle(theme.text.opacity(0.8))
@@ -358,7 +419,7 @@ private struct TodoRow: View {
                     .background(Capsule().fill(theme.accentGrey.opacity(0.10)))
                     .overlay(Capsule().strokeBorder(theme.accentGrey.opacity(0.45), lineWidth: 1))
             }
-            ForEach(todo.tags.prefix(3), id: \.self) { tag in
+            ForEach(todo.done ? [] : todo.tags.prefix(3), id: \.self) { tag in
                 Text("#\(tag)")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.accent.opacity(0.85))

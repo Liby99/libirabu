@@ -612,6 +612,27 @@ public struct CalendarView: View {
         .offset(x: -engine.drawerShift) // slide left so the drawer item is revealed/centered
     }
 
+    /// A note storage key ("YYYY-MM-DD" / "week:<sunday>" / "month:<YYYY-MM>") → fly to its view
+    /// and land on the NOTE tab — the native version of the webview's onJumpDay flow (line focus
+    /// inside the editor arrives with the editor's selectLine later).
+    private func jumpToNoteKey(_ date: String) {
+        if date.hasPrefix("week:") {
+            let c = date.dropFirst(5).split(separator: "-").compactMap { Int($0) }
+            guard c.count == 3 else { return }
+            engine.jumpToWeek(c[0], c[1] - 1, c[2], onLand: { dashTab = .note })
+            engine.pinDashboard()
+        } else if date.hasPrefix("month:") {
+            let c = date.dropFirst(6).split(separator: "-").compactMap { Int($0) }
+            guard c.count == 2 else { return }
+            engine.jumpToMonth(c[0], c[1] - 1, onLand: { dashTab = .note })
+            engine.pinDashboard()
+        } else {
+            let c = date.split(separator: "-").compactMap { Int($0) }
+            guard c.count == 3 else { return }
+            engine.jumpToDay(c[0], c[1] - 1, c[2], onLand: { dashTab = .note })
+        }
+    }
+
     /// The native dashboard BODY panels for this frame (cc.nativeDash): ONE container framed to
     /// the mask region (scope.mask → right edge) and clipped — the header's clipRect — with each
     /// sub-panel from dashBodyPanels placed by the header's OWN inset math (drawPanelChrome):
@@ -636,8 +657,12 @@ public struct CalendarView: View {
                     let top = Layout.topPad + panel.dy + Layout.monthH + 14
                     let ph = max(1, input.vp.h - top - Layout.bottomPad)
                     NativePanelHost(engine: engine, scope: panel.scope, key: panel.key,
-                                    tab: dashTab, theme: theme, noteMode: $noteMode,
-                                    onOpen: { id in engine.revealAndSelect(id: id) })
+                                    tab: dashTab, theme: theme, settings: todoSettings,
+                                    noteMode: $noteMode,
+                                    // Event rows open the DRAWER (the web's data-open path);
+                                    // note rows fly to their note, landing on the NOTE tab.
+                                    onOpen: { id in ui.openEventId = sourceId(of: id) },
+                                    onJump: { key in jumpToNoteKey(key) })
                         .frame(width: pw, height: ph)
                         .position(x: bx + pw / 2, y: top + ph / 2)
                         .opacity(Double(panel.op) * Double(c.reveal))
