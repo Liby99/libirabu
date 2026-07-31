@@ -684,9 +684,18 @@ final class CatcherView: NSView, NSMenuItemValidation {
         if overToolbar(e) {
             NSCursor.arrow.set(); return
         }
-        if engine?.inDayDashboard(point(e)) == true {
-            return
-        } // the dashboard web view owns its own cursor
+        // Region checks use the LIVE pointer, not the event location: synthesized cursorUpdate
+        // events (tracking-area churn, and notably SCROLL-END) carry stale/bogus locations — a
+        // pointer genuinely over the panel failed the check and got the arrow stomped over the
+        // rows' pointing hand the moment a scroll settled.
+        if let w = window {
+            let live = convert(w.mouseLocationOutsideOfEventStream, from: nil)
+            let gp = CGPoint(x: live.x - Layout.padLeft + (engine?.drawerShift ?? 0)
+                                 + (engine?.gutterShift ?? 0), y: live.y)
+            if engine?.inDayDashboard(gp) == true {
+                return
+            } // the dashboard (web view or native panel) owns its own cursor
+        }
         appliedCursor.set()
     }
 
