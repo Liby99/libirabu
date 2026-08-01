@@ -31,10 +31,8 @@ extension View {
 
 enum NativeDash {
     /// The rollout flag: `defaults write … cc.nativeDash -bool YES` or env CC_NATIVE_DASH=1.
-    static var enabled: Bool {
-        UserDefaults.standard.bool(forKey: "cc.nativeDash")
-            || ProcessInfo.processInfo.environment["CC_NATIVE_DASH"] != nil
-    }
+    static let enabled: Bool = UserDefaults.standard.bool(forKey: "cc.nativeDash")
+        || ProcessInfo.processInfo.environment["CC_NATIVE_DASH"] != nil // resolved once per launch
 
     /// Trackpad-pinch tap suppression: the panel overlay's MagnifyGesture is SIMULTANEOUS with
     /// the row buttons' click recognizers, and lifting off a pinch (notably with tap-to-click)
@@ -140,9 +138,18 @@ struct NativeDashPanel: View {
 
     /// The fold-aware subtree: rendered RECURSIVELY (TodoSubtree) so each parent's children live
     /// in one zero-spacing wrapper that draws a CONTINUOUS guide border.
-    struct RowNode {
+    /// A CLASS on purpose (flamegraph-driven, same story as TodoSubtree.Ctx): as a struct, every
+    /// subtree view stored its WHOLE descendant tree by value, and the AttributeGraph's row diff
+    /// compared each ParsedTodo elementwise down the tree — parent × descendants work on the
+    /// real store. As a reference the graph compares one pointer per node.
+    final class RowNode {
         let item: RowItem
         let children: [RowNode]
+
+        init(item: RowItem, children: [RowNode]) {
+            self.item = item
+            self.children = children
+        }
     }
 
     private var collapsedSet: Set<String> { nav?.collapsedSubs ?? [] }
@@ -439,14 +446,22 @@ struct NativeDashPanel: View {
         return days < 0 ? "\(-days)d ago" : "in \(days)d"
     }
 
-    static func daysBetween(_ a: String, _ b: String) -> Int {
+    /// Memoized — Calendar/DateComponents math showed up per-row in the real-store profile
+    /// (relDue runs for every row render); the same few (today, due) pairs repeat constantly.
+    @MainActor private static var daysCache: [String: Int] = [:]
+    @MainActor static func daysBetween(_ a: String, _ b: String) -> Int {
+        let key = a + "|" + b
+        if let hit = daysCache[key] { return hit }
         func date(_ s: String) -> Date? {
             let p = s.split(separator: "-").compactMap { Int($0) }
             guard p.count == 3 else { return nil }
             return utcCalendar.date(from: DateComponents(year: p[0], month: p[1], day: p[2]))
         }
         guard let da = date(a), let db = date(b) else { return 0 }
-        return utcCalendar.dateComponents([.day], from: da, to: db).day ?? 0
+        let d = utcCalendar.dateComponents([.day], from: da, to: db).day ?? 0
+        if daysCache.count > 4096 { daysCache.removeAll() }
+        daysCache[key] = d
+        return d
     }
 
     static func hhmm(_ hour: CGFloat) -> String {
@@ -545,7 +560,13 @@ private struct DeadlineRowView: View {
 /// The line carries a ~10pt hover band: hovering thickens the whole line; clicking folds THIS
 /// parent and smoothly centers its row.
 private struct TodoSubtree: View {
-    struct Ctx {
+    /// A CLASS on purpose (flamegraph-driven): as a struct stored in EVERY recursive row view,
+    /// SwiftUI's AttributeGraph deep-compared the embedded whole-feed `live` dictionary
+    /// (Dictionary== over every ParsedTodo) on each row diff — rows × feed work that produced
+    /// the 200-500ms frames on the real store. As a reference the graph compares a pointer.
+    /// A fresh instance per panel body eval is fine: the Equatable host gate means the body
+    /// only runs when content really changed, so rows should re-render then anyway.
+    final class Ctx {
         let today: String
         let ownNoteKey: String
         let theme: Theme
@@ -555,6 +576,16 @@ private struct TodoSubtree: View {
         let open: (ParsedTodo) -> Void
         let fold: (ParsedTodo) -> Void
         let foldAndCenter: (ParsedTodo) -> Void
+
+        init(today: String, ownNoteKey: String, theme: Theme, live: [String: ParsedTodo],
+             nav: NativeDashNavModel?,
+             toggle: @escaping (ParsedTodo) -> Void, open: @escaping (ParsedTodo) -> Void,
+             fold: @escaping (ParsedTodo) -> Void, foldAndCenter: @escaping (ParsedTodo) -> Void) {
+            self.today = today; self.ownNoteKey = ownNoteKey; self.theme = theme
+            self.live = live; self.nav = nav
+            self.toggle = toggle; self.open = open; self.fold = fold
+            self.foldAndCenter = foldAndCenter
+        }
     }
 
     let node: NativeDashPanel.RowNode
