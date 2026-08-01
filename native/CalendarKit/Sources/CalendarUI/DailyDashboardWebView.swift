@@ -198,6 +198,9 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
               aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0,
               bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0,
               shiftX: Double = 0, keepLive: Bool = false) {
+        // Native default: no webview is ever registered — skip building the per-frame
+        // CK.tick JSON payload entirely (it was pure waste at 120Hz).
+        if web == nil, NativeDash.enabled { return }
         let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(mKeyA)|\(mKeyB)|\(wFrom)|\(wTo)|\(Int((wP * 1000).rounded()))|\(wKeyA)|\(wKeyB)|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))|\(Int(shiftX.rounded()))|\(keepLive)"
         if key == lastKey {
             return

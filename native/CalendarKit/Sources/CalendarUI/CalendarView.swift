@@ -857,7 +857,11 @@ public struct CalendarView: View {
                     // aside in CSS (the driver keeps ticking `drawer`). Interactive only at day level
                     // with the drawer closed.
                     .overlay {
-                        if !Self.dashUnmountKill || engine.chrome.level >= 2 {
+                        // Phase 4a step 1: under the native dashboard (the default), the
+                        // webview overlay is NOT MOUNTED AT ALL — no web process, no per-frame
+                        // CK.tick IPC, no dashboardDataJSON evaluation. The whole branch
+                        // survives only for the cc.nativeDashOff fallback.
+                        if !NativeDash.enabled, !Self.dashUnmountKill || engine.chrome.level >= 2 {
                             DailyDashboardOverlay(engine: engine, carousel: dashCarousel,
                                                   forwarder: gestureForwarder,
                                                   tab: $dashTab, noteMode: $noteMode,
