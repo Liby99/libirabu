@@ -16,6 +16,11 @@ struct NativeNotePanel: View {
     let theme: Theme
     @Binding var noteMode: NotesMode
 
+    /// Ends the editing session (created:-stamps) when the MODE TOGGLE leaves edit — the
+    /// toggle lives in the DashChrome overlay writing this binding from outside, so the panel
+    /// intercepts the change and stamps BEFORE the preview branch reads the note.
+    @State private var session = NoteEditSession()
+
     var body: some View {
         let storageKey = scope == "day" ? key
             : scope == "week" ? "week:\(key)" : "month:\(key)"
@@ -36,7 +41,8 @@ struct NativeNotePanel: View {
                         if !engine.dailyNote(storageKey)
                             .trimmingCharacters(in: .whitespaces).isEmpty { noteMode = .preview }
                         engine.dashNoteExit()
-                    }
+                    },
+                    session: session
                 )
             } else if text.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text("No \(scope == "day" ? "daily" : scope == "week" ? "weekly" : "monthly") note yet — switch to Editor to write one.")
@@ -62,6 +68,9 @@ struct NativeNotePanel: View {
         }
         // Content-based default whenever the panel lands on a DIFFERENT note: empty → edit,
         // content → preview (same rule the webview applied on live-editor mounts).
+        .onChange(of: noteMode) { old, new in
+            if old == .edit, new != .edit { session.end?() } // toggle button → stamp first
+        }
         .onChange(of: storageKey, initial: true) { _, newKey in
             noteMode = engine.dailyNote(newKey)
                 .trimmingCharacters(in: .whitespaces).isEmpty ? .edit : .preview

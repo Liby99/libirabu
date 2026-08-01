@@ -16,6 +16,14 @@ import CalendarEngine
 import CalendarRender
 import SwiftUI
 
+/// A tiny handle the HOST keeps so it can end the editing session from outside the
+/// responder chain — the Editor/Preview toggle lives in a separate overlay (DashChrome)
+/// writing the shared noteMode binding, so the panel must be able to say "stamp NOW,
+/// before the preview renders" instead of waiting for the unmount hook.
+@MainActor final class NoteEditSession {
+    var end: (() -> Void)?
+}
+
 struct NativeNoteEditor: NSViewRepresentable {
     let storageKey: String // the note's key: "YYYY-MM-DD" / "week:…" / "month:…"
     let text: String // the engine's current note body
@@ -26,6 +34,7 @@ struct NativeNoteEditor: NSViewRepresentable {
     /// hand focus back (parity with noteEditor.ts's Mod-s / Escape keymap).
     var onSave: () -> Void = {}
     var onExit: () -> Void = {}
+    var session: NoteEditSession? = nil // host-side session-ender (mode-toggle stamping)
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -77,6 +86,7 @@ struct NativeNoteEditor: NSViewRepresentable {
             co?.stampCreatedIfDirty()
             co?.parent.onExit()
         }
+        session?.end = { [weak co = context.coordinator] in co?.stampCreatedIfDirty() }
         tv.string = text
         context.coordinator.textView = tv
         context.coordinator.key = storageKey
@@ -92,6 +102,7 @@ struct NativeNoteEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let co = context.coordinator
+        session?.end = { [weak co] in co?.stampCreatedIfDirty() } // keep the handle fresh
         // Re-key = the previous note's editing session ENDS: stamp it through the OLD parent's
         // onText (still bound to the old storage key) BEFORE adopting the new identity.
         if co.key != storageKey {
