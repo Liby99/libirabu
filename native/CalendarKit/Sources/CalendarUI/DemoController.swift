@@ -115,6 +115,7 @@ public final class DemoController {
         case "bench-dash-edit": await sceneBenchDashEdit()
         case "bench-dash-zoomin": await sceneBenchDashZoomIn()
         case "bench-day-swipe": await sceneBenchDaySwipe()
+        case "bench-day-roundtrip": await sceneBenchDayRoundtrip()
         case "bench-day-zoomin": await sceneBenchDayZoomIn()
         case "bench-pinch-zoom": await sceneBenchPinchZoom()
         case "bench-notify-plan": await sceneBenchNotifyPlan()
@@ -1239,6 +1240,52 @@ public final class DemoController {
             _ = engine.endDayGesture()
             try? await pause(gap)
         }
+        RenderProf.mark("benchEnd")
+        benchActive = false
+        let web = await dashWebCarousel?.benchWebCollect()
+            ?? (frames: [], longTasks: [], units: [], epoch: [])
+        writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
+                          webEpoch: web.epoch)
+    }
+
+    /// The user's full round trip: year → day (Aug 1) descent, day-swipe right to Aug 15
+    /// through the REAL gesture path, then day → year zoom-out — dashboard pinned throughout.
+    private func sceneBenchDayRoundtrip() async {
+        guard let engine else { return }
+        try? await pause(1.4)
+        engine.demoGoToYear(centerMonth: 7) // August centered
+        if !engine.dashPinned { engine.pinDashboard() }
+        try? await pause(0.9)
+        benchFrames.removeAll()
+        RenderProf.reset()
+        benchActive = true
+        dashWebCarousel?.benchWebStart()
+        RenderProf.mark("benchBegin")
+        // Descent: year → Aug 1.
+        moveStart = Date.timeIntervalSinceReferenceDate
+        engine.jumpToDay(engine.year, 7, 1)
+        for _ in 0 ..< 100 { engine.wake(); try? await pause(0.016) }
+        benchMoves.append((moveStart, moveStart + 1.5))
+        // Day swipes: Aug 1 → Aug 15, adjacent gestures.
+        for d in 1 ..< 15 {
+            let dayW = max(1, engine.daily.frac * (size.width - Layout.labelW))
+            engine.beginDayGesture()
+            moveStart = Date.timeIntervalSinceReferenceDate
+            for i in 0 ... 12 {
+                let t = easeOutQuad(CGFloat(i) / 12)
+                engine.setDayProgress((CGFloat(d) - 1 + t) * dayW)
+                engine.wake()
+                try? await pause(0.008)
+            }
+            benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
+            _ = engine.endDayGesture()
+            try? await pause(0.06)
+        }
+        // Zoom out: day → year.
+        moveStart = Date.timeIntervalSinceReferenceDate
+        engine.setView(zoom: "year")
+        for _ in 0 ..< 90 { engine.wake(); try? await pause(0.016) }
+        benchMoves.append((moveStart, moveStart + 1.4))
         RenderProf.mark("benchEnd")
         benchActive = false
         let web = await dashWebCarousel?.benchWebCollect()

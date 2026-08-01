@@ -720,6 +720,7 @@ private struct TodoRow: View {
     // as a width-mask over a struck copy of the same text). Seeded to the settled state; animates
     // on every done flip.
     @State private var strike: CGFloat = -1 // -1 = unseeded
+    @State private var sweeping = false // strike sweep IN FLIGHT → the masked pair is mounted
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -763,7 +764,12 @@ private struct TodoRow: View {
             if strike < 0 {
                 strike = done ? 1 : 0 // first render: settled, no animation
             } else {
-                withAnimation(.easeInOut(duration: 0.26)) { strike = done ? 1 : 0 }
+                sweeping = true // mount the masked pair for the sweep, drop it after
+                withAnimation(.easeInOut(duration: 0.26)) {
+                    strike = done ? 1 : 0
+                } completion: {
+                    sweeping = false
+                }
             }
         }
         .padding(.vertical, 5) // roomier than the web row box, per taste
@@ -783,7 +789,24 @@ private struct TodoRow: View {
     /// replaces the plain one as the `strike` front sweeps (layering it on top let the
     /// full-strength base bleed through and killed the dimming). The struck presentation is the
     /// plain text with a PRONOUNCED text-color strike, then ONE opacity over the whole thing.
+    /// SETTLED rows (the overwhelming majority) render ONE Text — the masked two-copy pair
+    /// exists only while a sweep is actually animating (`sweeping`). Pixel-identical when
+    /// settled (mask at 0/full ≡ plain/struck text), and it HALVES each row's standing
+    /// view-graph footprint — the real-store profiles showed graph size is the perf currency.
+    @ViewBuilder
     private var animatedTitle: some View {
+        if !sweeping {
+            if strike >= 0.999 {
+                title(struck: true).opacity(hovering ? 0.62 : 0.45)
+            } else {
+                title(struck: false)
+            }
+        } else {
+            sweepingTitle
+        }
+    }
+
+    private var sweepingTitle: some View {
         ZStack(alignment: .topLeading) {
             title(struck: false)
                 .mask(
