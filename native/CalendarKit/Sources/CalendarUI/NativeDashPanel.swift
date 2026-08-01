@@ -41,6 +41,54 @@ enum NativeDash {
     /// (open/jump/toggle) are ignored while a pinch is in flight or just ended.
     @MainActor static var lastPinch: Date = .distantPast
     @MainActor static var tapsSuppressed: Bool { Date().timeIntervalSince(lastPinch) < 0.35 }
+
+    /// Recently-shown panels PARKED MOUNTED (most-recent last, capped): a panel leaving the
+    /// carousel keeps its view alive at opacity 0 instead of unmounting, so swiping back to it
+    /// carousels REAL content with no rebuild — the mount cost (row view creation + text
+    /// layout, the real-store flamegraph's remaining block) is paid once per key, not per
+    /// visit. Content is NEVER gated: every mounted panel renders fully (no blank slots).
+    @MainActor static var parkedPanels: [DashBodyPanel] = []
+
+    @MainActor static func parkPanels(_ live: [DashBodyPanel]) {
+        for p in live {
+            parkedPanels.removeAll { $0.panelId == p.panelId }
+            parkedPanels.append(p)
+        }
+        if parkedPanels.count > 8 { parkedPanels.removeFirst(parkedPanels.count - 8) }
+    }
+
+    /// The settled panel's ADJACENT keys (month ±1, week ±7d, day ±1d) — pre-mounted parked
+    /// (op 0) while at rest, ONE per frame eval, so the first swipe toward a neighbor finds
+    /// its panel already built instead of paying the mount on a gesture frame.
+    static func neighborPanels(of p: DashBodyPanel) -> [DashBodyPanel] {
+        func with(_ key: String) -> DashBodyPanel {
+            DashBodyPanel(scope: p.scope, key: key, x: p.x, w: p.w, dx: 0, dy: p.dy, op: 0)
+        }
+        switch p.scope {
+        case "month":
+            let c = p.key.split(separator: "-").compactMap { Int($0) }
+            guard c.count == 2 else { return [] }
+            func mk(_ y: Int, _ m: Int) -> String {
+                let (yy, mm) = m < 1 ? (y - 1, 12) : m > 12 ? (y + 1, 1) : (y, m)
+                return String(format: "%04d-%02d", yy, mm)
+            }
+            return [with(mk(c[0], c[1] + 1)), with(mk(c[0], c[1] - 1))]
+        case "week":
+            return [with(TodoIndex.addDuration(p.key, 7, "d")),
+                    with(TodoIndex.addDuration(p.key, -7, "d"))]
+        case "day":
+            return [with(TodoIndex.addDuration(p.key, 1, "d")),
+                    with(TodoIndex.addDuration(p.key, -1, "d"))]
+        default:
+            return []
+        }
+    }
+
+    /// Keep nav-row registry entries only for panels still in the view tree (parked + live).
+    @MainActor static func trimNavRows(_ nav: NativeDashNavModel, liveIds: Set<String>) {
+        let keep = liveIds.union(parkedPanels.map(\.panelId))
+        nav.rowsByPanel = nav.rowsByPanel.filter { keep.contains($0.key) }
+    }
 }
 
 struct NativeDashPanel: View {
@@ -91,7 +139,10 @@ struct NativeDashPanel: View {
             return flatten(visibleTree(roots: roots, kids: kids))
                 .map { live[Self.anchor($0.todo)] ?? $0.todo }
         }
-        let _ = { if let nav { DispatchQueue.main.async { nav.rows = displayRows } } }()
+        let _ = { if let nav {
+            let pid = scope + "|" + key
+            DispatchQueue.main.async { nav.rowsByPanel[pid] = displayRows }
+        } }()
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {

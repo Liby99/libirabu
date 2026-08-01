@@ -381,6 +381,15 @@ public struct DashBodyPanel: Equatable, Sendable {
     public var dx: CGFloat // in-panel slide (week turn), applied inside the clipped frame
     public var dy: CGFloat // vertical ride: accordion + month page-turn (bandY − topPad)
     public var op: CGFloat // scope cross-fade × turn fade
+
+    /// Stable carousel identity (ForEach id + the parking key).
+    public var panelId: String { scope + "|" + key }
+
+    public init(scope: String, key: String, x: CGFloat, w: CGFloat, dx: CGFloat, dy: CGFloat,
+                op: CGFloat) {
+        self.scope = scope; self.key = key; self.x = x; self.w = w
+        self.dx = dx; self.dy = dy; self.op = op
+    }
 }
 
 public func dashBodyPanels(_ g: SceneInput) -> [DashBodyPanel] {

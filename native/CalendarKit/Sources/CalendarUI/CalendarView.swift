@@ -688,8 +688,33 @@ public struct CalendarView: View {
         if !bodyPanels.isEmpty, let sg = dashScopePanels(input) {
             let maskW = max(1, input.vp.w - sg.mask)
             ZStack(alignment: .topLeading) {
-                ForEach(bodyPanels.indices, id: \.self) { i in
-                    let panel = bodyPanels[i]
+                // Identity = scope|key (state never bleeds between keys sharing a list slot);
+                // built panels that LEFT the carousel stay mounted, parked at opacity 0
+                // (isLive false) — unmounting made every revisit re-pay the full mount (row
+                // creation + text layout) on a gesture frame. Every mounted panel renders its
+                // REAL content at all times; nothing is ever blanked.
+                let liveIds = Set(bodyPanels.map(\.panelId))
+                let _ = {
+                    NativeDash.parkPanels(bodyPanels)
+                    NativeDash.trimNavRows(dashNav, liveIds: liveIds)
+                    if let settled = bodyPanels.first(where: { $0.op >= 0.999 && abs($0.dx) < 0.5 }) {
+                        dashNav.activePanel = settled.panelId // plain per-frame assignment
+                        // At rest: pre-mount ONE not-yet-parked neighbor per frame (staggered
+                        // so a landing never pays two mounts in one frame). Invisible (op 0).
+                        let parkedIds = Set(NativeDash.parkedPanels.map(\.panelId))
+                        if bodyPanels.count == 1,
+                           let n = NativeDash.neighborPanels(of: settled)
+                           .first(where: { !parkedIds.contains($0.panelId) }) {
+                            NativeDash.parkPanels([n])
+                        }
+                    }
+                }()
+                // STABLE order (sorted by id): the parking LRU re-appends per frame, and a
+                // reordered ForEach makes SwiftUI re-layout moved children every frame.
+                let parked = NativeDash.parkedPanels.filter { !liveIds.contains($0.panelId) }
+                    .sorted { $0.panelId < $1.panelId }
+                ForEach(bodyPanels + parked, id: \.panelId) { panel in
+                    let isLive = liveIds.contains(panel.panelId)
                     let bx = panel.x + panel.dx + 25 - sg.mask
                     let pw = max(1, panel.w - 25 - 18)
                     let top = Layout.topPad + panel.dy + Layout.monthH + 14
@@ -712,7 +737,8 @@ public struct CalendarView: View {
                         .equatable() // per-frame re-eval stops HERE; only frame/opacity move
                         .frame(width: pw, height: ph)
                         .position(x: bx + pw / 2, y: top + ph / 2)
-                        .opacity(Double(panel.op) * Double(c.reveal))
+                        .opacity(isLive ? Double(panel.op) * Double(c.reveal) : 0)
+                        .allowsHitTesting(isLive)
                 }
             }
             .frame(width: maskW, height: input.vp.h)
