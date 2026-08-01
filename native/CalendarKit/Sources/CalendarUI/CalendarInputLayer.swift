@@ -356,6 +356,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
 
     override func scrollWheel(with e: NSEvent) {
         if modalActive {
+            dlog("scroll DROPPED: modalActive")
             return
         } // blocking modal up → no canvas scrolling
         // Year view: hand the event to the NSScrollView driver so AppKit does the elastic
@@ -397,6 +398,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         }
         if engine.isFlipping || engine.isMonthFlipping || engine.isWeekFlipping || engine.isDayFlipping || engine
             .trackEditing || engine.bandEditing || engine.timedEditing {
+            dlog("scroll DROPPED: flip=\(engine.isDayFlipping ? "day" : "other")/\(engine.isFlipping)|\(engine.isMonthFlipping)|\(engine.isWeekFlipping) edit=\(engine.trackEditing)|\(engine.bandEditing)|\(engine.timedEditing)")
             return
         } // don't fight flip / inline edit
         noteScroll() // suppress hover while this scroll (and its momentum) is live
@@ -492,6 +494,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
             if fingersDown,
                !dayGestureActive {
                 dayGestureActive = true; dayAxis = .undecided; engine.beginDayGesture()
+                dlog("day gesture OPEN", always: true)
             }
             if dayAxis == .undecided {
                 let dx = abs(e.scrollingDeltaX), dy = abs(e.scrollingDeltaY)
@@ -513,9 +516,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
             if ended {
                 dayAxis = .undecided
                 dayGestureActive = false
-                if engine.endDayGesture() {
+                let flipped = engine.endDayGesture()
+                if flipped {
                     swallowDayMomentum = true
                 } // armed pull → flip; eat the fling tail
+                dlog("day gesture CLOSE flip=\(flipped)", always: true)
             }
         } else {
             engine.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
@@ -747,6 +752,17 @@ final class CatcherView: NSView, NSMenuItemValidation {
     private var panelScrollMonitor: Any?
     private var panelAxis: PanelAxis = .vertical
     private var panelGestureCaptured = false
+
+    /// CC_DASH_DIAG=1 → trace the day-swipe event path (routing decisions, gesture opens/closes,
+    /// early-return reasons) to the console, throttled. For hunting the "stuck day swipe".
+    static let diag = ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil
+    private var lastDiag = Date.distantPast
+    func dlog(_ msg: @autoclosure () -> String, always: Bool = false) {
+        guard Self.diag else { return }
+        if !always, Date().timeIntervalSince(lastDiag) < 0.2 { return }
+        lastDiag = Date()
+        print("[dash-diag] \(msg())")
+    }
     func installPanelScrollMonitor() {
         guard panelScrollMonitor == nil else { return }
         panelScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
@@ -759,6 +775,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
                     || (engine.dashPinned && (1 ... 2).contains(engine.chrome.level))
                 self.panelGestureCaptured = levelOK && !engine.drawerOpen
                     && engine.inDayDashboard(self.point(e))
+                self.dlog("monitor: gesture began, captured=\(self.panelGestureCaptured)", always: true)
             }
             guard self.panelGestureCaptured else { return e }
             if self.panelAxis == .undecided {
@@ -766,6 +783,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
                 if dx > 0 || dy > 0 { self.panelAxis = dx > dy ? .horizontal : .vertical }
             }
             guard self.panelAxis == .horizontal else { return e } // vertical: the panel scrolls
+            self.dlog("monitor: → catcher (horizontal over panel) phase=\(e.phase.rawValue) mom=\(e.momentumPhase.rawValue)")
             self.scrollWheel(with: e) // day/week paging with native momentum, like the webview
             return nil
         }

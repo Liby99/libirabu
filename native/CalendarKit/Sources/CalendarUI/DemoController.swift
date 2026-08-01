@@ -116,6 +116,7 @@ public final class DemoController {
         case "bench-dash-zoomin": await sceneBenchDashZoomIn()
         case "bench-day-swipe": await sceneBenchDaySwipe()
         case "bench-day-roundtrip": await sceneBenchDayRoundtrip()
+        case "bench-day-boundary": await sceneDayBoundaryCheck()
         case "bench-day-zoomin": await sceneBenchDayZoomIn()
         case "bench-pinch-zoom": await sceneBenchPinchZoom()
         case "bench-notify-plan": await sceneBenchNotifyPlan()
@@ -1246,6 +1247,53 @@ public final class DemoController {
             ?? (frames: [], longTasks: [], units: [], epoch: [])
         writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
                           webEpoch: web.epoch)
+    }
+
+    /// STUCK-SWIPE diagnostic: land on Aug 1, swipe LEFT across the July boundary (arming the
+    /// month flip), pump frames, then attempt a normal right swipe — dumping engine state at
+    /// every step to /tmp/cc-day-boundary.txt. If the flip wedges (isDayFlipping stuck, or the
+    /// post-flip swipe doesn't move dom), this reproduces the reported freeze engine-side.
+    private func sceneDayBoundaryCheck() async {
+        guard let engine else { return }
+        try? await pause(1.4)
+        engine.jumpToDay(engine.year, 7, 1) // Aug 1
+        try? await pause(1.4)
+        var log: [String] = []
+        func snap(_ tag: String) {
+            log.append("\(tag): dom=\(engine.daily.dom) focus=\(engine.focus) "
+                + "animDir=\(engine.daily.anim?.dir ?? 0) animP=\(engine.daily.anim?.p ?? -1) "
+                + "flip=\(engine.isDayFlipping) armed=\(engine.dayFlipArmed) level=\(engine.chrome.level)")
+        }
+        benchFrames.removeAll(); benchActive = true // keep the script's bench.json contract
+        snap("landed")
+        let dayW = max(1, engine.daily.frac * (size.width - Layout.labelW))
+        // Swipe LEFT past the month edge: negative offset beyond the 40px arm threshold.
+        engine.beginDayGesture()
+        for i in 0 ... 20 {
+            engine.setDayProgress(-CGFloat(i) / 20 * 120)
+            engine.wake()
+            try? await pause(0.008)
+        }
+        snap("pulled")
+        let flipped = engine.endDayGesture()
+        snap("gesture-ended flipStarted=\(flipped)")
+        for _ in 0 ..< 80 { engine.wake(); try? await pause(0.016) } // ride the 0.42s flip
+        snap("after-1.3s")
+        // A normal right swipe back toward Aug: does the engine still respond?
+        let domBefore = engine.daily.dom
+        engine.beginDayGesture()
+        for i in 0 ... 12 {
+            engine.setDayProgress((CGFloat(engine.daily.dom) - 1 + CGFloat(i) / 12) * dayW)
+            engine.wake()
+            try? await pause(0.008)
+        }
+        _ = engine.endDayGesture()
+        for _ in 0 ..< 40 { engine.wake(); try? await pause(0.016) }
+        snap("after-right-swipe domBefore=\(domBefore)")
+        benchActive = false
+        try? log.joined(separator: "\n").appending("\n")
+            .write(toFile: "/tmp/cc-day-boundary.txt", atomically: true, encoding: .utf8)
+        writeBenchResults(webFrames: [], webLongTasks: [], webUnits: [], webEpoch: [])
     }
 
     /// The user's full round trip: year → day (Aug 1) descent, day-swipe right to Aug 15
