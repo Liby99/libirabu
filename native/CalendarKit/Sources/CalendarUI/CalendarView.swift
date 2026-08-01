@@ -685,37 +685,51 @@ public struct CalendarView: View {
         let input = engine.snapshotInput()
         let bodyPanels = dashBodyPanels(input)
         let c = engine.dashboardCarousel()
-        if !bodyPanels.isEmpty, let sg = dashScopePanels(input) {
-            let maskW = max(1, input.vp.w - sg.mask)
+        let sg = dashScopePanels(input)
+        let liveIds = Set(bodyPanels.map(\.panelId))
+        let _ = {
+            NativeDash.parkPanels(bodyPanels)
+            NativeDash.trimNavRows(dashNav, liveIds: liveIds)
+            if let settled = bodyPanels.first(where: { $0.op >= 0.999 && abs($0.dx) < 0.5 }) {
+                dashNav.activePanel = settled.panelId // plain per-frame assignment
+                // At rest: pre-mount ONE not-yet-parked neighbor per frame (staggered
+                // so a landing never pays two mounts in one frame). Invisible (op 0).
+                let parkedIds = Set(NativeDash.parkedPanels.map(\.panelId))
+                if bodyPanels.count == 1,
+                   let n = NativeDash.neighborPanels(of: settled)
+                   .first(where: { !parkedIds.contains($0.panelId) }) {
+                    NativeDash.parkPanels([n])
+                }
+            }
+            // YEAR level, pinned: no scope panels exist yet, so nothing above pre-builds —
+            // and the whole month-panel mount landed INSIDE the year→month zoom (the ~230ms
+            // frame at real window sizes). Pre-build the FOCUSED month while resting at year.
+            if sg == nil, input.dashPin > 0.5, engine.chrome.level == 0 {
+                let key = String(format: "%04d-%02d", input.year, input.focus + 1)
+                if !NativeDash.parkedPanels.contains(where: { $0.panelId == "month|" + key }) {
+                    NativeDash.parkPanels([DashBodyPanel(
+                        scope: "month", key: key, x: input.vp.w,
+                        w: dashMonthPanelW(input.vp, frac: input.dashMonthFrac),
+                        dx: 0, dy: 0, op: 0)])
+                }
+            }
+        }()
+        // STABLE order (sorted by id): the parking LRU re-appends per frame, and a
+        // reordered ForEach makes SwiftUI re-layout moved children every frame.
+        let parked = NativeDash.parkedPanels.filter { !liveIds.contains($0.panelId) }
+            .sorted { $0.panelId < $1.panelId }
+        if !bodyPanels.isEmpty || !parked.isEmpty {
+            let mask = sg?.mask ?? input.vp.w
+            let maskW = max(1, input.vp.w - mask)
             ZStack(alignment: .topLeading) {
                 // Identity = scope|key (state never bleeds between keys sharing a list slot);
                 // built panels that LEFT the carousel stay mounted, parked at opacity 0
                 // (isLive false) — unmounting made every revisit re-pay the full mount (row
                 // creation + text layout) on a gesture frame. Every mounted panel renders its
                 // REAL content at all times; nothing is ever blanked.
-                let liveIds = Set(bodyPanels.map(\.panelId))
-                let _ = {
-                    NativeDash.parkPanels(bodyPanels)
-                    NativeDash.trimNavRows(dashNav, liveIds: liveIds)
-                    if let settled = bodyPanels.first(where: { $0.op >= 0.999 && abs($0.dx) < 0.5 }) {
-                        dashNav.activePanel = settled.panelId // plain per-frame assignment
-                        // At rest: pre-mount ONE not-yet-parked neighbor per frame (staggered
-                        // so a landing never pays two mounts in one frame). Invisible (op 0).
-                        let parkedIds = Set(NativeDash.parkedPanels.map(\.panelId))
-                        if bodyPanels.count == 1,
-                           let n = NativeDash.neighborPanels(of: settled)
-                           .first(where: { !parkedIds.contains($0.panelId) }) {
-                            NativeDash.parkPanels([n])
-                        }
-                    }
-                }()
-                // STABLE order (sorted by id): the parking LRU re-appends per frame, and a
-                // reordered ForEach makes SwiftUI re-layout moved children every frame.
-                let parked = NativeDash.parkedPanels.filter { !liveIds.contains($0.panelId) }
-                    .sorted { $0.panelId < $1.panelId }
                 ForEach(bodyPanels + parked, id: \.panelId) { panel in
                     let isLive = liveIds.contains(panel.panelId)
-                    let bx = panel.x + panel.dx + 25 - sg.mask
+                    let bx = panel.x + panel.dx + 25 - mask
                     let pw = max(1, panel.w - 25 - 18)
                     let top = Layout.topPad + panel.dy + Layout.monthH + 14
                     let ph = max(1, input.vp.h - top - Layout.bottomPad)
@@ -743,7 +757,7 @@ public struct CalendarView: View {
             }
             .frame(width: maskW, height: input.vp.h)
             .clipped()
-            .position(x: sg.mask + maskW / 2, y: input.vp.h / 2)
+            .position(x: mask + maskW / 2, y: input.vp.h / 2)
             .offset(x: Layout.padLeft - engine.gutterShift)
         }
     }

@@ -347,8 +347,14 @@ struct NativeDashPanel: View {
             }
             // Recursive subtrees: zero-spacing wrappers own the CONTINUOUS guide borders; each
             // row still renders the LIVE parse of its line in its frozen position.
-            ForEach(tree.indices, id: \.self) { i in
-                TodoSubtree(node: tree[i], ctx: ctx)
+            // LAZY roots (flamegraph-driven): the outer LazyVStack is lazy per SECTION, so a
+            // dense month section built EVERY root subtree at once — the AttributeGraph grew
+            // by the whole list and per-frame graph bookkeeping scaled with it. Lazy roots
+            // keep layout pixel-identical while only materializing near-viewport subtrees.
+            LazyVStack(alignment: .leading, spacing: 5) {
+                ForEach(tree.indices, id: \.self) { i in
+                    TodoSubtree(node: tree[i], ctx: ctx)
+                }
             }
         }
     }
