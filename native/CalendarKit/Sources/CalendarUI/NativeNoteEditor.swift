@@ -22,6 +22,10 @@ struct NativeNoteEditor: NSViewRepresentable {
     let theme: Theme
     var placeholder: String
     var onText: (String) -> Void // every change → engine.setDailyNote (engine coalesces persist)
+    /// ⌘S / Esc — the web editor's session-enders: stamp created:, then flip to preview /
+    /// hand focus back (parity with noteEditor.ts's Mod-s / Escape keymap).
+    var onSave: () -> Void = {}
+    var onExit: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -31,8 +35,29 @@ struct NativeNoteEditor: NSViewRepresentable {
         coordinator.stampCreatedIfDirty() // teardown (mode flip / drawer close) ends the session
     }
 
+    /// NSTextView subclass owning the editor-local key equivalents. performKeyEquivalent (not
+    /// the app key monitor): the monitor deliberately steps aside for text first responders,
+    /// and ⌘S must work exactly and only while this editor is focused.
+    final class EditorTextView: NSTextView {
+        var onSaveKey: (() -> Void)?
+        var onEscKey: (() -> Void)?
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+               event.charactersIgnoringModifiers?.lowercased() == "s" {
+                onSaveKey?()
+                return true
+            }
+            return super.performKeyEquivalent(with: event)
+        }
+
+        override func cancelOperation(_ sender: Any?) { // Esc
+            onEscKey?()
+        }
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
-        let tv = NSTextView()
+        let tv = EditorTextView()
         tv.isRichText = false
         tv.allowsUndo = true
         tv.drawsBackground = false
@@ -44,6 +69,14 @@ struct NativeNoteEditor: NSViewRepresentable {
         tv.isVerticallyResizable = true
         tv.textContainer?.widthTracksTextView = true
         tv.delegate = context.coordinator
+        tv.onSaveKey = { [weak co = context.coordinator] in
+            co?.stampCreatedIfDirty()
+            co?.parent.onSave()
+        }
+        tv.onEscKey = { [weak co = context.coordinator] in
+            co?.stampCreatedIfDirty()
+            co?.parent.onExit()
+        }
         tv.string = text
         context.coordinator.textView = tv
         context.coordinator.key = storageKey

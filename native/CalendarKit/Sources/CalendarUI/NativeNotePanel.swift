@@ -28,7 +28,15 @@ struct NativeNotePanel: View {
                     theme: theme,
                     placeholder: scope == "day" ? "Daily Note (Markdown)…"
                         : scope == "week" ? "Weekly Note (Markdown)…" : "Monthly Note (Markdown)…",
-                    onText: { engine.setDailyNote(storageKey, $0) }
+                    onText: { engine.setDailyNote(storageKey, $0) },
+                    // ⌘S = the web's Mod-s: stamp (done inside the editor) + flip to preview.
+                    // Esc hands the keys back to the calendar, preview only if content exists.
+                    onSave: { noteMode = .preview },
+                    onExit: {
+                        if !engine.dailyNote(storageKey)
+                            .trimmingCharacters(in: .whitespaces).isEmpty { noteMode = .preview }
+                        engine.dashNoteExit()
+                    }
                 )
             } else if text.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text("No \(scope == "day" ? "daily" : scope == "week" ? "weekly" : "monthly") note yet — switch to Editor to write one.")
