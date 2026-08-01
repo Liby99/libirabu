@@ -28,7 +28,8 @@ case "${PAYLOAD:-display}" in
   dump)    cp "$HOME/.magical-bench/data.json" "$TMP/data.json" ;;  # CC_DUMP_DISPLAY of the REAL app (heavy: 1007 ev)
   dense)   cp bench/year-dense-2026.json "$TMP/data.json" ;;  # stress: real dump densified (3000 ev / ~500 bands @87% lane fill)
   todos)   cp bench/todo-dense-2026.json "$TMP/data.json" ;;  # stress: real store + ~500 July todos (scripts/gen-todo-dense.py)
-  full)    cp "$HOME/Library/Application Support/CalendarKit/data.json" "$TMP/data.json" ;;  # raw live store
+  full)    cp "$HOME/Library/Application Support/CalendarKit/data.json" "$TMP/data.json" ;;  # raw live store (LEGACY single-file — misses calendars/!)
+  store)   cp -R "$HOME/Library/Application Support/CalendarKit/." "$TMP/" ;;  # the WHOLE real base dir: registry + every calendar (incl. imports) + all notes — the true payload
   *) echo "unknown PAYLOAD=${PAYLOAD}"; exit 1 ;;
 esac
 echo "Launching bench scene (throwaway store at $TMP; payload=${PAYLOAD:-display} window=${WINDOW:-default} hover=${HOVER:-0})…"
@@ -42,6 +43,13 @@ env CC_DEMO="$SCENE" CC_DEMO_DATADIR="$TMP" \
   ${SWIPE_STEPS:+CC_BENCH_SWIPE_STEPS="$SWIPE_STEPS"} ${SWIPE_GAP:+CC_BENCH_SWIPE_GAP="$SWIPE_GAP"} "$BIN" &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+# SAMPLE=1 → capture a call-stack profile (sample(1)) over the scene's moving phase; knobs
+# SAMPLE_DELAY (secs after launch, default 3.5) and SAMPLE_SECS (default 4). The raw call tree
+# lands in bench/last-sample.txt for flamegraph collapsing.
+if [ -n "${SAMPLE:-}" ]; then
+  ( sleep "${SAMPLE_DELAY:-3.5}"; sample "$APP_PID" "${SAMPLE_SECS:-4}" -f "$TMP/sample.txt" >/dev/null 2>&1
+    cp "$TMP/sample.txt" bench/last-sample.txt 2>/dev/null ) &
+fi
 
 # The scene takes ~10s (settle + two pace-locked glides); wait for its results file.
 for _ in $(seq 1 300); do [ -f "$TMP/bench.json" ] && break; sleep 0.2; done
