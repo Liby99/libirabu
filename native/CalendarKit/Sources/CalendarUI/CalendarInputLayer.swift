@@ -60,6 +60,7 @@ struct InputCatcher: NSViewRepresentable {
         v.installYearScrollDriver()
         v.installTimelineScrollDriver()
         v.installKeyMonitor()
+        v.installPanelScrollMonitor()
         return v
     }
 
@@ -305,7 +306,9 @@ final class CatcherView: NSView, NSMenuItemValidation {
         NotificationCenter.default
             .removeObserver(self); if let m = keyMonitor {
             NSEvent.removeMonitor(m)
-        }; repeatTimer?.invalidate()
+        }
+        if let m = panelScrollMonitor { NSEvent.removeMonitor(m) }
+        repeatTimer?.invalidate()
     }
 
     override func updateTrackingAreas() {
@@ -728,6 +731,46 @@ final class CatcherView: NSView, NSMenuItemValidation {
     // window regardless of first responder, so the shortcuts keep working; it only steps aside (returns
     // the event) when a real text input is focused, so typing/native undo still go to the field.
     private var keyMonitor: Any?
+
+    // ── Native-panel horizontal forwarding ────────────────────────────────────────────────
+    // The webview panel forwarded horizontal gestures to this catcher itself
+    // (PassThroughWebView.scrollWheel: axis-lock once per gesture, route the WHOLE gesture —
+    // its .ended and momentum tail included — to one target). The native panels' scroll views
+    // belong to SwiftUI, so they can't inherit that override — horizontal swipes STARTING over
+    // the panel were silently eaten (day paging dead over the dashboard; a diverted tail could
+    // strand the day animation mid-flight). This local monitor recreates the exact routing:
+    // gestures that BEGIN over the panel region latch their axis at the first real delta;
+    // horizontal ones are re-dispatched to the catcher (native day/week paging + momentum),
+    // vertical ones stay with the panel's own scroller. Phaseless legacy wheels are never
+    // intercepted.
+    private enum PanelAxis { case undecided, horizontal, vertical }
+    private var panelScrollMonitor: Any?
+    private var panelAxis: PanelAxis = .vertical
+    private var panelGestureCaptured = false
+    func installPanelScrollMonitor() {
+        guard panelScrollMonitor == nil else { return }
+        panelScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
+            guard let self, let engine = self.engine, NativeDash.enabled,
+                  e.window === self.window else { return e }
+            if e.phase.isEmpty, e.momentumPhase.isEmpty { return e } // legacy wheel: hands off
+            if e.phase.contains(.began) || e.phase.contains(.mayBegin) {
+                self.panelAxis = .undecided
+                let levelOK = engine.chrome.level == 3
+                    || (engine.dashPinned && (1 ... 2).contains(engine.chrome.level))
+                self.panelGestureCaptured = levelOK && !engine.drawerOpen
+                    && engine.inDayDashboard(self.point(e))
+            }
+            guard self.panelGestureCaptured else { return e }
+            if self.panelAxis == .undecided {
+                let dx = abs(e.scrollingDeltaX), dy = abs(e.scrollingDeltaY)
+                if dx > 0 || dy > 0 { self.panelAxis = dx > dy ? .horizontal : .vertical }
+            }
+            guard self.panelAxis == .horizontal else { return e } // vertical: the panel scrolls
+            self.scrollWheel(with: e) // day/week paging with native momentum, like the webview
+            return nil
+        }
+    }
+
     func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] e in
