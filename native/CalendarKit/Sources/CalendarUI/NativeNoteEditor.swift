@@ -5,7 +5,11 @@
 // monitor already yields to NSText first responders, so typing lands here like any field editor.
 //
 // V1 gaps (documented): no entity autocomplete (@person/#tag/project: completions) yet — that
-// rides NSTextView's completion API in a follow-up; created:-stamp-on-session-end not wired.
+// rides NSTextView's completion API in a follow-up.
+// created:-stamps ARE wired (session-end semantics, matching the CodeMirror editor): top-level
+// task lines missing created: get " created:YYYY-MM-DDTHH:mm" appended when the editing
+// SESSION ends — focus loss, panel re-key, or teardown — and only if the user actually edited
+// this note since it loaded (sessionDirty), so opening/previewing never back-stamps old items.
 
 import AppKit
 import CalendarEngine
@@ -21,6 +25,10 @@ struct NativeNoteEditor: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
+    }
+
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        coordinator.stampCreatedIfDirty() // teardown (mode flip / drawer close) ends the session
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -51,6 +59,11 @@ struct NativeNoteEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let co = context.coordinator
+        // Re-key = the previous note's editing session ENDS: stamp it through the OLD parent's
+        // onText (still bound to the old storage key) BEFORE adopting the new identity.
+        if co.key != storageKey {
+            co.stampCreatedIfDirty()
+        }
         co.parent = self
         guard let tv = co.textView else { return }
         // Adopt external text when the note IDENTITY changed (panel re-keyed), or the engine's
@@ -60,6 +73,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         if co.key != storageKey {
             co.key = storageKey
             co.lastSent = nil
+            co.sessionDirty = false // a host-driven swap starts a fresh session
             tv.string = text
             co.highlight()
             tv.scroll(.zero)
@@ -74,6 +88,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         weak var textView: NSTextView?
         var key = ""
         var lastSent: String? // the last body we pushed up — its echo must not re-set the view
+        var sessionDirty = false // the user edited THIS note since load / last stamp
 
         init(_ parent: NativeNoteEditor) {
             self.parent = parent
@@ -83,8 +98,46 @@ struct NativeNoteEditor: NSViewRepresentable {
             guard let tv = textView else { return }
             let s = tv.string
             lastSent = s
+            sessionDirty = true
             parent.onText(s)
             highlight()
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            stampCreatedIfDirty() // focus left the editor → the session is over
+        }
+
+        /// The CodeMirror editor's stampCreated(), ported: append " created:YYYY-MM-DDTHH:mm"
+        /// to top-level task lines that lack one — only when the session actually edited the
+        /// note. Runs the rewrite through the same onText path as typing, so persistence,
+        /// gen bumps, and the native panels all see it like any other edit.
+        func stampCreatedIfDirty() {
+            guard sessionDirty, let tv = textView else { return }
+            sessionDirty = false // clear FIRST: the rewrite below re-fires textDidChange
+            let body = tv.string
+            let lines = TodoIndex.linesNeedingCreated(body)
+            guard !lines.isEmpty else { return }
+            let c = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute],
+                                                    from: Date())
+            let stamp = String(format: " created:%04d-%02d-%02dT%02d:%02d",
+                               c.year ?? 2000, c.month ?? 1, c.day ?? 1,
+                               c.hour ?? 0, c.minute ?? 0)
+            var rows = body.components(separatedBy: "\n")
+            for n in lines where n >= 1 && n <= rows.count { // 1-based line numbers
+                var line = rows[n - 1]
+                while line.hasSuffix(" ") || line.hasSuffix("\t") { line.removeLast() }
+                rows[n - 1] = line + stamp
+            }
+            let next = rows.joined(separator: "\n")
+            guard next != body else { return }
+            let sel = tv.selectedRange()
+            tv.string = next
+            tv.setSelectedRange(NSRange(location: min(sel.location, (next as NSString).length),
+                                        length: 0))
+            lastSent = next
+            parent.onText(next)
+            highlight()
+            sessionDirty = false // the programmatic rewrite must not re-arm the session
         }
 
         // ── Highlighting: full-document, attribute-only (selection + undo untouched) ─────────

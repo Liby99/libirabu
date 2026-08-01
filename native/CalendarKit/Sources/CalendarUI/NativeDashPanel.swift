@@ -30,9 +30,12 @@ extension View {
 }
 
 enum NativeDash {
-    /// The rollout flag: `defaults write … cc.nativeDash -bool YES` or env CC_NATIVE_DASH=1.
-    static let enabled: Bool = UserDefaults.standard.bool(forKey: "cc.nativeDash")
-        || ProcessInfo.processInfo.environment["CC_NATIVE_DASH"] != nil // resolved once per launch
+    /// The native dashboard is the DEFAULT now (proven ≥ webview on the real store). Kill
+    /// switches for the webview fallback: `defaults write … cc.nativeDashOff -bool YES` or env
+    /// CC_NATIVE_DASH_OFF=1. The old opt-in keys (cc.nativeDash / CC_NATIVE_DASH) are accepted
+    /// and ignored. Resolved once per launch.
+    static let enabled: Bool = !(UserDefaults.standard.bool(forKey: "cc.nativeDashOff")
+        || ProcessInfo.processInfo.environment["CC_NATIVE_DASH_OFF"] != nil)
 
     /// Trackpad-pinch tap suppression: the panel overlay's MagnifyGesture is SIMULTANEOUS with
     /// the row buttons' click recognizers, and lifting off a pinch (notably with tap-to-click)
