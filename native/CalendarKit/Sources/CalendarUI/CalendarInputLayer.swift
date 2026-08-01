@@ -752,6 +752,16 @@ final class CatcherView: NSView, NSMenuItemValidation {
     private var panelScrollMonitor: Any?
     private var panelAxis: PanelAxis = .vertical
     private var panelGestureCaptured = false
+    /// The catcher OWNS the in-flight gesture: it began over the calendar (hit-test = this
+    /// view), so EVERY event of the gesture — the .ended and momentum tail included — is
+    /// forwarded here even if the pointer drifts over the dashboard panel mid-gesture. macOS
+    /// hit-tests each scroll event under the CURRENT pointer, so without this latch a drifting
+    /// gesture's tail landed in the panel's scroller: the catcher never saw .ended,
+    /// liveDayScrolling stayed true, the settle safety-net was blocked forever — the
+    /// "day swipe stuck midway" bug (confirmed by [dash-diag]: OPEN without CLOSE +
+    /// settleDay BLOCKED: live=true). The webview's PassThroughWebView enforced exactly this
+    /// whole-gesture-single-target rule from the other side.
+    private var catcherOwnsGesture = false
 
     /// CC_DASH_DIAG=1 → trace the day-swipe event path (routing decisions, gesture opens/closes,
     /// early-return reasons) to the console, throttled. For hunting the "stuck day swipe".
@@ -771,11 +781,21 @@ final class CatcherView: NSView, NSMenuItemValidation {
             if e.phase.isEmpty, e.momentumPhase.isEmpty { return e } // legacy wheel: hands off
             if e.phase.contains(.began) || e.phase.contains(.mayBegin) {
                 self.panelAxis = .undecided
+                // Who does this gesture belong to? Hit-test its start point once and latch.
+                let cv = self.window?.contentView
+                let sp = cv?.superview?.convert(e.locationInWindow, from: nil) ?? .zero
+                self.catcherOwnsGesture = (cv?.hitTest(sp) === self)
                 let levelOK = engine.chrome.level == 3
                     || (engine.dashPinned && (1 ... 2).contains(engine.chrome.level))
-                self.panelGestureCaptured = levelOK && !engine.drawerOpen
-                    && engine.inDayDashboard(self.point(e))
-                self.dlog("monitor: gesture began, captured=\(self.panelGestureCaptured)", always: true)
+                self.panelGestureCaptured = !self.catcherOwnsGesture && levelOK
+                    && !engine.drawerOpen && engine.inDayDashboard(self.point(e))
+                self.dlog("monitor: gesture began, owns=\(self.catcherOwnsGesture) captured=\(self.panelGestureCaptured)",
+                          always: true)
+            }
+            if self.catcherOwnsGesture {
+                // Deliver directly (and consume) so pointer drift can't re-route the tail.
+                self.scrollWheel(with: e)
+                return nil
             }
             guard self.panelGestureCaptured else { return e }
             if self.panelAxis == .undecided {
