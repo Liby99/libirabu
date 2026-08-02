@@ -90,6 +90,23 @@ enum NativeDash {
         return out
     }
 
+    /// SCENE-side heartbeat (the main canvas TimelineView): if SCENE gaps mirror the overlay
+    /// gaps, the render clock/schedule is stalling globally; if the scene ticks while the
+    /// overlay starves, the overlay's timeline has a dependency problem.
+    @MainActor static var diagLastScene: Date?
+    @MainActor static func diagSceneFrame() {
+        guard diag, let press = diagPressAt else { diagLastScene = nil; return }
+        let now = Date()
+        if let last = diagLastScene {
+            let gap = now.timeIntervalSince(last)
+            if gap > 0.05 {
+                print(String(format: "[dash-diag] SCENE GAP %.0fms at +%.2fs after press",
+                             gap * 1000, now.timeIntervalSince(press)))
+            }
+        }
+        diagLastScene = now
+    }
+
     @MainActor static func diagFrame(engine: CalendarEngine) {
         guard diag else { return }
         DashWatchdog.shared.noteEval()

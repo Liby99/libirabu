@@ -849,6 +849,7 @@ public struct CalendarView: View {
             // One evaluation = one rendered frame → the benchmark's frame counter (no-op outside CC_DEMO
             // bench scenes; reads only @ObservationIgnored state, so it can't invalidate the view).
             let _ = demo.benchTick(tl.date)
+            let _ = NativeDash.diagSceneFrame() // CC_DASH_DIAG scene heartbeat
             calendarScene(engine.sceneInput(at: tl.date, viewport: vp), vp: vp, theme: theme)
         }
     }

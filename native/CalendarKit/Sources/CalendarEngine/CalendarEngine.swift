@@ -36,9 +36,15 @@ public final class CalendarEngine {
     public func wake() {
         if !renderClock.awake {
             renderClock.awake = true
+            if CalendarEngine.diagClock {
+                print("[dash-diag] renderClock → AWAKE")
+            }
         }
         armSleep()
     }
+
+    /// CC_DASH_DIAG: log clock transitions (the no-animation hunt).
+    static let diagClock = ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil
 
     /// (Re)schedule the idle sleep. While anything is animating the timer keeps deferring; once the
     /// scene is fully at rest for `Motion.idleSleep`, it pauses the TimelineView.
@@ -50,6 +56,9 @@ public final class CalendarEngine {
                 self.armSleep()
             } else {
                 self.renderClock.awake = false
+                if CalendarEngine.diagClock {
+                    print("[dash-diag] renderClock → ASLEEP")
+                }
             }
         }
         sleepWork = w
