@@ -45,6 +45,8 @@ struct NativeNoteEditor: NSViewRepresentable {
     /// and takes focus (once per value; the host clears it via onFocusLineHandled).
     var focusLine: Int? = nil
     var onFocusLineHandled: () -> Void = {}
+    /// Bump → take keyboard focus (the drawer's notes ring / ⌘E entry), caret left in place.
+    var focusPulse: Int = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -627,6 +629,12 @@ struct NativeNoteEditor: NSViewRepresentable {
             tv.string = text
             co.highlight()
         }
+        if focusPulse != co.lastFocusPulse {
+            co.lastFocusPulse = focusPulse
+            DispatchQueue.main.async { [weak tv] in
+                if let tv { tv.window?.makeFirstResponder(tv) }
+            }
+        }
         // ⌘-click "edit here": select the requested line, reveal it, take focus. Off the
         // update pass (window/first-responder work), deduped per request.
         if let line = focusLine, co.handledFocusLine != line {
@@ -661,6 +669,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         var lastSent: String? // the last body we pushed up — its echo must not re-set the view
         var sessionDirty = false // the user edited THIS note since load / last stamp
         var handledFocusLine: Int? // last ⌘-click focus request already applied (dedup)
+        var lastFocusPulse = 0
 
         init(_ parent: NativeNoteEditor) {
             self.parent = parent

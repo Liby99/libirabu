@@ -396,6 +396,8 @@ struct EventDrawer: View {
     @State private var repDayCursor = 0 // keyboard cursor across the 7 weekday buttons (repDays)
     @FocusState private var untilFocused: Bool // the "until" date field is keyboard-editing
     @State private var notesFocusPulse = 0 // bump → focus the notes editor (keyboard)
+    @State private var noteSession = NoteEditSession() // created:-stamps on mode-toggle/scope flips
+    @State private var noteEditLine: Int? // ⌘-click a preview line → edit focused at that line
     /// Fixed native date-field height (the text parts reserve it so activating a field doesn't reflow).
     /// A live measurement churns @State mid-entrance-transition, which makes the "when" row snap to its
     /// destination instead of sliding with the drawer — so it's a constant, tunable if a field clips.
@@ -615,24 +617,65 @@ struct EventDrawer: View {
             // DatePicker when a non-text control / blank area is clicked).
             .onTapGesture { endWhenEdit() }
 
-            // Notes markdown editor (WKWebView) fills the remaining space. Horizontal padding of 18
-            // matches the top content so the text left/right edges line up (internal CSS padding is 0).
-            MarkdownWebEditor(text: activeNote, mode: $notesMode,
-                              // Name the note being edited — one editor serves both scopes, and an
-                              // identical empty state made it impossible to tell which one you're in.
-                              placeholder: !recurring ? "Something to note about this event?"
-                                  : noteScope == .occurrence
-                                  ? "Notes for THIS occurrence only…"
-                                  : "Notes for every occurrence of this event…",
-                              theme: theme,
-                              focusPulse: notesFocusPulse,
-                              onExit: { refocus() }, // Escape → back to the notes ring
-                              onSavePreview: { refocus() }, // ⌘S → preview → back to the notes ring
-                              entityIndex: { engine.entityIndexJSON() }, // @project:/@person:/# completions
-                              dueAnchor: { engine.dueAnchorString(id) }) // due: "this event time"
-                .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
-                .drawerRingAnchor(.notes)
-                .padding(.horizontal, contentPad).padding(.vertical, editorVPad)
+            // Notes: the NATIVE markdown editor + preview engine (the webview retired here —
+            // the app's last WKWebView). Same layout slot; horizontal padding of 18 matches
+            // the top content so the text left/right edges line up.
+            Group {
+                if notesMode == .edit {
+                    NativeNoteEditor(
+                        storageKey: "drawer|\(id)|\(recurring && noteScope == .occurrence ? occKey : "series")",
+                        text: activeNote.wrappedValue,
+                        theme: theme,
+                        // Name the note being edited — one editor serves both scopes, and an
+                        // identical empty state made it impossible to tell which one you're in.
+                        placeholder: !recurring ? "Something to note about this event?"
+                            : noteScope == .occurrence
+                            ? "Notes for THIS occurrence only…"
+                            : "Notes for every occurrence of this event…",
+                        onText: { activeNote.wrappedValue = $0 }, // onChange persists (setNotes/setOccNote)
+                        onSave: { notesMode = .preview; refocus() }, // ⌘S → preview → notes ring
+                        onExit: { // Escape → back to the notes ring (preview if there's content)
+                            if !activeNote.wrappedValue
+                                .trimmingCharacters(in: .whitespaces).isEmpty { notesMode = .preview }
+                            refocus()
+                        },
+                        session: noteSession,
+                        completionIndex: { NativeNotePanel.entityIndex(engine) },
+                        dueAnchor: { engine.dueAnchorString(id).map { ("this event time", $0) } },
+                        focusLine: noteEditLine,
+                        onFocusLineHandled: { noteEditLine = nil },
+                        focusPulse: notesFocusPulse
+                    )
+                } else {
+                    MarkdownPreview(text: activeNote.wrappedValue, theme: theme,
+                                    onToggle: { line in
+                                        if NSEvent.modifierFlags.contains(.command) {
+                                            noteEditLine = line
+                                            notesMode = .edit
+                                            return
+                                        }
+                                        let stamp = NativeDashPanel.todayIso() + "T"
+                                            + NativeDashPanel.clockNow()
+                                        if let next = TodoIndex.toggleTodoLine(
+                                            activeNote.wrappedValue, line: line, stamp: stamp),
+                                            next != activeNote.wrappedValue {
+                                            activeNote.wrappedValue = next
+                                        }
+                                    },
+                                    onLineEdit: { line in
+                                        noteEditLine = line
+                                        notesMode = .edit
+                                    })
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
+            .drawerRingAnchor(.notes)
+            .padding(.horizontal, contentPad).padding(.vertical, editorVPad)
+            // Leaving edit by ANY route (toggle, scope flip landing in preview) ends the
+            // created:-stamp session before the preview reads the note.
+            .onChange(of: notesMode) { old, new in
+                if old == .edit, new != .edit { noteSession.end?() }
+            }
 
             footRow
         }
