@@ -690,6 +690,7 @@ public struct CalendarView: View {
     @ViewBuilder
     private func nativeDashOverlay(theme: Theme) -> some View {
         let input = engine.snapshotInput()
+        let _ = NativeDash.diagFrame(engine: engine) // CC_DASH_DIAG pin-tween forensics
         let bodyPanels = dashBodyPanels(input)
         let c = engine.dashboardCarousel()
         let sg = dashScopePanels(input)
@@ -1370,6 +1371,7 @@ private struct ViewPrefObservers: ViewModifier {
     /// already open on that tab → retract the panel. No-op at year or under the drawer.
     private func dashHotkey(_ stop: DashTab) {
         guard ui.openEventId == nil else { return }
+        NativeDash.diagPress("⌘\(stop == .todo ? "B" : stop == .note ? "E" : "J")", engine: engine)
         switch engine.chrome.level {
         case 3:
             dashTab = stop

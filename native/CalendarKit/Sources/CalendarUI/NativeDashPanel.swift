@@ -61,6 +61,49 @@ enum NativeDash {
     /// regression (mounts landing inside the next gesture).
     @MainActor static var settledSince: (id: String, at: Date)?
 
+    // ── CC_DASH_DIAG=1: pin-toggle tween forensics (the "no animation, just a pop" hunt) ──
+    // dashHotkey stamps the press; the overlay's per-frame eval then reports, for 2.5s: any
+    // frame GAP > 50ms (who blocked the tween), any todoDataStamp change (sync/import churn
+    // refreezing panels mid-slide), and whether the target panel was parked/warm at press.
+    static let diag = ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil
+    @MainActor static var diagPressAt: Date?
+    @MainActor static var diagLastEval: Date?
+    @MainActor static var diagLastStamp = ""
+
+    @MainActor static func diagPress(_ label: String, engine: CalendarEngine) {
+        guard diag else { return }
+        diagPressAt = Date()
+        diagLastEval = nil
+        diagLastStamp = engine.todoDataStamp
+        let parked = parkedPanels.map(\.panelId).joined(separator: ",")
+        print("[dash-diag] \(label) pressed | pinned=\(engine.dashPinned) level=\(engine.chrome.level) parked=[\(parked)] warm=[\(warmIds.joined(separator: ","))]")
+    }
+
+    @MainActor static func diagFrame(engine: CalendarEngine) {
+        guard diag, let press = diagPressAt else { return }
+        let now = Date()
+        let sincePress = now.timeIntervalSince(press)
+        if sincePress > 2.5 {
+            diagPressAt = nil
+            print("[dash-diag] tween window closed")
+            return
+        }
+        if let last = diagLastEval {
+            let gap = now.timeIntervalSince(last)
+            if gap > 0.05 {
+                print(String(format: "[dash-diag] FRAME GAP %.0fms at +%.2fs after press",
+                             gap * 1000, sincePress))
+            }
+        }
+        diagLastEval = now
+        let stamp = engine.todoDataStamp
+        if stamp != diagLastStamp {
+            print(String(format: "[dash-diag] dataStamp CHANGED at +%.2fs (sync/import churn → panel refreeze) %@ → %@",
+                         sincePress, diagLastStamp, stamp))
+            diagLastStamp = stamp
+        }
+    }
+
     @MainActor static func parkPanels(_ live: [DashBodyPanel]) {
         for p in live {
             parkedPanels.removeAll { $0.panelId == p.panelId }
