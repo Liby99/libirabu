@@ -294,9 +294,13 @@ public struct CalendarView: View {
                     if let t = dashNav.currentRow { NativeDashPanel.toggleTodo(engine, t) }
                 case .open:
                     if let t = dashNav.currentRow {
-                        if t.source == "event" { ui.openEventId = sourceId(of: t.eventId) }
-                        // Note rows: the fly-to-note flow needs view context — via the panel's
-                        // row click for now (Enter parity lands with the editor revamp).
+                        if t.source == "event" {
+                            ui.openEventId = sourceId(of: t.eventId)
+                        } else if let key = t.dailyDate {
+                            // Enter on a note row: fly to its note, landing in the EDITOR
+                            // focused with the row's source line selected.
+                            jumpToNoteKey(key, line: t.line)
+                        }
                     }
                 case let .fold(open):
                     if let t = dashNav.currentRow {
@@ -306,7 +310,7 @@ public struct CalendarView: View {
                         engine.wake()
                     }
                 case .editNote:
-                    break // editor focus comes with the editor revamp
+                    dashNav.noteFocusSeq += 1 // the active panel's editor takes the keyboard
                 }
                 engine.wake()
                 return
@@ -657,21 +661,25 @@ public struct CalendarView: View {
     /// A note storage key ("YYYY-MM-DD" / "week:<sunday>" / "month:<YYYY-MM>") → fly to its view
     /// and land on the NOTE tab — the native version of the webview's onJumpDay flow (line focus
     /// inside the editor arrives with the editor's selectLine later).
-    private func jumpToNoteKey(_ date: String) {
+    private func jumpToNoteKey(_ date: String, line: Int? = nil) {
+        let land = { [dashNav] in
+            dashTab = .note
+            if let line { dashNav.requestNoteJump(key: date, line: line) }
+        }
         if date.hasPrefix("week:") {
             let c = date.dropFirst(5).split(separator: "-").compactMap { Int($0) }
             guard c.count == 3 else { return }
-            engine.jumpToWeek(c[0], c[1] - 1, c[2], onLand: { dashTab = .note })
+            engine.jumpToWeek(c[0], c[1] - 1, c[2], onLand: land)
             engine.pinDashboard()
         } else if date.hasPrefix("month:") {
             let c = date.dropFirst(6).split(separator: "-").compactMap { Int($0) }
             guard c.count == 2 else { return }
-            engine.jumpToMonth(c[0], c[1] - 1, onLand: { dashTab = .note })
+            engine.jumpToMonth(c[0], c[1] - 1, onLand: land)
             engine.pinDashboard()
         } else {
             let c = date.split(separator: "-").compactMap { Int($0) }
             guard c.count == 3 else { return }
-            engine.jumpToDay(c[0], c[1] - 1, c[2], onLand: { dashTab = .note })
+            engine.jumpToDay(c[0], c[1] - 1, c[2], onLand: land)
         }
     }
 
@@ -744,9 +752,9 @@ public struct CalendarView: View {
                                         guard !NativeDash.tapsSuppressed else { return }
                                         ui.openEventId = sourceId(of: id)
                                     },
-                                    onJump: { key in
+                                    onJump: { key, line in
                                         guard !NativeDash.tapsSuppressed else { return }
-                                        jumpToNoteKey(key)
+                                        jumpToNoteKey(key, line: line)
                                     })
                         .equatable() // per-frame re-eval stops HERE; only frame/opacity move
                         .frame(width: pw, height: ph)
@@ -1181,7 +1189,8 @@ public struct CalendarView: View {
                     // View-menu prefs (show-hidden / timezone pickers), the prefs-changed notification, and
                     // the tag-filter toggle — bundled into one modifier (see the type-check note above).
                     .modifier(ViewPrefObservers(engine: engine, showTagFilter: $showTagFilter,
-                                                ui: ui, dashTab: $dashTab, carousel: dashCarousel))
+                                                ui: ui, dashTab: $dashTab, carousel: dashCarousel,
+                                                dashNav: dashNav))
             }
             .ignoresSafeArea()
             // Search overlays — siblings inside the ZStack, so they respect the toolbar safe-area inset
@@ -1294,6 +1303,7 @@ private struct ViewPrefObservers: ViewModifier {
     var ui: CalendarUIState
     @Binding var dashTab: DashTab
     var carousel: DashboardCarousel
+    var dashNav: NativeDashNavModel
     @AppStorage(PrefKeys.showHiddenImported) private var showHidden = false
     @AppStorage(PrefKeys.mainTz) private var mainTz = "auto"
     @AppStorage(PrefKeys.altTz) private var altTz = "none"
@@ -1362,7 +1372,11 @@ private struct ViewPrefObservers: ViewModifier {
     /// focus back to the calendar (the web view must not keep eating keys).
     private func focusWeekMonthTab(_ stop: DashTab) {
         if stop == .note {
-            carousel.focusNoteEditor()
+            if NativeDash.enabled {
+                dashNav.noteFocusSeq += 1 // native editor takes the keyboard
+            } else {
+                carousel.focusNoteEditor()
+            }
         } else {
             carousel.regateWebFocus()
         }

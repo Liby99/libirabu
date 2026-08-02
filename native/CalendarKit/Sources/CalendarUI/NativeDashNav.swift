@@ -25,6 +25,24 @@ import Observation
 
     var rows: [ParsedTodo] { rowsByPanel[activePanel] ?? [] }
 
+    /// A note-row jump landing: the NOTE panel whose storage key matches consumes this —
+    /// flips to edit with the line selected (the web's onJumpDay line-focus flow).
+    struct NoteJumpRequest: Equatable {
+        var key: String // note storage key ("YYYY-MM-DD" / "week:…" / "month:…")
+        var line: Int // 1-based source line to select
+        var seq: Int // uniquifies repeat jumps to the same line
+    }
+
+    var noteJump: NoteJumpRequest?
+    /// ⌘E / Enter-on-NOTE-stop: the ACTIVE panel's editor takes keyboard focus.
+    var noteFocusSeq = 0
+    @ObservationIgnored private var jumpSeq = 0
+
+    func requestNoteJump(key: String, line: Int) {
+        jumpSeq += 1
+        noteJump = NoteJumpRequest(key: key, line: line, seq: jumpSeq)
+    }
+
     var currentRow: ParsedTodo? {
         rows.indices.contains(cursor) ? rows[cursor] : nil
     }

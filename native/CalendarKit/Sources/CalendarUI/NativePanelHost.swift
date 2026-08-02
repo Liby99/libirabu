@@ -21,7 +21,7 @@ struct NativePanelHost: View, Equatable {
     var nav: NativeDashNavModel?
     @Binding var noteMode: NotesMode
     var onOpen: (String) -> Void
-    var onJump: (String) -> Void = { _ in }
+    var onJump: (String, Int?) -> Void = { _, _ in }
 
     /// The per-frame TimelineView re-creates this view every frame; the closures make SwiftUI
     /// assume it changed, so WITHOUT this the whole panel body (sections, dictionaries, gantt
@@ -41,7 +41,7 @@ struct NativePanelHost: View, Equatable {
                             onOpen: onOpen, onJump: onJump)
         case .note:
             NativeNotePanel(engine: engine, scope: scope, key: key, theme: theme,
-                            noteMode: $noteMode)
+                            noteMode: $noteMode, nav: nav)
         case .todo:
             NativeDashPanel(engine: engine, scope: scope, key: key, theme: theme,
                             settings: settings, nav: nav, onOpen: onOpen, onJump: onJump)

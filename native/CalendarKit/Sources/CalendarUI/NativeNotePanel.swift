@@ -15,6 +15,7 @@ struct NativeNotePanel: View {
     let key: String
     let theme: Theme
     @Binding var noteMode: NotesMode
+    var nav: NativeDashNavModel? // note-jump line landings + ⌘E focus requests
 
     /// The engine's entity index (JSON for the webview bridge), decoded for the native
     /// completion source. Tiny payload; the engine caches per editGen with coalesced refresh.
@@ -31,6 +32,7 @@ struct NativeNotePanel: View {
     /// intercepts the change and stamps BEFORE the preview branch reads the note.
     @State private var session = NoteEditSession()
     @State private var pendingEditLine: Int? // ⌘-click in the preview → edit at this line
+    @State private var editorFocusSeq = 0 // bumped → the editor takes keyboard focus
 
     var body: some View {
         let storageKey = scope == "day" ? key
@@ -57,7 +59,8 @@ struct NativeNotePanel: View {
                     completionIndex: { NativeNotePanel.entityIndex(engine) },
                     dueAnchor: { scope == "day" ? ("this day", key) : nil },
                     focusLine: pendingEditLine,
-                    onFocusLineHandled: { pendingEditLine = nil }
+                    onFocusLineHandled: { pendingEditLine = nil },
+                    focusPulse: editorFocusSeq
                 )
             } else if text.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text("No \(scope == "day" ? "daily" : scope == "week" ? "weekly" : "monthly") note yet — switch to Editor to write one.")
@@ -93,6 +96,21 @@ struct NativeNotePanel: View {
         // content → preview (same rule the webview applied on live-editor mounts).
         .onChange(of: noteMode) { old, new in
             if old == .edit, new != .edit { session.end?() } // toggle button → stamp first
+        }
+        // A todo-row note jump landed here (Enter or click on a note-sourced row): flip to
+        // edit with the source line selected + focused — the web's onJumpDay line flow.
+        .onChange(of: nav?.noteJump, initial: true) { _, jump in
+            guard let jump, jump.key == storageKey else { return }
+            nav?.noteJump = nil
+            noteMode = .edit
+            pendingEditLine = jump.line
+            editorFocusSeq += 1
+        }
+        // ⌘E / Enter on the NOTE stop: the ACTIVE (settled) panel's editor takes the keyboard.
+        .onChange(of: nav?.noteFocusSeq) { _, _ in
+            guard nav?.activePanel == "\(scope)|\(key)" || scope == "day" else { return }
+            noteMode = .edit
+            editorFocusSeq += 1
         }
         .onChange(of: storageKey, initial: true) { _, _ in
             engine.prewarmEntityIndex() // completion index warm before the first "@"

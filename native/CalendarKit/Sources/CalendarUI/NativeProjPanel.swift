@@ -18,7 +18,7 @@ struct NativeProjPanel: View {
     let key: String
     let theme: Theme
     var onOpen: (String) -> Void
-    var onJump: (String) -> Void = { _ in }
+    var onJump: (String, Int?) -> Void = { _, _ in }
 
     @State private var expanded: String? // accordion: at most one project shows ALL rows
 
@@ -126,7 +126,7 @@ struct NativeProjPanel: View {
                       onOpen: { id in onOpen(id) },
                       onOpenTodo: { t in
                           if t.source == "event" { onOpen(t.eventId) } // event drawer
-                          else if let key = t.dailyDate { onJump(key) } // fly to the note
+                          else if let key = t.dailyDate { onJump(key, t.line) } // fly to the note
                       })
         }
     }
