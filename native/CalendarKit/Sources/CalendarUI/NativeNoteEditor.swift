@@ -446,16 +446,17 @@ struct NativeNoteEditor: NSViewRepresentable {
             drawHashMarksAndLabels(in: dirtyRect)
         }
 
+        override var isFlipped: Bool { true }
+
         override func drawHashMarksAndLabels(in rect: NSRect) {
             guard let tv, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
-            let visible = tv.visibleRect
-            let inset = tv.textContainerInset.height
             let ns = tv.string as NSString
             let font = NativeNoteEditor.monoFont()
             let boldFont = NativeNoteEditor.monoFont(bold: true)
             let base = (tv as? EditorTextView)?.themeText ?? .labelColor
             let dimC = base.withAlphaComponent(0.28)
             let hiC = base.withAlphaComponent(0.8)
+
             // Highlight EVERY line the selection touches (multi-line selections included).
             let sel = tv.selectedRange()
             let selStart = min(sel.location, ns.length)
@@ -468,15 +469,20 @@ struct NativeNoteEditor: NSViewRepresentable {
             if selEnd > selStart {
                 ns.substring(with: NSRange(location: selStart, length: selEnd - selStart))
                     .unicodeScalars.forEach { if $0 == "\n" { lastLine += 1 } }
-                // A selection ENDING at a line start doesn't touch that next line.
                 if selEnd > 0, ns.character(at: selEnd - 1) == 0x0A { lastLine -= 1 }
             }
-            var sepTop: CGFloat = .greatestFiniteMagnitude
-            var sepBottom: CGFloat = 0
 
-            // Draw one number, vertically CENTERED in its fragment — the content glyphs are
-            // centered on the same fixed grid (baselineOffset), so center == aligned.
+            // A fragment's y in RULER coordinates, via convert() — NO assumptions about how
+            // the ruler's space relates to the scrolled text view (hand-derived offsets put
+            // stray numbers above the top / below the bottom on long notes).
+            let inset = tv.textContainerInset.height
+            func rulerY(_ fragRect: NSRect) -> CGFloat {
+                convert(NSPoint(x: 0, y: fragRect.minY + inset), from: tv).y
+            }
+
             func draw(_ n: Int, fragTop: CGFloat, fragHeight: CGFloat) {
+                let y0 = fragTop
+                guard y0 > -fragHeight, y0 < bounds.height + fragHeight else { return }
                 let cur = n >= firstLine && n <= lastLine
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: cur ? boldFont : font,
@@ -484,49 +490,60 @@ struct NativeNoteEditor: NSViewRepresentable {
                 ]
                 let label = "\(n)" as NSString
                 let size = label.size(withAttributes: attrs)
-                let top = fragTop + inset - visible.minY
-                let y = top + (fragHeight - size.height) / 2
-                label.draw(at: NSPoint(x: ruleThickness - size.width - 8, y: y), withAttributes: attrs)
-                sepTop = min(sepTop, top)
-                sepBottom = max(sepBottom, top + fragHeight)
+                label.draw(at: NSPoint(x: ruleThickness - size.width - 8,
+                                       y: y0 + (fragHeight - size.height) / 2),
+                           withAttributes: attrs)
             }
 
-            var charIdx = 0
-            var lineNo = 1
-            while ns.length > 0, charIdx < ns.length {
-                let lineRange = ns.lineRange(for: NSRange(location: charIdx, length: 0))
-                let gr = lm.glyphRange(forCharacterRange: NSRange(location: lineRange.location, length: 0),
-                                       actualCharacterRange: nil)
-                let gi = min(gr.location, max(0, lm.numberOfGlyphs - 1))
-                let frag = lm.lineFragmentRect(forGlyphAt: gi, effectiveRange: nil)
-                draw(lineNo, fragTop: frag.minY, fragHeight: frag.height)
-                charIdx = NSMaxRange(lineRange)
-                lineNo += 1
-            }
-            // The trailing empty line (doc ends with \n) and the empty document both live in
-            // the EXTRA line fragment — always numbered, so the caret's line has its number.
-            if ns.length == 0 || ns.hasSuffix("\n") {
+            // Walk ONLY the visible lines: visible rect → glyph range → line starts. This is
+            // both correct on long notes (no stale fragments for un-laid tail glyphs, which
+            // duplicated the last number) and cheap (no full-document layout per draw).
+            var visText = tv.visibleRect
+            visText.origin.y -= inset
+            let glyphs = lm.glyphRange(forBoundingRect: visText, in: tc)
+            if ns.length > 0, glyphs.length > 0 {
+                let charRange = lm.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+                var charIdx = ns.lineRange(
+                    for: NSRange(location: min(charRange.location, ns.length - 1), length: 0)).location
+                var lineNo = 1
+                ns.substring(to: charIdx).unicodeScalars.forEach { if $0 == "\n" { lineNo += 1 } }
+                let stop = min(ns.length, NSMaxRange(charRange))
+                while charIdx < stop {
+                    let lineRange = ns.lineRange(for: NSRange(location: charIdx, length: 0))
+                    let gr = lm.glyphRange(forCharacterRange: NSRange(location: lineRange.location, length: 0),
+                                           actualCharacterRange: nil)
+                    let gi = min(gr.location, max(0, lm.numberOfGlyphs - 1))
+                    let frag = lm.lineFragmentRect(forGlyphAt: gi, effectiveRange: nil)
+                    draw(lineNo, fragTop: rulerY(frag), fragHeight: frag.height)
+                    charIdx = NSMaxRange(lineRange)
+                    lineNo += 1
+                }
+                // The trailing empty line (doc ends with \n): numbered at the extra fragment,
+                // only when that fragment is actually the next line after the visible walk.
+                if ns.hasSuffix("\n"), stop >= ns.length {
+                    let extra = lm.extraLineFragmentRect
+                    if extra.height > 0 {
+                        draw(lineNo, fragTop: rulerY(extra), fragHeight: extra.height)
+                    }
+                }
+            } else if ns.length == 0 {
                 let extra = lm.extraLineFragmentRect
                 if extra.height > 0 {
-                    draw(lineNo, fragTop: extra.minY, fragHeight: extra.height)
+                    draw(1, fragTop: rulerY(extra), fragHeight: extra.height)
                 }
             }
-            // Separator: across the numbered span INCLUDING wrapped continuation fragments —
-            // a long wrapped line only draws its number on the FIRST fragment, so sepBottom
-            // alone stopped short when the last line wrapped. The layout's used extent (plus
-            // the extra fragment) is the true bottom of the text.
-            let extra = lm.extraLineFragmentRect
-            let usedMax = max(lm.usedRect(for: tc).maxY, extra.height > 0 ? extra.maxY : 0)
-            sepBottom = max(sepBottom, usedMax + inset - visible.minY)
-            // Separator TRIAL-HIDDEN (user request, 2026-08-01): keep the geometry live so
-            // flipping `sepAlpha` back is a one-number change if the bare look doesn't land.
+
+            // Separator TRIAL-HIDDEN (sepAlpha 0 — user prefers the bare gutter); geometry via
+            // the same converted coords if ever restored.
             let sepAlpha: CGFloat = 0 // was 0.12
-            if sepBottom > 0, sepAlpha > 0 {
-                let clampedTop = max(0, sepTop)
-                let clampedBottom = min(bounds.height, sepBottom + 2)
+            if sepAlpha > 0 {
+                let extra = lm.extraLineFragmentRect
+                let usedMax = max(lm.usedRect(for: tc).maxY, extra.height > 0 ? extra.maxY : 0)
+                let top = max(0, convert(NSPoint(x: 0, y: inset), from: tv).y)
+                let bottom = min(bounds.height, convert(NSPoint(x: 0, y: usedMax + inset), from: tv).y)
                 base.withAlphaComponent(sepAlpha).setFill()
-                NSRect(x: ruleThickness - 1, y: clampedTop, width: 1,
-                       height: max(0, clampedBottom - clampedTop)).fill()
+                NSRect(x: ruleThickness - 1, y: top, width: 1,
+                       height: max(0, bottom - top)).fill()
             }
         }
     }
