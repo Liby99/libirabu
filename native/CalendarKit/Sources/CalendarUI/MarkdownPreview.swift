@@ -64,7 +64,9 @@ struct MarkdownPreview: NSViewRepresentable {
             let key = p.text + "|" + NSColor(p.theme.text).description
             guard key != renderedKey else { return }
             renderedKey = key
-            let doc = MarkdownDoc.render(p.text, theme: p.theme, interactive: p.onToggle != nil)
+            let doc = NativeDash.diagTime("MarkdownDoc.render(\(p.text.count)ch)") {
+                MarkdownDoc.render(p.text, theme: p.theme, interactive: p.onToggle != nil)
+            }
             tv.lineMap = doc.lineMap
             tv.decor = doc.decor
             let base = NSColor(p.theme.text)

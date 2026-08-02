@@ -79,6 +79,16 @@ enum NativeDash {
         print("[dash-diag] \(label) pressed | pinned=\(engine.dashPinned) level=\(engine.chrome.level) parked=[\(parked)] warm=[\(warmIds.joined(separator: ","))]")
     }
 
+    /// Time a suspect on the main thread; prints only when it exceeds 50ms (diag builds).
+    static func diagTime<T>(_ label: String, _ work: () -> T) -> T {
+        guard diag else { return work() }
+        let t0 = Date()
+        let out = work()
+        let ms = -t0.timeIntervalSinceNow * 1000
+        if ms > 50 { print(String(format: "[dash-diag] %@ took %.0fms", label, ms)) }
+        return out
+    }
+
     @MainActor static func diagFrame(engine: CalendarEngine) {
         guard diag, let press = diagPressAt else { return }
         let now = Date()
@@ -305,9 +315,11 @@ struct NativeDashPanel: View {
         if let f = frozen, f.basis == basis, f.stamp == stamp {
             return (f.sections, f.kids)
         }
-        let sections = scope == "day"
-            ? TodoFeed.sectionsForDay(todos, viewIso: key, today: Self.todayIso(), prefs: prefs)
-            : TodoFeed.rangeSections(todos, start: start, end: end, word: word, prefs: prefs)
+        let sections = NativeDash.diagTime("frozenStructure(\(scope)|\(key))") {
+            scope == "day"
+                ? TodoFeed.sectionsForDay(todos, viewIso: key, today: Self.todayIso(), prefs: prefs)
+                : TodoFeed.rangeSections(todos, start: start, end: end, word: word, prefs: prefs)
+        }
         let kids = TodoFeed.childrenIndex(todos)
         // @State writes inside body are deferred; hop off the render pass.
         let f = Frozen(basis: basis, stamp: stamp, sections: sections, kids: kids)

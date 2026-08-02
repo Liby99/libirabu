@@ -968,6 +968,10 @@ struct NativeNoteEditor: NSViewRepresentable {
         private static let quoteLineRe = Re2(#"^\s*> .*$"#)
 
         func highlight() {
+            NativeDash.diagTime("editorHighlight") { highlightBody() }
+        }
+
+        private func highlightBody() {
             guard let tv = textView, let storage = tv.textStorage else { return }
             let s = tv.string as NSString
             let all = NSRange(location: 0, length: s.length)

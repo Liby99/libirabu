@@ -131,6 +131,13 @@ extension CalendarEngine {
 
     @discardableResult
     private func buildTodoFeed(today: String) -> [ParsedTodo] {
+        let _diagT0 = Date()
+        defer {
+            if ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil {
+                let ms = -_diagT0.timeIntervalSinceNow * 1000
+                if ms > 50 { print(String(format: "[dash-diag] buildTodoFeed took %.0fms", ms)) }
+            }
+        }
         let todos = Self.buildFeedPure(sources: todoSources(), dailyNotes: items.dailyNotes,
                                        today: today)
         todoFeedCache = (caches.editGen, caches.noteGen, today, todos)
