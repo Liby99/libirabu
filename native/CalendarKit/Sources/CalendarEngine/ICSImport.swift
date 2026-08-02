@@ -21,6 +21,7 @@ public enum ICSImport {
         var rich: [String: RichFields] = [:]
         for ve in vevents(in: text) {
             guard let s = ve.start else { continue } // skip timeless rows (matches node-ical guard)
+            guard ve.status != "CANCELLED" else { continue } // Outlook METHOD:CANCEL stubs aren't events
             let title = ve.summary.isEmpty ? "(untitled)" : ve.summary
             let color = "default"
             let block = ManagedNote.render(
@@ -31,8 +32,9 @@ public enum ICSImport {
             let notes = block.isEmpty ? nil : block
 
             if s.allDay {
-                // Inclusive last day: DTEND is exclusive in iCal, so subtract a day; none → single day.
-                let endExclusive = ve.end
+                // Inclusive last day: DTEND (or DTSTART+DURATION) is exclusive in iCal, so subtract
+                // a day; none → single day.
+                let endExclusive = ve.effectiveEnd
                 let last = endExclusive.map { addDays($0, -1) } ?? s
                 let lastClamped = (ymd(last) < ymd(s)) ? s : last
                 for seg in bandSegments(from: s, to: lastClamped) {
@@ -41,7 +43,7 @@ public enum ICSImport {
                                            startDay: seg.startDay, endDay: seg.endDay, title: title, color: color))
                     rich[id] = importedRich(notes)
                 }
-            } else if let e = ve.end, ymd(e) != ymd(s) {
+            } else if let e = ve.effectiveEnd, ymd(e) != ymd(s) {
                 // Multi-day timed → promoted to an all-day band over the span (normalize.ts).
                 for seg in bandSegments(from: s, to: e) {
                     let id = "ics-\(UUID().uuidString)"
@@ -51,7 +53,7 @@ public enum ICSImport {
                 }
             } else {
                 // Single-day timed event.
-                let e = ve.end ?? s
+                let e = ve.effectiveEnd ?? s
                 let id = "ics-\(UUID().uuidString)"
                 events.append(TimedEvent(id: id, year: s.year, month: s.month - 1, day: s.day, // WC month is 1-based
                                          startHour: hourOf(s), endHour: max(hourOf(s), hourOf(e)),
@@ -98,16 +100,26 @@ public enum ICSImport {
         var summary = "", location: String? = nil, organizer: String? = nil, url: String? = nil,
             description: String? = nil
         var start: WC?, end: WC? = nil
+        var durationMinutes: Int? = nil // DURATION property (Outlook sometimes sends it instead of DTEND)
+        var status: String? = nil // STATUS — CANCELLED stubs (METHOD:CANCEL mails) are skipped
         var attendees: [(name: String, status: String?)] = []
         // Feed-subscription extras (see feedItems): stable identity + recurrence.
         var uid: String? = nil
         var rrule: String? = nil
         var exdates: [WC] = []
         var recurrenceId: WC? = nil
+        /// DTEND, else DTSTART + DURATION. For all-day events both are EXCLUSIVE ends.
+        var effectiveEnd: WC? {
+            end ?? start.flatMap { s in durationMinutes.map { addMinutes(s, $0) } }
+        }
     }
 
     private static func vevents(in text: String) -> [VEvent] {
         let lines = unfold(text)
+        // The file's own VTIMEZONE definitions — the resolver of last resort for TZIDs that are
+        // neither IANA nor Windows zone names. (VTIMEZONE property lines are skipped by the VEVENT
+        // loop below: `cur` is nil outside BEGIN/END:VEVENT.)
+        let tzdb = vtimezones(in: lines)
         var out: [VEvent] = [], cur: VEvent? = nil
         for line in lines {
             let upper = line.uppercased()
@@ -132,14 +144,16 @@ public enum ICSImport {
                         params["PARTSTAT"]
                     ))
                 }
-            case "DTSTART": event.start = parseDT(value: value, params: params)
-            case "DTEND": event.end = parseDT(value: value, params: params)
+            case "DTSTART": event.start = parseDT(value: value, params: params, tzdb: tzdb)
+            case "DTEND": event.end = parseDT(value: value, params: params, tzdb: tzdb)
+            case "DURATION": event.durationMinutes = durationMinutes(value)
+            case "STATUS": event.status = value.uppercased()
             case "UID": event.uid = value.isEmpty ? nil : value
             case "RRULE": event.rrule = value
-            case "RECURRENCE-ID": event.recurrenceId = parseDT(value: value, params: params)
+            case "RECURRENCE-ID": event.recurrenceId = parseDT(value: value, params: params, tzdb: tzdb)
             case "EXDATE": // may carry several comma-separated date-times
                 for v in value.split(separator: ",") {
-                    if let d = parseDT(value: String(v), params: params) { event.exdates.append(d) }
+                    if let d = parseDT(value: String(v), params: params, tzdb: tzdb) { event.exdates.append(d) }
                 }
             default: break
             }
@@ -166,12 +180,25 @@ public enum ICSImport {
         return out
     }
 
-    /// Split "NAME;PARAM=VAL;...:value" → (NAME uppercased, params, value). First ':' ends the name+params.
+    /// Split "NAME;PARAM=VAL;...:value" → (NAME uppercased, params, value). The separators are the
+    /// first ':' and the ';'s OUTSIDE double quotes — param values containing ':'/';'/',' are
+    /// quoted per RFC 5545 (Outlook: TZID="(UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi").
     private static func property(_ line: String) -> (name: String, params: [String: String], value: String)? {
-        guard let colon = line.firstIndex(of: ":") else { return nil }
-        let left = String(line[line.startIndex ..< colon])
+        var inQuotes = false
+        var colon: String.Index? = nil
+        var i = line.startIndex
+        while i < line.endIndex {
+            let ch = line[i]
+            if ch == "\"" {
+                inQuotes.toggle()
+            } else if ch == ":", !inQuotes {
+                colon = i; break
+            }
+            i = line.index(after: i)
+        }
+        guard let colon else { return nil }
         let value = String(line[line.index(after: colon)...])
-        let parts = left.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
+        let parts = splitOutsideQuotes(line[line.startIndex ..< colon], on: ";")
         guard let name = parts.first?.uppercased() else { return nil }
         var params: [String: String] = [:]
         for p in parts.dropFirst() {
@@ -181,6 +208,21 @@ public enum ICSImport {
             }
         }
         return (name, params, value)
+    }
+
+    private static func splitOutsideQuotes(_ s: Substring, on sep: Character) -> [String] {
+        var out: [String] = [], cur = "", inQuotes = false
+        for ch in s {
+            if ch == "\"" {
+                inQuotes.toggle(); cur.append(ch)
+            } else if ch == sep, !inQuotes {
+                out.append(cur); cur = ""
+            } else {
+                cur.append(ch)
+            }
+        }
+        out.append(cur)
+        return out
     }
 
     /// ORGANIZER/ATTENDEE: prefer the CN= parameter, else the mailto: address local part.
@@ -193,8 +235,9 @@ public enum ICSImport {
     }
 
     /// Parse a DTSTART/DTEND value into a device-local wall clock. Handles VALUE=DATE (all-day),
-    /// UTC ("…Z"), TZID=<zone>, and floating date-times.
-    private static func parseDT(value: String, params: [String: String]) -> WC? {
+    /// UTC ("…Z"), TZID=<zone> — IANA names, Outlook/Windows zone names, the file's own VTIMEZONE
+    /// definitions, or an embedded UTC±HH:MM — and floating date-times.
+    private static func parseDT(value: String, params: [String: String], tzdb: [String: VTZ]) -> WC? {
         let v = value.trimmingCharacters(in: .whitespaces)
         // All-day: VALUE=DATE, or a bare 8-digit date.
         if params["VALUE"] == "DATE" || (v.count == 8 && !v.contains("T")) {
@@ -209,19 +252,26 @@ public enum ICSImport {
               let y = Int(halves[0].prefix(4)), let mo = Int(halves[0].dropFirst(4).prefix(2)),
               let d = Int(halves[0].dropFirst(6).prefix(2)),
               let h = Int(halves[1].prefix(2)), let mi = Int(halves[1].dropFirst(2).prefix(2)) else { return nil }
+        let floating = WC(year: y, month: mo, day: d, hour: h, minute: mi, allDay: false)
         // Floating (no Z, no TZID) → the numbers ARE the wall clock. Otherwise resolve the instant in its
         // source zone and re-read it in the device zone.
         let isUTC = v.hasSuffix("Z")
-        let tzid = params["TZID"]
-        if !isUTC && tzid == nil {
-            return WC(year: y, month: mo, day: d, hour: h, minute: mi, allDay: false)
+        let zone: TimeZone?
+        if isUTC {
+            zone = utcTimeZone
+        } else if let tzid = params["TZID"] {
+            zone = sourceZone(tzid, month: mo, day: d, minutes: h * 60 + mi, year: y, tzdb: tzdb)
+        } else {
+            return floating
         }
+        // An unresolvable TZID falls back to FLOATING (the wall clock as the sender wrote it) —
+        // never UTC: assuming UTC shifted every Outlook invite by the device's whole UTC offset
+        // (the "-4h on import" bug — Windows zone names are not IANA identifiers).
+        guard let zone else { return floating }
         var src = DateComponents(); src.year = y; src.month = mo; src.day = d; src.hour = h; src.minute = mi
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = isUTC ? utcTimeZone : (tzid.flatMap { TimeZone(identifier: $0) } ?? utcTimeZone)
-        guard let instant = cal.date(from: src) else {
-            return WC(year: y, month: mo, day: d, hour: h, minute: mi, allDay: false)
-        }
+        cal.timeZone = zone
+        guard let instant = cal.date(from: src) else { return floating }
         let lc = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: instant)
         return WC(
             year: lc.year ?? y,
@@ -232,6 +282,334 @@ public enum ICSImport {
             allDay: false
         )
     }
+
+    // ── TZID resolution ───────────────────────────────────────────────────────────────
+    /// Resolve a TZID to the zone the sender meant, trying, in order:
+    ///   1. an IANA identifier ("America/New_York") — the standards-compliant case;
+    ///   2. a trailing IANA path — Mozilla-style "/mozilla.org/20070129_1/America/New_York";
+    ///   3. a Windows zone name ("Eastern Standard Time") — what Outlook/Exchange writes;
+    ///   4. the file's own VTIMEZONE definition (seasonal offsets, resolved for the event's date);
+    ///   5. an embedded numeric offset — "(UTC-05:00) …", "GMT-0400", "+0530".
+    /// nil → the caller treats the time as floating (never UTC).
+    private static func sourceZone(_ tzid: String, month: Int, day: Int, minutes: Int, year: Int,
+                                   tzdb: [String: VTZ]) -> TimeZone? {
+        if let z = TimeZone(identifier: tzid) { return z }
+        let parts = tzid.split(separator: "/").map(String.init)
+        if parts.count >= 2, let z = TimeZone(identifier: parts.suffix(2).joined(separator: "/")) { return z }
+        if let iana = windowsTZ[tzid], let z = TimeZone(identifier: iana) { return z }
+        if let vtz = tzdb[tzid] {
+            return TimeZone(secondsFromGMT: vtz.offset(month: month, day: day, minutes: minutes, year: year))
+        }
+        if let secs = embeddedOffsetSeconds(tzid) { return TimeZone(secondsFromGMT: secs) }
+        return nil
+    }
+
+    /// "(UTC-05:00) Eastern Time (US & Canada)", "GMT-0400", "+05:30" → seconds east of GMT.
+    private static func embeddedOffsetSeconds(_ tzid: String) -> Int? {
+        guard let re = try? NSRegularExpression(pattern: #"([+-])(\d{1,2}):?(\d{2})?"#),
+              let m = re.firstMatch(in: tzid, range: NSRange(tzid.startIndex..., in: tzid)) else { return nil }
+        func group(_ i: Int) -> String? {
+            Range(m.range(at: i), in: tzid).map { String(tzid[$0]) }
+        }
+        guard let sign = group(1), let h = group(2).flatMap(Int.init) else { return nil }
+        let mi = group(3).flatMap(Int.init) ?? 0
+        let total = h * 3600 + mi * 60
+        return sign == "-" ? -total : total
+    }
+
+    // ── VTIMEZONE (self-defined zones) ────────────────────────────────────────────────
+    /// One STANDARD/DAYLIGHT component: the offset it switches TO and when in the year it starts.
+    private struct SeasonRule {
+        var offsetTo = 0 // seconds east of GMT (TZOFFSETTO)
+        var startStamp = "" // DTSTART value — the NEWEST definition wins when a zone lists revisions
+        var month = 1 // transition month (RRULE BYMONTH, else DTSTART's month)
+        var monthDay: Int? = nil // BYMONTHDAY (rare)
+        var weekOrd: Int? = nil // BYDAY ordinal: 1…4, -1 = last (−2 = one before last, …)
+        var weekday: Int? = nil // BYDAY day: 0=Sun … 6=Sat
+        var minutes = 120 // transition time-of-day (DTSTART's clock; iCal convention 02:00)
+
+        /// Day-of-month this rule's transition lands on in `year`.
+        func transitionDay(year: Int) -> Int {
+            if let md = monthDay { return md }
+            guard let ord = weekOrd, let wd = weekday else { return 1 }
+            let cal = utcCalendar
+            var c = DateComponents(); c.year = year; c.month = month; c.day = 1
+            guard let first = cal.date(from: c) else { return 1 }
+            let firstDow = (cal.dateComponents([.weekday], from: first).weekday ?? 1) - 1 // 0=Sun
+            let dim = daysInMonth(year, month - 1)
+            if ord >= 1 {
+                return Swift.min(1 + ((wd - firstDow + 7) % 7) + (ord - 1) * 7, dim)
+            }
+            let lastDow = (firstDow + dim - 1) % 7
+            return dim - ((lastDow - wd + 7) % 7) + (ord + 1) * 7 // -1 = last, -2 = the one before
+        }
+    }
+
+    private struct VTZ {
+        var standard: SeasonRule? = nil, daylight: SeasonRule? = nil
+        /// The offset in force at a given local date/time. Single-component zones are fixed;
+        /// two-component zones pick the season by the yearly transition points (southern-hemisphere
+        /// zones wrap the year end).
+        func offset(month: Int, day: Int, minutes: Int, year: Int) -> Int {
+            guard let st = standard, let dl = daylight else { return (standard ?? daylight)?.offsetTo ?? 0 }
+            func key(_ r: SeasonRule) -> (Int, Int, Int) { (r.month, r.transitionDay(year: year), r.minutes) }
+            let t = (month, day, minutes), dlK = key(dl), stK = key(st)
+            let inDaylight = dlK < stK ? (t >= dlK && t < stK) : (t >= dlK || t < stK)
+            return inDaylight ? dl.offsetTo : st.offsetTo
+        }
+    }
+
+    /// Parse the file's VTIMEZONE blocks into TZID → seasonal rules. Only consulted for TZIDs that
+    /// resolve neither as IANA nor as Windows names (self-defined/custom zones).
+    private static func vtimezones(in lines: [String]) -> [String: VTZ] {
+        var out: [String: VTZ] = [:]
+        var tzid: String? = nil, vtz: VTZ? = nil
+        var comp: SeasonRule? = nil, compIsStandard = true
+        let dayMap = ["SU": 0, "MO": 1, "TU": 2, "WE": 3, "TH": 4, "FR": 5, "SA": 6]
+        for line in lines {
+            switch line.uppercased() {
+            case "BEGIN:VTIMEZONE": tzid = nil; vtz = VTZ(); continue
+            case "END:VTIMEZONE":
+                if let id = tzid, let z = vtz { out[id] = z }
+                tzid = nil; vtz = nil; continue
+            case "BEGIN:STANDARD", "BEGIN:DAYLIGHT":
+                guard vtz != nil else { continue }
+                comp = SeasonRule(); compIsStandard = line.uppercased().hasSuffix("STANDARD"); continue
+            case "END:STANDARD", "END:DAYLIGHT":
+                if let c = comp, vtz != nil {
+                    // Zones may list historical revisions — keep the newest (largest DTSTART).
+                    if compIsStandard {
+                        if (vtz!.standard?.startStamp ?? "") <= c.startStamp { vtz!.standard = c }
+                    } else if (vtz!.daylight?.startStamp ?? "") <= c.startStamp { vtz!.daylight = c }
+                }
+                comp = nil; continue
+            default: break
+            }
+            guard vtz != nil, let (name, _, value) = property(line) else { continue }
+            guard comp != nil else {
+                if name == "TZID" { tzid = value }
+                continue
+            }
+            switch name {
+            case "TZOFFSETTO": comp!.offsetTo = offsetSeconds(value) ?? 0
+            case "DTSTART":
+                comp!.startStamp = value
+                if value.count >= 6, let m = Int(value.dropFirst(4).prefix(2)) { comp!.month = m }
+                if let t = value.split(separator: "T").last, t.count >= 4,
+                   let h = Int(t.prefix(2)), let m = Int(t.dropFirst(2).prefix(2)) {
+                    comp!.minutes = h * 60 + m
+                }
+            case "RRULE":
+                for part in value.split(separator: ";") {
+                    let kv = part.split(separator: "=", maxSplits: 1).map(String.init)
+                    guard kv.count == 2 else { continue }
+                    switch kv[0].uppercased() {
+                    case "BYMONTH": comp!.month = Int(kv[1]) ?? comp!.month
+                    case "BYMONTHDAY": comp!.monthDay = Int(kv[1])
+                    case "BYDAY":
+                        comp!.weekday = dayMap[String(kv[1].suffix(2)).uppercased()]
+                        comp!.weekOrd = Int(kv[1].dropLast(2)) ?? 1
+                    default: break
+                    }
+                }
+            default: break
+            }
+        }
+        return out
+    }
+
+    /// "±HHMM[SS]" (TZOFFSETTO) → seconds east of GMT.
+    private static func offsetSeconds(_ s: String) -> Int? {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        guard let sign = t.first, sign == "+" || sign == "-" else { return nil }
+        let digits = t.dropFirst().filter(\.isNumber)
+        guard digits.count >= 2, let h = Int(digits.prefix(2)) else { return nil }
+        let m = digits.count >= 4 ? Int(digits.dropFirst(2).prefix(2)) ?? 0 : 0
+        let sec = digits.count >= 6 ? Int(digits.dropFirst(4).prefix(2)) ?? 0 : 0
+        let total = h * 3600 + m * 60 + sec
+        return sign == "-" ? -total : total
+    }
+
+    /// ISO-8601 duration subset for the DURATION property: P[nW][nD][T[nH][nM][nS]] → minutes.
+    /// A month designator (P1M outside a T section) is ambiguous → nil (the event stays a point).
+    private static func durationMinutes(_ s: String) -> Int? {
+        var mins = 0, num = "", inTime = false, any = false
+        for ch in s.uppercased() {
+            switch ch {
+            case "P", "+": continue
+            case "-": return nil // negative durations aren't meaningful for an event span
+            case "T": inTime = true
+            case "0" ... "9": num.append(ch)
+            case "W": mins += (Int(num) ?? 0) * 7 * 24 * 60; num = ""; any = true
+            case "D": mins += (Int(num) ?? 0) * 24 * 60; num = ""; any = true
+            case "H": mins += (Int(num) ?? 0) * 60; num = ""; any = true
+            case "M":
+                guard inTime else { return nil } // calendar months — not a fixed span
+                mins += Int(num) ?? 0; num = ""; any = true
+            case "S": num = ""; any = true
+            default: return nil
+            }
+        }
+        return any ? mins : nil
+    }
+
+    private static func addMinutes(_ w: WC, _ n: Int) -> WC {
+        var c = DateComponents(); c.year = w.year; c.month = w.month; c.day = w.day
+        c.hour = w.hour; c.minute = w.minute
+        let cal = utcCalendar
+        guard let base = cal.date(from: c), let moved = cal.date(byAdding: .minute, value: n, to: base)
+        else { return w }
+        let d = cal.dateComponents([.year, .month, .day, .hour, .minute], from: moved)
+        return WC(year: d.year ?? w.year, month: d.month ?? w.month, day: d.day ?? w.day,
+                  hour: d.hour ?? w.hour, minute: d.minute ?? w.minute, allDay: w.allDay)
+    }
+
+    /// Windows zone name → IANA identifier (the CLDR windowsZones "001" mapping) — what
+    /// Outlook/Exchange writes as TZID. Foundation only resolves IANA names, so without this
+    /// every Outlook invite fell back to UTC (a whole-UTC-offset shift on import).
+    static let windowsTZ: [String: String] = [
+        "Dateline Standard Time": "Etc/GMT+12",
+        "UTC-11": "Etc/GMT+11",
+        "Aleutian Standard Time": "America/Adak",
+        "Hawaiian Standard Time": "Pacific/Honolulu",
+        "Marquesas Standard Time": "Pacific/Marquesas",
+        "Alaskan Standard Time": "America/Anchorage",
+        "UTC-09": "Etc/GMT+9",
+        "Pacific Standard Time (Mexico)": "America/Tijuana",
+        "UTC-08": "Etc/GMT+8",
+        "Pacific Standard Time": "America/Los_Angeles",
+        "US Mountain Standard Time": "America/Phoenix",
+        "Mountain Standard Time (Mexico)": "America/Mazatlan",
+        "Mountain Standard Time": "America/Denver",
+        "Yukon Standard Time": "America/Whitehorse",
+        "Central America Standard Time": "America/Guatemala",
+        "Central Standard Time": "America/Chicago",
+        "Easter Island Standard Time": "Pacific/Easter",
+        "Central Standard Time (Mexico)": "America/Mexico_City",
+        "Canada Central Standard Time": "America/Regina",
+        "SA Pacific Standard Time": "America/Bogota",
+        "Eastern Standard Time (Mexico)": "America/Cancun",
+        "Eastern Standard Time": "America/New_York",
+        "Haiti Standard Time": "America/Port-au-Prince",
+        "Cuba Standard Time": "America/Havana",
+        "US Eastern Standard Time": "America/Indiana/Indianapolis",
+        "Turks And Caicos Standard Time": "America/Grand_Turk",
+        "Paraguay Standard Time": "America/Asuncion",
+        "Atlantic Standard Time": "America/Halifax",
+        "Venezuela Standard Time": "America/Caracas",
+        "Central Brazilian Standard Time": "America/Cuiaba",
+        "SA Western Standard Time": "America/La_Paz",
+        "Pacific SA Standard Time": "America/Santiago",
+        "Newfoundland Standard Time": "America/St_Johns",
+        "Tocantins Standard Time": "America/Araguaina",
+        "E. South America Standard Time": "America/Sao_Paulo",
+        "SA Eastern Standard Time": "America/Cayenne",
+        "Argentina Standard Time": "America/Buenos_Aires",
+        "Montevideo Standard Time": "America/Montevideo",
+        "Magallanes Standard Time": "America/Punta_Arenas",
+        "Saint Pierre Standard Time": "America/Miquelon",
+        "Bahia Standard Time": "America/Bahia",
+        "UTC-02": "Etc/GMT+2",
+        "Mid-Atlantic Standard Time": "Etc/GMT+2",
+        "Greenland Standard Time": "America/Godthab",
+        "Azores Standard Time": "Atlantic/Azores",
+        "Cape Verde Standard Time": "Atlantic/Cape_Verde",
+        "UTC": "Etc/UTC",
+        "GMT Standard Time": "Europe/London",
+        "Greenwich Standard Time": "Atlantic/Reykjavik",
+        "Sao Tome Standard Time": "Africa/Sao_Tome",
+        "Morocco Standard Time": "Africa/Casablanca",
+        "W. Europe Standard Time": "Europe/Berlin",
+        "Central Europe Standard Time": "Europe/Budapest",
+        "Romance Standard Time": "Europe/Paris",
+        "Central European Standard Time": "Europe/Warsaw",
+        "W. Central Africa Standard Time": "Africa/Lagos",
+        "GTB Standard Time": "Europe/Bucharest",
+        "Middle East Standard Time": "Asia/Beirut",
+        "Egypt Standard Time": "Africa/Cairo",
+        "E. Europe Standard Time": "Europe/Chisinau",
+        "West Bank Standard Time": "Asia/Hebron",
+        "South Africa Standard Time": "Africa/Johannesburg",
+        "FLE Standard Time": "Europe/Kiev",
+        "Israel Standard Time": "Asia/Jerusalem",
+        "South Sudan Standard Time": "Africa/Juba",
+        "Kaliningrad Standard Time": "Europe/Kaliningrad",
+        "Sudan Standard Time": "Africa/Khartoum",
+        "Libya Standard Time": "Africa/Tripoli",
+        "Namibia Standard Time": "Africa/Windhoek",
+        "Jordan Standard Time": "Asia/Amman",
+        "Arabic Standard Time": "Asia/Baghdad",
+        "Syria Standard Time": "Asia/Damascus",
+        "Turkey Standard Time": "Europe/Istanbul",
+        "Arab Standard Time": "Asia/Riyadh",
+        "Belarus Standard Time": "Europe/Minsk",
+        "Russian Standard Time": "Europe/Moscow",
+        "E. Africa Standard Time": "Africa/Nairobi",
+        "Volgograd Standard Time": "Europe/Volgograd",
+        "Iran Standard Time": "Asia/Tehran",
+        "Arabian Standard Time": "Asia/Dubai",
+        "Astrakhan Standard Time": "Europe/Astrakhan",
+        "Azerbaijan Standard Time": "Asia/Baku",
+        "Russia Time Zone 3": "Europe/Samara",
+        "Mauritius Standard Time": "Indian/Mauritius",
+        "Saratov Standard Time": "Europe/Saratov",
+        "Georgian Standard Time": "Asia/Tbilisi",
+        "Caucasus Standard Time": "Asia/Yerevan",
+        "Afghanistan Standard Time": "Asia/Kabul",
+        "West Asia Standard Time": "Asia/Tashkent",
+        "Ekaterinburg Standard Time": "Asia/Yekaterinburg",
+        "Pakistan Standard Time": "Asia/Karachi",
+        "Qyzylorda Standard Time": "Asia/Qyzylorda",
+        "India Standard Time": "Asia/Kolkata",
+        "Sri Lanka Standard Time": "Asia/Colombo",
+        "Nepal Standard Time": "Asia/Kathmandu",
+        "Central Asia Standard Time": "Asia/Almaty",
+        "Bangladesh Standard Time": "Asia/Dhaka",
+        "Omsk Standard Time": "Asia/Omsk",
+        "Myanmar Standard Time": "Asia/Yangon",
+        "SE Asia Standard Time": "Asia/Bangkok",
+        "Altai Standard Time": "Asia/Barnaul",
+        "W. Mongolia Standard Time": "Asia/Hovd",
+        "North Asia Standard Time": "Asia/Krasnoyarsk",
+        "N. Central Asia Standard Time": "Asia/Novosibirsk",
+        "Tomsk Standard Time": "Asia/Tomsk",
+        "China Standard Time": "Asia/Shanghai",
+        "North Asia East Standard Time": "Asia/Irkutsk",
+        "Singapore Standard Time": "Asia/Singapore",
+        "W. Australia Standard Time": "Australia/Perth",
+        "Taipei Standard Time": "Asia/Taipei",
+        "Ulaanbaatar Standard Time": "Asia/Ulaanbaatar",
+        "Aus Central W. Standard Time": "Australia/Eucla",
+        "Transbaikal Standard Time": "Asia/Chita",
+        "Tokyo Standard Time": "Asia/Tokyo",
+        "North Korea Standard Time": "Asia/Pyongyang",
+        "Korea Standard Time": "Asia/Seoul",
+        "Yakutsk Standard Time": "Asia/Yakutsk",
+        "Cen. Australia Standard Time": "Australia/Adelaide",
+        "AUS Central Standard Time": "Australia/Darwin",
+        "E. Australia Standard Time": "Australia/Brisbane",
+        "AUS Eastern Standard Time": "Australia/Sydney",
+        "West Pacific Standard Time": "Pacific/Port_Moresby",
+        "Tasmania Standard Time": "Australia/Hobart",
+        "Vladivostok Standard Time": "Asia/Vladivostok",
+        "Lord Howe Standard Time": "Australia/Lord_Howe",
+        "Bougainville Standard Time": "Pacific/Bougainville",
+        "Russia Time Zone 10": "Asia/Srednekolymsk",
+        "Magadan Standard Time": "Asia/Magadan",
+        "Norfolk Standard Time": "Pacific/Norfolk",
+        "Sakhalin Standard Time": "Asia/Sakhalin",
+        "Central Pacific Standard Time": "Pacific/Guadalcanal",
+        "Russia Time Zone 11": "Asia/Kamchatka",
+        "Kamchatka Standard Time": "Asia/Kamchatka",
+        "New Zealand Standard Time": "Pacific/Auckland",
+        "UTC+12": "Etc/GMT-12",
+        "Fiji Standard Time": "Pacific/Fiji",
+        "Chatham Islands Standard Time": "Pacific/Chatham",
+        "UTC+13": "Etc/GMT-13",
+        "Tonga Standard Time": "Pacific/Tongatapu",
+        "Samoa Standard Time": "Pacific/Apia",
+        "Line Islands Standard Time": "Pacific/Kiritimati",
+    ]
 
     private static func unescapeText(_ s: String) -> String {
         var out = s
@@ -294,6 +672,7 @@ public enum ICSImport {
 
         for ve in parsed {
             guard let s = ve.start else { continue }
+            guard ve.status != "CANCELLED" else { continue } // cancelled instances aren't events
             let title = ve.summary.isEmpty ? "(untitled)" : ve.summary
             let uid = ve.uid ?? "\(title)-\(s.year)\(s.month)\(s.day)"
             let series = "gcal-\(feedKey)-\(sanitize(uid))"
@@ -323,7 +702,7 @@ public enum ICSImport {
                 guard years.contains(w.year) else { continue }
                 let suffix = String(format: "-%04d%02d%02d-%02d%02d", w.year, w.month, w.day, w.hour, w.minute)
                 if s.allDay {
-                    let endEx = ve.end
+                    let endEx = ve.effectiveEnd
                     let span = endEx.map { max(0, daysBetween(s, addDays($0, -1))) } ?? 0
                     for (i, seg) in bandSegments(from: w, to: addDays(w, span)).enumerated() {
                         bands.append(BandEvent(id: series + suffix + (i == 0 ? "" : "s\(i)"),
@@ -332,7 +711,7 @@ public enum ICSImport {
                                                title: title, color: "default"))
                     }
                 } else {
-                    let dur = ve.end.map { max(0.25, wcHourSpan(from: s, to: $0)) } ?? 1
+                    let dur = ve.effectiveEnd.map { max(0.25, wcHourSpan(from: s, to: $0)) } ?? 1
                     events.append(TimedEvent(id: series + suffix, year: w.year, month: w.month - 1, day: w.day,
                                              startHour: hourOf(w), endHour: min(24, hourOf(w) + dur),
                                              title: title, color: "default",
