@@ -61,15 +61,30 @@ public struct MarkdownBlocksView: View {
     let accent: Color // checked todos + quote bars pick this up
     let theme: Theme
     var onToggle: ((Int) -> Void)? // 1-based source line of a tapped todo checkbox; nil = read-only
+    /// ⌘-click on a block → "edit here": reports the block's 1-based source line (the web
+    /// preview's data-srcline → onEditAt flow). nil = plain preview.
+    var onLineEdit: ((Int) -> Void)?
 
-    public init(text: String, accent: Color, theme: Theme, onToggle: ((Int) -> Void)? = nil) {
+    public init(text: String, accent: Color, theme: Theme, onToggle: ((Int) -> Void)? = nil,
+                onLineEdit: ((Int) -> Void)? = nil) {
         self.text = text; self.accent = accent; self.theme = theme; self.onToggle = onToggle
+        self.onLineEdit = onLineEdit
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(blocks()) { b in
-                blockView(b)
+                if let onLineEdit {
+                    blockView(b)
+                        .contentShape(Rectangle())
+                        // simultaneous: plain clicks still select text / tap checkboxes; only
+                        // the ⌘-modified tap routes to the editor (checkbox handlers check the
+                        // modifier themselves so a ⌘-click never double-acts as a toggle).
+                        .simultaneousGesture(TapGesture().modifiers(.command)
+                            .onEnded { onLineEdit(b.id) })
+                } else {
+                    blockView(b)
+                }
             }
         }
         .textSelection(.enabled)

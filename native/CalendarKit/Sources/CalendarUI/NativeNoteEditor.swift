@@ -35,6 +35,10 @@ struct NativeNoteEditor: NSViewRepresentable {
     var onSave: () -> Void = {}
     var onExit: () -> Void = {}
     var session: NoteEditSession? = nil // host-side session-ender (mode-toggle stamping)
+    /// ⌘-click line focus: when set, the editor selects this 1-based line, scrolls it visible
+    /// and takes focus (once per value; the host clears it via onFocusLineHandled).
+    var focusLine: Int? = nil
+    var onFocusLineHandled: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -125,6 +129,31 @@ struct NativeNoteEditor: NSViewRepresentable {
             tv.string = text
             co.highlight()
         }
+        // ⌘-click "edit here": select the requested line, reveal it, take focus. Off the
+        // update pass (window/first-responder work), deduped per request.
+        if let line = focusLine, co.handledFocusLine != line {
+            co.handledFocusLine = line
+            let handled = onFocusLineHandled
+            DispatchQueue.main.async { [weak tv, weak co] in
+                guard let tv else { return }
+                let ns = tv.string as NSString
+                var loc = 0, n = 1
+                var range = NSRange(location: 0, length: 0)
+                while true {
+                    let lineEnd = ns.range(of: "\n", range: NSRange(location: loc, length: ns.length - loc))
+                    let end = lineEnd.location == NSNotFound ? ns.length : lineEnd.location
+                    if n == line { range = NSRange(location: loc, length: end - loc); break }
+                    if lineEnd.location == NSNotFound { range = NSRange(location: end, length: 0); break }
+                    loc = lineEnd.location + 1
+                    n += 1
+                }
+                tv.window?.makeFirstResponder(tv)
+                tv.setSelectedRange(range)
+                tv.scrollRangeToVisible(range)
+                co?.handledFocusLine = nil
+                handled()
+            }
+        }
     }
 
     @MainActor final class Coordinator: NSObject, NSTextViewDelegate {
@@ -133,6 +162,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         var key = ""
         var lastSent: String? // the last body we pushed up — its echo must not re-set the view
         var sessionDirty = false // the user edited THIS note since load / last stamp
+        var handledFocusLine: Int? // last ⌘-click focus request already applied (dedup)
 
         init(_ parent: NativeNoteEditor) {
             self.parent = parent

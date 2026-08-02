@@ -20,6 +20,7 @@ struct NativeNotePanel: View {
     /// toggle lives in the DashChrome overlay writing this binding from outside, so the panel
     /// intercepts the change and stamps BEFORE the preview branch reads the note.
     @State private var session = NoteEditSession()
+    @State private var pendingEditLine: Int? // ⌘-click in the preview → edit at this line
 
     var body: some View {
         let storageKey = scope == "day" ? key
@@ -42,7 +43,9 @@ struct NativeNotePanel: View {
                             .trimmingCharacters(in: .whitespaces).isEmpty { noteMode = .preview }
                         engine.dashNoteExit()
                     },
-                    session: session
+                    session: session,
+                    focusLine: pendingEditLine,
+                    onFocusLineHandled: { pendingEditLine = nil }
                 )
             } else if text.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text("No \(scope == "day" ? "daily" : scope == "week" ? "weekly" : "monthly") note yet — switch to Editor to write one.")
@@ -52,14 +55,28 @@ struct NativeNotePanel: View {
                     .padding(.top, 6)
             } else {
                 ScrollView {
-                    MarkdownBlocksView(text: text, accent: Theme.accent, theme: theme) { line in
-                        // Preview checkboxes flip the source line in place, done-stamped.
-                        let stamp = NativeDashPanel.todayIso() + "T" + NativeDashPanel.clockNow()
-                        if let next = TodoIndex.toggleTodoLine(text, line: line, stamp: stamp),
-                           next != text {
-                            engine.setDailyNote(storageKey, next)
-                        }
-                    }
+                    MarkdownBlocksView(text: text, accent: Theme.accent, theme: theme,
+                                       onToggle: { line in
+                                           // ⌘-click on a checkbox = "edit here", not a toggle
+                                           // (the web ignored inputs on ⌘-click for the same
+                                           // reason — modifier checked at the shared source).
+                                           if NSEvent.modifierFlags.contains(.command) {
+                                               pendingEditLine = line
+                                               noteMode = .edit
+                                               return
+                                           }
+                                           // Preview checkboxes flip the source line in place.
+                                           let stamp = NativeDashPanel.todayIso() + "T"
+                                               + NativeDashPanel.clockNow()
+                                           if let next = TodoIndex.toggleTodoLine(
+                                               text, line: line, stamp: stamp), next != text {
+                                               engine.setDailyNote(storageKey, next)
+                                           }
+                                       },
+                                       onLineEdit: { line in
+                                           pendingEditLine = line
+                                           noteMode = .edit
+                                       })
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.trailing, 10)
                 }
