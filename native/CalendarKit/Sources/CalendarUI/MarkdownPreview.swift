@@ -611,8 +611,78 @@ enum MarkdownDoc {
                 attrs[.foregroundColor] = accent
                 attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 attrs[.cursor] = NSCursor.pointingHand
+                out.append(NSAttributedString(string: piece, attributes: attrs))
+            } else if intent.contains(.code) {
+                out.append(NSAttributedString(string: piece, attributes: attrs))
+            } else {
+                // Prose refs (the web's locked scope): #tag and @person / @type:slug chip
+                // ANYWHERE in a note — prose, headings, list items — not just todo lines.
+                // Links and code spans are exempt (handled above).
+                out.append(chippedText(piece, attrs: attrs, para: para))
             }
-            out.append(NSAttributedString(string: piece, attributes: attrs))
+        }
+        return out
+    }
+
+    /// TAG_RE + ENTITY_RE over a text run, non-token text kept verbatim, tokens as pills.
+    private static let proseTagRe = try! NSRegularExpression(
+        pattern: #"(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)"#)
+    private static let proseEntityRe = try! NSRegularExpression(
+        pattern: #"(^|\s)@(?:([A-Za-z][\w-]*):)?([A-Za-z0-9_][\w-]*)(?=\s|$)"#)
+
+    private static func chippedText(_ text: String, attrs: [NSAttributedString.Key: Any],
+                                    para: NSParagraphStyle) -> NSAttributedString {
+        let ns = text as NSString
+        let all = NSRange(location: 0, length: ns.length)
+        var matches: [(NSRange, String, ChipSpec)] = [] // full range (incl. boundary), boundary, chip
+        let accent = (attrs[.foregroundColor] as? NSColor).map { _ in NSColor(Theme.accent) }
+            ?? NSColor(Theme.accent)
+        for m in proseTagRe.matches(in: text, range: all) {
+            let slug = ns.substring(with: m.range(at: 2))
+            matches.append((m.range, ns.substring(with: m.range(at: 1)),
+                            ChipSpec.tag("#" + slug, accent: accent)))
+        }
+        for m in proseEntityRe.matches(in: text, range: all) {
+            let type = m.range(at: 2).location == NSNotFound
+                ? "person" : ns.substring(with: m.range(at: 2)).lowercased()
+            let slug = ns.substring(with: m.range(at: 3))
+            let label = type == "person" ? "@" + slug : "@" + type + ":" + slug
+            let chip: ChipSpec = switch type {
+            case "person": .person(label)
+            case "project": .project(label)
+            default: ChipSpec(prefix: nil, text: label,
+                              fg: NSColor(calibratedRed: 0xD6 / 255, green: 0x9A / 255,
+                                          blue: 0x5C / 255, alpha: 1),
+                              border: NSColor(calibratedRed: 0xEC / 255, green: 0x98 / 255,
+                                              blue: 0x46 / 255, alpha: 0.5),
+                              bg: NSColor(calibratedRed: 0xEC / 255, green: 0x98 / 255,
+                                          blue: 0x46 / 255, alpha: 0.14))
+            }
+            matches.append((m.range, ns.substring(with: m.range(at: 1)), chip))
+        }
+        guard !matches.isEmpty else { return NSAttributedString(string: text, attributes: attrs) }
+        matches.sort { $0.0.location < $1.0.location }
+        let out = NSMutableAttributedString()
+        var pos = 0
+        for (range, boundary, spec) in matches {
+            guard range.location >= pos else { continue } // overlapping match (tag inside entity)
+            if range.location > pos {
+                out.append(NSAttributedString(
+                    string: ns.substring(with: NSRange(location: pos, length: range.location - pos)),
+                    attributes: attrs))
+            }
+            if !boundary.isEmpty { out.append(NSAttributedString(string: boundary, attributes: attrs)) }
+            let att = NSTextAttachment()
+            let img = chipImage(spec, alpha: 1)
+            att.image = img
+            att.bounds = CGRect(x: 0, y: -3, width: img.size.width, height: img.size.height)
+            let a = NSMutableAttributedString(attachment: att)
+            a.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: a.length))
+            out.append(a)
+            pos = NSMaxRange(range)
+        }
+        if pos < ns.length {
+            out.append(NSAttributedString(string: ns.substring(from: pos), attributes: attrs))
         }
         return out
     }
