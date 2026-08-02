@@ -82,7 +82,39 @@ final class CCTrace {
             }
         }
         attachDisplayLinkIfPossible()
+        installCommitTimer()
         print("[cc-trace] recording — reproduce the lag, then ⌘-tab away to flush the trace")
+    }
+
+    /// Times Core Animation's main-thread COMMIT phase: two runloop observers bracket CA's
+    /// own BeforeWaiting transaction observer (CA registers at order 2,000,000 — a classic
+    /// technique), emitting "C <t> <ms>" for any commit over 8ms. Long commits that align
+    /// with display-link gaps = the commit contents are the stall; display gaps WITHOUT long
+    /// commits = window-server backpressure.
+    private var commitBegan: CFAbsoluteTime = 0
+
+    private func installCommitTimer() {
+        let before = CFRunLoopObserverCreateWithHandler(
+            kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 1_999_999
+        ) { _, _ in
+            MainActor.assumeIsolated { CCTrace.shared.commitBegan = CFAbsoluteTimeGetCurrent() }
+        }
+        let after = CFRunLoopObserverCreateWithHandler(
+            kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_000_001
+        ) { _, _ in
+            MainActor.assumeIsolated {
+                let began = CCTrace.shared.commitBegan
+                guard began > 0 else { return }
+                CCTrace.shared.commitBegan = 0
+                let ms = (CFAbsoluteTimeGetCurrent() - began) * 1000
+                if ms > 8 {
+                    CCTrace.shared.lines.append(
+                        "E \(CCTrace.shared.ts()) commit \(String(format: "%.0f", ms))ms")
+                }
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), before, .commonModes)
+        CFRunLoopAddObserver(CFRunLoopGetMain(), after, .commonModes)
     }
 
     /// DISPLAY-side truth: a CADisplayLink on the main window's content view ticks once per
