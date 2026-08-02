@@ -38,6 +38,11 @@ struct NativePanelHost: View, Equatable {
     /// Warm the inactive tabs too (parked/pre-built panels only): mounting happens at rest,
     /// staggered one tab per runloop turn, so the first ⌘E/⌘J flip finds its body built.
     var warmAllTabs: Bool = false
+    /// Parked and NOT the warm target → trim to the active tab. Every mounted NOTE tab keeps
+    /// an NSTextView+NSScrollView+ruler alive, and AppKit's per-commit Auto Layout scan
+    /// (_findAnySubviewNeedingAutoLayoutEngine — caught red-handed at 129ms by the watchdog)
+    /// walks EVERY hosted view in the window on EVERY display commit.
+    var trimToActiveTab: Bool = false
 
     /// Tabs that have EVER been shown (or warmed) stay mounted — a flip back is an opacity
     /// swap instead of re-paying the whole mount (the "first ⌘J, again on every return"
@@ -69,6 +74,9 @@ struct NativePanelHost: View, Equatable {
         .onChange(of: tab) { old, new in
             mountedTabs.insert(old) // the tab you left stays alive
             mountedTabs.insert(new)
+        }
+        .onChange(of: trimToActiveTab, initial: true) { _, trim in
+            if trim { mountedTabs = [] } // hosted-view diet: parked panels carry ONE tab
         }
         // onChange(initial:) — NOT onAppear: warmAllTabs can flip true AFTER the host is
         // mounted (a panel parked by live use gets warmed at the next retracted rest), and

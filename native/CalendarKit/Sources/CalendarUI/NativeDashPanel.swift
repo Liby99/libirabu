@@ -159,7 +159,7 @@ enum NativeDash {
             parkedPanels.removeAll { $0.panelId == p.panelId }
             parkedPanels.append(p)
         }
-        if parkedPanels.count > 8 { parkedPanels.removeFirst(parkedPanels.count - 8) }
+        if parkedPanels.count > 4 { parkedPanels.removeFirst(parkedPanels.count - 4) }
     }
 
     /// The settled panel's ADJACENT keys (month ±1, week ±7d, day ±1d) — pre-mounted parked

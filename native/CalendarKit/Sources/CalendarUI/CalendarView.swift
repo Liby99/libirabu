@@ -790,7 +790,9 @@ public struct CalendarView: View {
                                         guard !NativeDash.tapsSuppressed else { return }
                                         jumpToNoteKey(key, line: line)
                                     },
-                                    warmAllTabs: NativeDash.warmIds.contains(panel.panelId))
+                                    warmAllTabs: NativeDash.warmIds.contains(panel.panelId),
+                                    trimToActiveTab: !isLive
+                                        && !NativeDash.warmIds.contains(panel.panelId))
                         .equatable() // per-frame re-eval stops HERE; only frame/opacity move
                         .frame(width: pw, height: ph)
                         .position(x: bx + pw / 2, y: top + ph / 2)
