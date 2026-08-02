@@ -8,6 +8,25 @@
 
 import CalendarEngine
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+
+/// Live ⌘-key state for the preview's edit-here capture layer. One shared flagsChanged
+/// monitor; @Observable so views re-render exactly when the modifier flips. macOS only —
+/// the phone build has no ⌘-click affordance.
+@MainActor @Observable public final class ModifierWatch {
+    public static let shared = ModifierWatch()
+    public private(set) var command = false
+    private var monitor: Any?
+
+    private init() {
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
+            self?.command = e.modifierFlags.contains(.command)
+            return e
+        }
+    }
+}
+#endif
 
 /// The house checkbox for todo rows everywhere native (dashboard lists, gantt labels, note
 /// previews): a ROUNDED square, stroked grey when open, filled with the ACCENT (red) and a white
@@ -72,16 +91,28 @@ public struct MarkdownBlocksView: View {
     }
 
     public var body: some View {
+        #if canImport(AppKit)
+        let cmdDown = onLineEdit != nil && ModifierWatch.shared.command
+        #else
+        let cmdDown = false
+        #endif
         VStack(alignment: .leading, spacing: 8) {
             ForEach(blocks()) { b in
                 if let onLineEdit {
+                    // Edit-here capture: while ⌘ is HELD, a full-width transparent layer sits
+                    // over the whole row and takes the click — anywhere on the line, any block
+                    // kind (paragraphs, headers, todos, code). A tap gesture on the text alone
+                    // loses to text-selection handling and only covers the glyph width; the
+                    // conditional overlay wins the hit-test outright and vanishes when ⌘ lifts,
+                    // so plain clicks (selection, checkboxes, links) are untouched.
                     blockView(b)
-                        .contentShape(Rectangle())
-                        // simultaneous: plain clicks still select text / tap checkboxes; only
-                        // the ⌘-modified tap routes to the editor (checkbox handlers check the
-                        // modifier themselves so a ⌘-click never double-acts as a toggle).
-                        .simultaneousGesture(TapGesture().modifiers(.command)
-                            .onEnded { onLineEdit(b.id) })
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay {
+                            if cmdDown {
+                                Rectangle().fill(Color.black.opacity(0.0001))
+                                    .onTapGesture { onLineEdit(b.id) }
+                            }
+                        }
                 } else {
                     blockView(b)
                 }
