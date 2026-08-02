@@ -41,9 +41,26 @@ def main():
     def sym(addr):
         return syms.get(addr, "0x" + addr)
 
+    # Clock-asleep spans (clockAsleep → clockAwake): frame silence inside them is a SLEEP,
+    # not a stall; fps is only meaningful over awake time.
+    asleep_spans = []
+    sleep_start = None
+    for t, lbl in events:
+        if lbl == "clockAsleep" and sleep_start is None:
+            sleep_start = t
+        elif lbl == "clockAwake" and sleep_start is not None:
+            asleep_spans.append((sleep_start, t))
+            sleep_start = None
+    if sleep_start is not None:
+        asleep_spans.append((sleep_start, frames[-1][0] if frames else sleep_start))
+
+    def asleep_overlap(a, b):
+        return sum(max(0.0, min(b, s1) - max(a, s0)) for s0, s1 in asleep_spans)
+
     # ── 1. Interaction segments: event → next event, with frame stats ──
     print("\n== interaction timeline (event → fps until next event) ==")
-    bounds = [(t, lbl) for t, lbl in events] + [(frames[-1][0], "<end>")]
+    bounds = [(t, lbl) for t, lbl in events if not lbl.startswith("clock")] \
+        + [(frames[-1][0], "<end>")]
     for i in range(len(bounds) - 1):
         t0, lbl = bounds[i]
         t1 = bounds[i + 1][0]
@@ -53,21 +70,28 @@ def main():
         if len(fs) < 2:
             print(f"  {t0/1000:7.2f}s {lbl:<28} {(t1-t0)/1000:6.2f}s   NO FRAMES")
             continue
-        dur = (fs[-1] - fs[0]) / 1000
-        fps = (len(fs) - 1) / dur if dur > 0 else 0
-        gaps = [b - a for a, b in zip(fs, fs[1:])]
-        worst = max(gaps)
-        n_hitch = sum(1 for g in gaps if g > 33)
+        span = fs[-1] - fs[0]
+        awake_ms = span - asleep_overlap(fs[0], fs[-1])
+        fps = (len(fs) - 1) / (awake_ms / 1000) if awake_ms > 0 else 0
+        # Worst AWAKE gap only (sleep silences excluded).
+        worst = 0.0
+        n_hitch = 0
+        for a, b in zip(fs, fs[1:]):
+            g = (b - a) - asleep_overlap(a, b)
+            worst = max(worst, g)
+            if g > 33:
+                n_hitch += 1
         flag = "  <<<" if fps < 60 or worst > 100 else ""
         print(f"  {t0/1000:7.2f}s {lbl:<28} {(t1-t0)/1000:6.2f}s  "
-              f"{fps:6.1f} fps  worst {worst:6.0f}ms  hitches {n_hitch}{flag}")
+              f"{fps:6.1f} fps(awake)  worst-awake {worst:6.0f}ms  hitches {n_hitch}{flag}")
 
     # ── 2. Worst stall windows with folded stacks ──
     print(f"\n== top {top_n} frame stalls, with main-thread stacks during each ==")
     gaps = []
     for (a, _, _), (b, _, _) in zip(frames, frames[1:]):
-        if b - a > 50:
-            gaps.append((b - a, a, b))
+        real = (b - a) - asleep_overlap(a, b) # sleep-adjusted: only awake silence counts
+        if real > 50:
+            gaps.append((real, a, b))
     gaps.sort(reverse=True)
     for gap_ms, a, b in gaps[:top_n]:
         near = [lbl for t, lbl in events if a - 800 <= t <= b]

@@ -70,6 +70,15 @@ final class CCTrace {
         ) { _ in
             MainActor.assumeIsolated { CCTrace.shared.dump(reason: "resign-active") }
         }
+        NotificationCenter.default.addObserver(
+            forName: .ccTraceClock, object: nil, queue: .main
+        ) { note in
+            let awake = (note.object as? Bool) ?? false
+            MainActor.assumeIsolated {
+                CCTrace.shared.lines.append(
+                    "E \(CCTrace.shared.ts()) \(awake ? "clockAwake" : "clockAsleep")")
+            }
+        }
         print("[cc-trace] recording — reproduce the lag, then ⌘-tab away to flush the trace")
     }
 

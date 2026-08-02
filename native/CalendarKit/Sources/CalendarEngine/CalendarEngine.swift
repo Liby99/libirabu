@@ -39,12 +39,17 @@ public final class CalendarEngine {
             if CalendarEngine.diagClock {
                 print("[dash-diag] renderClock → AWAKE")
             }
+            if CalendarEngine.traceOn {
+                NotificationCenter.default.post(name: .ccTraceClock, object: true)
+            }
         }
         armSleep()
     }
 
     /// CC_DASH_DIAG: log clock transitions (the no-animation hunt).
     static let diagClock = ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil
+    /// CC_TRACE: clock transitions feed the interaction trace (sleep vs stall separation).
+    static let traceOn = ProcessInfo.processInfo.environment["CC_TRACE"] != nil
 
     /// (Re)schedule the idle sleep. While anything is animating the timer keeps deferring; once the
     /// scene is fully at rest for `Motion.idleSleep`, it pauses the TimelineView.
@@ -58,6 +63,9 @@ public final class CalendarEngine {
                 self.renderClock.awake = false
                 if CalendarEngine.diagClock {
                     print("[dash-diag] renderClock → ASLEEP")
+                }
+                if CalendarEngine.traceOn {
+                    NotificationCenter.default.post(name: .ccTraceClock, object: false)
                 }
             }
         }
@@ -1191,4 +1199,10 @@ public final class CalendarEngine {
             anim.scrollTween = nil; scrollY = s; onSetYearScroll?(scrollY)
         }
     }
+}
+
+
+public extension Notification.Name {
+    /// CC_TRACE: render-clock transitions (object: Bool awake).
+    static let ccTraceClock = Notification.Name("cc.trace.clock")
 }

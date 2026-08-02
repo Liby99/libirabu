@@ -49,6 +49,7 @@ struct NativePanelHost: View, Equatable {
     /// hitch). Mid-gesture LIVE mounts (day paging, page-turn arrivals) still build only the
     /// active tab, so gestures never pay for three.
     @State private var mountedTabs: Set<DashTab> = []
+    @State private var trimWork: DispatchWorkItem?
 
     var body: some View {
         ZStack {
@@ -76,7 +77,15 @@ struct NativePanelHost: View, Equatable {
             mountedTabs.insert(new)
         }
         .onChange(of: trimToActiveTab, initial: true) { _, trim in
-            if trim { mountedTabs = [] } // hosted-view diet: parked panels carry ONE tab
+            // Hosted-view diet, DEFERRED: trimming at park time tore down thousands of
+            // Text/CoreText objects on the toggle's tail (the trace's TLine/TRun destructor
+            // stall). Trim 4s later — teardown lands at idle — unless the panel went live
+            // (or became the warm target) again first.
+            trimWork?.cancel()
+            guard trim else { return }
+            let w = DispatchWorkItem { mountedTabs = [] }
+            trimWork = w
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: w)
         }
         // onChange(initial:) — NOT onAppear: warmAllTabs can flip true AFTER the host is
         // mounted (a panel parked by live use gets warmed at the next retracted rest), and
