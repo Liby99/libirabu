@@ -687,6 +687,16 @@ public struct CalendarView: View {
     /// sub-panel from dashBodyPanels placed by the header's OWN inset math (drawPanelChrome):
     /// content left = panelLeft + 25, right = panelLeft + width − 18, top = the header's bottom
     /// bar (topY + Layout.monthH, dy-anchored to the band frame) + the overlay's 14px gap.
+    /// The dashboard reveal clip: everything right of `x`. A SHAPE, not a frame — its
+    /// animation is rendering-only, so the panels' layout (and their lazy content) is
+    /// untouched by the slide.
+    private struct RevealFrom: Shape {
+        var x: CGFloat
+        func path(in rect: CGRect) -> Path {
+            Path(CGRect(x: x, y: rect.minY, width: max(0, rect.width - x), height: rect.height))
+        }
+    }
+
     @ViewBuilder
     private func nativeDashOverlay(theme: Theme) -> some View {
         let input = engine.snapshotInput()
@@ -764,15 +774,15 @@ public struct CalendarView: View {
         let parked = NativeDash.parkedPanels.filter { !liveIds.contains($0.panelId) }
             .sorted { $0.panelId < $1.panelId }
         if !bodyPanels.isEmpty || !parked.isEmpty {
-            // No scope panels (retracted/year): the container previously collapsed to 1px
-            // (mask = vp.w), so pre-built parked panels lived OFFSCREEN in a 1px viewport —
-            // and LazyVStack content (PROJ charts!) materialized NOTHING during the warm; the
-            // whole chart set then built inside the ⌘J pin-slide transaction (trace 5: 300ms
-            // display freezes, ProjChart in-stack, "27 evals, no commits"). Full-width
-            // container when retracted: parked panels are op-0/no-hit anyway, and laziness
-            // materializes at rest where it belongs.
+            // THE CONTAINER'S LAYOUT SIZE NEVER CHANGES (traces 5-6): it used to be a clipped
+            // frame whose WIDTH animated with the reveal — at slide start the viewport
+            // collapsed to ~1px and regrew per frame, so LazyVStack content DEmaterialized
+            // and rebuilt MID-SLIDE (dense months rebuilt hundreds of views inside one
+            // transaction → 300ms display freezes; empty February was smooth — the user's
+            // decisive A/B). Now the container is always full-size and the reveal is a CLIP
+            // SHAPE animation: rendering-only, zero child relayout, warm content stays
+            // materialized through the whole slide.
             let mask = sg?.mask ?? 0
-            let maskW = max(1, input.vp.w - mask)
             ZStack(alignment: .topLeading) {
                 // Identity = scope|key (state never bleeds between keys sharing a list slot);
                 // built panels that LEFT the carousel stay mounted, parked at opacity 0
@@ -781,7 +791,7 @@ public struct CalendarView: View {
                 // REAL content at all times; nothing is ever blanked.
                 ForEach(bodyPanels + parked, id: \.panelId) { panel in
                     let isLive = liveIds.contains(panel.panelId)
-                    let bx = panel.x + panel.dx + 25 - mask
+                    let bx = panel.x + panel.dx + 25 // absolute: the container spans the vp
                     let pw = max(1, panel.w - 25 - 18)
                     let top = Layout.topPad + panel.dy + Layout.monthH + 14
                     let ph = max(1, input.vp.h - top - Layout.bottomPad)
@@ -810,9 +820,9 @@ public struct CalendarView: View {
                         .allowsHitTesting(isLive)
                 }
             }
-            .frame(width: maskW, height: input.vp.h)
-            .clipped()
-            .position(x: mask + maskW / 2, y: input.vp.h / 2)
+            .frame(width: input.vp.w, height: input.vp.h, alignment: .topLeading)
+            .clipShape(RevealFrom(x: mask)) // the animated reveal, layout-neutral
+            .position(x: input.vp.w / 2, y: input.vp.h / 2)
             .offset(x: Layout.padLeft - engine.gutterShift)
         }
     }
