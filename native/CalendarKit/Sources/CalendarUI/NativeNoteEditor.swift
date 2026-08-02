@@ -117,7 +117,8 @@ struct NativeNoteEditor: NSViewRepresentable {
             r.size.width = bounds.width
             r.origin.y += textContainerInset.height
             themeText.withAlphaComponent(0.05).setFill()
-            r.intersection(rect).fill()
+            // Rounded RIGHT corners; the square left edge continues into the gutter's band.
+            NativeNoteEditor.washPath(r, radius: 6, roundLeft: false, roundRight: true).fill()
         }
 
         // ── Placeholder (CodeMirror's cmPlaceholder): grey hint while the note is empty ──
@@ -212,6 +213,41 @@ struct NativeNoteEditor: NSViewRepresentable {
             }
             super.mouseDown(with: event)
         }
+    }
+
+    /// A rect rounded on selected SIDES only — the active-line band rounds its outer corners
+    /// (left in the gutter, right in the text) while the shared seam stays square.
+    static func washPath(_ r: NSRect, radius: CGFloat, roundLeft: Bool, roundRight: Bool) -> NSBezierPath {
+        let p = NSBezierPath()
+        let rad = min(radius, r.height / 2)
+        if roundLeft {
+            p.move(to: NSPoint(x: r.minX + rad, y: r.minY))
+        } else {
+            p.move(to: NSPoint(x: r.minX, y: r.minY))
+        }
+        if roundRight {
+            p.line(to: NSPoint(x: r.maxX - rad, y: r.minY))
+            p.appendArc(withCenter: NSPoint(x: r.maxX - rad, y: r.minY + rad), radius: rad,
+                        startAngle: -90, endAngle: 0)
+            p.line(to: NSPoint(x: r.maxX, y: r.maxY - rad))
+            p.appendArc(withCenter: NSPoint(x: r.maxX - rad, y: r.maxY - rad), radius: rad,
+                        startAngle: 0, endAngle: 90)
+        } else {
+            p.line(to: NSPoint(x: r.maxX, y: r.minY))
+            p.line(to: NSPoint(x: r.maxX, y: r.maxY))
+        }
+        if roundLeft {
+            p.line(to: NSPoint(x: r.minX + rad, y: r.maxY))
+            p.appendArc(withCenter: NSPoint(x: r.minX + rad, y: r.maxY - rad), radius: rad,
+                        startAngle: 90, endAngle: 180)
+            p.line(to: NSPoint(x: r.minX, y: r.minY + rad))
+            p.appendArc(withCenter: NSPoint(x: r.minX + rad, y: r.minY + rad), radius: rad,
+                        startAngle: 180, endAngle: 270)
+        } else {
+            p.line(to: NSPoint(x: r.minX, y: r.maxY))
+        }
+        p.close()
+        return p
     }
 
     /// The house editor face: Menlo (user preference), CodeMirror's 13px.
@@ -487,7 +523,9 @@ struct NativeNoteEditor: NSViewRepresentable {
             func washIfCurrent(_ n: Int, top: CGFloat, height: CGFloat) {
                 guard n == firstLine, sel.length == 0 else { return } // matches the text view's wash
                 base.withAlphaComponent(0.05).setFill()
-                NSRect(x: 0, y: top, width: ruleThickness, height: height).fill()
+                // Rounded LEFT corners; the square right edge continues into the text's band.
+                NativeNoteEditor.washPath(NSRect(x: 0, y: top, width: ruleThickness, height: height),
+                                          radius: 6, roundLeft: true, roundRight: false).fill()
             }
 
             func draw(_ n: Int, fragTop: CGFloat, fragHeight: CGFloat) {
