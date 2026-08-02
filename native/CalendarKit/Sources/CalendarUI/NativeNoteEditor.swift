@@ -456,7 +456,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         }
 
         override func drawHashMarksAndLabels(in rect: NSRect) {
-            guard let tv, let lm = tv.layoutManager else { return }
+            guard let tv, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
             let visible = tv.visibleRect
             let inset = tv.textContainerInset.height
             let ns = tv.string as NSString
@@ -520,7 +520,13 @@ struct NativeNoteEditor: NSViewRepresentable {
                     draw(lineNo, fragTop: extra.minY, fragHeight: extra.height)
                 }
             }
-            // Separator: only across the numbered span.
+            // Separator: across the numbered span INCLUDING wrapped continuation fragments —
+            // a long wrapped line only draws its number on the FIRST fragment, so sepBottom
+            // alone stopped short when the last line wrapped. The layout's used extent (plus
+            // the extra fragment) is the true bottom of the text.
+            let extra = lm.extraLineFragmentRect
+            let usedMax = max(lm.usedRect(for: tc).maxY, extra.height > 0 ? extra.maxY : 0)
+            sepBottom = max(sepBottom, usedMax + inset - visible.minY)
             if sepBottom > 0 {
                 let clampedTop = max(0, sepTop)
                 let clampedBottom = min(bounds.height, sepBottom + 2)
