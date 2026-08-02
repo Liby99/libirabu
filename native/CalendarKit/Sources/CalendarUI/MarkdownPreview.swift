@@ -448,10 +448,12 @@ enum MarkdownDoc {
                 // Open sides (user spec): horizontal rules everywhere, vertical rules only
                 // BETWEEN columns — no left/right outer frame. Thinner + darker lines.
                 cell.setBorderColor(base.withAlphaComponent(0.32))
-                // Single rules only: leading edges past the first row/column — otherwise
-                // adjacent cells double every line (0.33 + 0.33).
-                cell.setWidth(r > 0 ? 0.33 : 0, type: .absoluteValueType, for: .border, edge: .minY)
-                cell.setWidth(0, type: .absoluteValueType, for: .border, edge: .maxY)
+                // Single rules between rows/columns (leading edges only — adjacent cells
+                // would double them), PLUS the table's outer top and bottom borders; only the
+                // left/right outer frame stays open.
+                cell.setWidth(0.33, type: .absoluteValueType, for: .border, edge: .minY)
+                cell.setWidth(r == rows.count - 1 ? 0.33 : 0, type: .absoluteValueType,
+                              for: .border, edge: .maxY)
                 cell.setWidth(c > 0 ? 0.33 : 0, type: .absoluteValueType, for: .border, edge: .minX)
                 cell.setWidth(0, type: .absoluteValueType, for: .border, edge: .maxX)
                 for edge in [NSRectEdge.minX, .maxX] {
