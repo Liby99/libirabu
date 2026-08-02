@@ -33,6 +33,7 @@ struct NativeNotePanel: View {
     @State private var session = NoteEditSession()
     @State private var pendingEditLine: Int? // ⌘-click in the preview → edit at this line
     @State private var editorFocusSeq = 0 // bumped → the editor takes keyboard focus
+    @State private var appliedDefaultKey = "" // arrival default applied for this note already
 
     var body: some View {
         let storageKey = scope == "day" ? key
@@ -115,8 +116,19 @@ struct NativeNotePanel: View {
         .onChange(of: storageKey, initial: true) { _, _ in
             engine.prewarmEntityIndex() // completion index warm before the first "@"
         }
-        .onChange(of: storageKey, initial: true) { _, newKey in
-            noteMode = engine.dailyNote(newKey)
+        // THE UNIFIED ARRIVAL RULE: when this panel BECOMES the active dashboard (swipe
+        // settle, zoom landing, launch), the mode defaults by CONTENT — empty note → editor
+        // (nothing to preview), content → preview (reading is the common case). Applied once
+        // per note, ONLY by the active panel — mount-time application let parked/pre-built
+        // neighbor panels clobber the shared mode from offscreen. Explicit intents win:
+        // a pending note-jump (which forces edit-at-line) suppresses the default, and tab
+        // flips within the SAME dashboard keep whatever mode you were in.
+        .onChange(of: nav?.activePanel, initial: true) { _, active in
+            guard active == "\(scope)|\(key)" || nav == nil,
+                  appliedDefaultKey != storageKey else { return }
+            appliedDefaultKey = storageKey
+            guard nav?.noteJump?.key != storageKey else { return } // the jump forces edit
+            noteMode = engine.dailyNote(storageKey)
                 .trimmingCharacters(in: .whitespaces).isEmpty ? .edit : .preview
         }
     }
