@@ -224,6 +224,18 @@ public struct CalendarView: View {
     /// One-time wiring on the calendar's first appearance. Extracted from `body` so the view's long
     /// modifier chain stays within the Swift type-checker's budget.
     private func setupOnAppear(size: CGSize) {
+        // BUILD BANNER: stale binaries burned us (a Finder-launched app was still running the
+        // pre-native-default webview while we compared "the same code") — every launch now
+        // states exactly WHICH binary this is and what it runs, so no measurement is ever
+        // ambiguous about its build again.
+        let exe = Bundle.main.executablePath ?? CommandLine.arguments.first ?? "?"
+        let mtime = (try? FileManager.default.attributesOfItem(atPath: exe)[.modificationDate])
+            .flatMap { $0 as? Date }
+        print("[build] \(exe)")
+        print("[build] built \(mtime.map { ISO8601DateFormatter().string(from: $0) } ?? "?") | "
+            + "dashboard=\(NativeDash.enabled ? "NATIVE" : "WEBVIEW") | "
+            + "trace=\(CCTrace.on) diag=\(NativeDash.diag) hud=\(DemoController.hudEnabled) "
+            + "demo=\(CalendarEngine.isDemoMode)")
         WindowBeepSilencer.installOnce() // stop the window beeping on keys the calendar leaves unhandled
         if CalendarEngine.isDemoMode {
             demo.openSearchHook = { openSearch() }   // search-demo scene drives the real toolbar search
