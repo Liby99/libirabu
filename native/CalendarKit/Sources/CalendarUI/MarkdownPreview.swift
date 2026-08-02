@@ -61,8 +61,14 @@ struct MarkdownPreview: NSViewRepresentable {
             renderedKey = key
             let doc = MarkdownDoc.render(p.text, theme: p.theme, interactive: p.onToggle != nil)
             tv.lineMap = doc.lineMap
+            tv.decor = doc.decor
+            let base = NSColor(p.theme.text)
+            tv.codeBG = base.withAlphaComponent(0.055)
+            tv.quoteBG = base.withAlphaComponent(0.035)
+            tv.quoteBar = NSColor(Theme.accent).withAlphaComponent(0.55)
             tv.onCmdClickLine = p.onLineEdit
             tv.textStorage?.setAttributedString(doc.string)
+            tv.needsDisplay = true
         }
 
         func textView(_ tv: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
@@ -78,9 +84,63 @@ struct MarkdownPreview: NSViewRepresentable {
 }
 
 /// ⌘-click → source line (via the renderer's line map); plain clicks select as usual.
+/// Also draws the ROUNDED code/quote washes (NSTextBlock can only paint rectangles): the
+/// renderer hands over decoration ranges; each is unioned from its line fragments, outset by
+/// the block padding, and painted under the text — code with all corners rounded, quotes with
+/// the RIGHT corners rounded plus the accent bar down the square left edge.
 final class PreviewTextView: NSTextView {
     var lineMap: [(range: NSRange, line: Int)] = []
     var onCmdClickLine: ((Int) -> Void)?
+    var decor: [(range: NSRange, kind: MarkdownDoc.DecorKind)] = []
+    var codeBG: NSColor = .black.withAlphaComponent(0.055)
+    var quoteBG: NSColor = .black.withAlphaComponent(0.035)
+    var quoteBar: NSColor = .systemRed
+
+    override func draw(_ dirtyRect: NSRect) {
+        if let lm = layoutManager, let tc = textContainer {
+            let origin = textContainerOrigin
+            for d in decor {
+                let gr = lm.glyphRange(forCharacterRange: d.range, actualCharacterRange: nil)
+                guard gr.length > 0 else { continue }
+                var union = NSRect.null
+                lm.enumerateLineFragments(forGlyphRange: gr) { frag, _, _, _, _ in
+                    union = union.union(frag)
+                }
+                guard !union.isNull else { continue }
+                var r = union.offsetBy(dx: origin.x, dy: origin.y)
+                switch d.kind {
+                case .code:
+                    r = NSRect(x: r.minX - 11, y: r.minY - 8,
+                               width: min(r.width + 22, bounds.width - r.minX + 7), height: r.height + 16)
+                    codeBG.setFill()
+                    NSBezierPath(roundedRect: r, xRadius: 8, yRadius: 8).fill()
+                case .quote:
+                    r = NSRect(x: r.minX - 14, y: r.minY - 8,
+                               width: min(r.width + 24, bounds.width - r.minX + 7), height: r.height + 16)
+                    quoteBG.setFill()
+                    rightRounded(r, radius: 7).fill()
+                    quoteBar.setFill()
+                    NSRect(x: r.minX, y: r.minY, width: 3, height: r.height).fill()
+                }
+            }
+        }
+        super.draw(dirtyRect)
+    }
+
+    /// Rounded on the RIGHT corners only; the left edge (under the accent bar) stays square.
+    private func rightRounded(_ r: NSRect, radius: CGFloat) -> NSBezierPath {
+        let p = NSBezierPath()
+        p.move(to: NSPoint(x: r.minX, y: r.minY))
+        p.line(to: NSPoint(x: r.maxX - radius, y: r.minY))
+        p.appendArc(withCenter: NSPoint(x: r.maxX - radius, y: r.minY + radius), radius: radius,
+                    startAngle: -90, endAngle: 0)
+        p.line(to: NSPoint(x: r.maxX, y: r.maxY - radius))
+        p.appendArc(withCenter: NSPoint(x: r.maxX - radius, y: r.maxY - radius), radius: radius,
+                    startAngle: 0, endAngle: 90)
+        p.line(to: NSPoint(x: r.minX, y: r.maxY))
+        p.close()
+        return p
+    }
 
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command), let onCmdClickLine {
@@ -98,9 +158,12 @@ final class PreviewTextView: NSTextView {
 // ── The document builder ─────────────────────────────────────────────────────────────────────
 
 enum MarkdownDoc {
+    enum DecorKind { case code, quote }
+
     struct Rendered {
         let string: NSAttributedString
         let lineMap: [(range: NSRange, line: Int)]
+        let decor: [(range: NSRange, kind: DecorKind)]
     }
 
     // Type scale (the "bigger, better" pass): body 13.5, headings 19/16.5/15/14.
@@ -124,22 +187,24 @@ enum MarkdownDoc {
     static func render(_ text: String, theme: Theme, interactive: Bool) -> Rendered {
         var out = NSMutableAttributedString()
         var lineMap: [(NSRange, Int)] = []
+        var decor: [(NSRange, DecorKind)] = []
         let base = NSColor(theme.text)
         let accent = NSColor(Theme.accent)
 
         let (managedRaw, userText) = ManagedNote.splitNote(text)
         if !managedRaw.isEmpty {
-            appendManaged(managedRaw, to: &out, base: base, accent: accent, theme: theme)
+            appendManaged(managedRaw, to: &out, decor: &decor, base: base, accent: accent,
+                          theme: theme)
         }
         let startLine = managedRaw.isEmpty ? 1 : userStartLine(userText, in: text)
-        appendBlocks(userText, startLine: startLine, to: &out, lineMap: &lineMap,
+        appendBlocks(userText, startLine: startLine, to: &out, lineMap: &lineMap, decor: &decor,
                      base: base, accent: accent, theme: theme, interactive: interactive)
         // Bottom breathing room (user spec): a trailing spacer paragraph — inset is symmetric,
         // so the extra tail lives in the document itself.
         let tail = NSMutableParagraphStyle()
         tail.minimumLineHeight = 26
         out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: tail]))
-        return Rendered(string: out, lineMap: lineMap)
+        return Rendered(string: out, lineMap: lineMap, decor: decor)
     }
 
     private static func userStartLine(_ user: String, in text: String) -> Int {
@@ -152,6 +217,7 @@ enum MarkdownDoc {
     private static func appendBlocks(_ source: String, startLine: Int,
                                      to out: inout NSMutableAttributedString,
                                      lineMap: inout [(NSRange, Int)],
+                                     decor: inout [(NSRange, DecorKind)],
                                      base: NSColor, accent: NSColor, theme: Theme,
                                      interactive: Bool) {
         let lines = source.components(separatedBy: "\n")
@@ -174,7 +240,7 @@ enum MarkdownDoc {
             if let open = codeLines {
                 if line.hasPrefix("```") {
                     appendCode(open.joined(separator: "\n"), lang: codeLang, to: &out,
-                               base: base, theme: theme)
+                               decor: &decor, base: base, theme: theme)
                     mark(from, line: codeStart)
                     codeLines = nil
                 } else {
@@ -213,7 +279,7 @@ enum MarkdownDoc {
             } else if line.hasPrefix("#") {
                 let level = line.prefix(while: { $0 == "#" }).count
                 let body = line.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
-                let para = paragraph(spacingBefore: out.length == 0 ? 2 : 11, spacing: 5)
+                let para = paragraph(spacingBefore: out.length == 0 ? 2 : 14, spacing: 7)
                 out.append(inline(body, font: headingFont(level), color: base,
                                   accent: accent, para: para))
                 out.append(newline(para))
@@ -225,9 +291,9 @@ enum MarkdownDoc {
                                String(line[m.upperBound...]), indent: indentDepth(raw),
                                to: &out, base: base, accent: accent)
             } else if let rest = strip(line, ["> "]) {
-                appendQuote(rest, to: &out, base: base, accent: accent, theme: theme)
+                appendQuote(rest, to: &out, decor: &decor, base: base, accent: accent, theme: theme)
             } else {
-                let para = paragraph(spacing: 6)
+                let para = paragraph(spacing: 9)
                 out.append(inline(line, font: bodyFont(), color: base, accent: accent, para: para))
                 out.append(newline(para))
             }
@@ -236,7 +302,7 @@ enum MarkdownDoc {
         if let open = codeLines { // unterminated fence
             let from = out.length
             appendCode(open.joined(separator: "\n"), lang: codeLang, to: &out,
-                       base: base, theme: theme)
+                       decor: &decor, base: base, theme: theme)
             mark(from, line: codeStart)
         }
     }
@@ -246,7 +312,7 @@ enum MarkdownDoc {
     private static func appendTodo(_ text: String, done: Bool, line: Int, indent: Int,
                                    to out: inout NSMutableAttributedString,
                                    base: NSColor, accent: NSColor, interactive: Bool) {
-        let para = paragraph(spacing: 4)
+        let para = paragraph(spacing: 6)
         let ind = CGFloat(indent) * 18
         para.firstLineHeadIndent = ind
         para.headIndent = ind + 22
@@ -308,7 +374,7 @@ enum MarkdownDoc {
     private static func appendListItem(_ marker: String, _ text: String, indent: Int,
                                        to out: inout NSMutableAttributedString,
                                        base: NSColor, accent: NSColor) {
-        let para = paragraph(spacing: 4)
+        let para = paragraph(spacing: 6)
         let ind = CGFloat(indent) * 18
         para.firstLineHeadIndent = ind
         para.headIndent = ind + 18
@@ -321,32 +387,39 @@ enum MarkdownDoc {
     }
 
     private static func appendQuote(_ text: String, to out: inout NSMutableAttributedString,
+                                    decor: inout [(NSRange, DecorKind)],
                                     base: NSColor, accent: NSColor, theme: Theme) {
-        // The "> " block: bordered left edge + REAL top/bottom padding (user spec).
+        // The "> " block: layout via NSTextBlock (padding + top margin), VISUALS custom-drawn
+        // by PreviewTextView (accent bar + wash with ROUNDED RIGHT corners — NSTextBlock can
+        // only paint rectangles).
         let block = NSTextBlock()
-        block.setBorderColor(accent.withAlphaComponent(0.55), for: .minX)
-        block.setWidth(3, type: .absoluteValueType, for: .border, edge: .minX)
         block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .minY)
         block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .maxY)
-        block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
-        block.backgroundColor = base.withAlphaComponent(0.03)
+        block.setWidth(14, type: .absoluteValueType, for: .padding, edge: .minX)
+        block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .maxX)
+        block.setWidth(10, type: .absoluteValueType, for: .margin, edge: .minY) // margin-top
+        block.setWidth(4, type: .absoluteValueType, for: .margin, edge: .maxY)
         block.setContentWidth(100, type: .percentageValueType) // else the block collapses → 1-char lines
-        let para = paragraph(spacing: 7)
+        let para = paragraph(spacing: 8)
         para.textBlocks = [block]
+        let from = out.length
         out.append(inline(text, font: bodyFont(), color: base.withAlphaComponent(0.65),
                           accent: accent, para: para))
         out.append(newline(para))
+        decor.append((NSRange(location: from, length: out.length - from), .quote))
     }
 
     private static func appendCode(_ code: String, lang: String,
                                    to out: inout NSMutableAttributedString,
+                                   decor: inout [(NSRange, DecorKind)],
                                    base: NSColor, theme: Theme) {
-        let block = NSTextBlock()
-        block.backgroundColor = base.withAlphaComponent(0.055)
+        let block = NSTextBlock() // layout only; the ROUNDED wash is custom-drawn (see decor)
         for edge in [NSRectEdge.minX, .maxX, .minY, .maxY] {
-            block.setWidth(edge == .minX || edge == .maxX ? 10 : 8,
+            block.setWidth(edge == .minX || edge == .maxX ? 11 : 8,
                            type: .absoluteValueType, for: .padding, edge: edge)
         }
+        block.setWidth(10, type: .absoluteValueType, for: .margin, edge: .minY) // margin-top
+        block.setWidth(4, type: .absoluteValueType, for: .margin, edge: .maxY)
         block.setContentWidth(100, type: .percentageValueType) // same collapse guard as quotes
         let para = paragraph(spacing: 8)
         para.textBlocks = [block]
@@ -354,8 +427,10 @@ enum MarkdownDoc {
         let highlighted = CodeHighlight.highlight(code, lang: lang, base: base, font: codeFont)
         let m = NSMutableAttributedString(attributedString: highlighted)
         m.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: m.length))
+        let from = out.length
         out.append(m)
         out.append(newline(para))
+        decor.append((NSRange(location: from, length: out.length - from), .code))
     }
 
     private static func appendTable(_ rows: [[String]], to out: inout NSMutableAttributedString,
@@ -395,6 +470,7 @@ enum MarkdownDoc {
     }
 
     private static func appendManaged(_ raw: String, to out: inout NSMutableAttributedString,
+                                      decor: inout [(NSRange, DecorKind)],
                                       base: NSColor, accent: NSColor, theme: Theme) {
         let parsed = ManagedNote.parseManaged(raw)
         if !parsed.fields.isEmpty {
@@ -436,7 +512,7 @@ enum MarkdownDoc {
         if !parsed.description.isEmpty {
             var lineMapScratch: [(NSRange, Int)] = []
             appendBlocks(parsed.description, startLine: -100_000, to: &out,
-                         lineMap: &lineMapScratch, base: base, accent: accent,
+                         lineMap: &lineMapScratch, decor: &decor, base: base, accent: accent,
                          theme: theme, interactive: false) // vendor text: no line actions
         }
     }

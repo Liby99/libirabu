@@ -10,6 +10,8 @@ enum CodeHighlight {
         let keywords: Set<String>
         let lineComments: [String]
         let blockComments: [(String, String)]
+        var preprocessor = false // '#…' directives at line start (c/c++)
+        var decorators = false // '@name' (py/java/ts) / '#[…]'-adjacent attribute style
     }
 
     private static let cKeywords: Set<String> = [
@@ -22,7 +24,8 @@ enum CodeHighlight {
     private static let langs: [String: Lang] = {
         let cLike: [(String, String)] = [("/*", "*/")]
         var m: [String: Lang] = [:]
-        m["c"] = Lang(keywords: cKeywords, lineComments: ["//"], blockComments: cLike)
+        m["c"] = Lang(keywords: cKeywords, lineComments: ["//"], blockComments: cLike,
+                      preprocessor: true)
         m["cpp"] = Lang(
             keywords: cKeywords.union([
                 "class", "namespace", "template", "typename", "public", "private", "protected",
@@ -30,7 +33,7 @@ enum CodeHighlight {
                 "using", "try", "catch", "throw", "operator", "friend", "explicit", "mutable",
                 "static_cast", "dynamic_cast", "reinterpret_cast", "const_cast", "noexcept",
             ]),
-            lineComments: ["//"], blockComments: cLike)
+            lineComments: ["//"], blockComments: cLike, preprocessor: true)
         m["rust"] = Lang(
             keywords: [
                 "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else",
@@ -47,7 +50,7 @@ enum CodeHighlight {
                 "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise",
                 "return", "try", "while", "with", "yield", "True", "False", "None", "self",
             ],
-            lineComments: ["#"], blockComments: [])
+            lineComments: ["#"], blockComments: [], decorators: true)
         m["js"] = Lang(
             keywords: [
                 "async", "await", "break", "case", "catch", "class", "const", "continue",
@@ -63,7 +66,7 @@ enum CodeHighlight {
                 "public", "private", "protected", "abstract", "as", "is", "keyof", "infer",
                 "never", "unknown", "any", "string", "number", "boolean", "object", "symbol",
             ]),
-            lineComments: ["//"], blockComments: cLike)
+            lineComments: ["//"], blockComments: cLike, decorators: true)
         m["ocaml"] = Lang(
             keywords: [
                 "and", "as", "assert", "begin", "class", "constraint", "do", "done", "downto",
@@ -99,7 +102,7 @@ enum CodeHighlight {
                 "switch", "synchronized", "this", "throw", "throws", "transient", "try", "var",
                 "void", "volatile", "while", "true", "false", "null", "record", "sealed",
             ],
-            lineComments: ["//"], blockComments: cLike)
+            lineComments: ["//"], blockComments: cLike, decorators: true)
         m["julia"] = Lang(
             keywords: [
                 "abstract", "baremodule", "begin", "break", "catch", "const", "continue", "do",
@@ -108,7 +111,7 @@ enum CodeHighlight {
                 "quote", "return", "struct", "try", "type", "using", "while", "true", "false",
                 "nothing", "missing",
             ],
-            lineComments: ["#"], blockComments: [("#=", "=#")])
+            lineComments: ["#"], blockComments: [("#=", "=#")], decorators: true)
         // Aliases
         m["c++"] = m["cpp"]; m["cxx"] = m["cpp"]; m["cc"] = m["cpp"]; m["h"] = m["c"]
         m["rs"] = m["rust"]
@@ -133,12 +136,39 @@ enum CodeHighlight {
         let keywordColor = NSColor.systemPurple
         let stringColor = NSColor.systemBrown
         let numberColor = NSColor.systemTeal
+        let typeColor = NSColor.systemIndigo
+        let callColor = NSColor.systemBlue
         let commentColor = base.withAlphaComponent(0.42)
 
         var i = 0
+        var bol = true // at line start (only whitespace so far) — for #directives
         while i < ns.length {
             let ch = ns.character(at: i)
             let c = Character(UnicodeScalar(ch) ?? " ")
+            if c == "\n" { bol = true; i += 1; continue }
+            defer { if !c.isWhitespace { bol = false } }
+            // c/c++ preprocessor: '#include', '#define', … to end of line
+            if l.preprocessor, bol, c == "#" {
+                let nl = ns.range(of: "\n", range: NSRange(location: i, length: ns.length - i))
+                let stop = nl.location == NSNotFound ? ns.length : nl.location
+                out.addAttribute(.foregroundColor, value: callColor,
+                                 range: NSRange(location: i, length: stop - i))
+                i = stop
+                continue
+            }
+            // decorators / macros: @Something (py/java/ts/julia's @macro)
+            if l.decorators, c == "@", i + 1 < ns.length,
+               Character(UnicodeScalar(ns.character(at: i + 1)) ?? " ").isLetter {
+                var j = i + 1
+                while j < ns.length {
+                    let cj = Character(UnicodeScalar(ns.character(at: j)) ?? " ")
+                    if cj.isLetter || cj.isNumber || cj == "_" || cj == "." { j += 1 } else { break }
+                }
+                out.addAttribute(.foregroundColor, value: callColor,
+                                 range: NSRange(location: i, length: j - i))
+                i = j
+                continue
+            }
             // Block comments
             if let bc = l.blockComments.first(where: { matches(ns, at: i, $0.0) }) {
                 let end = ns.range(of: bc.1, range: NSRange(location: i, length: ns.length - i))
@@ -196,12 +226,23 @@ enum CodeHighlight {
                     if cj.isLetter || cj.isNumber || cj == "_" { j += 1 } else { break }
                 }
                 let word = ns.substring(with: NSRange(location: i, length: j - i))
+                let range = NSRange(location: i, length: j - i)
                 if l.keywords.contains(word) {
                     out.addAttributes([
                         .foregroundColor: keywordColor,
                         .font: NSFont(name: "Menlo-Bold", size: font.pointSize)
                             ?? .monospacedSystemFont(ofSize: font.pointSize, weight: .semibold),
-                    ], range: NSRange(location: i, length: j - i))
+                    ], range: range)
+                } else if c.isUppercase {
+                    // Types / constructors / modules (Rust, Haskell, OCaml, Lean, Julia, Java…)
+                    out.addAttribute(.foregroundColor, value: typeColor, range: range)
+                } else {
+                    // A call: identifier directly followed by '('
+                    var k = j
+                    while k < ns.length, ns.character(at: k) == 0x20 { k += 1 }
+                    if k < ns.length, ns.character(at: k) == 0x28 {
+                        out.addAttribute(.foregroundColor, value: callColor, range: range)
+                    }
                 }
                 i = j
                 continue
