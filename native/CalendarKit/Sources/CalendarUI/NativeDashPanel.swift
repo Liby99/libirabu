@@ -72,6 +72,7 @@ enum NativeDash {
 
     @MainActor static func diagPress(_ label: String, engine: CalendarEngine) {
         guard diag else { return }
+        DashWatchdog.shared.openWindow(seconds: 2.5)
         diagPressAt = Date()
         diagLastEval = nil
         diagLastStamp = engine.todoDataStamp
@@ -90,7 +91,9 @@ enum NativeDash {
     }
 
     @MainActor static func diagFrame(engine: CalendarEngine) {
-        guard diag, let press = diagPressAt else { return }
+        guard diag else { return }
+        DashWatchdog.shared.noteEval()
+        guard let press = diagPressAt else { return }
         let now = Date()
         let sincePress = now.timeIntervalSince(press)
         if sincePress > 2.5 {
