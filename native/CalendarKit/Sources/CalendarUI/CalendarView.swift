@@ -852,6 +852,7 @@ public struct CalendarView: View {
             // bench scenes; reads only @ObservationIgnored state, so it can't invalidate the view).
             let _ = demo.benchTick(tl.date)
             let _ = NativeDash.diagSceneFrame() // CC_DASH_DIAG scene heartbeat
+            let _ = CCTrace.frame(engine) // CC_TRACE interaction profiler
             calendarScene(engine.sceneInput(at: tl.date, viewport: vp), vp: vp, theme: theme)
         }
     }
@@ -1375,6 +1376,7 @@ private struct ViewPrefObservers: ViewModifier {
     private func dashHotkey(_ stop: DashTab) {
         guard ui.openEventId == nil else { return }
         NativeDash.diagPress("⌘\(stop == .todo ? "B" : stop == .note ? "E" : "J")", engine: engine)
+        CCTrace.event("hotkey ⌘\(stop == .todo ? "B" : stop == .note ? "E" : "J")")
         switch engine.chrome.level {
         case 3:
             dashTab = stop

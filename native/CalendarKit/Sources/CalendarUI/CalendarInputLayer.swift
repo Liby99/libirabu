@@ -402,6 +402,11 @@ final class CatcherView: NSView, NSMenuItemValidation {
             return
         } // don't fight flip / inline edit
         noteScroll() // suppress hover while this scroll (and its momentum) is live
+        if CCTrace.on {
+            if e.phase.contains(.began) { CCTrace.event("scrollBegan L\(engine.chrome.level)") }
+            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { CCTrace.event("scrollEnded") }
+            if e.momentumPhase.contains(.began) { CCTrace.event("momentumBegan") }
+        }
         if e.phase
             .contains(.began) {
             tlPrepared = false
@@ -533,6 +538,10 @@ final class CatcherView: NSView, NSMenuItemValidation {
         }
         let began = e.phase.contains(.began)
         let ended = e.phase.contains(.ended) || e.phase.contains(.cancelled)
+        if CCTrace.on {
+            if began { CCTrace.event("pinchBegan L\(engine?.chrome.level ?? -1)") }
+            if ended { CCTrace.event("pinchEnded") }
+        }
         engine?.onMagnify(delta: e.magnification, at: point(e), began: began, ended: ended)
     }
 
