@@ -25,6 +25,8 @@ struct MarkdownPreview: NSViewRepresentable {
         tv.isSelectable = true // the whole document selects/copies like a page
         tv.drawsBackground = false
         tv.textContainerInset = NSSize(width: 2, height: 6)
+        // Roomy tail: the last line shouldn't sit on the panel's bottom edge.
+        tv.textContainer?.lineFragmentPadding = 4
         tv.autoresizingMask = [.width]
         tv.isVerticallyResizable = true
         tv.textContainer?.widthTracksTextView = true
@@ -132,6 +134,11 @@ enum MarkdownDoc {
         let startLine = managedRaw.isEmpty ? 1 : userStartLine(userText, in: text)
         appendBlocks(userText, startLine: startLine, to: &out, lineMap: &lineMap,
                      base: base, accent: accent, theme: theme, interactive: interactive)
+        // Bottom breathing room (user spec): a trailing spacer paragraph — inset is symmetric,
+        // so the extra tail lives in the document itself.
+        let tail = NSMutableParagraphStyle()
+        tail.minimumLineHeight = 26
+        out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: tail]))
         return Rendered(string: out, lineMap: lineMap)
     }
 
@@ -361,8 +368,13 @@ enum MarkdownDoc {
             for c in 0 ..< cols {
                 let cell = NSTextTableBlock(table: table, startingRow: r, rowSpan: 1,
                                             startingColumn: c, columnSpan: 1)
-                cell.setBorderColor(base.withAlphaComponent(0.18))
-                cell.setWidth(0.5, type: .absoluteValueType, for: .border)
+                // Open sides (user spec): horizontal rules everywhere, vertical rules only
+                // BETWEEN columns — no left/right outer frame. Thinner + darker lines.
+                cell.setBorderColor(base.withAlphaComponent(0.32))
+                cell.setWidth(0.33, type: .absoluteValueType, for: .border, edge: .minY)
+                cell.setWidth(0.33, type: .absoluteValueType, for: .border, edge: .maxY)
+                cell.setWidth(c > 0 ? 0.33 : 0, type: .absoluteValueType, for: .border, edge: .minX)
+                cell.setWidth(0, type: .absoluteValueType, for: .border, edge: .maxX)
                 for edge in [NSRectEdge.minX, .maxX] {
                     cell.setWidth(8, type: .absoluteValueType, for: .padding, edge: edge)
                 }
