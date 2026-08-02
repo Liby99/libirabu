@@ -16,6 +16,16 @@ struct NativeNotePanel: View {
     let theme: Theme
     @Binding var noteMode: NotesMode
 
+    /// The engine's entity index (JSON for the webview bridge), decoded for the native
+    /// completion source. Tiny payload; the engine caches per editGen with coalesced refresh.
+    static func entityIndex(_ engine: CalendarEngine)
+        -> (projects: [String], people: [String], tags: [String]) {
+        struct Idx: Decodable { var projects: [String]?; var people: [String]?; var tags: [String]? }
+        let idx = (try? JSONDecoder().decode(Idx.self,
+                                             from: Data(engine.entityIndexJSON().utf8)))
+        return (idx?.projects ?? [], idx?.people ?? [], idx?.tags ?? [])
+    }
+
     /// Ends the editing session (created:-stamps) when the MODE TOGGLE leaves edit — the
     /// toggle lives in the DashChrome overlay writing this binding from outside, so the panel
     /// intercepts the change and stamps BEFORE the preview branch reads the note.
@@ -44,6 +54,8 @@ struct NativeNotePanel: View {
                         engine.dashNoteExit()
                     },
                     session: session,
+                    completionIndex: { NativeNotePanel.entityIndex(engine) },
+                    dueAnchor: { scope == "day" ? ("this day", key) : nil },
                     focusLine: pendingEditLine,
                     onFocusLineHandled: { pendingEditLine = nil }
                 )
