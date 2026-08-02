@@ -24,9 +24,11 @@ struct MarkdownPreview: NSViewRepresentable {
         tv.isEditable = false
         tv.isSelectable = true // the whole document selects/copies like a page
         tv.drawsBackground = false
-        tv.textContainerInset = NSSize(width: 2, height: 6)
-        // Roomy tail: the last line shouldn't sit on the panel's bottom edge.
-        tv.textContainer?.lineFragmentPadding = 4
+        // Flush left: zero container inset + zero fragment padding (default 5!) so the text's
+        // left edge sits exactly on the panel edge the dashboard headers align to. Block
+        // washes still start at x=0 (their glyphs are inset by the blocks' own padding).
+        tv.textContainerInset = NSSize(width: 0, height: 6)
+        tv.textContainer?.lineFragmentPadding = 0
         tv.autoresizingMask = [.width]
         tv.isVerticallyResizable = true
         tv.textContainer?.widthTracksTextView = true
