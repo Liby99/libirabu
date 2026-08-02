@@ -76,11 +76,15 @@ struct NativeProjPanel: View {
         let basis = "\(scope)|\(key)"
         let stamp = engine.todoDataStamp
         if let f = frozen, f.basis == basis, f.stamp == stamp { return f.order }
+        // Scores are computed ONCE per task, then sorted — a score inside the comparator ran
+        // O(n log n) times and made this the single hottest block on tab open (~90ms release,
+        // several× that in debug, on a 500-task year).
         let order = projects.map { p in
             (key: p.key,
              ranked: p.tasks
-                 .sorted { ProjIndex.taskScore($0, today: today) > ProjIndex.taskScore($1, today: today) }
-                 .map { NativeDashPanel.anchor($0.todo) })
+                 .map { (score: ProjIndex.taskScore($0, today: today), anchor: NativeDashPanel.anchor($0.todo)) }
+                 .sorted { $0.score > $1.score }
+                 .map(\.anchor))
         }
         let f = Frozen(basis: basis, stamp: stamp, order: order)
         DispatchQueue.main.async { frozen = f }

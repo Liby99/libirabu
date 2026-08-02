@@ -34,15 +34,37 @@ public struct Project: Sendable {
 public enum ProjIndex {
     public static let maxRows = 8
 
-    /// Days from a to b (UTC wall-clock; negative when b < a).
+    /// Days from a to b (wall-clock; negative when b < a). Pure integer civil-date arithmetic
+    /// (Julian Day Number, proleptic Gregorian): the Calendar-based version cost ~6.6µs/call
+    /// through DateComponents+Date and dominated every chart render and relevance-score sort
+    /// (this sits under ChartScale.x for every bar/tick and under task/project scoring).
     public static func daysBetween(_ a: String, _ b: String) -> Int {
-        func date(_ s: String) -> Date? {
-            let p = s.prefix(10).split(separator: "-").compactMap { Int($0) }
-            guard p.count == 3 else { return nil }
-            return utcCalendar.date(from: DateComponents(year: p[0], month: p[1], day: p[2]))
-        }
-        guard let da = date(a), let db = date(b) else { return 0 }
-        return utcCalendar.dateComponents([.day], from: da, to: db).day ?? 0
+        guard let da = dayNumber(a), let db = dayNumber(b) else { return 0 }
+        return db - da
+    }
+
+    /// "YYYY-MM-DD[…]"→ its Julian Day Number; nil on malformed input.
+    static func dayNumber(_ s: String) -> Int? {
+        let p = s.prefix(10).split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3 else { return nil }
+        let a = (14 - p[1]) / 12
+        let y = p[0] + 4800 - a
+        let m = p[1] + 12 * a - 3
+        return p[2] + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045
+    }
+
+    /// Julian Day Number → "YYYY-MM-DD" (the exact inverse of dayNumber).
+    static func isoFromDayNumber(_ jdn: Int) -> String {
+        let a = jdn + 32044
+        let b = (4 * a + 3) / 146097
+        let c = a - 146097 * b / 4
+        let d = (4 * c + 3) / 1461
+        let e = c - 1461 * d / 4
+        let m = (5 * e + 2) / 153
+        let day = e - (153 * m + 2) / 5 + 1
+        let month = m + 3 - 12 * (m / 10)
+        let year = 100 * b + d - 4800 + m / 10
+        return String(format: "%04d-%02d-%02d", year, month, day)
     }
 
     /// Bare `@project:<key>` LINES in a note (the whole trimmed line, nothing else on it).
@@ -136,11 +158,12 @@ public enum ProjIndex {
                 return d > acc ? d : acc
             }
         }
-        // Deterministic relevance order with the key as a total-order tiebreak.
-        return order.compactMap { map[$0] }.sorted { a, b in
-            let sa = projectScore(a, today: today), sb = projectScore(b, today: today)
-            return sa != sb ? sa > sb : a.key < b.key
-        }
+        // Deterministic relevance order with the key as a total-order tiebreak. Scores computed
+        // once per project, not per comparison (each score walks the task list + does date math).
+        return order.compactMap { map[$0] }
+            .map { (score: projectScore($0, today: today), p: $0) }
+            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.p.key < $1.p.key }
+            .map(\.p)
     }
 
     /// Project relevance: open-work pressure + activity recency (30d decay) + nearest upcoming

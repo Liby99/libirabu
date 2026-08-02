@@ -179,17 +179,19 @@ public enum TodoIndex {
 
     static func pad2(_ n: Int) -> String { String(format: "%02d", n) }
 
-    /// `30d` / `2w` / `3m` / `1y` added to a base `YYYY-MM-DD` date.
+    /// `30d` / `2w` / `3m` / `1y` added to a base `YYYY-MM-DD` date. Day/week adds are pure
+    /// integer JDN arithmetic (this sits in chart axes loops and the feed build — the Calendar
+    /// round-trip cost µs per call); month/year adds keep Calendar's overflow normalization
+    /// (Jan 31 + 1m) — they're rare (`3m`/`1y` duration tokens only).
     public static func addDuration(_ baseIso: String, _ n: Int, _ unit: Character) -> String {
+        if unit == "d" || unit == "w" {
+            guard let num = ProjIndex.dayNumber(baseIso) else { return baseIso }
+            return ProjIndex.isoFromDayNumber(num + n * (unit == "w" ? 7 : 1))
+        }
         let p = baseIso.prefix(10).split(separator: "-").compactMap { Int($0) }
         guard p.count == 3 else { return baseIso }
         var c = DateComponents(year: p[0], month: p[1], day: p[2])
-        switch unit {
-        case "d": c.day! += n
-        case "w": c.day! += 7 * n
-        case "m": c.month! += n
-        default: c.year! += n // "y"
-        }
+        if unit == "m" { c.month! += n } else { c.year! += n } // "y"
         let cal = utcCalendar
         guard let d = cal.date(from: c) else { return baseIso }
         let o = cal.dateComponents([.year, .month, .day], from: d)

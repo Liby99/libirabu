@@ -80,23 +80,69 @@ extension CalendarEngine {
         _ = buildTodoFeed(today: today)
     }
 
-    /// One rebuild, shortly after the last edit of a burst; wake() so the settled frame re-reads.
+    /// One rebuild, shortly after the last edit of a burst. The build itself runs on a BACKGROUND
+    /// queue: the full-database tokenize is ~30ms release / >100ms debug, and running it on main
+    /// (as this used to) landed as a visible hitch right after typing stopped or a sync burst
+    /// settled. wake() on publish so the settled frame re-reads the fresh caches.
     private func scheduleTodoFeedRefresh(today: String) {
         guard todoFeedWork == nil else { return } // later edits ride the same window
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.todoFeedWork = nil
-            _ = self.buildTodoFeed(today: today)
-            self.wake()
+            self.rebuildFeedsInBackground(today: today)
         }
         todoFeedWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
 
+    /// Launch prewarm: build the todo + proj feeds off-thread so the first ⌘B / month entry finds
+    /// warm caches instead of paying the cold parse inline, inside its zoom tween.
+    public func prewarmFeeds(today: String) {
+        guard todoFeedCache == nil else { return }
+        rebuildFeedsInBackground(today: today)
+    }
+
+    /// SERIAL build queue: overlapping rebuilds (edit bursts racing a slow build) publish in
+    /// submission order, so a newer snapshot can never be overwritten by an older one landing late.
+    private static let feedBuildQ = DispatchQueue(label: "cc.dash.feedBuild", qos: .userInitiated)
+
+    /// Snapshot the inputs on the caller's (main) thread, tokenize + index on a background queue,
+    /// publish both caches back on main. Everything crossing the boundary is a value snapshot
+    /// (TodoSource/ParsedTodo/Project are Sendable value types; the builders are pure statics).
+    /// The gens are captured WITH the snapshot: if edits land while the build runs, the published
+    /// caches carry the old gens, so the next read schedules another refresh — never stale-forever.
+    func rebuildFeedsInBackground(today: String) {
+        let gens = (gen: caches.editGen, noteGen: caches.noteGen)
+        let sources = todoSources()
+        let notes = items.dailyNotes
+        let dls = items.deadlines.map { displayDeadline($0) }
+        Self.feedBuildQ.async { [weak self] in
+            let todos = Self.buildFeedPure(sources: sources, dailyNotes: notes, today: today)
+            let projects = ProjIndex.build(todos: todos, sources: sources, deadlines: dls,
+                                           today: today)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.todoFeedCache = (gens.gen, gens.noteGen, today, todos)
+                self.projFeedCache = (gens.gen, gens.noteGen, today, projects)
+                self.wake()
+            }
+        }
+    }
+
     @discardableResult
     private func buildTodoFeed(today: String) -> [ParsedTodo] {
-        var todos = TodoIndex.indexTodos(todoSources(), today: today)
-        for (key, text) in items.dailyNotes.sorted(by: { $0.key < $1.key }) {
+        let todos = Self.buildFeedPure(sources: todoSources(), dailyNotes: items.dailyNotes,
+                                       today: today)
+        todoFeedCache = (caches.editGen, caches.noteGen, today, todos)
+        return todos
+    }
+
+    /// The pure full-feed build (event todos + every daily/weekly/monthly note's todos) — a
+    /// static over value snapshots, so the background rebuild can run it off the engine.
+    static func buildFeedPure(sources: [TodoSource], dailyNotes: [String: String],
+                              today: String) -> [ParsedTodo] {
+        var todos = TodoIndex.indexTodos(sources, today: today)
+        for (key, text) in dailyNotes.sorted(by: { $0.key < $1.key }) {
             if key.hasPrefix("week:") {
                 let sun = String(key.dropFirst(5))
                 todos.append(contentsOf: scopeNoteTodos(
@@ -114,7 +160,6 @@ extension CalendarEngine {
                                                                        today: today))
             }
         }
-        todoFeedCache = (caches.editGen, caches.noteGen, today, todos)
         return todos
     }
 
@@ -122,8 +167,8 @@ extension CalendarEngine {
     /// START (relative `due:` tokens resolve inside the range) then re-anchored: the soft-link key
     /// stays the storage key (toggling rewrites the right note), and undated items default their
     /// due to the range END ("finish within the week/month"). Mirrors dashboard.ts scopeNoteTodos.
-    private func scopeNoteTodos(key: String, anchor: String, end: String, title: String,
-                                text: String, today: String) -> [ParsedTodo] {
+    private static func scopeNoteTodos(key: String, anchor: String, end: String, title: String,
+                                       text: String, today: String) -> [ParsedTodo] {
         TodoIndex.parseDailyNoteTodos(date: anchor, notes: text, today: today).map { t in
             var t = t
             t.dailyDate = key

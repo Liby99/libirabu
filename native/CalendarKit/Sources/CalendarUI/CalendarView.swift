@@ -231,16 +231,6 @@ public struct CalendarView: View {
             demo.dashTodoFocusHook = { dashCarousel.navFocus(.todo) }
             demo.dashTodoToggleHook = { dashCarousel.navActivate() }
             demo.dashWebCarousel = dashCarousel
-            // Native dashboard: pre-build the todo/proj feeds shortly after launch, off any
-            // animation — the first cmd+B / month entry then finds warm caches instead of
-            // paying the cold parse inside its zoom tween.
-            if NativeDash.enabled {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    let today = NativeDashPanel.todayIso()
-                    _ = engine.todoFeed(today: today)
-                    _ = engine.projFeed(today: today)
-                }
-            }
             demo.closeEventMenuHook = { ui.eventMenu = nil }
             demo.searchState = search
             demo.startIfDemo(engine: engine, size: size)
@@ -248,6 +238,15 @@ public struct CalendarView: View {
         else if !tutorialSeen {
             tutorialSeen = true; ui.tutorialIndex = 0; ui.showTutorial = true
         } // first launch
+        // Native dashboard: pre-build the todo/proj feeds shortly after launch (in EVERY mode —
+        // this used to sit inside the demo branch, so real launches paid the cold full-database
+        // parse inline on first panel open, inside its zoom tween). The build itself runs on the
+        // background feed queue; +0.4s keeps the snapshot off the launch render burst.
+        if NativeDash.enabled {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                engine.prewarmFeeds(today: NativeDashPanel.todayIso())
+            }
+        }
         engine.setViewport(size)
         dashFrac = engine.daily.frac
         engine.onEditBand = { id, rect in engine.bandEditing = true; ui.editingBand = BandEdit(id: id, rect: rect) }

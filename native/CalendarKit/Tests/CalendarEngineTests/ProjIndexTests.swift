@@ -62,4 +62,47 @@ final class ProjIndexTests: XCTestCase {
         XCTAssertEqual(ProjIndex.shown(projects, rs: "2026-06-01", re: "2026-06-30").count, 1)
         XCTAssertEqual(ProjIndex.shown(projects, rs: "2026-07-20", re: "2026-07-27").count, 0)
     }
+
+    /// Golden: the pure-integer daysBetween must agree with Foundation's Calendar everywhere —
+    /// leap years, century rules, month/year boundaries, negatives, and THH:MM suffixes.
+    func testDaysBetweenMatchesCalendar() {
+        func calendarDays(_ a: String, _ b: String) -> Int {
+            func date(_ s: String) -> Date {
+                let p = s.prefix(10).split(separator: "-").compactMap { Int($0) }
+                return utcCalendar.date(from: DateComponents(year: p[0], month: p[1], day: p[2]))!
+            }
+            return utcCalendar.dateComponents([.day], from: date(a), to: date(b)).day!
+        }
+        let anchors = ["2024-02-28", "2024-02-29", "2024-03-01", "2025-12-31", "2026-01-01",
+                       "2026-07-31", "2026-08-02", "2000-02-29", "2100-02-28", "1999-12-31"]
+        for a in anchors {
+            for off in [-800, -365, -31, -1, 0, 1, 28, 29, 30, 31, 365, 366, 1000] {
+                let b = TodoIndex.addDuration(a, off, "d")
+                XCTAssertEqual(ProjIndex.daysBetween(a, b), calendarDays(a, b), "\(a) → \(b)")
+                XCTAssertEqual(ProjIndex.daysBetween(b, a), calendarDays(b, a), "\(b) → \(a)")
+            }
+        }
+        XCTAssertEqual(ProjIndex.daysBetween("2026-08-01T09:30", "2026-08-02T23:00"), 1)
+        XCTAssertEqual(ProjIndex.daysBetween("garbage", "2026-08-02"), 0)
+    }
+
+    /// Golden: the pure JDN day/week adds must match Calendar's day arithmetic exactly.
+    func testAddDurationDayWeekMatchesCalendar() {
+        func calendarAdd(_ iso: String, _ days: Int) -> String {
+            let p = iso.split(separator: "-").compactMap { Int($0) }
+            let d = utcCalendar.date(from: DateComponents(year: p[0], month: p[1], day: p[2]))!
+            let m = utcCalendar.date(byAdding: .day, value: days, to: d)!
+            let o = utcCalendar.dateComponents([.year, .month, .day], from: m)
+            return String(format: "%04d-%02d-%02d", o.year!, o.month!, o.day!)
+        }
+        let anchors = ["2024-02-28", "2024-02-29", "2025-12-31", "2026-01-01", "2026-08-02",
+                       "2000-02-29", "2100-02-28", "1999-12-31"]
+        for a in anchors {
+            for n in [-731, -366, -30, -1, 0, 1, 27, 30, 365, 1000] {
+                XCTAssertEqual(TodoIndex.addDuration(a, n, "d"), calendarAdd(a, n), "\(a) + \(n)d")
+                XCTAssertEqual(TodoIndex.addDuration(a, n, "w"), calendarAdd(a, n * 7), "\(a) + \(n)w")
+            }
+        }
+        XCTAssertEqual(TodoIndex.addDuration("garbage", 3, "d"), "garbage")
+    }
 }
