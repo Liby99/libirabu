@@ -323,6 +323,7 @@ enum MarkdownDoc {
         block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .maxY)
         block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
         block.backgroundColor = base.withAlphaComponent(0.03)
+        block.setContentWidth(100, type: .percentageValueType) // else the block collapses → 1-char lines
         let para = paragraph(spacing: 7)
         para.textBlocks = [block]
         out.append(inline(text, font: bodyFont(), color: base.withAlphaComponent(0.65),
@@ -339,6 +340,7 @@ enum MarkdownDoc {
             block.setWidth(edge == .minX || edge == .maxX ? 10 : 8,
                            type: .absoluteValueType, for: .padding, edge: edge)
         }
+        block.setContentWidth(100, type: .percentageValueType) // same collapse guard as quotes
         let para = paragraph(spacing: 8)
         para.textBlocks = [block]
         para.lineSpacing = 1.5
@@ -369,7 +371,7 @@ enum MarkdownDoc {
                 }
                 if r == 0 { cell.backgroundColor = base.withAlphaComponent(0.06) }
                 let para = paragraph(spacing: 0)
-                para.textBlocks = [table, cell] as? [NSTextBlock] ?? [cell]
+                para.textBlocks = [cell]
                 let text = c < row.count ? row[c] : ""
                 out.append(inline(text, font: r == 0 ? bodyFont(.semibold) : bodyFont(),
                                   color: base, accent: accent, para: para))
@@ -393,7 +395,7 @@ enum MarkdownDoc {
                     cell.setWidth(2.5, type: .absoluteValueType, for: .padding, edge: .maxY)
                     if c == 0 { cell.setContentWidth(96, type: .absoluteValueType) }
                     let para = paragraph(spacing: 0)
-                    para.textBlocks = [table, cell] as? [NSTextBlock] ?? [cell]
+                    para.textBlocks = [cell]
                     if c == 0 {
                         out.append(NSAttributedString(string: f.label, attributes: [
                             .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
