@@ -752,6 +752,15 @@ public final class CalendarEngine {
 
     /// Advance the anim.tween to `date` and return the immutable input for this frame.
     public func sceneInput(at date: Date, viewport vp: Viewport) -> SceneInput {
+        // ONE animation-clock sample per runloop cycle. Inside a single CA commit, SwiftUI can
+        // re-evaluate the scene repeatedly (the commit's layout loop) with a FRESH timeline date
+        // each pass; advancing tweens on every pass moves views again, re-dirties layout, and the
+        // commit never converges until the animation ends — a 300ms commit presenting nothing
+        // (the ⌘J pop). Freezing the clock within a cycle makes every intra-commit eval
+        // identical, so layout converges, the frame presents, and the NEXT cycle advances by the
+        // real elapsed time — the animation stays wall-clock true. This is exactly SwiftUI's own
+        // per-transaction time sampling, applied to the engine's manual tweens.
+        let date = RenderLoopClock.sample(date)
         viewport = vp
         if var t = anim.tween {
             if !t.ticked { // first rendered frame → start the clock NOW (see Tween.ticked)

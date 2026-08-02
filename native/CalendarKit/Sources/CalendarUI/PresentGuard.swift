@@ -18,6 +18,7 @@
 // and the guard never fires.
 
 import AppKit
+import CalendarEngine
 import QuartzCore
 
 @MainActor
@@ -33,12 +34,16 @@ public enum PresentGuard {
     public static func install() {
         guard !installed else { return }
         installed = true
+        RenderLoopClock.enabled = true // engine tweens sample time once per runloop cycle
         // Natural commit point reached → screen is fresh; note the time. Order is just past
         // CA's own BeforeWaiting transaction observer (2,000,000).
         let idle = CFRunLoopObserverCreateWithHandler(
             kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_000_002
         ) { _, _ in
-            MainActor.assumeIsolated { lastFlush = CFAbsoluteTimeGetCurrent() }
+            MainActor.assumeIsolated {
+                lastFlush = CFAbsoluteTimeGetCurrent()
+                RenderLoopClock.generation &+= 1
+            }
         }
         // Every runloop cycle — including starved ones that never sleep. Phase boundary, so no
         // SwiftUI update is mid-flight; flushing here is the same work BeforeWaiting would do.
@@ -46,6 +51,7 @@ public enum PresentGuard {
             kCFAllocatorDefault, CFRunLoopActivity.beforeSources.rawValue, true, 0
         ) { _, _ in
             MainActor.assumeIsolated {
+                RenderLoopClock.generation &+= 1
                 let now = CFAbsoluteTimeGetCurrent()
                 guard now - lastFlush > staleLimit else { return }
                 lastFlush = now

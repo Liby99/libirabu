@@ -60,7 +60,36 @@ import CalendarEngine
         // Bench/demo runs: float the window. Repeated launches stop winning macOS's
         // focus-stealing arbitration, and an occluded window suspends the dashboard WKWebView's
         // page ("hidden" visibilityState → no rAF), silently blanking the web-side bench stats.
-        if demo { window.level = .floating }
+        if demo {
+            window.level = .floating
+            // Also surface over full-screen Spaces: if the user works in a fullscreen app while a
+            // bench runs, the bench window would otherwise sit on another Space, OCCLUDED — which
+            // suspends its display link and presents (a run that silently measures nothing).
+            window.collectionBehavior.insert(.canJoinAllSpaces)
+        }
+        // CC_WINDOW=fs: a REAL full-screen Space (not a fullscreen-sized window) — full-screen
+        // presentation goes through a different compositor path than windowed, and the two can
+        // stall differently under identical layer trees.
+        if (ProcessInfo.processInfo.environment["CC_WINDOW"] ?? "").lowercased() == "fs" {
+            window.level = .normal
+            window.collectionBehavior.insert(.fullScreenPrimary)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak window] in
+                window?.toggleFullScreen(nil)
+            }
+        }
+        // CC_TOOLBAR=1: attach a unified NSToolbar with an NSHostingView-backed item, mimicking
+        // the app shell's window chrome. The toolbar drags an Auto Layout engine into the window;
+        // the ⌘J-pop hypothesis is that hosted-view frame updates during the dash slide then
+        // re-dirty window layout INSIDE CA::Transaction::commit's layout loop, which can't
+        // converge until the animation ends (one 300ms commit, zero presented frames).
+        if ProcessInfo.processInfo.environment["CC_TOOLBAR"] != nil {
+            let tb = NSToolbar(identifier: "cc-bench-toolbar")
+            tb.delegate = BenchToolbarDelegate.shared
+            tb.displayMode = .iconOnly
+            window.toolbarStyle = .unified
+            window.titleVisibility = .hidden
+            window.toolbar = tb
+        }
         if demo { exportContentRect() }
         // Dev/screenshot affordance: open the Help window on launch (used to capture Help GIFs/screens).
         if ProcessInfo.processInfo.environment["CC_OPEN_HELP"] != nil {
@@ -166,6 +195,24 @@ import CalendarEngine
             .credits: credits,
         ])
         NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+/// CC_TOOLBAR=1 bench chrome: one toolbar item hosting a SwiftUI view, like the app shell's
+/// breadcrumb/glass buttons (see the CC_TOOLBAR block in applicationDidFinishLaunching).
+@MainActor
+final class BenchToolbarDelegate: NSObject, NSToolbarDelegate {
+    static let shared = BenchToolbarDelegate()
+    private let ids: [NSToolbarItem.Identifier] = [.init("cc-bench-item"), .flexibleSpace]
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { ids }
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { ids }
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        let item = NSToolbarItem(itemIdentifier: id)
+        if id.rawValue == "cc-bench-item" {
+            item.view = NSHostingView(rootView: Text("MagiCal Bench").font(.callout).padding(.horizontal, 8))
+        }
+        return item
     }
 }
 
