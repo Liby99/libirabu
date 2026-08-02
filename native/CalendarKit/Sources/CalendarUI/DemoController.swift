@@ -78,6 +78,11 @@ public final class DemoController {
         active = true
         self.engine = engine
         self.size = size
+        // Script-launched app bundles (BIN=MagiCal.app/... bench runs) start UNACTIVATED: no key
+        // window, and the bench window can sit occluded behind the user's session — which pauses
+        // presents and records a run that measures nothing. Front the window like the CLI shell does.
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first?.makeKeyAndOrderFront(nil)
         // The manual-benchmark scene ("idle") drives NOTHING — the human scrolls the real pointer — so it
         // must NOT install the synthetic click-through cursor panel that scripted scenes use.
         if !Self.isIdleScene { installCursorPanel() }

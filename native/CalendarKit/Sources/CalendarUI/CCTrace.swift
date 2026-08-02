@@ -129,9 +129,22 @@ final class CCTrace {
     /// screen actually updated fast". The first frame eval predates the WINDOW, so this
     /// retries from recordFrame until a window exists.
     private func attachDisplayLinkIfPossible() {
+        // Fall back to ANY window: a scene-driven app launched from a script may never become
+        // key (cooperative activation), and without the fallback a whole run records zero
+        // D lines — which reads as "no display data", not "smooth".
         guard displayLink == nil,
-              let v = NSApp.keyWindow?.contentView ?? NSApp.mainWindow?.contentView
+              let win = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first(where: { $0.isVisible }),
+              let v = win.contentView
         else { return }
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: win, queue: .main
+        ) { [weak win] _ in
+            MainActor.assumeIsolated {
+                let vis = win?.occlusionState.contains(.visible) == true
+                CCTrace.shared.lines.append("E \(CCTrace.shared.ts()) occlusion \(vis ? "visible" : "hidden")")
+            }
+        }
+        lines.append("E \(ts()) occlusion \(win.occlusionState.contains(.visible) ? "visible" : "hidden") (initial)")
         let link = v.displayLink(target: displayTicker, selector: #selector(DisplayTicker.tick(_:)))
         link.add(to: .main, forMode: .common)
         displayLink = link
@@ -141,6 +154,7 @@ final class CCTrace {
     }
 
     private var displayLink: CADisplayLink?
+    private var occlusionObserver: Any?
     private let displayTicker = DisplayTicker()
 
     /// Appends a "D <t>" line per display-link tick (only while frames flowed recently — the

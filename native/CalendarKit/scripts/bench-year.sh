@@ -16,10 +16,15 @@ cd "$(dirname "$0")/.."
 CONFIG="${CONFIG:-release}"
 SCENE="${SCENE:-bench-year-scroll}"   # bench-year-scroll | bench-year-fling | bench-month-swipe | bench-week-swipe
 TMP="$(mktemp -d /tmp/cc-bench.XXXXXX)"
-BIN=".build/$CONFIG/CalendarMac"
-
-echo "Building CalendarMac ($CONFIG)…"
-swift build -c "$CONFIG" >/dev/null
+# BIN override: point the same scripted scene at ANY binary built from this code — e.g. the
+# Xcode-built MagiCal.app executable — to split app-shell effects from UI-code effects.
+if [ -n "${BIN:-}" ]; then
+  echo "Using external binary: $BIN (no swift build)"
+else
+  BIN=".build/$CONFIG/CalendarMac"
+  echo "Building CalendarMac ($CONFIG)…"
+  swift build -c "$CONFIG" >/dev/null
+fi
 
 case "${PAYLOAD:-display}" in
   display) cp bench/year-display-2026.json "$TMP/data.json" ;;  # expanded real load (recurrence + ghosts) — the default
