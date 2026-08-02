@@ -100,6 +100,9 @@ struct NativeNotePanel: View {
         .onChange(of: noteMode) { old, new in
             if old == .edit, new != .edit { session.end?() } // toggle button → stamp first
         }
+        .onChange(of: storageKey, initial: true) { _, _ in
+            engine.prewarmEntityIndex() // completion index warm before the first "@"
+        }
         .onChange(of: storageKey, initial: true) { _, newKey in
             noteMode = engine.dailyNote(newKey)
                 .trimmingCharacters(in: .whitespaces).isEmpty ? .edit : .preview

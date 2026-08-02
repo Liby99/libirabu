@@ -257,6 +257,25 @@ extension CalendarEngine {
         return json
     }
 
+    /// Prewarm: build the index OFF-MAIN before anyone asks. The first entityIndexJSON()
+    /// call with a cold cache scans the whole database inline on the main thread — a visible
+    /// stutter when it happens on the user's first "@" keystroke. The note panels call this
+    /// as they mount, so the cache is warm by the time a completion needs it.
+    public func prewarmEntityIndex() {
+        if let c = entityIdxCache {
+            if c.gen != caches.editGen { scheduleEntityIndexRefresh() }
+            return
+        }
+        let gen = caches.editGen
+        let notes = entityNoteSnapshot() // value snapshot on main (CoW refcounts)
+        Task.detached(priority: .utility) {
+            let json = CalendarEngine.scanEntityIndex(notes)
+            await MainActor.run {
+                if self.entityIdxCache == nil { self.entityIdxCache = (gen, json) }
+            }
+        }
+    }
+
     /// Coalesced background refresh: debounced past the typing burst (0.6s, like the undo
     /// coalescer), value-snapshot the notes on main (CoW — refcount bumps), scan off-main.
     private func scheduleEntityIndexRefresh() {
