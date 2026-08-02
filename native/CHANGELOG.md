@@ -71,6 +71,21 @@ each release.
   the focus itself raced the travel on a timed retry. The focus is now a callback that fires the
   moment the target note's editor mounts (the end of the fly-to animation) and is dropped if the
   jump is superseded first (tab switched away, preview toggled, or the flight interrupted).
+- Improved: PROJ panel loading no longer lags — task ranking computed scores inside the sort
+  comparator (~90ms release / several× that in debug on a busy year, on the main thread at every
+  tab open), and all chart/score date math went through Foundation's Calendar (~6.6µs per call,
+  under every bar, tick, and axis label). Scores are now computed once before sorting and day
+  arithmetic is pure integer math (~100× faster, golden-tested against Calendar). The full-note
+  tokenize that feeds the TODO/PROJ panels now rebuilds on a background queue (serve-stale caches,
+  serialized publishes) instead of hitching the main thread after edit/sync bursts, and the launch
+  prewarm — previously only active in demo mode by accident — warms both feeds on every launch.
+- Fixed: .ics import no longer shifts Outlook/Exchange events by the device's UTC offset (the
+  consistent "-4h" bug). TZIDs now resolve through a full chain — IANA names, Windows zone names
+  ("Eastern Standard Time" → America/New_York, the complete CLDR table), the file's own VTIMEZONE
+  rules (seasonal offsets), Mozilla-style path TZIDs, and embedded "(UTC±HH:MM)" offsets — and an
+  unresolvable TZID now keeps the sender's wall clock (floating) instead of silently assuming UTC.
+  Also: quoted property parameters parse correctly, DURATION is honored when DTEND is absent, and
+  STATUS:CANCELLED stubs are skipped. Applies to both file import and Google Calendar feeds.
 - Fixed: typing in a dashboard notepad no longer flickers or loses text, and ⌘S no longer makes
   the rendered preview blink old text — the coalesced data round-trip (keystroke → engine →
   dashboard JSON push) runs a few keystrokes behind the editor, and the editor was adopting those
