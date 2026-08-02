@@ -607,12 +607,20 @@ struct NativeNoteEditor: NSViewRepresentable {
         }
 
         // ── Highlighting: full-document, attribute-only (selection + undo untouched) ─────────
+        // Inline spans (the web's mdHighlight tags): **strong**, *em*/_em_, ~~strike~~,
+        // `code`, and "> " quote lines in grey italic — markers stay visible (source view),
+        // styled dim like CodeMirror's processingInstruction tag.
         private static let headRe = Re2(#"^#{1,6} .*$"#)
         private static let taskRe = Re2(#"^\s*(?:[-*+]|\d+[.)])\s+\[([ xX])\]"#)
         private static let doneLineRe = Re2(#"^\s*(?:[-*+]|\d+[.)])\s+\[[xX]\].*$"#)
         private static let tokenRe = Re2(
             #"(^|\s)(due:\S+|start:\S+|tz:\S+|color:\S+|done:\S+|created:\S+|followup:\S+|p:!{1,5}|#[A-Za-z0-9_][\w-]*|@[A-Za-z0-9_][\w:-]*|project:[A-Za-z0-9_-]+)(?=\s|$)"#)
         private static let linkRe = Re2(#"\[[^\]]*\]\([^)\s]+\)"#)
+        private static let boldRe = Re2(#"\*\*[^*\n]+\*\*|__[^_\n]+__"#)
+        private static let emRe = Re2(#"(?<![*_\w])(\*|_)(?![*_\s])[^*_\n]+\1(?![*_\w])"#)
+        private static let strikeSpanRe = Re2(#"~~[^~\n]+~~"#)
+        private static let codeSpanRe = Re2(#"`[^`\n]+`"#)
+        private static let quoteLineRe = Re2(#"^\s*> .*$"#)
 
         func highlight() {
             guard let tv = textView, let storage = tv.textStorage else { return }
@@ -649,6 +657,32 @@ struct NativeNoteEditor: NSViewRepresentable {
                     storage.addAttribute(.foregroundColor, value: accent,
                                          range: NSRange(location: lineRange.location + r.location,
                                                         length: r.length))
+                }
+                let at = { (r: NSRange) in
+                    NSRange(location: lineRange.location + r.location, length: r.length)
+                }
+                if Coordinator.quoteLineRe.matches(line) {
+                    storage.addAttributes([
+                        .foregroundColor: base.withAlphaComponent(0.6),
+                        .obliqueness: 0.18, // Menlo has no true italic face — synthesized slant
+                    ], range: lineRange)
+                }
+                for r in Coordinator.boldRe.ranges(line) {
+                    storage.addAttribute(.font, value: NativeNoteEditor.monoFont(bold: true),
+                                         range: at(r))
+                }
+                for r in Coordinator.emRe.ranges(line) {
+                    storage.addAttribute(.obliqueness, value: 0.18, range: at(r))
+                }
+                for r in Coordinator.strikeSpanRe.ranges(line) {
+                    storage.addAttribute(.strikethroughStyle,
+                                         value: NSUnderlineStyle.single.rawValue, range: at(r))
+                }
+                for r in Coordinator.codeSpanRe.ranges(line) {
+                    storage.addAttributes([
+                        .foregroundColor: base.withAlphaComponent(0.85),
+                        .backgroundColor: base.withAlphaComponent(0.07),
+                    ], range: at(r))
                 }
             }
             storage.endEditing()
