@@ -124,6 +124,30 @@ def main():
             frames_list = stack.split(";")
             print(f"   {w:3d}× " + "\n        ".join(frames_list[-14:]))
 
+    # ── 2b. DISPLAY stalls: the gaps the EYES see, with commits + stacks in-window ──
+    print(f"\n== top {top_n} DISPLAY stalls (presented-frame gaps) ==")
+    dgaps = []
+    for a, b in zip(displays, displays[1:]):
+        real = (b - a) - asleep_overlap(a, b)
+        if real > 50:
+            dgaps.append((real, a, b))
+    dgaps.sort(reverse=True)
+    for gap_ms, a, b in dgaps[:top_n]:
+        near_ev = [lbl for t, lbl in events
+                   if a - 500 <= t <= b + 100 and not lbl.startswith("clock")]
+        evals_in = sum(1 for t, _, _ in frames if a <= t <= b)
+        commits = [lbl for t, lbl in events if a - 50 <= t <= b + 50 and lbl.startswith("commit")]
+        print(f"\n-- display stall {gap_ms:.0f}ms at {a/1000:.2f}s | {evals_in} evals ran inside | "
+              f"commits: {commits or 'none >8ms'} | events: {near_ev[-3:]} --")
+        window = [smp for t, smp in samples if a - 5 <= t <= b + 5]
+        folded = collections.Counter()
+        for addrs in window:
+            names = [sym(x) for x in addrs]
+            folded[";".join(reversed(names[:24]))] += 1
+        for stack, w in folded.most_common(3):
+            fl = stack.split(";")
+            print(f"   {w:3d}× " + "\n        ".join(fl[-12:]))
+
     # ── 3. Whole-trace hot self frames (context) ──
     print("\n== whole-trace top leaf frames ==")
     leaf = collections.Counter()
