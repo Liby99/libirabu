@@ -96,8 +96,13 @@ public struct MarkdownBlocksView: View {
         #else
         let cmdDown = false
         #endif
+        let (managedRaw, userText) = ManagedNote.splitNote(text)
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(blocks()) { b in
+            if !managedRaw.isEmpty {
+                managedBlock(managedRaw)
+            }
+            ForEach(managedRaw.isEmpty ? blocks()
+                : blocks(of: userText, startLine: userStartLine(userText))) { b in
                 if let onLineEdit {
                     // Edit-here capture: while ⌘ is HELD, a full-width transparent layer sits
                     // over the whole row and takes the click — anywhere on the line, any block
@@ -139,12 +144,56 @@ public struct MarkdownBlocksView: View {
         let text: String
     }
 
+    private func blocks() -> [Block] { blocks(of: text, startLine: 1) }
+
+    /// The 1-based line where the user postfix begins in the STORED note — keeps checkbox
+    /// toggles and ⌘-click line ids true to the underlying string when a managed block leads.
+    private func userStartLine(_ user: String) -> Int {
+        guard !user.isEmpty, let r = text.range(of: user, options: .backwards) else { return 1 }
+        return text[..<r.lowerBound].reduce(into: 1) { if $1 == "\n" { $0 += 1 } }
+    }
+
+    /// An imported event's managed block: the web's read-only key/value table (provenance,
+    /// meeting link, organizer, attendees, …) on a soft card, plus the free-text description
+    /// rendered as plain markdown below (line actions off — vendor text maps to no user line).
+    @ViewBuilder private func managedBlock(_ raw: String) -> some View {
+        let parsed = ManagedNote.parseManaged(raw)
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(parsed.fields.indices, id: \.self) { i in
+                let f = parsed.fields[i]
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(f.label)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(theme.text.opacity(0.5))
+                        .frame(width: 76, alignment: .leading)
+                    if let href = f.href, let url = URL(string: href) {
+                        Link(f.value, destination: url)
+                            .font(.system(size: 12))
+                            .foregroundStyle(accent)
+                            .lineLimit(2)
+                    } else {
+                        Text(f.value)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.text.opacity(0.85))
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 7).fill(theme.text.opacity(0.05)))
+        if !parsed.description.isEmpty {
+            MarkdownBlocksView(text: parsed.description, accent: accent, theme: theme)
+        }
+    }
+
     /// Line-oriented parse: code fences accumulate verbatim; every other line maps to one block.
-    private func blocks() -> [Block] {
+    private func blocks(of source: String, startLine: Int) -> [Block] {
         var out: [Block] = []
         var codeLines: [String]? = nil
         var codeStart = 0
-        for (i, raw) in text.components(separatedBy: "\n").enumerated() {
+        for (i0, raw) in source.components(separatedBy: "\n").enumerated() {
+            let i = i0 + startLine - 1
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("```") {
                 if let lines = codeLines {

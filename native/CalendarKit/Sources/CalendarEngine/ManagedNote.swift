@@ -24,6 +24,54 @@ public enum ManagedNote {
         return (String(text[r]), user)
     }
 
+    /// One parsed `key: value` row of a managed block (parseManaged).
+    public struct ManagedField: Sendable {
+        public let label: String
+        public let value: String
+        public let href: String? // value is a URL → render as a link
+    }
+
+    /// Markers stripped (both comment lines), body trimmed — the web's flattenManaged.
+    public static func flattenManaged(_ notes: String?) -> String {
+        (notes ?? "")
+            .replacingOccurrences(
+                of: "[ \\t]*<!--\\s*\(begin)[\\s\\S]*?-->[ \\t]*\\n?", with: "",
+                options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(
+                of: "[ \\t]*<!--\\s*\(end)\\s*-->[ \\t]*\\n?", with: "",
+                options: [.regularExpression, .caseInsensitive])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Parse a stored managed block into key/value fields + the trailing free-text description
+    /// (the web's parseManaged) — for the structured table in note previews.
+    public static func parseManaged(_ managed: String)
+        -> (fields: [ManagedField], description: String) {
+        let lines = flattenManaged(managed).components(separatedBy: "\n")
+        let re = try? NSRegularExpression(pattern: #"^([\w ]+?):\s*(.*)$"#)
+        var fields: [ManagedField] = []
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                i += 1
+                break // blank line → the rest is the description
+            }
+            let ns = line as NSString
+            guard let m = re?.firstMatch(in: line, range: NSRange(location: 0, length: ns.length))
+            else { break } // first non key:value line → description starts here
+            let value = ns.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespaces)
+            fields.append(ManagedField(
+                label: ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces),
+                value: value,
+                href: isURL(value) ? value : nil))
+            i += 1
+        }
+        let desc = lines[min(i, lines.count)...].joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (fields, desc)
+    }
+
     /// Recombine into the canonical "prefix + blank line + postfix".
     public static func composeNote(_ managed: String, _ user: String) -> String {
         let m = managed.trimmingCharacters(in: .whitespacesAndNewlines)
