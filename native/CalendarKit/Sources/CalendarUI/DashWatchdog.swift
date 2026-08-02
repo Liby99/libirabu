@@ -56,26 +56,47 @@ final class DashWatchdog: @unchecked Sendable {
         }
     }
 
+    /// mach/arm/thread_status.h's __darwin_arm_thread_state64, declared locally: the Mach ARM
+    /// types aren't exposed to Swift in every build context (the Xcode app target failed to
+    /// find them while the SPM CLI build resolved them), so we carry the ABI layout ourselves.
+    private struct ARMThreadState64 {
+        var x: (UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64,
+                UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64,
+                UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64,
+                UInt64, UInt64, UInt64, UInt64, UInt64) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                                           0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                                           0, 0, 0, 0, 0, 0, 0, 0, 0)
+        var fp: UInt64 = 0
+        var lr: UInt64 = 0
+        var sp: UInt64 = 0
+        var pc: UInt64 = 0
+        var cpsr: UInt32 = 0
+        var flags: UInt32 = 0
+    }
+
+    private static let armThreadState64Flavor: thread_state_flavor_t = 6 // ARM_THREAD_STATE64
+
     private func dumpMainStack(staleMs: Int) {
+        #if arch(arm64)
         var addrs = [UInt64](repeating: 0, count: 64)
         var n = 0
         guard thread_suspend(mainThread) == KERN_SUCCESS else {
             print("[dash-diag] WATCHDOG: suspend failed")
             return
         }
-        var state = arm_thread_state64_t()
+        var state = ARMThreadState64()
         var count = mach_msg_type_number_t(
-            MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<natural_t>.size)
+            MemoryLayout<ARMThreadState64>.size / MemoryLayout<natural_t>.size)
         let kr = withUnsafeMutablePointer(to: &state) {
             $0.withMemoryRebound(to: natural_t.self, capacity: Int(count)) {
-                thread_get_state(mainThread, ARM_THREAD_STATE64, $0, &count)
+                thread_get_state(mainThread, Self.armThreadState64Flavor, $0, &count)
             }
         }
         if kr == KERN_SUCCESS {
             let mask: UInt64 = 0x0000_7FFF_FFFF_FFFF // strip ptrauth bits
-            addrs[n] = state.__pc & mask
+            addrs[n] = state.pc & mask
             n += 1
-            var fp = state.__fp & mask
+            var fp = state.fp & mask
             // Walk the frame-pointer chain: [fp] = caller fp, [fp+8] = return address.
             while n < 62, fp > 0x1000, fp % 8 == 0 {
                 guard let p = UnsafeRawPointer(bitPattern: UInt(fp)) else { break }
@@ -104,5 +125,8 @@ final class DashWatchdog: @unchecked Sendable {
             }
         }
         print(out, terminator: "")
+        #else
+        print("[dash-diag] WATCHDOG: main blocked ≥\(staleMs)ms (stack capture is arm64-only)")
+        #endif
     }
 }
