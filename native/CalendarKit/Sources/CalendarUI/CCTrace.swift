@@ -13,6 +13,7 @@
 //   # header
 //   E <t> <label>          input/action event
 //   F <t> <z> <pin>        one frame eval, with the animation state it rendered
+//   D <t>                  one display-link tick (a frame the DISPLAY actually presented)
 //   S <t> <a1> <a2> …      one main-thread sample, leaf-first, hex addresses
 //   Y <addr> <symbol>      symbol table (dumped once at the end)
 
@@ -79,7 +80,34 @@ final class CCTrace {
                     "E \(CCTrace.shared.ts()) \(awake ? "clockAwake" : "clockAsleep")")
             }
         }
+        // DISPLAY-side truth: a CADisplayLink on the main window's content view ticks once
+        // per frame the window is actually offered by the display — comparing its cadence
+        // (D lines) against content evaluations (F lines) separates "SwiftUI evaluated fast"
+        // from "the screen actually updated fast" (they diverge under commit coalescing or
+        // adaptive refresh). Records the screen's max fps too.
+        if let v = NSApp.keyWindow?.contentView ?? NSApp.mainWindow?.contentView {
+            let link = v.displayLink(target: displayTicker, selector: #selector(DisplayTicker.tick(_:)))
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+            let maxFPS = v.window?.screen?.maximumFramesPerSecond ?? -1
+            lines.append("E \(ts()) displayLinkStart maxFPS=\(maxFPS)")
+        } else {
+            lines.append("E \(ts()) displayLink UNAVAILABLE (no window)")
+        }
         print("[cc-trace] recording — reproduce the lag, then ⌘-tab away to flush the trace")
+    }
+
+    private var displayLink: CADisplayLink?
+    private let displayTicker = DisplayTicker()
+
+    /// Appends a "D <t>" line per display-link tick (only while frames flowed recently — the
+    /// link pauses itself makes no sense to filter here; volume is fine for a 60s trace).
+    final class DisplayTicker: NSObject {
+        @objc func tick(_ link: CADisplayLink) {
+            MainActor.assumeIsolated {
+                CCTrace.shared.lines.append("D \(CCTrace.shared.ts())")
+            }
+        }
     }
 
     private func ts() -> String {

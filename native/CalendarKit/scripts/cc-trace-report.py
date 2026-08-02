@@ -17,6 +17,7 @@ def main():
 
     events = []   # (t_ms, label)
     frames = []   # (t_ms, z, pin)
+    displays = [] # (t_ms) actual display-link ticks — frames PRESENTED to the screen
     samples = []  # (t_ms, [addr,...]) leaf-first
     syms = {}
 
@@ -28,6 +29,8 @@ def main():
             events.append((float(parts[1]), " ".join(parts[2:])))
         elif parts[0] == "F":
             frames.append((float(parts[1]), float(parts[2]), float(parts[3])))
+        elif parts[0] == "D":
+            displays.append(float(parts[1]))
         elif parts[0] == "S":
             samples.append((float(parts[1]), parts[2:]))
         elif parts[0] == "Y":
@@ -81,9 +84,21 @@ def main():
             worst = max(worst, g)
             if g > 33:
                 n_hitch += 1
-        flag = "  <<<" if fps < 60 or worst > 100 else ""
+        # DISPLAY-side cadence over the same window — the number the EYES see. Divergence
+        # from eval-fps (bursty evals / coalesced commits / adaptive refresh) is the story.
+        ds = [t for t in displays if t0 <= t < t1]
+        if len(ds) >= 2:
+            d_span = (ds[-1] - ds[0]) - asleep_overlap(ds[0], ds[-1])
+            d_fps = (len(ds) - 1) / (d_span / 1000) if d_span > 0 else 0
+            d_worst = 0.0
+            for a, b in zip(ds, ds[1:]):
+                d_worst = max(d_worst, (b - a) - asleep_overlap(a, b))
+            dcol = f"  DISPLAY {d_fps:6.1f} fps worst {d_worst:5.0f}ms"
+        else:
+            dcol = "  DISPLAY: no ticks"
+        flag = "  <<<" if fps < 60 or worst > 100 or "DISPLAY" in dcol and len(ds) >= 2 and d_fps < 60 else ""
         print(f"  {t0/1000:7.2f}s {lbl:<28} {(t1-t0)/1000:6.2f}s  "
-              f"{fps:6.1f} fps(awake)  worst-awake {worst:6.0f}ms  hitches {n_hitch}{flag}")
+              f"eval {fps:6.1f} fps worst {worst:5.0f}ms h{n_hitch}{dcol}{flag}")
 
     # ── 2. Worst stall windows with folded stacks ──
     print(f"\n== top {top_n} frame stalls, with main-thread stacks during each ==")
