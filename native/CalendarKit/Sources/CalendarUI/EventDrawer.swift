@@ -671,6 +671,11 @@ struct EventDrawer: View {
             .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
             .drawerRingAnchor(.notes)
             .padding(.horizontal, contentPad).padding(.vertical, editorVPad)
+            // AppKit-hosted views (the editor's NSScrollView, the preview NSTextView) can't
+            // ride the drawer's slide transition — platform views take their final frame at
+            // layout commit, so the notes popped into place mid-slide. Same treatment as the
+            // foot pickers: hidden until the slide lands, then the settled fade-in.
+            .opacity(settled ? 1 : 0)
             // Leaving edit by ANY route (toggle, scope flip landing in preview) ends the
             // created:-stamp session before the preview reads the note.
             .onChange(of: notesMode) { old, new in
