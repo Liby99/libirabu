@@ -50,6 +50,7 @@ final class CCTrace {
 
     private func recordFrame(_ engine: CalendarEngine) {
         ensureStarted()
+        if displayLink == nil { attachDisplayLinkIfPossible() }
         lines.append(String(format: "F %@ %.3f %.3f", ts(), engine.z, engine.dashPin))
         sampler.noteFrame()
         if lines.count > 400_000 { lines.removeFirst(100_000) } // rolling window
@@ -80,21 +81,25 @@ final class CCTrace {
                     "E \(CCTrace.shared.ts()) \(awake ? "clockAwake" : "clockAsleep")")
             }
         }
-        // DISPLAY-side truth: a CADisplayLink on the main window's content view ticks once
-        // per frame the window is actually offered by the display — comparing its cadence
-        // (D lines) against content evaluations (F lines) separates "SwiftUI evaluated fast"
-        // from "the screen actually updated fast" (they diverge under commit coalescing or
-        // adaptive refresh). Records the screen's max fps too.
-        if let v = NSApp.keyWindow?.contentView ?? NSApp.mainWindow?.contentView {
-            let link = v.displayLink(target: displayTicker, selector: #selector(DisplayTicker.tick(_:)))
-            link.add(to: .main, forMode: .common)
-            displayLink = link
-            let maxFPS = v.window?.screen?.maximumFramesPerSecond ?? -1
-            lines.append("E \(ts()) displayLinkStart maxFPS=\(maxFPS)")
-        } else {
-            lines.append("E \(ts()) displayLink UNAVAILABLE (no window)")
-        }
+        attachDisplayLinkIfPossible()
         print("[cc-trace] recording — reproduce the lag, then ⌘-tab away to flush the trace")
+    }
+
+    /// DISPLAY-side truth: a CADisplayLink on the main window's content view ticks once per
+    /// frame the window is actually offered by the display — comparing its cadence (D lines)
+    /// against content evaluations (F lines) separates "SwiftUI evaluated fast" from "the
+    /// screen actually updated fast". The first frame eval predates the WINDOW, so this
+    /// retries from recordFrame until a window exists.
+    private func attachDisplayLinkIfPossible() {
+        guard displayLink == nil,
+              let v = NSApp.keyWindow?.contentView ?? NSApp.mainWindow?.contentView
+        else { return }
+        let link = v.displayLink(target: displayTicker, selector: #selector(DisplayTicker.tick(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+        let maxFPS = v.window?.screen?.maximumFramesPerSecond ?? -1
+        lines.append("E \(ts()) displayLinkStart maxFPS=\(maxFPS)")
+        print("[cc-trace] display link attached (screen maxFPS \(maxFPS))")
     }
 
     private var displayLink: CADisplayLink?
