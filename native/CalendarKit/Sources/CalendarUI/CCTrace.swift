@@ -255,7 +255,7 @@ final class TraceSampler: @unchecked Sendable {
     private func captureMainStack() -> Sample? {
         #if arch(arm64)
         var addrs = [UInt64]()
-        addrs.reserveCapacity(48)
+        addrs.reserveCapacity(208)
         guard thread_suspend(mainPort) == KERN_SUCCESS else { return nil }
         var state = ARMThreadState64()
         var count = mach_msg_type_number_t(
@@ -269,7 +269,7 @@ final class TraceSampler: @unchecked Sendable {
             let mask: UInt64 = 0x0000_7FFF_FFFF_FFFF
             addrs.append(state.pc & mask)
             var fp = state.fp & mask
-            while addrs.count < 46, fp > 0x1000, fp % 8 == 0 {
+            while addrs.count < 200, fp > 0x1000, fp % 8 == 0 {
                 guard let p = UnsafeRawPointer(bitPattern: UInt(fp)) else { break }
                 let nextFP = p.load(as: UInt64.self) & mask
                 let lr = p.load(fromByteOffset: 8, as: UInt64.self) & mask
