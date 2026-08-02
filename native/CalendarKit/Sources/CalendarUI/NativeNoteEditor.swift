@@ -286,10 +286,20 @@ struct NativeNoteEditor: NSViewRepresentable {
             let base = (tv as? EditorTextView)?.themeText ?? .labelColor
             let dimC = base.withAlphaComponent(0.28)
             let hiC = base.withAlphaComponent(0.8)
-            let selLoc = min(tv.selectedRange().location, ns.length)
-            var currentLine = 1
+            // Highlight EVERY line the selection touches (multi-line selections included).
+            let sel = tv.selectedRange()
+            let selStart = min(sel.location, ns.length)
+            let selEnd = min(NSMaxRange(sel), ns.length)
+            var firstLine = 1
             if ns.length > 0 {
-                ns.substring(to: selLoc).unicodeScalars.forEach { if $0 == "\n" { currentLine += 1 } }
+                ns.substring(to: selStart).unicodeScalars.forEach { if $0 == "\n" { firstLine += 1 } }
+            }
+            var lastLine = firstLine
+            if selEnd > selStart {
+                ns.substring(with: NSRange(location: selStart, length: selEnd - selStart))
+                    .unicodeScalars.forEach { if $0 == "\n" { lastLine += 1 } }
+                // A selection ENDING at a line start doesn't touch that next line.
+                if selEnd > 0, ns.character(at: selEnd - 1) == 0x0A { lastLine -= 1 }
             }
             var sepTop: CGFloat = .greatestFiniteMagnitude
             var sepBottom: CGFloat = 0
@@ -297,7 +307,7 @@ struct NativeNoteEditor: NSViewRepresentable {
             // Draw one number, vertically CENTERED in its fragment — the content glyphs are
             // centered on the same fixed grid (baselineOffset), so center == aligned.
             func draw(_ n: Int, fragTop: CGFloat, fragHeight: CGFloat) {
-                let cur = n == currentLine
+                let cur = n >= firstLine && n <= lastLine
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: cur ? boldFont : font,
                     .foregroundColor: cur ? hiC : dimC,
@@ -350,7 +360,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         tv.isAutomaticQuoteSubstitutionEnabled = false
         tv.isAutomaticDashSubstitutionEnabled = false
         tv.isAutomaticTextReplacementEnabled = false
-        tv.textContainerInset = NSSize(width: 2, height: 6)
+        tv.textContainerInset = NSSize(width: 10, height: 6) // gap after the ruler hairline
         tv.placeholderText = placeholder
         tv.themeText = NSColor(theme.text)
         tv.typingAttributes = NativeNoteEditor.baseAttributes(NSColor(theme.text))
