@@ -82,9 +82,21 @@ struct NativeNoteEditor: NSViewRepresentable {
                 frag = lm.extraLineFragmentRect
                 if frag.height <= 0 { return }
             } else {
-                let line = ns.lineRange(for: NSRange(location: sel, length: 0))
-                let gr = lm.glyphRange(forCharacterRange: line, actualCharacterRange: nil)
-                frag = lm.boundingRect(forGlyphRange: gr, in: tc)
+                var line = ns.lineRange(for: NSRange(location: sel, length: 0))
+                // Exclude the trailing newline: its glyph maps into the NEXT fragment's
+                // bounding box, which washed the line below too (the reported artifact).
+                if line.length > 0, ns.character(at: NSMaxRange(line) - 1) == 0x0A {
+                    line.length -= 1
+                }
+                if line.length == 0 { // blank line: no glyph box — use its fragment directly
+                    let gr = lm.glyphRange(forCharacterRange: NSRange(location: line.location, length: 1),
+                                           actualCharacterRange: nil)
+                    frag = lm.lineFragmentRect(forGlyphAt: min(gr.location, max(0, lm.numberOfGlyphs - 1)),
+                                               effectiveRange: nil)
+                } else {
+                    let gr = lm.glyphRange(forCharacterRange: line, actualCharacterRange: nil)
+                    frag = lm.boundingRect(forGlyphRange: gr, in: tc)
+                }
             }
             var r = frag
             r.origin.x = 0
@@ -102,8 +114,11 @@ struct NativeNoteEditor: NSViewRepresentable {
                 .font: NativeNoteEditor.monoFont(),
                 .foregroundColor: themeText.withAlphaComponent(0.35),
             ]
+            let size = (placeholderText as NSString).size(withAttributes: attrs)
             (placeholderText as NSString).draw(
-                at: NSPoint(x: textContainerInset.width + 3, y: textContainerInset.height),
+                at: NSPoint(x: textContainerInset.width + 3,
+                            y: textContainerInset.height
+                                + (NativeNoteEditor.lineHeight - size.height) / 2),
                 withAttributes: attrs)
         }
 
@@ -185,6 +200,29 @@ struct NativeNoteEditor: NSViewRepresentable {
             ?? .monospacedSystemFont(ofSize: 12.5, weight: bold ? .bold : .regular)
     }
 
+    /// ONE line grid for everything (content, typing attributes, ruler): a FIXED fragment
+    /// height with the glyphs re-centered via baselineOffset. TextKit parks glyphs at the
+    /// BOTTOM of an enlarged fragment (that was the "text hugs the bottom of its highlight" +
+    /// "numbers misaligned" + "last line a different height" cluster — the extra/typing
+    /// fragments never even got the paragraph style). Fixed + centered kills the whole class.
+    static let lineHeight: CGFloat = 19
+    static let baselineShift: CGFloat = {
+        let lm = NSLayoutManager()
+        return ((lineHeight - lm.defaultLineHeight(for: monoFont())) / 2).rounded()
+    }()
+
+    static func editorParagraphStyle() -> NSMutableParagraphStyle {
+        let para = NSMutableParagraphStyle()
+        para.minimumLineHeight = lineHeight
+        para.maximumLineHeight = lineHeight
+        return para
+    }
+
+    static func baseAttributes(_ color: NSColor) -> [NSAttributedString.Key: Any] {
+        [.font: monoFont(), .foregroundColor: color,
+         .paragraphStyle: editorParagraphStyle(), .baselineOffset: baselineShift]
+    }
+
     /// The markdown/bare URL under `index`, if any (the web's linkAt, line-local scan).
     static func linkAt(_ text: String, index: Int) -> URL? {
         let ns = text as NSString
@@ -256,9 +294,9 @@ struct NativeNoteEditor: NSViewRepresentable {
             var sepTop: CGFloat = .greatestFiniteMagnitude
             var sepBottom: CGFloat = 0
 
-            // Draw one number, BASELINE-aligned to its fragment: same font as the content, so
-            // top + baselineOffset − ascender puts the digits exactly on the text baseline.
-            func draw(_ n: Int, fragTop: CGFloat, baseline: CGFloat) {
+            // Draw one number, vertically CENTERED in its fragment — the content glyphs are
+            // centered on the same fixed grid (baselineOffset), so center == aligned.
+            func draw(_ n: Int, fragTop: CGFloat, fragHeight: CGFloat) {
                 let cur = n == currentLine
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: cur ? boldFont : font,
@@ -266,10 +304,11 @@ struct NativeNoteEditor: NSViewRepresentable {
                 ]
                 let label = "\(n)" as NSString
                 let size = label.size(withAttributes: attrs)
-                let y = fragTop + inset - visible.minY + baseline - (cur ? boldFont : font).ascender
+                let top = fragTop + inset - visible.minY
+                let y = top + (fragHeight - size.height) / 2
                 label.draw(at: NSPoint(x: ruleThickness - size.width - 8, y: y), withAttributes: attrs)
-                sepTop = min(sepTop, fragTop + inset - visible.minY)
-                sepBottom = max(sepBottom, y + size.height)
+                sepTop = min(sepTop, top)
+                sepBottom = max(sepBottom, top + fragHeight)
             }
 
             var charIdx = 0
@@ -280,8 +319,7 @@ struct NativeNoteEditor: NSViewRepresentable {
                                        actualCharacterRange: nil)
                 let gi = min(gr.location, max(0, lm.numberOfGlyphs - 1))
                 let frag = lm.lineFragmentRect(forGlyphAt: gi, effectiveRange: nil)
-                let baseline = lm.location(forGlyphAt: gi).y
-                draw(lineNo, fragTop: frag.minY, baseline: baseline)
+                draw(lineNo, fragTop: frag.minY, fragHeight: frag.height)
                 charIdx = NSMaxRange(lineRange)
                 lineNo += 1
             }
@@ -290,7 +328,7 @@ struct NativeNoteEditor: NSViewRepresentable {
             if ns.length == 0 || ns.hasSuffix("\n") {
                 let extra = lm.extraLineFragmentRect
                 if extra.height > 0 {
-                    draw(lineNo, fragTop: extra.minY, baseline: font.ascender)
+                    draw(lineNo, fragTop: extra.minY, fragHeight: extra.height)
                 }
             }
             // Separator: only across the numbered span.
@@ -315,6 +353,8 @@ struct NativeNoteEditor: NSViewRepresentable {
         tv.textContainerInset = NSSize(width: 2, height: 6)
         tv.placeholderText = placeholder
         tv.themeText = NSColor(theme.text)
+        tv.typingAttributes = NativeNoteEditor.baseAttributes(NSColor(theme.text))
+        tv.defaultParagraphStyle = NativeNoteEditor.editorParagraphStyle()
         tv.autoresizingMask = [.width]
         tv.isVerticallyResizable = true
         tv.textContainer?.widthTracksTextView = true
@@ -572,13 +612,7 @@ struct NativeNoteEditor: NSViewRepresentable {
             let dim = base.withAlphaComponent(0.45)
             let accent = NSColor(Theme.accent)
             storage.beginEditing()
-            let para = NSMutableParagraphStyle()
-            para.lineHeightMultiple = 1.2 // CodeMirror's 1.55 line-height, in AppKit terms
-            storage.setAttributes([
-                .font: NativeNoteEditor.monoFont(),
-                .foregroundColor: base,
-                .paragraphStyle: para,
-            ], range: all)
+            storage.setAttributes(NativeNoteEditor.baseAttributes(base), range: all)
             s.enumerateSubstrings(in: all, options: [.byLines, .substringNotRequired]) { _, lineRange, _, _ in
                 let line = s.substring(with: lineRange)
                 if Coordinator.headRe.matches(line) {
