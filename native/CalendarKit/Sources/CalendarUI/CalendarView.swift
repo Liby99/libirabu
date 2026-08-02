@@ -750,8 +750,11 @@ public struct CalendarView: View {
                     // this after mount still triggers the staggered warm.
                     NativeDash.warmIds.insert(scope + "|" + key)
                     if !NativeDash.parkedPanels.contains(where: { $0.panelId == scope + "|" + key }) {
+                        // x = 0: INSIDE the container viewport (bx = 25) so lazy content
+                        // actually materializes during the warm — offscreen x parked the
+                        // panel where LazyVStack builds nothing.
                         NativeDash.parkPanels([DashBodyPanel(
-                            scope: scope, key: key, x: input.vp.w, w: w, dx: 0, dy: 0, op: 0)])
+                            scope: scope, key: key, x: 0, w: w, dx: 0, dy: 0, op: 0)])
                     }
                 }
             }
@@ -761,7 +764,14 @@ public struct CalendarView: View {
         let parked = NativeDash.parkedPanels.filter { !liveIds.contains($0.panelId) }
             .sorted { $0.panelId < $1.panelId }
         if !bodyPanels.isEmpty || !parked.isEmpty {
-            let mask = sg?.mask ?? input.vp.w
+            // No scope panels (retracted/year): the container previously collapsed to 1px
+            // (mask = vp.w), so pre-built parked panels lived OFFSCREEN in a 1px viewport —
+            // and LazyVStack content (PROJ charts!) materialized NOTHING during the warm; the
+            // whole chart set then built inside the ⌘J pin-slide transaction (trace 5: 300ms
+            // display freezes, ProjChart in-stack, "27 evals, no commits"). Full-width
+            // container when retracted: parked panels are op-0/no-hit anyway, and laziness
+            // materializes at rest where it belongs.
+            let mask = sg?.mask ?? 0
             let maskW = max(1, input.vp.w - mask)
             ZStack(alignment: .topLeading) {
                 // Identity = scope|key (state never bleeds between keys sharing a list slot);
