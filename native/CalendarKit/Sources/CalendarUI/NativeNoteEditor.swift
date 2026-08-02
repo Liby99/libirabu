@@ -276,7 +276,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         if let t = match(#"@person:[\w-]*$"#, { _ in .person }, sigilLen: 8) { return t }
         if let t = match(#"@[\w-]*$"#, { _ in .bareAt }, sigilLen: 1) { return t }
         if let t = match(#"#[\w-]*$"#, { _ in .tag }, sigilLen: 1) { return t }
-        if let re = try? NSRegularExpression(pattern: #"(due|start|created|done):[\w/-]*$"#),
+        if let re = try? NSRegularExpression(pattern: #"(due|start|created|done|followup):[\w/-]*$"#),
            let m = re.firstMatch(in: prefix,
                                  range: NSRange(location: 0, length: (prefix as NSString).length)) {
             let key = (prefix as NSString).substring(with: m.range(at: 1))
@@ -320,7 +320,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         let now = Date()
         let cal = Calendar.current
         let wantTime = key == "created" || key == "done"
-        let future = key == "due" || key == "start"
+        let future = key == "due" || key == "start" || key == "followup" // planning tokens point forward
         func iso(_ d: Date) -> String {
             let c = cal.dateComponents([.year, .month, .day, .hour, .minute], from: d)
             let day = String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
