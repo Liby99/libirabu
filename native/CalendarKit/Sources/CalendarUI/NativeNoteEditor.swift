@@ -482,6 +482,13 @@ struct NativeNoteEditor: NSViewRepresentable {
                 convert(NSPoint(x: 0, y: fragRect.minY + inset), from: tv).y
             }
 
+            // The caret line's wash continues INTO the gutter (one band across ruler + text).
+            func washIfCurrent(_ n: Int, top: CGFloat, height: CGFloat) {
+                guard n == firstLine, sel.length == 0 else { return } // matches the text view's wash
+                base.withAlphaComponent(0.05).setFill()
+                NSRect(x: 0, y: top, width: ruleThickness, height: height).fill()
+            }
+
             func draw(_ n: Int, fragTop: CGFloat, fragHeight: CGFloat) {
                 let y0 = fragTop
                 guard y0 > -fragHeight, y0 < bounds.height + fragHeight else { return }
@@ -516,6 +523,24 @@ struct NativeNoteEditor: NSViewRepresentable {
                                            actualCharacterRange: nil)
                     let gi = min(gr.location, max(0, lm.numberOfGlyphs - 1))
                     let frag = lm.lineFragmentRect(forGlyphAt: gi, effectiveRange: nil)
+                    if lineNo == firstLine {
+                        // Wash the WHOLE logical line's fragments (wrapped lines included),
+                        // matching the text view's band height exactly.
+                        var lr = lineRange
+                        if lr.length > 0, ns.character(at: NSMaxRange(lr) - 1) == 0x0A {
+                            lr.length -= 1
+                        }
+                        var union = frag
+                        if lr.length > 0 {
+                            let g = lm.glyphRange(forCharacterRange: lr, actualCharacterRange: nil)
+                            var u = NSRect.null
+                            lm.enumerateLineFragments(forGlyphRange: g) { f, _, _, _, _ in
+                                u = u.union(f)
+                            }
+                            if !u.isNull { union = u }
+                        }
+                        washIfCurrent(lineNo, top: rulerY(union), height: union.height)
+                    }
                     draw(lineNo, fragTop: rulerY(frag), fragHeight: frag.height)
                     charIdx = NSMaxRange(lineRange)
                     lineNo += 1
@@ -525,12 +550,14 @@ struct NativeNoteEditor: NSViewRepresentable {
                 if ns.hasSuffix("\n"), stop >= ns.length {
                     let extra = lm.extraLineFragmentRect
                     if extra.height > 0 {
+                        washIfCurrent(lineNo, top: rulerY(extra), height: extra.height)
                         draw(lineNo, fragTop: rulerY(extra), fragHeight: extra.height)
                     }
                 }
             } else if ns.length == 0 {
                 let extra = lm.extraLineFragmentRect
                 if extra.height > 0 {
+                    washIfCurrent(1, top: rulerY(extra), height: extra.height)
                     draw(1, fragTop: rulerY(extra), fragHeight: extra.height)
                 }
             }
