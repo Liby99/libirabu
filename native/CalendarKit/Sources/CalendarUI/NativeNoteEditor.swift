@@ -88,6 +88,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         override func drawBackground(in rect: NSRect) {
             super.drawBackground(in: rect)
             guard let lm = layoutManager, let tc = textContainer else { return }
+            guard selectedRange().length == 0 else { return } // caret only — the gutter matches
             let ns = string as NSString
             var frag: NSRect
             let sel = min(selectedRange().location, ns.length)
