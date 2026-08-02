@@ -54,6 +54,8 @@ struct NativeNoteEditor: NSViewRepresentable {
     final class EditorTextView: NSTextView {
         var onSaveKey: (() -> Void)?
         var onEscKey: (() -> Void)?
+        var placeholderText = ""
+        var themeText: NSColor = .labelColor
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
@@ -67,6 +69,168 @@ struct NativeNoteEditor: NSViewRepresentable {
         override func cancelOperation(_ sender: Any?) { // Esc
             onEscKey?()
         }
+
+        // ── Placeholder (CodeMirror's cmPlaceholder): grey hint while the note is empty ──
+        override func draw(_ dirtyRect: NSRect) {
+            super.draw(dirtyRect)
+            guard string.isEmpty, !placeholderText.isEmpty else { return }
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NativeNoteEditor.monoFont(),
+                .foregroundColor: themeText.withAlphaComponent(0.35),
+            ]
+            (placeholderText as NSString).draw(
+                at: NSPoint(x: textContainerInset.width + 3, y: textContainerInset.height),
+                withAttributes: attrs)
+        }
+
+        override func didChangeText() {
+            super.didChangeText()
+            needsDisplay = true // placeholder appears/disappears with emptiness
+        }
+
+        // ── ⌥↑ / ⌥↓ line rearrangement (defaultKeymap's moveLineUp/Down) ──
+        override func keyDown(with event: NSEvent) {
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if mods == .option, event.keyCode == 126 { moveLines(up: true); return }
+            if mods == .option, event.keyCode == 125 { moveLines(up: false); return }
+            super.keyDown(with: event)
+        }
+
+        /// Swap the line block containing the selection with its neighbor, keeping the
+        /// selection glued to the moved text — CodeMirror's moveLineUp/Down semantics.
+        private func moveLines(up: Bool) {
+            let ns = string as NSString
+            let sel = selectedRange()
+            let block = ns.lineRange(for: sel) // full line(s) incl. trailing \n
+            if up {
+                guard block.location > 0 else { NSSound.beep(); return }
+                let prev = ns.lineRange(for: NSRange(location: block.location - 1, length: 0))
+                let blockText = ns.substring(with: block)
+                let prevText = ns.substring(with: prev)
+                // Both keep their own trailing newlines EXCEPT when the moving block is the
+                // last line (no \n) — normalize so the join stays well-formed.
+                var newBlock = blockText, newPrev = prevText
+                if !newBlock.hasSuffix("\n") {
+                    newBlock += "\n"
+                    newPrev = String(newPrev.dropLast(newPrev.hasSuffix("\n") ? 1 : 0))
+                }
+                let whole = NSRange(location: prev.location, length: prev.length + block.length)
+                replace(whole, with: newBlock + newPrev,
+                        selectDelta: prev.location - block.location, sel: sel)
+            } else {
+                let end = block.location + block.length
+                guard end < ns.length else { NSSound.beep(); return }
+                let next = ns.lineRange(for: NSRange(location: end, length: 0))
+                var blockText = ns.substring(with: block)
+                var nextText = ns.substring(with: next)
+                if !nextText.hasSuffix("\n") { // moving past the (newline-less) last line
+                    nextText += "\n"
+                    blockText = String(blockText.dropLast())
+                }
+                let whole = NSRange(location: block.location, length: block.length + next.length)
+                replace(whole, with: nextText + blockText,
+                        selectDelta: next.length, sel: sel)
+            }
+        }
+
+        private func replace(_ range: NSRange, with str: String, selectDelta: Int, sel: NSRange) {
+            guard shouldChangeText(in: range, replacementString: str) else { return }
+            textStorage?.replaceCharacters(in: range, with: str)
+            didChangeText()
+            setSelectedRange(NSRange(location: sel.location + selectDelta, length: sel.length))
+            scrollRangeToVisible(selectedRange())
+        }
+
+        // ── ⌘-click a markdown/bare link opens it (the web's openLinks handler) ──
+        override func mouseDown(with event: NSEvent) {
+            if event.modifierFlags.contains(.command) {
+                let pt = convert(event.locationInWindow, from: nil)
+                let idx = characterIndexForInsertion(at: pt)
+                if let url = NativeNoteEditor.linkAt(string, index: idx) {
+                    NSWorkspace.shared.open(url)
+                    return
+                }
+            }
+            super.mouseDown(with: event)
+        }
+    }
+
+    /// The house editor face: Menlo (user preference), CodeMirror's 13px.
+    static func monoFont(bold: Bool = false) -> NSFont {
+        NSFont(name: bold ? "Menlo-Bold" : "Menlo", size: 12.5)
+            ?? .monospacedSystemFont(ofSize: 12.5, weight: bold ? .bold : .regular)
+    }
+
+    /// The markdown/bare URL under `index`, if any (the web's linkAt, line-local scan).
+    static func linkAt(_ text: String, index: Int) -> URL? {
+        let ns = text as NSString
+        guard index <= ns.length else { return nil }
+        let line = ns.lineRange(for: NSRange(location: min(index, max(0, ns.length - 1)), length: 0))
+        let lineText = ns.substring(with: line)
+        let rel = index - line.location
+        let re = try? NSRegularExpression(
+            pattern: #"\[[^\]]*\]\(([^)\s]+)\)|(?:https?://|www\.)[^\s)]+"#)
+        guard let re else { return nil }
+        let lineNS = lineText as NSString
+        for m in re.matches(in: lineText, range: NSRange(location: 0, length: lineNS.length)) {
+            guard m.range.contains(rel) || m.range.location == rel else { continue }
+            var raw = m.range(at: 1).location != NSNotFound
+                ? lineNS.substring(with: m.range(at: 1))
+                : lineNS.substring(with: m.range)
+            if !raw.contains("://") { raw = "https://" + raw }
+            return URL(string: raw)
+        }
+        return nil
+    }
+
+    /// Line numbers in the left ruler (requested for the full editor; Menlo, muted).
+    final class LineNumberRuler: NSRulerView {
+        weak var tv: NSTextView?
+
+        init(textView: NSTextView, scroll: NSScrollView) {
+            tv = textView
+            super.init(scrollView: scroll, orientation: .verticalRuler)
+            clientView = textView
+            ruleThickness = 30
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(invalidate),
+                name: NSText.didChangeNotification, object: textView)
+        }
+
+        @available(*, unavailable) required init(coder: NSCoder) { fatalError() }
+
+        @objc private func invalidate() { needsDisplay = true }
+
+        override func drawHashMarksAndLabels(in rect: NSRect) {
+            guard let tv, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
+            let visible = tv.visibleRect
+            let glyphs = lm.glyphRange(forBoundingRect: visible, in: tc)
+            let ns = tv.string as NSString
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont(name: "Menlo", size: 9.5) ?? .monospacedDigitSystemFont(ofSize: 9.5, weight: .regular),
+                .foregroundColor: ((tv as? EditorTextView)?.themeText ?? .labelColor)
+                    .withAlphaComponent(0.3),
+            ]
+            // Line number of the first visible character, counted once; then walk lines.
+            var charIdx = lm.characterIndexForGlyph(at: glyphs.location)
+            var lineNo = 1
+            ns.substring(to: min(charIdx, ns.length)).unicodeScalars.forEach { if $0 == "\n" { lineNo += 1 } }
+            while charIdx < NSMaxRange(lm.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)) || charIdx == 0 {
+                let lineRange = ns.lineRange(for: NSRange(location: min(charIdx, max(0, ns.length == 0 ? 0 : ns.length - 1)), length: 0))
+                let gr = lm.glyphRange(forCharacterRange: NSRange(location: lineRange.location, length: 0),
+                                       actualCharacterRange: nil)
+                let fragRect = lm.lineFragmentRect(forGlyphAt: min(gr.location, max(0, lm.numberOfGlyphs - 1)),
+                                                   effectiveRange: nil)
+                let y = fragRect.minY + tv.textContainerInset.height - visible.minY
+                let label = "\(lineNo)" as NSString
+                let size = label.size(withAttributes: attrs)
+                label.draw(at: NSPoint(x: ruleThickness - size.width - 6, y: y + 1.5), withAttributes: attrs)
+                if lineRange.length == 0 { break }
+                charIdx = NSMaxRange(lineRange)
+                lineNo += 1
+                if charIdx >= ns.length { break }
+            }
+        }
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -78,6 +242,8 @@ struct NativeNoteEditor: NSViewRepresentable {
         tv.isAutomaticDashSubstitutionEnabled = false
         tv.isAutomaticTextReplacementEnabled = false
         tv.textContainerInset = NSSize(width: 2, height: 6)
+        tv.placeholderText = placeholder
+        tv.themeText = NSColor(theme.text)
         tv.autoresizingMask = [.width]
         tv.isVerticallyResizable = true
         tv.textContainer?.widthTracksTextView = true
@@ -101,6 +267,9 @@ struct NativeNoteEditor: NSViewRepresentable {
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         scroll.autohidesScrollers = true
+        scroll.hasVerticalRuler = true
+        scroll.verticalRulerView = LineNumberRuler(textView: tv, scroll: scroll)
+        scroll.rulersVisible = true
         return scroll
     }
 
@@ -114,6 +283,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         }
         co.parent = self
         guard let tv = co.textView else { return }
+        (tv as? EditorTextView)?.placeholderText = placeholder
         // Adopt external text when the note IDENTITY changed (panel re-keyed), or the engine's
         // copy diverged while the editor isn't the one typing (a checkbox toggle elsewhere
         // rewrote this note). Never clobber the user's in-flight keystrokes: our own edits round
@@ -166,6 +336,103 @@ struct NativeNoteEditor: NSViewRepresentable {
 
         init(_ parent: NativeNoteEditor) {
             self.parent = parent
+        }
+
+        /// CodeMirror's insertNewlineContinueMarkup + indentMore/indentLess, natively:
+        /// Enter inside a todo/bullet/ordered/quote line continues the marker ("- [ ] " fresh
+        /// and unchecked, numbers incremented); Enter on an EMPTY marker clears it (ends the
+        /// list); Tab/⇧Tab indent/outdent the selected line(s) by two spaces.
+        func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
+            switch sel {
+            case #selector(NSResponder.insertNewline(_:)):
+                return continueMarkup(tv)
+            case #selector(NSResponder.insertTab(_:)):
+                return indent(tv, out: false)
+            case #selector(NSResponder.insertBacktab(_:)):
+                return indent(tv, out: true)
+            default:
+                return false
+            }
+        }
+
+        private static let markerRe = try! NSRegularExpression(
+            pattern: #"^(\s*)(?:([-*+])\s+\[[ xX]\]\s*|([-*+])\s+|(\d+)([.)])\s+|(>)\s*)(.*)$"#)
+
+        private func continueMarkup(_ tv: NSTextView) -> Bool {
+            let ns = tv.string as NSString
+            let sel = tv.selectedRange()
+            let line = ns.lineRange(for: NSRange(location: sel.location, length: 0))
+            var lineText = ns.substring(with: line)
+            if lineText.hasSuffix("\n") { lineText.removeLast() }
+            let lineNS = lineText as NSString
+            guard let m = Self.markerRe.firstMatch(
+                in: lineText, range: NSRange(location: 0, length: lineNS.length))
+            else { return false } // plain line → default newline
+            let rest = lineNS.substring(with: m.range(at: 7))
+            let indent = lineNS.substring(with: m.range(at: 1))
+            // Empty item + Enter = end the list: clear the marker, leave a blank line.
+            if rest.trimmingCharacters(in: .whitespaces).isEmpty, sel.length == 0,
+               sel.location >= line.location + lineNS.length {
+                let content = NSRange(location: line.location,
+                                      length: min(lineNS.length, line.length))
+                guard tv.shouldChangeText(in: content, replacementString: indent) else { return true }
+                tv.textStorage?.replaceCharacters(in: content, with: indent)
+                tv.didChangeText()
+                tv.setSelectedRange(NSRange(location: line.location + (indent as NSString).length,
+                                            length: 0))
+                return true
+            }
+            var prefix: String
+            if m.range(at: 2).location != NSNotFound { // todo → fresh unchecked box
+                prefix = indent + lineNS.substring(with: m.range(at: 2)) + " [ ] "
+            } else if m.range(at: 3).location != NSNotFound { // bullet
+                prefix = indent + lineNS.substring(with: m.range(at: 3)) + " "
+            } else if m.range(at: 4).location != NSNotFound { // ordered → n+1
+                let n = (Int(lineNS.substring(with: m.range(at: 4))) ?? 0) + 1
+                prefix = indent + String(n) + lineNS.substring(with: m.range(at: 5)) + " "
+            } else { // quote
+                prefix = indent + "> "
+            }
+            let insert = "\n" + prefix
+            guard tv.shouldChangeText(in: sel, replacementString: insert) else { return true }
+            tv.textStorage?.replaceCharacters(in: sel, with: insert)
+            tv.didChangeText()
+            tv.setSelectedRange(NSRange(location: sel.location + (insert as NSString).length,
+                                        length: 0))
+            tv.scrollRangeToVisible(tv.selectedRange())
+            return true
+        }
+
+        private func indent(_ tv: NSTextView, out: Bool) -> Bool {
+            let ns = tv.string as NSString
+            let sel = tv.selectedRange()
+            let block = ns.lineRange(for: sel)
+            let text = ns.substring(with: block)
+            var lines = text.components(separatedBy: "\n")
+            let trailing = lines.last == "" // block ends with \n → empty tail element
+            if trailing { lines.removeLast() }
+            var firstDelta = 0
+            var total = 0
+            for i in lines.indices {
+                if out {
+                    let drop = min(2, lines[i].prefix(2).prefix(while: { $0 == " " }).count)
+                    lines[i] = String(lines[i].dropFirst(drop))
+                    if i == 0 { firstDelta = -drop }
+                    total -= drop
+                } else {
+                    lines[i] = "  " + lines[i]
+                    if i == 0 { firstDelta = 2 }
+                    total += 2
+                }
+            }
+            let next = lines.joined(separator: "\n") + (trailing ? "\n" : "")
+            guard next != text else { return true }
+            guard tv.shouldChangeText(in: block, replacementString: next) else { return true }
+            tv.textStorage?.replaceCharacters(in: block, with: next)
+            tv.didChangeText()
+            tv.setSelectedRange(NSRange(location: max(block.location, sel.location + firstDelta),
+                                        length: max(0, sel.length + total - firstDelta)))
+            return true
         }
 
         func textDidChange(_ notification: Notification) {
@@ -230,14 +497,17 @@ struct NativeNoteEditor: NSViewRepresentable {
             let dim = base.withAlphaComponent(0.45)
             let accent = NSColor(Theme.accent)
             storage.beginEditing()
+            let para = NSMutableParagraphStyle()
+            para.lineHeightMultiple = 1.2 // CodeMirror's 1.55 line-height, in AppKit terms
             storage.setAttributes([
-                .font: NSFont.systemFont(ofSize: 12.5),
+                .font: NativeNoteEditor.monoFont(),
                 .foregroundColor: base,
+                .paragraphStyle: para,
             ], range: all)
             s.enumerateSubstrings(in: all, options: [.byLines, .substringNotRequired]) { _, lineRange, _, _ in
                 let line = s.substring(with: lineRange)
                 if Coordinator.headRe.matches(line) {
-                    storage.addAttribute(.font, value: NSFont.boldSystemFont(ofSize: 13),
+                    storage.addAttribute(.font, value: NativeNoteEditor.monoFont(bold: true),
                                          range: lineRange)
                 }
                 if Coordinator.doneLineRe.matches(line) {
