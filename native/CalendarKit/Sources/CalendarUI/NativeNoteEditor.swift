@@ -962,10 +962,8 @@ struct NativeNoteEditor: NSViewRepresentable {
         if changed { list.selected = 0; list.offset = 0 }
         list.accent = accent
         let size = list.idealSize()
-        list.frame = NSRect(origin: .zero, size: size)
         let p = panel ?? Self.makePanel(content: list)
         panel = p
-        p.contentView?.frame = NSRect(origin: .zero, size: size)
         if p.parent == nil {
             hostWin.addChildWindow(p, ordered: .above)
             host = hostWin
@@ -975,7 +973,13 @@ struct NativeNoteEditor: NSViewRepresentable {
         if let screen = hostWin.screen, origin.y < screen.visibleFrame.minY {
             origin.y = anchor.maxY + 3
         }
-        p.setFrame(NSRect(origin: origin, size: size), display: true)
+        // ORDER MATTERS: window first, then the glass wrapper, then the list — framing the
+        // list before its ancestors have size let autoresizing mangle it on the CREATION
+        // pass (the "first popup is an empty box" bug; the next update re-framed it).
+        p.setFrame(NSRect(origin: origin, size: size), display: false)
+        p.contentView?.frame = NSRect(origin: .zero, size: size)
+        list.frame = NSRect(origin: .zero, size: size)
+        p.displayIfNeeded()
         p.orderFront(nil)
         list.needsDisplay = true
     }
