@@ -225,20 +225,50 @@ enum MarkdownDoc {
         var codeLang = ""
         var codeLines: [String]? = nil
         var codeStart = 0
+        var paraBuf: [String] = []
+        var paraLine = 0
+        var quoteBuf: [String] = []
+        var quoteLine = 0
 
         func mark(_ from: Int, line: Int) {
             lineMap.append((NSRange(location: from, length: out.length - from), line))
+        }
+
+        // SOFT BREAKS (user spec, standard markdown): a lone newline does NOT start a new
+        // paragraph — consecutive text lines merge with a space; only a BLANK line (or a
+        // structural block) breaks the paragraph. Same for consecutive "> " lines.
+        func flushPara() {
+            guard !paraBuf.isEmpty else { return }
+            let from = out.length
+            let para = paragraph(spacing: 9)
+            out.append(inline(paraBuf.joined(separator: " "), font: bodyFont(), color: base,
+                              accent: accent, para: para))
+            out.append(newline(para))
+            mark(from, line: paraLine)
+            paraBuf = []
+        }
+        func flushQuote() {
+            guard !quoteBuf.isEmpty else { return }
+            let from = out.length
+            appendQuote(quoteBuf.joined(separator: " "), to: &out, decor: &decor,
+                        base: base, accent: accent, theme: theme)
+            mark(from, line: quoteLine)
+            quoteBuf = []
+        }
+        func flushText() {
+            flushPara()
+            flushQuote()
         }
 
         while i < lines.count {
             let srcLine = startLine + i
             let raw = lines[i]
             let line = raw.trimmingCharacters(in: .whitespaces)
-            let from = out.length
             defer { i += 1 }
 
             if let open = codeLines {
                 if line.hasPrefix("```") {
+                    let from = out.length
                     appendCode(open.joined(separator: "\n"), lang: codeLang, to: &out,
                                decor: &decor, base: base, theme: theme)
                     mark(from, line: codeStart)
@@ -249,18 +279,24 @@ enum MarkdownDoc {
                 continue
             }
             if line.hasPrefix("```") {
+                flushText()
                 codeLang = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
                 codeLines = []
                 codeStart = srcLine
                 continue
             }
-            if line.isEmpty { continue }
+            if line.isEmpty {
+                flushText()
+                continue
+            }
 
             // GFM table: a pipe row followed by the separator row.
             if line.hasPrefix("|"), i + 1 < lines.count,
                lines[i + 1].trimmingCharacters(in: .whitespaces)
                .range(of: #"^\|?[\s:|-]+\|?$"#, options: .regularExpression) != nil,
                lines[i + 1].contains("-") {
+                flushText()
+                let from = out.length
                 var rows: [[String]] = [tableCells(line)]
                 var j = i + 2
                 while j < lines.count {
@@ -274,31 +310,45 @@ enum MarkdownDoc {
             }
 
             if let (done, rest) = todoLine(line) {
+                flushText()
+                let from = out.length
                 appendTodo(rest, done: done, line: srcLine, indent: indentDepth(raw),
                            to: &out, base: base, accent: accent, interactive: interactive)
+                mark(from, line: srcLine)
             } else if line.hasPrefix("#") {
+                flushText()
+                let from = out.length
                 let level = line.prefix(while: { $0 == "#" }).count
                 let body = line.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
                 let para = paragraph(spacingBefore: out.length == 0 ? 2 : 14, spacing: 7)
                 out.append(inline(body, font: headingFont(level), color: base,
                                   accent: accent, para: para))
                 out.append(newline(para))
+                mark(from, line: srcLine)
             } else if let rest = strip(line, ["- ", "* ", "+ "]) {
+                flushText()
+                let from = out.length
                 appendListItem("•", rest, indent: indentDepth(raw), to: &out,
                                base: base, accent: accent)
+                mark(from, line: srcLine)
             } else if let m = line.range(of: #"^\d+[.)] "#, options: .regularExpression) {
+                flushText()
+                let from = out.length
                 appendListItem(String(line[..<m.upperBound]).trimmingCharacters(in: .whitespaces),
                                String(line[m.upperBound...]), indent: indentDepth(raw),
                                to: &out, base: base, accent: accent)
+                mark(from, line: srcLine)
             } else if let rest = strip(line, ["> "]) {
-                appendQuote(rest, to: &out, decor: &decor, base: base, accent: accent, theme: theme)
+                flushPara()
+                if quoteBuf.isEmpty { quoteLine = srcLine }
+                quoteBuf.append(rest)
             } else {
-                let para = paragraph(spacing: 9)
-                out.append(inline(line, font: bodyFont(), color: base, accent: accent, para: para))
-                out.append(newline(para))
+                flushQuote()
+                if paraBuf.isEmpty { paraLine = srcLine }
+                paraBuf.append(line)
             }
-            mark(from, line: srcLine)
         }
+        flushText()
         if let open = codeLines { // unterminated fence
             let from = out.length
             appendCode(open.joined(separator: "\n"), lang: codeLang, to: &out,

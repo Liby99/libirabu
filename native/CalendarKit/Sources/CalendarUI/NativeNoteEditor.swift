@@ -140,7 +140,9 @@ struct NativeNoteEditor: NSViewRepresentable {
 
         // ── ⌥↑ / ⌥↓ line rearrangement (defaultKeymap's moveLineUp/Down) ──
         override func keyDown(with event: NSEvent) {
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // Arrow keys carry hidden .function/.numericPad flags — intersect with just the
+            // four real modifiers or "⌥ alone" never matches (⌥↑/⌥↓ silently did nothing).
+            let mods = event.modifierFlags.intersection([.option, .command, .shift, .control])
             if mods == .option, event.keyCode == 126 { moveLines(up: true); return }
             if mods == .option, event.keyCode == 125 { moveLines(up: false); return }
             super.keyDown(with: event)
