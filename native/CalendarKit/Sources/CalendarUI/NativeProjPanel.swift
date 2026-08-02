@@ -51,7 +51,10 @@ struct NativeProjPanel: View {
         let liveTask = Dictionary(feed.flatMap { p in p.tasks.map { (NativeDashPanel.anchor($0.todo), $0) } },
                                   uniquingKeysWith: { a, _ in a })
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            // LAZY charts: a dense store mounts only near-viewport projects — the full-list
+            // build was the "first ⌘J is the most noticeable" hitch (every chart's rows,
+            // tracks, and axes entered the AttributeGraph at once).
+            LazyVStack(alignment: .leading, spacing: 22) {
                 if order.isEmpty {
                     Text("No projects here yet. Tag todo items with @project:your-project — they show up right here.")
                         .font(.system(size: 12))

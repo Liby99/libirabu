@@ -51,6 +51,11 @@ enum NativeDash {
     /// layout, the real-store flamegraph's remaining block) is paid once per key, not per
     /// visit. Content is NEVER gated: every mounted panel renders fully (no blank slots).
     @MainActor static var parkedPanels: [DashBodyPanel] = []
+    @MainActor static var lastLiveIds: Set<String> = [] // change-gate for the per-frame bookkeeping
+    /// Panels pre-built while the dashboard is RETRACTED (or at year) — these warm ALL tabs
+    /// (the first-⌘J case). Mid-tour neighbor pre-builds stay single-tab: their mounts land
+    /// inside fast swipe sequences, where a triple build regressed the tours.
+    @MainActor static var warmIds: Set<String> = []
 
     @MainActor static func parkPanels(_ live: [DashBodyPanel]) {
         for p in live {

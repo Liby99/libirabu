@@ -117,6 +117,8 @@ public final class DemoController {
         case "bench-day-swipe": await sceneBenchDaySwipe()
         case "bench-day-roundtrip": await sceneBenchDayRoundtrip()
         case "bench-day-boundary": await sceneDayBoundaryCheck()
+        case "bench-hotkey-spam": await sceneBenchHotkeySpam()
+        case "bench-weekday-zoom": await sceneBenchWeekDayZoom()
         case "bench-day-zoomin": await sceneBenchDayZoomIn()
         case "bench-pinch-zoom": await sceneBenchPinchZoom()
         case "bench-notify-plan": await sceneBenchNotifyPlan()
@@ -1240,6 +1242,82 @@ public final class DemoController {
             benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
             _ = engine.endDayGesture()
             try? await pause(gap)
+        }
+        RenderProf.mark("benchEnd")
+        benchActive = false
+        let web = await dashWebCarousel?.benchWebCollect()
+            ?? (frames: [], longTasks: [], units: [], epoch: [])
+        writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
+                          webEpoch: web.epoch)
+    }
+
+    /// ⌘E / ⌘J spam through the REAL hotkey path (the focusDash* notifications →
+    /// ViewPrefObservers.dashHotkey → pin toggle + tab flip + focus) — the reported "spamming
+    /// cmd+j is really bad" case. CC_BENCH_HOTKEY=note|proj|todo picks the key (default proj);
+    /// CC_BENCH_DASH_PERIOD paces it (0.35 ≈ hammering); CC_BENCH_DASH_LEVEL month|week.
+    private func sceneBenchHotkeySpam() async {
+        guard let engine else { return }
+        try? await pause(1.2)
+        let env = ProcessInfo.processInfo.environment
+        let month = max(0, min(11, env["CC_BENCH_WEEK_MONTH"].flatMap { Int($0) } ?? 6))
+        if env["CC_BENCH_DASH_LEVEL"] == "week" {
+            engine.demoGoToWeek(month: month, week: 2)
+        } else {
+            engine.setView(zoom: "month", focusedMonth: month)
+        }
+        try? await pause(1.0)
+        if engine.dashPinned { // deterministic start: retracted
+            engine.toggleDashPin()
+            for _ in 0 ..< 40 { engine.wake(); try? await pause(0.016) }
+        }
+        let name: Notification.Name = switch env["CC_BENCH_HOTKEY"] {
+        case "note": .focusDashNote
+        case "todo": .focusDashTodo
+        default: .focusDashProj
+        }
+        benchFrames.removeAll()
+        RenderProf.reset()
+        benchActive = true
+        RenderProf.mark("benchBegin")
+        let period = env["CC_BENCH_DASH_PERIOD"].flatMap { Double($0) } ?? 0.35
+        let toggles = max(2, env["CC_BENCH_DASH_TOGGLES"].flatMap { Int($0) } ?? 12)
+        moveStart = Date.timeIntervalSinceReferenceDate
+        for _ in 0 ..< toggles {
+            NotificationCenter.default.post(name: name, object: nil)
+            let steps = max(1, Int(period / 0.016))
+            for _ in 0 ..< steps { engine.wake(); try? await pause(0.016) }
+        }
+        for _ in 0 ..< 28 { engine.wake(); try? await pause(0.016) }
+        benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
+        RenderProf.mark("benchEnd")
+        benchActive = false
+        let web = await dashWebCarousel?.benchWebCollect()
+            ?? (frames: [], longTasks: [], units: [], epoch: [])
+        writeBenchResults(webFrames: web.frames, webLongTasks: web.longTasks, webUnits: web.units,
+                          webEpoch: web.epoch)
+    }
+
+    /// Week↔day zoom (the reported subtle stutter): rest at a July week with the panel pinned,
+    /// zoom into a mid-week day, rest, zoom back out — ×3 round trips, each leg a moving phase.
+    private func sceneBenchWeekDayZoom() async {
+        guard let engine else { return }
+        try? await pause(1.2)
+        engine.demoGoToWeek(month: 6, week: 2)
+        if !engine.dashPinned { engine.pinDashboard() }
+        try? await pause(1.0)
+        benchFrames.removeAll()
+        RenderProf.reset()
+        benchActive = true
+        RenderProf.mark("benchBegin")
+        for _ in 0 ..< 3 {
+            moveStart = Date.timeIntervalSinceReferenceDate
+            engine.jumpToDay(engine.year, 6, 15) // week → day
+            for _ in 0 ..< 55 { engine.wake(); try? await pause(0.016) }
+            benchMoves.append((moveStart, moveStart + 0.8))
+            moveStart = Date.timeIntervalSinceReferenceDate
+            engine.setView(zoom: "week") // day → week
+            for _ in 0 ..< 55 { engine.wake(); try? await pause(0.016) }
+            benchMoves.append((moveStart, moveStart + 0.8))
         }
         RenderProf.mark("benchEnd")
         benchActive = false

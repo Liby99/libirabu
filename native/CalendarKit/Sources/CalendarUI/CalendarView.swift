@@ -695,8 +695,14 @@ public struct CalendarView: View {
         let sg = dashScopePanels(input)
         let liveIds = Set(bodyPanels.map(\.panelId))
         let _ = {
-            NativeDash.parkPanels(bodyPanels)
-            NativeDash.trimNavRows(dashNav, liveIds: liveIds)
+            // Array/dictionary bookkeeping only when the live SET changes — parkPanels'
+            // churn + trimNavRows' filter ran at 120Hz (profile: _NativeDictionary
+            // setValue/merge among the top self-time frames during hotkey spam).
+            if liveIds != NativeDash.lastLiveIds {
+                NativeDash.lastLiveIds = liveIds
+                NativeDash.parkPanels(bodyPanels)
+                NativeDash.trimNavRows(dashNav, liveIds: liveIds)
+            }
             if let settled = bodyPanels.first(where: { $0.op >= 0.999 && abs($0.dx) < 0.5 }) {
                 dashNav.activePanel = settled.panelId // plain per-frame assignment
                 // At rest: pre-mount ONE not-yet-parked neighbor per frame (staggered
@@ -708,16 +714,29 @@ public struct CalendarView: View {
                     NativeDash.parkPanels([n])
                 }
             }
-            // YEAR level, pinned: no scope panels exist yet, so nothing above pre-builds —
-            // and the whole month-panel mount landed INSIDE the year→month zoom (the ~230ms
-            // frame at real window sizes). Pre-build the FOCUSED month while resting at year.
-            if sg == nil, input.dashPin > 0.5, engine.chrome.level == 0 {
-                let key = String(format: "%04d-%02d", input.year, input.focus + 1)
-                if !NativeDash.parkedPanels.contains(where: { $0.panelId == "month|" + key }) {
+            // NO scope panels on screen (year level, or month/week with the pin retracted):
+            // nothing above pre-builds, so the first ⌘B/⌘E/⌘J (or the year→month zoom) paid
+            // the whole triple-tab panel mount INSIDE its slide — the "first ⌘J" hitch.
+            // Pre-build the focused scope's panel parked while resting here.
+            if sg == nil, engine.chrome.level <= 2 {
+                let scope: String
+                let key: String
+                let w: CGFloat
+                if engine.chrome.level == 2 {
+                    let wt = weekDashTurn(input)
+                    scope = "week"
+                    key = wt.p >= 0.999 && !wt.toKey.isEmpty ? wt.toKey : wt.fromKey
+                    w = input.dashWeekFrac * (input.vp.w - Layout.labelW)
+                } else {
+                    scope = "month"
+                    key = String(format: "%04d-%02d", input.year, input.focus + 1)
+                    w = dashMonthPanelW(input.vp, frac: input.dashMonthFrac)
+                }
+                if !key.isEmpty,
+                   !NativeDash.parkedPanels.contains(where: { $0.panelId == scope + "|" + key }) {
+                    NativeDash.warmIds.insert(scope + "|" + key) // retracted-rest → warm all tabs
                     NativeDash.parkPanels([DashBodyPanel(
-                        scope: "month", key: key, x: input.vp.w,
-                        w: dashMonthPanelW(input.vp, frac: input.dashMonthFrac),
-                        dx: 0, dy: 0, op: 0)])
+                        scope: scope, key: key, x: input.vp.w, w: w, dx: 0, dy: 0, op: 0)])
                 }
             }
         }()
@@ -754,7 +773,8 @@ public struct CalendarView: View {
                                     onJump: { key, line in
                                         guard !NativeDash.tapsSuppressed else { return }
                                         jumpToNoteKey(key, line: line)
-                                    })
+                                    },
+                                    warmAllTabs: NativeDash.warmIds.contains(panel.panelId))
                         .equatable() // per-frame re-eval stops HERE; only frame/opacity move
                         .frame(width: pw, height: ph)
                         .position(x: bx + pw / 2, y: top + ph / 2)

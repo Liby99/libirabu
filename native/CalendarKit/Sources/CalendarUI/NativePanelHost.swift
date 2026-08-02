@@ -34,17 +34,50 @@ struct NativePanelHost: View, Equatable {
             && a.dataStamp == b.dataStamp && a.noteMode == b.noteMode
     }
 
+    /// Warm the inactive tabs too (parked/pre-built panels only): mounting happens at rest,
+    /// staggered one tab per runloop turn, so the first ⌘E/⌘J flip finds its body built.
+    var warmAllTabs: Bool = false
+
+    /// Tabs that have EVER been shown (or warmed) stay mounted — a flip back is an opacity
+    /// swap instead of re-paying the whole mount (the "first ⌘J, again on every return"
+    /// hitch). Mid-gesture LIVE mounts (day paging, page-turn arrivals) still build only the
+    /// active tab, so gestures never pay for three.
+    @State private var mountedTabs: Set<DashTab> = []
+
     var body: some View {
-        switch tab {
-        case .proj:
-            NativeProjPanel(engine: engine, scope: scope, key: key, theme: theme,
-                            onOpen: onOpen, onJump: onJump)
-        case .note:
-            NativeNotePanel(engine: engine, scope: scope, key: key, theme: theme,
-                            noteMode: $noteMode, nav: nav)
-        case .todo:
-            NativeDashPanel(engine: engine, scope: scope, key: key, theme: theme,
-                            settings: settings, nav: nav, onOpen: onOpen, onJump: onJump)
+        ZStack {
+            if tab == .todo || mountedTabs.contains(.todo) {
+                NativeDashPanel(engine: engine, scope: scope, key: key, theme: theme,
+                                settings: settings, nav: nav, onOpen: onOpen, onJump: onJump)
+                    .opacity(tab == .todo ? 1 : 0)
+                    .allowsHitTesting(tab == .todo)
+            }
+            if tab == .proj || mountedTabs.contains(.proj) {
+                NativeProjPanel(engine: engine, scope: scope, key: key, theme: theme,
+                                onOpen: onOpen, onJump: onJump)
+                    .opacity(tab == .proj ? 1 : 0)
+                    .allowsHitTesting(tab == .proj)
+            }
+            if tab == .note || mountedTabs.contains(.note) {
+                NativeNotePanel(engine: engine, scope: scope, key: key, theme: theme,
+                                noteMode: $noteMode, nav: nav)
+                    .opacity(tab == .note ? 1 : 0)
+                    .allowsHitTesting(tab == .note)
+            }
+        }
+        .onChange(of: tab) { old, new in
+            mountedTabs.insert(old) // the tab you left stays alive
+            mountedTabs.insert(new)
+        }
+        .onAppear {
+            guard warmAllTabs else { return }
+            DispatchQueue.main.async {
+                mountedTabs.insert(.todo)
+                DispatchQueue.main.async {
+                    mountedTabs.insert(.proj)
+                    DispatchQueue.main.async { mountedTabs.insert(.note) }
+                }
+            }
         }
     }
 }
