@@ -32,6 +32,7 @@ struct NativePanelHost: View, Equatable {
     static func == (a: NativePanelHost, b: NativePanelHost) -> Bool {
         a.scope == b.scope && a.key == b.key && a.tab == b.tab
             && a.dataStamp == b.dataStamp && a.noteMode == b.noteMode
+            && a.warmAllTabs == b.warmAllTabs // late warms must reach onChange
     }
 
     /// Warm the inactive tabs too (parked/pre-built panels only): mounting happens at rest,
@@ -69,8 +70,11 @@ struct NativePanelHost: View, Equatable {
             mountedTabs.insert(old) // the tab you left stays alive
             mountedTabs.insert(new)
         }
-        .onAppear {
-            guard warmAllTabs else { return }
+        // onChange(initial:) — NOT onAppear: warmAllTabs can flip true AFTER the host is
+        // mounted (a panel parked by live use gets warmed at the next retracted rest), and
+        // the settled-dwell warm arrives mid-session too.
+        .onChange(of: warmAllTabs, initial: true) { _, warm in
+            guard warm else { return }
             DispatchQueue.main.async {
                 mountedTabs.insert(.todo)
                 DispatchQueue.main.async {

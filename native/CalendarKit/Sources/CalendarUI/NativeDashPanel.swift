@@ -56,6 +56,10 @@ enum NativeDash {
     /// (the first-⌘J case). Mid-tour neighbor pre-builds stay single-tab: their mounts land
     /// inside fast swipe sequences, where a triple build regressed the tours.
     @MainActor static var warmIds: Set<String> = []
+    /// Settled-panel dwell tracking: the CURRENT panel warms its unvisited tabs only after a
+    /// SUSTAINED rest (0.5s) — warming on any momentary settle re-created the swipe-tour
+    /// regression (mounts landing inside the next gesture).
+    @MainActor static var settledSince: (id: String, at: Date)?
 
     @MainActor static func parkPanels(_ live: [DashBodyPanel]) {
         for p in live {

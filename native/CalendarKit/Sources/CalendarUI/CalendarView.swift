@@ -705,6 +705,15 @@ public struct CalendarView: View {
             }
             if let settled = bodyPanels.first(where: { $0.op >= 0.999 && abs($0.dx) < 0.5 }) {
                 dashNav.activePanel = settled.panelId // plain per-frame assignment
+                // SUSTAINED rest (0.5s) → the settled panel warms its unvisited tabs, so the
+                // first ⌘E/⌘J from a pinned dashboard flips instantly instead of mounting the
+                // tab mid-flip. (Momentary settles — swipe-tour gaps — must NOT warm.)
+                if NativeDash.settledSince?.id != settled.panelId {
+                    NativeDash.settledSince = (settled.panelId, Date())
+                } else if let s0 = NativeDash.settledSince,
+                          Date().timeIntervalSince(s0.at) > 0.5 {
+                    NativeDash.warmIds.insert(settled.panelId)
+                }
                 // At rest: pre-mount ONE not-yet-parked neighbor per frame (staggered
                 // so a landing never pays two mounts in one frame). Invisible (op 0).
                 let parkedIds = Set(NativeDash.parkedPanels.map(\.panelId))
@@ -732,11 +741,17 @@ public struct CalendarView: View {
                     key = String(format: "%04d-%02d", input.year, input.focus + 1)
                     w = dashMonthPanelW(input.vp, frac: input.dashMonthFrac)
                 }
-                if !key.isEmpty,
-                   !NativeDash.parkedPanels.contains(where: { $0.panelId == scope + "|" + key }) {
-                    NativeDash.warmIds.insert(scope + "|" + key) // retracted-rest → warm all tabs
-                    NativeDash.parkPanels([DashBodyPanel(
-                        scope: scope, key: key, x: input.vp.w, w: w, dx: 0, dy: 0, op: 0)])
+                if !key.isEmpty {
+                    // Warm REGARDLESS of how the panel got parked: a panel parked by earlier
+                    // live use skipped the warm (only fresh pre-builds got it), so the first
+                    // ⌘J still mounted PROJ inside the pin tween — the "no animation, then
+                    // pop" report. The host re-checks warmAllTabs via onChange, so flipping
+                    // this after mount still triggers the staggered warm.
+                    NativeDash.warmIds.insert(scope + "|" + key)
+                    if !NativeDash.parkedPanels.contains(where: { $0.panelId == scope + "|" + key }) {
+                        NativeDash.parkPanels([DashBodyPanel(
+                            scope: scope, key: key, x: input.vp.w, w: w, dx: 0, dy: 0, op: 0)])
+                    }
                 }
             }
         }()
