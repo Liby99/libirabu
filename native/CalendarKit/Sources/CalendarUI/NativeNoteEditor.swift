@@ -70,6 +70,30 @@ struct NativeNoteEditor: NSViewRepresentable {
             onEscKey?()
         }
 
+        // ── Active line: a slight full-width wash behind the caret's line (the ruler bolds
+        // its number to match). Selection changes trigger redraw via the coordinator.
+        override func drawBackground(in rect: NSRect) {
+            super.drawBackground(in: rect)
+            guard let lm = layoutManager, let tc = textContainer else { return }
+            let ns = string as NSString
+            var frag: NSRect
+            let sel = min(selectedRange().location, ns.length)
+            if ns.length == 0 || (sel >= ns.length && ns.hasSuffix("\n")) {
+                frag = lm.extraLineFragmentRect
+                if frag.height <= 0 { return }
+            } else {
+                let line = ns.lineRange(for: NSRange(location: sel, length: 0))
+                let gr = lm.glyphRange(forCharacterRange: line, actualCharacterRange: nil)
+                frag = lm.boundingRect(forGlyphRange: gr, in: tc)
+            }
+            var r = frag
+            r.origin.x = 0
+            r.size.width = bounds.width
+            r.origin.y += textContainerInset.height
+            themeText.withAlphaComponent(0.05).setFill()
+            r.intersection(rect).fill()
+        }
+
         // ── Placeholder (CodeMirror's cmPlaceholder): grey hint while the note is empty ──
         override func draw(_ dirtyRect: NSRect) {
             super.draw(dirtyRect)
@@ -183,7 +207,11 @@ struct NativeNoteEditor: NSViewRepresentable {
         return nil
     }
 
-    /// Line numbers in the left ruler (requested for the full editor; Menlo, muted).
+    /// Line numbers in the left ruler — same Menlo face and per-fragment BASELINE alignment
+    /// as the content (identical font ⇒ identical line pitch); the current line's number is
+    /// bold + brighter, matching the text view's active-line wash; trailing empty lines get
+    /// numbers via the layout manager's extra line fragment; the separator hairline spans only
+    /// the numbered region, not the whole panel.
     final class LineNumberRuler: NSRulerView {
         weak var tv: NSTextView?
 
@@ -191,44 +219,87 @@ struct NativeNoteEditor: NSViewRepresentable {
             tv = textView
             super.init(scrollView: scroll, orientation: .verticalRuler)
             clientView = textView
-            ruleThickness = 30
+            ruleThickness = 34
             NotificationCenter.default.addObserver(
                 self, selector: #selector(invalidate),
                 name: NSText.didChangeNotification, object: textView)
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(invalidate),
+                name: NSTextView.didChangeSelectionNotification, object: textView)
         }
 
         @available(*, unavailable) required init(coder: NSCoder) { fatalError() }
 
         @objc private func invalidate() { needsDisplay = true }
 
+        // No super.draw: NSRulerView's default chrome paints a full-height background +
+        // separator; we own the drawing entirely.
+        override func draw(_ dirtyRect: NSRect) {
+            drawHashMarksAndLabels(in: dirtyRect)
+        }
+
         override func drawHashMarksAndLabels(in rect: NSRect) {
-            guard let tv, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
+            guard let tv, let lm = tv.layoutManager else { return }
             let visible = tv.visibleRect
-            let glyphs = lm.glyphRange(forBoundingRect: visible, in: tc)
+            let inset = tv.textContainerInset.height
             let ns = tv.string as NSString
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont(name: "Menlo", size: 9.5) ?? .monospacedDigitSystemFont(ofSize: 9.5, weight: .regular),
-                .foregroundColor: ((tv as? EditorTextView)?.themeText ?? .labelColor)
-                    .withAlphaComponent(0.3),
-            ]
-            // Line number of the first visible character, counted once; then walk lines.
-            var charIdx = lm.characterIndexForGlyph(at: glyphs.location)
+            let font = NativeNoteEditor.monoFont()
+            let boldFont = NativeNoteEditor.monoFont(bold: true)
+            let base = (tv as? EditorTextView)?.themeText ?? .labelColor
+            let dimC = base.withAlphaComponent(0.28)
+            let hiC = base.withAlphaComponent(0.8)
+            let selLoc = min(tv.selectedRange().location, ns.length)
+            var currentLine = 1
+            if ns.length > 0 {
+                ns.substring(to: selLoc).unicodeScalars.forEach { if $0 == "\n" { currentLine += 1 } }
+            }
+            var sepTop: CGFloat = .greatestFiniteMagnitude
+            var sepBottom: CGFloat = 0
+
+            // Draw one number, BASELINE-aligned to its fragment: same font as the content, so
+            // top + baselineOffset − ascender puts the digits exactly on the text baseline.
+            func draw(_ n: Int, fragTop: CGFloat, baseline: CGFloat) {
+                let cur = n == currentLine
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: cur ? boldFont : font,
+                    .foregroundColor: cur ? hiC : dimC,
+                ]
+                let label = "\(n)" as NSString
+                let size = label.size(withAttributes: attrs)
+                let y = fragTop + inset - visible.minY + baseline - (cur ? boldFont : font).ascender
+                label.draw(at: NSPoint(x: ruleThickness - size.width - 8, y: y), withAttributes: attrs)
+                sepTop = min(sepTop, fragTop + inset - visible.minY)
+                sepBottom = max(sepBottom, y + size.height)
+            }
+
+            var charIdx = 0
             var lineNo = 1
-            ns.substring(to: min(charIdx, ns.length)).unicodeScalars.forEach { if $0 == "\n" { lineNo += 1 } }
-            while charIdx < NSMaxRange(lm.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)) || charIdx == 0 {
-                let lineRange = ns.lineRange(for: NSRange(location: min(charIdx, max(0, ns.length == 0 ? 0 : ns.length - 1)), length: 0))
+            while ns.length > 0, charIdx < ns.length {
+                let lineRange = ns.lineRange(for: NSRange(location: charIdx, length: 0))
                 let gr = lm.glyphRange(forCharacterRange: NSRange(location: lineRange.location, length: 0),
                                        actualCharacterRange: nil)
-                let fragRect = lm.lineFragmentRect(forGlyphAt: min(gr.location, max(0, lm.numberOfGlyphs - 1)),
-                                                   effectiveRange: nil)
-                let y = fragRect.minY + tv.textContainerInset.height - visible.minY
-                let label = "\(lineNo)" as NSString
-                let size = label.size(withAttributes: attrs)
-                label.draw(at: NSPoint(x: ruleThickness - size.width - 6, y: y + 1.5), withAttributes: attrs)
-                if lineRange.length == 0 { break }
+                let gi = min(gr.location, max(0, lm.numberOfGlyphs - 1))
+                let frag = lm.lineFragmentRect(forGlyphAt: gi, effectiveRange: nil)
+                let baseline = lm.location(forGlyphAt: gi).y
+                draw(lineNo, fragTop: frag.minY, baseline: baseline)
                 charIdx = NSMaxRange(lineRange)
                 lineNo += 1
-                if charIdx >= ns.length { break }
+            }
+            // The trailing empty line (doc ends with \n) and the empty document both live in
+            // the EXTRA line fragment — always numbered, so the caret's line has its number.
+            if ns.length == 0 || ns.hasSuffix("\n") {
+                let extra = lm.extraLineFragmentRect
+                if extra.height > 0 {
+                    draw(lineNo, fragTop: extra.minY, baseline: font.ascender)
+                }
+            }
+            // Separator: only across the numbered span.
+            if sepBottom > 0 {
+                let clampedTop = max(0, sepTop)
+                let clampedBottom = min(bounds.height, sepBottom + 2)
+                base.withAlphaComponent(0.12).setFill()
+                NSRect(x: ruleThickness - 1, y: clampedTop, width: 1,
+                       height: max(0, clampedBottom - clampedTop)).fill()
             }
         }
     }
@@ -442,6 +513,10 @@ struct NativeNoteEditor: NSViewRepresentable {
             sessionDirty = true
             parent.onText(s)
             highlight()
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            textView?.needsDisplay = true // active-line wash follows the caret
         }
 
         func textDidEndEditing(_ notification: Notification) {
