@@ -51,6 +51,7 @@ struct NativeNoteEditor: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        coordinator.popup.close()
         coordinator.stampCreatedIfDirty() // teardown (mode flip / drawer close) ends the session
     }
 
@@ -72,8 +73,12 @@ struct NativeNoteEditor: NSViewRepresentable {
             return super.performKeyEquivalent(with: event)
         }
 
-        override func cancelOperation(_ sender: Any?) { // Esc
-            onEscKey?()
+        override func cancelOperation(_ sender: Any?) { // Esc: completion first, then exit
+            if completionVisible?() == true {
+                completionCancel?()
+            } else {
+                onEscKey?()
+            }
         }
 
         // ── Active line: a slight full-width wash behind the caret's line (the ruler bolds
@@ -186,25 +191,9 @@ struct NativeNoteEditor: NSViewRepresentable {
             scrollRangeToVisible(selectedRange())
         }
 
-        // ── Autocomplete (the web's entity + date sources on NSTextView's machinery) ──
-        /// The partial AFTER the trigger sigil (after "@", "#", "@project:", "due:", …) — what
-        /// an accepted completion replaces, exactly like the web's `from` offsets.
-        override var rangeForUserCompletion: NSRange {
-            NativeNoteEditor.completionTrigger(in: self)?.partialRange
-                ?? super.rangeForUserCompletion
-        }
-
-        override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange,
-                                       movement: Int, isFinal flag: Bool) {
-            // Labeled options render as "label → value"; only the VALUE is inserted.
-            let insert = word.range(of: " → ").map { String(word[$0.upperBound...]) } ?? word
-            super.insertCompletion(insert, forPartialWordRange: charRange,
-                                   movement: movement, isFinal: flag)
-            guard flag, movement != NSCancelTextMovement else { return }
-            if insert.hasSuffix(":") { // "project:" / "person:" reopeners → offer the keys now
-                DispatchQueue.main.async { [weak self] in self?.complete(nil) }
-            }
-        }
+        // ── Autocomplete popup hooks (the custom panel replaces NSTextView's machinery) ──
+        var completionVisible: (() -> Bool)?
+        var completionCancel: (() -> Void)?
 
         // ── ⌘-click a markdown/bare link opens it (the web's openLinks handler) ──
         override func mouseDown(with event: NSEvent) {
@@ -565,6 +554,8 @@ struct NativeNoteEditor: NSViewRepresentable {
             co?.stampCreatedIfDirty()
             co?.parent.onExit()
         }
+        tv.completionVisible = { [weak co = context.coordinator] in co?.popup.active ?? false }
+        tv.completionCancel = { [weak co = context.coordinator] in co?.popup.close() }
         session?.end = { [weak co = context.coordinator] in co?.stampCreatedIfDirty() }
         tv.string = text
         context.coordinator.textView = tv
@@ -579,6 +570,15 @@ struct NativeNoteEditor: NSViewRepresentable {
         scroll.hasVerticalRuler = true
         scroll.verticalRulerView = LineNumberRuler(textView: tv, scroll: scroll)
         scroll.rulersVisible = true
+        // Scrolling moves the caret's screen anchor — retarget (or close) the popup.
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
+            queue: .main) { [weak co = context.coordinator] _ in
+            MainActor.assumeIsolated {
+                if co?.popup.active == true { co?.refreshCompletions() }
+            }
+        }
         return scroll
     }
 
@@ -652,6 +652,20 @@ struct NativeNoteEditor: NSViewRepresentable {
         /// and unchecked, numbers incremented); Enter on an EMPTY marker clears it (ends the
         /// list); Tab/⇧Tab indent/outdent the selected line(s) by two spaces.
         func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
+            if popup.active {
+                switch sel {
+                case #selector(NSResponder.moveDown(_:)):
+                    popup.move(1); return true
+                case #selector(NSResponder.moveUp(_:)):
+                    popup.move(-1); return true
+                case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+                    acceptCompletion(popup.selected); return true
+                case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveRight(_:)):
+                    popup.close() // caret leaves the trigger — let the arrow through
+                default:
+                    break
+                }
+            }
             switch sel {
             case #selector(NSResponder.insertNewline(_:)):
                 return continueMarkup(tv)
@@ -751,41 +765,56 @@ struct NativeNoteEditor: NSViewRepresentable {
             sessionDirty = true
             parent.onText(s)
             highlight()
-            // Auto-open the completion popup while typing inside a trigger (the web's
-            // live autocompletion) — only when there's something to show (an empty list
-            // would beep). Acceptance re-fires textDidChange: `completing` gates the
-            // reopen so an accepted entity doesn't immediately pop the list again
-            // (the "project:"/"person:" reopeners bypass via insertCompletion).
-            guard !completing, tv.window?.firstResponder === tv,
-                  let t = NativeNoteEditor.completionTrigger(in: tv),
-                  !NativeNoteEditor.completionOptions(for: t,
-                                                      index: parent.completionIndex?(),
-                                                      dueAnchor: parent.dueAnchor?() ?? nil)
-                  .isEmpty
-            else { return }
-            completing = true
-            tv.complete(nil)
-            completing = false
+            if suppressCompletionOnce {
+                suppressCompletionOnce = false
+                popup.close()
+            } else {
+                refreshCompletions()
+            }
         }
 
-        var completing = false
+        // ── The custom completion session (the web-styled CompletionPopup) ──
+        let popup = CompletionPopup()
+        var suppressCompletionOnce = false // an accepted entity must not instantly re-list
 
-        func textView(_ tv: NSTextView, completions _: [String],
-                      forPartialWordRange charRange: NSRange,
-                      indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
-            guard let t = NativeNoteEditor.completionTrigger(in: tv),
-                  t.partialRange == charRange else { return [] }
-            index?.pointee = 0
-            return NativeNoteEditor.completionOptions(for: t,
-                                                      index: parent.completionIndex?(),
-                                                      dueAnchor: parent.dueAnchor?() ?? nil)
+        /// Recompute trigger + options at the caret; show/refresh or close the popup.
+        func refreshCompletions() {
+            guard let tv = textView, let win = tv.window, win.firstResponder === tv,
+                  let t = NativeNoteEditor.completionTrigger(in: tv)
+            else { popup.close(); return }
+            let options = NativeNoteEditor.completionOptions(
+                for: t, index: parent.completionIndex?(), dueAnchor: parent.dueAnchor?() ?? nil)
+            guard !options.isEmpty else { popup.close(); return }
+            let anchor = tv.firstRect(
+                forCharacterRange: NSRange(location: t.partialRange.location, length: 0),
+                actualRange: nil)
+            popup.onPick = { [weak self] row in self?.acceptCompletion(row) }
+            popup.update(items: options, accent: NSColor(Theme.accent), anchor: anchor, host: win)
+        }
+
+        func acceptCompletion(_ row: Int) {
+            guard let tv = textView, row < popup.items.count,
+                  let t = NativeNoteEditor.completionTrigger(in: tv) else { popup.close(); return }
+            let item = popup.items[row]
+            let value = item.range(of: " → ").map { String(item[$0.upperBound...]) } ?? item
+            popup.close()
+            // Reopeners ("project:"/"person:") re-list their keys via the normal refresh;
+            // anything else suppresses the immediate re-list of the just-accepted text.
+            suppressCompletionOnce = !value.hasSuffix(":")
+            guard tv.shouldChangeText(in: t.partialRange, replacementString: value) else { return }
+            tv.textStorage?.replaceCharacters(in: t.partialRange, with: value)
+            tv.didChangeText()
+            tv.setSelectedRange(NSRange(location: t.partialRange.location + (value as NSString).length,
+                                        length: 0))
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             textView?.needsDisplay = true // active-line wash follows the caret
+            if popup.active { refreshCompletions() } // caret out of the trigger → closes
         }
 
         func textDidEndEditing(_ notification: Notification) {
+            popup.close()
             stampCreatedIfDirty() // focus left the editor → the session is over
         }
 
@@ -902,6 +931,158 @@ struct NativeNoteEditor: NSViewRepresentable {
                 }
             }
             storage.endEditing()
+        }
+    }
+}
+
+/// The completion dropdown — the web's .cm-tooltip-autocomplete, natively: rounded 8px panel
+/// with a hairline border + shadow, compact Menlo rows ("label → value" details dimmed),
+/// accent-filled selection with white text, ≤10 rows visible (scrolled by the selection).
+@MainActor final class CompletionPopup {
+    private var panel: NSPanel?
+    private let list = ListView()
+    private weak var host: NSWindow?
+    var onPick: ((Int) -> Void)? {
+        get { list.onPick }
+        set { list.onPick = newValue }
+    }
+
+    var active: Bool { panel != nil }
+    var items: [String] = []
+    var selected: Int { list.selected }
+
+    func update(items newItems: [String], accent: NSColor, anchor: NSRect, host hostWin: NSWindow) {
+        let changed = newItems != items
+        items = newItems
+        list.rows = newItems.map { item in
+            item.range(of: " → ").map {
+                (String(item[..<$0.lowerBound]), String(item[$0.upperBound...]))
+            } ?? (item, nil)
+        }
+        if changed { list.selected = 0; list.offset = 0 }
+        list.accent = accent
+        let size = list.idealSize()
+        list.frame = NSRect(origin: .zero, size: size)
+        let p = panel ?? Self.makePanel(content: list)
+        panel = p
+        if p.parent == nil {
+            hostWin.addChildWindow(p, ordered: .above)
+            host = hostWin
+        }
+        // Below the trigger start; flip above when there's no room underneath.
+        var origin = NSPoint(x: anchor.minX - 9, y: anchor.minY - 3 - size.height)
+        if let screen = hostWin.screen, origin.y < screen.visibleFrame.minY {
+            origin.y = anchor.maxY + 3
+        }
+        p.setFrame(NSRect(origin: origin, size: size), display: true)
+        p.orderFront(nil)
+        list.needsDisplay = true
+    }
+
+    func close() {
+        guard let p = panel else { return }
+        host?.removeChildWindow(p)
+        p.orderOut(nil)
+        panel = nil
+        items = []
+    }
+
+    func move(_ delta: Int) {
+        guard !items.isEmpty else { return }
+        list.selected = max(0, min(items.count - 1, list.selected + delta))
+        if list.selected < list.offset { list.offset = list.selected }
+        if list.selected >= list.offset + ListView.maxVisible {
+            list.offset = list.selected - ListView.maxVisible + 1
+        }
+        list.needsDisplay = true
+    }
+
+    private static func makePanel(content: NSView) -> NSPanel {
+        let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: true)
+        p.isFloatingPanel = true
+        p.level = .popUpMenu
+        p.backgroundColor = .clear
+        p.isOpaque = false
+        p.hasShadow = true
+        p.becomesKeyOnlyIfNeeded = true
+        content.wantsLayer = true
+        content.layer?.cornerRadius = 8
+        content.layer?.masksToBounds = true
+        content.layer?.borderWidth = 1
+        p.contentView = content
+        return p
+    }
+
+    /// The rows, drawn by hand: full styling control at ~zero view overhead.
+    final class ListView: NSView {
+        static let rowH: CGFloat = 21
+        static let maxVisible = 10
+        var rows: [(label: String, detail: String?)] = []
+        var selected = 0
+        var offset = 0 // first visible row (the selection scrolls the window)
+        var accent: NSColor = .systemRed
+        var onPick: ((Int) -> Void)?
+
+        override var isFlipped: Bool { true }
+
+        private static let labelFont = NativeNoteEditor.monoFont() // Menlo, the editor face
+        private static let detailFont = NSFont(name: "Menlo", size: 10.5)
+            ?? .monospacedSystemFont(ofSize: 10.5, weight: .regular)
+
+        func idealSize() -> NSSize {
+            var w: CGFloat = 160
+            for r in rows {
+                let lw = (r.label as NSString).size(withAttributes: [.font: Self.labelFont]).width
+                let dw = r.detail.map {
+                    ($0 as NSString).size(withAttributes: [.font: Self.detailFont]).width + 14
+                } ?? 0
+                w = max(w, lw + dw + 22)
+            }
+            return NSSize(width: min(w, 380),
+                          height: CGFloat(min(rows.count, Self.maxVisible)) * Self.rowH)
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            NSColor.controlBackgroundColor.setFill()
+            bounds.fill()
+            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.22).cgColor
+            for i in offset ..< min(rows.count, offset + Self.maxVisible) {
+                let y = CGFloat(i - offset) * Self.rowH
+                let rowRect = NSRect(x: 0, y: y, width: bounds.width, height: Self.rowH)
+                let sel = i == selected
+                if sel {
+                    accent.setFill()
+                    rowRect.fill()
+                }
+                let labelColor: NSColor = sel ? .white : .labelColor
+                let r = rows[i]
+                let labelAttrs: [NSAttributedString.Key: Any] = [
+                    .font: Self.labelFont, .foregroundColor: labelColor,
+                ]
+                let ls = (r.label as NSString).size(withAttributes: labelAttrs)
+                (r.label as NSString).draw(
+                    at: NSPoint(x: 10, y: y + (Self.rowH - ls.height) / 2),
+                    withAttributes: labelAttrs)
+                if let d = r.detail {
+                    let detailAttrs: [NSAttributedString.Key: Any] = [
+                        .font: Self.detailFont,
+                        .foregroundColor: labelColor.withAlphaComponent(sel ? 0.85 : 0.62),
+                    ]
+                    let ds = ("→ " + d as NSString).size(withAttributes: detailAttrs)
+                    ("→ " + d as NSString).draw(
+                        at: NSPoint(x: 10 + ls.width + 10, y: y + (Self.rowH - ds.height) / 2),
+                        withAttributes: detailAttrs)
+                }
+            }
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            let pt = convert(event.locationInWindow, from: nil)
+            let row = offset + Int(pt.y / Self.rowH)
+            if row >= 0, row < rows.count {
+                onPick?(row)
+            }
         }
     }
 }
