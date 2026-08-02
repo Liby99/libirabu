@@ -842,16 +842,26 @@ public final class DemoController {
         }
     }
 
-    /// Stats over the last second of rendered frames (nil while idle/paused — no frames to judge).
+    /// Stats over the last second of rendered frames (nil while idle/paused — no frames to
+    /// judge). SLEEP-AWARE: the render clock legitimately sleeps between animations, and raw
+    /// wall-time deltas diluted the fps readout to "30-50" during toggle sessions even when
+    /// every animated frame hit cadence. The engine's recorded sleep spans are subtracted from
+    /// each delta and from the window, so the HUD reads the ANIMATED frame rate — while real
+    /// main-thread blocks (which are not sleeps) still count as jank.
     public func hudStats() -> (fps: Double, p95ms: Double, maxms: Double)? {
         let now = Date().timeIntervalSinceReferenceDate
         let recent = hudRing.filter { $0 > now - 1.0 }
         guard recent.count >= 5 else { return nil }
-        let deltas = zip(recent.dropFirst(), recent).map { $0 - $1 }.filter { $0 > 0 }
+        let deltas = zip(recent.dropFirst(), recent).map { b, a in
+            max(0.0001, (b - a) - (engine?.sleepOverlap(a, b) ?? 0))
+        }
         guard !deltas.isEmpty else { return nil }
         let sorted = deltas.sorted()
         let p95 = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
-        return (Double(deltas.count) / (recent.last! - recent.first!), p95 * 1000, sorted.last! * 1000)
+        let span = (recent.last! - recent.first!)
+            - (engine?.sleepOverlap(recent.first!, recent.last!) ?? 0)
+        guard span > 0.001 else { return nil }
+        return (Double(deltas.count) / span, p95 * 1000, sorted.last! * 1000)
     }
 
     /// YEAR-view scroll benchmark. The payload (bench/year-bands-2026.json — a real year of bands) is

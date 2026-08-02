@@ -36,6 +36,11 @@ public final class CalendarEngine {
     public func wake() {
         if !renderClock.awake {
             renderClock.awake = true
+            if let began = sleepBegan {
+                recentSleeps.append((began, Date.timeIntervalSinceReferenceDate))
+                if recentSleeps.count > 16 { recentSleeps.removeFirst(8) }
+                sleepBegan = nil
+            }
             if CalendarEngine.diagClock {
                 print("[dash-diag] renderClock → AWAKE")
             }
@@ -48,6 +53,23 @@ public final class CalendarEngine {
 
     /// CC_DASH_DIAG: log clock transitions (the no-animation hunt).
     static let diagClock = ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil
+
+    /// Recent render-clock sleep spans (start, end), newest last — the HUD subtracts these so
+    /// its fps reflects ANIMATED cadence, not wall time diluted by legitimate idle sleeps.
+    public private(set) var recentSleeps: [(start: Double, end: Double)] = []
+    private var sleepBegan: Double?
+
+    /// Total sleep time overlapping [a, b] (timeIntervalSinceReferenceDate space).
+    public func sleepOverlap(_ a: Double, _ b: Double) -> Double {
+        var total = 0.0
+        for s in recentSleeps {
+            total += max(0, min(b, s.end) - max(a, s.start))
+        }
+        if let open = sleepBegan { // currently asleep
+            total += max(0, b - max(a, open))
+        }
+        return total
+    }
     /// CC_TRACE: clock transitions feed the interaction trace (sleep vs stall separation).
     static let traceOn = ProcessInfo.processInfo.environment["CC_TRACE"] != nil
 
@@ -61,6 +83,7 @@ public final class CalendarEngine {
                 self.armSleep()
             } else {
                 self.renderClock.awake = false
+                self.sleepBegan = Date.timeIntervalSinceReferenceDate
                 if CalendarEngine.diagClock {
                     print("[dash-diag] renderClock → ASLEEP")
                 }
