@@ -66,33 +66,27 @@ struct NativeNotePanel: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(.top, 6)
             } else {
-                ScrollView {
-                    MarkdownBlocksView(text: text, accent: Theme.accent, theme: theme,
-                                       onToggle: { line in
-                                           // ⌘-click on a checkbox = "edit here", not a toggle
-                                           // (the web ignored inputs on ⌘-click for the same
-                                           // reason — modifier checked at the shared source).
-                                           if NSEvent.modifierFlags.contains(.command) {
-                                               pendingEditLine = line
-                                               noteMode = .edit
-                                               return
-                                           }
-                                           // Preview checkboxes flip the source line in place.
-                                           let stamp = NativeDashPanel.todayIso() + "T"
-                                               + NativeDashPanel.clockNow()
-                                           if let next = TodoIndex.toggleTodoLine(
-                                               text, line: line, stamp: stamp), next != text {
-                                               engine.setDailyNote(storageKey, next)
-                                           }
-                                       },
-                                       onLineEdit: { line in
-                                           pendingEditLine = line
-                                           noteMode = .edit
-                                       })
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.trailing, 10)
-                }
-                .scrollIndicators(.hidden)
+                // The refined preview engine: one selectable NSTextView document (tables,
+                // code highlighting, token pills; whole-content copy). ⌘-click → edit at line;
+                // checkbox taps flip the source line in place.
+                MarkdownPreview(text: text, theme: theme,
+                                onToggle: { line in
+                                    if NSEvent.modifierFlags.contains(.command) {
+                                        pendingEditLine = line
+                                        noteMode = .edit
+                                        return
+                                    }
+                                    let stamp = NativeDashPanel.todayIso() + "T"
+                                        + NativeDashPanel.clockNow()
+                                    if let next = TodoIndex.toggleTodoLine(
+                                        text, line: line, stamp: stamp), next != text {
+                                        engine.setDailyNote(storageKey, next)
+                                    }
+                                },
+                                onLineEdit: { line in
+                                    pendingEditLine = line
+                                    noteMode = .edit
+                                })
             }
         }
         // Content-based default whenever the panel lands on a DIFFERENT note: empty → edit,
