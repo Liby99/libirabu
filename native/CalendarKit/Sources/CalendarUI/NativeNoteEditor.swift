@@ -527,10 +527,13 @@ struct NativeNoteEditor: NSViewRepresentable {
             let extra = lm.extraLineFragmentRect
             let usedMax = max(lm.usedRect(for: tc).maxY, extra.height > 0 ? extra.maxY : 0)
             sepBottom = max(sepBottom, usedMax + inset - visible.minY)
-            if sepBottom > 0 {
+            // Separator TRIAL-HIDDEN (user request, 2026-08-01): keep the geometry live so
+            // flipping `sepAlpha` back is a one-number change if the bare look doesn't land.
+            let sepAlpha: CGFloat = 0 // was 0.12
+            if sepBottom > 0, sepAlpha > 0 {
                 let clampedTop = max(0, sepTop)
                 let clampedBottom = min(bounds.height, sepBottom + 2)
-                base.withAlphaComponent(0.12).setFill()
+                base.withAlphaComponent(sepAlpha).setFill()
                 NSRect(x: ruleThickness - 1, y: clampedTop, width: 1,
                        height: max(0, clampedBottom - clampedTop)).fill()
             }
