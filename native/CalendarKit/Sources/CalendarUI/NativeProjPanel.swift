@@ -79,6 +79,7 @@ struct NativeProjPanel: View {
         let basis = "\(scope)|\(key)"
         let stamp = engine.todoDataStamp
         if let f = frozen, f.basis == basis, f.stamp == stamp { return f.order }
+        return NativeDash.diagTime("projFrozenOrder(\(scope)|\(key))") {
         // Scores are computed ONCE per task, then sorted — a score inside the comparator ran
         // O(n log n) times and made this the single hottest block on tab open (~90ms release,
         // several× that in debug, on a 500-task year).
@@ -92,6 +93,7 @@ struct NativeProjPanel: View {
         let f = Frozen(basis: basis, stamp: stamp, order: order)
         DispatchQueue.main.async { frozen = f }
         return order
+        }
     }
 
     private var range: (String, String) {
