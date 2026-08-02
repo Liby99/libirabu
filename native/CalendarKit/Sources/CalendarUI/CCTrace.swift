@@ -46,6 +46,12 @@ final class CCTrace {
         shared.lines.append("E \(shared.ts()) \(label)")
     }
 
+    /// Explicit dump (bench scenes flush at scene end — no resign-active in a scripted run).
+    static func dumpNow(_ reason: String) {
+        guard on else { return }
+        shared.dump(reason: reason)
+    }
+
     // ── Recording ────────────────────────────────────────────────────────────────────────────
 
     private func recordFrame(_ engine: CalendarEngine) {

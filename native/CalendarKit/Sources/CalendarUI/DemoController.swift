@@ -1524,6 +1524,7 @@ public final class DemoController {
     /// content process's cadence sits next to the native one (it janks invisibly to benchTick).
     private func writeBenchResults(webFrames: [Double] = [], webLongTasks: [[Double]] = [],
                                    webUnits: [[Any]] = [], webEpoch: [Double] = []) {
+        CCTrace.dumpNow("bench-scene-end")
         guard let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty,
               benchFrames.count > 2 else { return }
         let deltas = zip(benchFrames.dropFirst(), benchFrames).map { $0 - $1 }.filter { $0 > 0 }
