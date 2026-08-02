@@ -627,6 +627,12 @@ struct NativeNoteEditor: NSViewRepresentable {
         tv.textContainerInset = NSSize(width: 10, height: 6) // gap after the ruler hairline
         tv.placeholderText = placeholder
         tv.themeText = NSColor(theme.text)
+        // Selection in the ACCENT (the web's 24% highlight), caret in the text color — not
+        // the system blue.
+        tv.selectedTextAttributes = [
+            .backgroundColor: NSColor(Theme.accent).withAlphaComponent(0.24),
+        ]
+        tv.insertionPointColor = NSColor(theme.text)
         tv.typingAttributes = NativeNoteEditor.baseAttributes(NSColor(theme.text))
         tv.defaultParagraphStyle = NativeNoteEditor.editorParagraphStyle()
         tv.autoresizingMask = [.width]

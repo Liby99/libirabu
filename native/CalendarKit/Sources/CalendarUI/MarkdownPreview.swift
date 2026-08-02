@@ -33,6 +33,9 @@ struct MarkdownPreview: NSViewRepresentable {
         tv.isVerticallyResizable = true
         tv.textContainer?.widthTracksTextView = true
         tv.linkTextAttributes = [.cursor: NSCursor.pointingHand] // colors are ours (accent)
+        tv.selectedTextAttributes = [ // accent selection, like the editor — not system blue
+            .backgroundColor: NSColor(Theme.accent).withAlphaComponent(0.24),
+        ]
         tv.delegate = context.coordinator
         context.coordinator.textView = tv
         let scroll = NSScrollView()
