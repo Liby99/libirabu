@@ -965,6 +965,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         list.frame = NSRect(origin: .zero, size: size)
         let p = panel ?? Self.makePanel(content: list)
         panel = p
+        p.contentView?.frame = NSRect(origin: .zero, size: size)
         if p.parent == nil {
             hostWin.addChildWindow(p, ordered: .above)
             host = hostWin
@@ -1006,11 +1007,19 @@ struct NativeNoteEditor: NSViewRepresentable {
         p.isOpaque = false
         p.hasShadow = true
         p.becomesKeyOnlyIfNeeded = true
-        content.wantsLayer = true
-        content.layer?.cornerRadius = 8
-        content.layer?.masksToBounds = true
-        content.layer?.borderWidth = 1
-        p.contentView = content
+        // Frosted glass (user request): the menu material behind the rows, borderless,
+        // rounded — the list draws transparently on top.
+        let glass = NSVisualEffectView()
+        glass.material = .menu
+        glass.blendingMode = .behindWindow
+        glass.state = .active
+        glass.wantsLayer = true
+        glass.layer?.cornerRadius = 8
+        glass.layer?.masksToBounds = true
+        glass.autoresizesSubviews = true
+        content.autoresizingMask = [.width, .height]
+        glass.addSubview(content)
+        p.contentView = glass
         return p
     }
 
@@ -1044,9 +1053,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         }
 
         override func draw(_ dirtyRect: NSRect) {
-            NSColor.controlBackgroundColor.setFill()
-            bounds.fill()
-            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.22).cgColor
+            // Transparent: the glass panel behind provides the surface.
             for i in offset ..< min(rows.count, offset + Self.maxVisible) {
                 let y = CGFloat(i - offset) * Self.rowH
                 let rowRect = NSRect(x: 0, y: y, width: bounds.width, height: Self.rowH)
