@@ -237,6 +237,17 @@ public struct CalendarView: View {
             + "trace=\(CCTrace.on) diag=\(NativeDash.diag) hud=\(DemoController.hudEnabled) "
             + "demo=\(CalendarEngine.isDemoMode)")
         WindowBeepSilencer.installOnce() // stop the window beeping on keys the calendar leaves unhandled
+        PresentGuard.install() // starved runloop ⇒ still present frames (the "⌘J pop" fix)
+        // App shell only: the calendar WindowGroup used to carry .frame(minWidth:minHeight:) at
+        // the root, which makes the window's NSHostingView re-derive min-size constraints
+        // through the toolbar's Auto Layout engine on every tick (~46% of per-tick cost in the
+        // ⌘J-pop traces). The frame modifier is gone; the window's own contentMinSize enforces
+        // the same 900×600 floor once, for free. (CLI shell windows have no identifier.)
+        DispatchQueue.main.async {
+            if let win = NSApp.windows.first(where: { $0.identifier?.rawValue.contains("calendar") == true }) {
+                win.contentMinSize = NSSize(width: 900, height: 600)
+            }
+        }
         if CalendarEngine.isDemoMode {
             demo.openSearchHook = { openSearch() }   // search-demo scene drives the real toolbar search
             demo.eventMenuHook = { id, r in ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: r) }

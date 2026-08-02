@@ -39,7 +39,11 @@ struct CalendarApp: App {
     var body: some Scene {
         WindowGroup(id: "calendar") {
             CalendarView(engine: engine, assistant: quickAssistant, windowAssistant: assistant)
-                .frame(minWidth: 900, minHeight: 600)
+                // NO root .frame(minWidth:minHeight:) here: that modifier makes the window's
+                // NSHostingView re-derive min-size constraints through the toolbar's Auto Layout
+                // engine on every animation tick — nearly half the per-tick cost in the ⌘J-pop
+                // traces, and the push over the 8.3ms @120Hz budget that froze presents entirely.
+                // CalendarView.setupOnAppear pins the same 900×600 floor via window.contentMinSize.
                 // Translucent window material → the calendar picks up the macOS 26
                 // wallpaper tint (and the frosted masks read as glass over it). The
                 // toolbar (breadcrumb + glass buttons) lives inside CalendarView.
