@@ -70,14 +70,20 @@ enum NativeDash {
     @MainActor static var diagLastEval: Date?
     @MainActor static var diagLastStamp = ""
 
+    @MainActor static var diagFirstFramePending = false
+    @MainActor static var diagFirstScenePending = false
+
     @MainActor static func diagPress(_ label: String, engine: CalendarEngine) {
         guard diag else { return }
         DashWatchdog.shared.openWindow(seconds: 2.5)
         diagPressAt = Date()
         diagLastEval = nil
+        diagLastScene = nil
+        diagFirstFramePending = true
+        diagFirstScenePending = true
         diagLastStamp = engine.todoDataStamp
         let parked = parkedPanels.map(\.panelId).joined(separator: ",")
-        print("[dash-diag] \(label) pressed | pinned=\(engine.dashPinned) level=\(engine.chrome.level) parked=[\(parked)] warm=[\(warmIds.joined(separator: ","))]")
+        print("[dash-diag] \(label) pressed | awake=\(engine.renderClock.awake) pinned=\(engine.dashPinned) level=\(engine.chrome.level) parked=[\(parked)] warm=[\(warmIds.joined(separator: ","))]")
     }
 
     /// Time a suspect on the main thread; prints only when it exceeds 50ms (diag builds).
@@ -97,6 +103,13 @@ enum NativeDash {
     @MainActor static func diagSceneFrame() {
         guard diag, let press = diagPressAt else { diagLastScene = nil; return }
         let now = Date()
+        if diagFirstScenePending {
+            diagFirstScenePending = false
+            let ms = now.timeIntervalSince(press) * 1000
+            if ms > 40 {
+                print(String(format: "[dash-diag] FIRST SCENE frame %.0fms after press (the tween ran blind until here)", ms))
+            }
+        }
         if let last = diagLastScene {
             let gap = now.timeIntervalSince(last)
             if gap > 0.05 {
@@ -117,6 +130,13 @@ enum NativeDash {
             diagPressAt = nil
             print("[dash-diag] tween window closed")
             return
+        }
+        if diagFirstFramePending {
+            diagFirstFramePending = false
+            let ms = sincePress * 1000
+            if ms > 40 {
+                print(String(format: "[dash-diag] FIRST OVERLAY frame %.0fms after press", ms))
+            }
         }
         if let last = diagLastEval {
             let gap = now.timeIntervalSince(last)
