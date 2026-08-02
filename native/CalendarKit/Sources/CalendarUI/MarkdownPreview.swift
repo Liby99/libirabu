@@ -393,14 +393,16 @@ enum MarkdownDoc {
         // by PreviewTextView (accent bar + wash with ROUNDED RIGHT corners — NSTextBlock can
         // only paint rectangles).
         let block = NSTextBlock()
+        // PADDING (wash edge → text) even top/bottom; MARGIN (wash → neighbors) even and
+        // roomy — and the paragraph spacing is ZERO so nothing stacks on the bottom margin.
         block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .minY)
         block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .maxY)
         block.setWidth(14, type: .absoluteValueType, for: .padding, edge: .minX)
         block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .maxX)
-        block.setWidth(10, type: .absoluteValueType, for: .margin, edge: .minY) // margin-top
-        block.setWidth(4, type: .absoluteValueType, for: .margin, edge: .maxY)
+        block.setWidth(14, type: .absoluteValueType, for: .margin, edge: .minY)
+        block.setWidth(14, type: .absoluteValueType, for: .margin, edge: .maxY)
         block.setContentWidth(100, type: .percentageValueType) // else the block collapses → 1-char lines
-        let para = paragraph(spacing: 8)
+        let para = paragraph(spacing: 0)
         para.textBlocks = [block]
         let from = out.length
         out.append(inline(text, font: bodyFont(), color: base.withAlphaComponent(0.65),
@@ -418,10 +420,10 @@ enum MarkdownDoc {
             block.setWidth(edge == .minX || edge == .maxX ? 11 : 8,
                            type: .absoluteValueType, for: .padding, edge: edge)
         }
-        block.setWidth(10, type: .absoluteValueType, for: .margin, edge: .minY) // margin-top
-        block.setWidth(4, type: .absoluteValueType, for: .margin, edge: .maxY)
+        block.setWidth(14, type: .absoluteValueType, for: .margin, edge: .minY) // even margins;
+        block.setWidth(14, type: .absoluteValueType, for: .margin, edge: .maxY) // spacing = 0
         block.setContentWidth(100, type: .percentageValueType) // same collapse guard as quotes
-        let para = paragraph(spacing: 8)
+        let para = paragraph(spacing: 0)
         para.textBlocks = [block]
         para.lineSpacing = 1.5
         let highlighted = CodeHighlight.highlight(code, lang: lang, base: base, font: codeFont)
