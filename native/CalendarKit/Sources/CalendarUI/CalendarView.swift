@@ -51,6 +51,7 @@ public struct CalendarView: View {
     // The standalone window's session — "Open in window" hands the callout's thread to it.
     private let windowAssistant: AssistantState?
     @State private var showAssistantCallout = false
+    @State private var icsDropActive = false // an .ics drag is over the window → show the drop mask
 
     // Dashboard TODO layering (sources / collections / deadlines per scope) + its callout menu.
     // The menu controller is long-lived state (NSMenuItem.target is weak) and resolves the CURRENT
@@ -1167,6 +1168,14 @@ public struct CalendarView: View {
             }
         } // ZStack
         .animation(.easeOut(duration: 0.12), value: search.query.isEmpty)
+        // Drag an .ics file (from Finder, Mail, …) anywhere over the window: full-window
+        // dashed-border mask while hovering; dropping imports via the File ▸ Import path.
+        .overlay {
+            if icsDropActive {
+                ICSDropOverlay(theme: theme)
+            }
+        }
+        .onDrop(of: [.fileURL], delegate: ICSDropDelegate(engine: engine, active: $icsDropActive))
         .toolbar { mainToolbar }
         // Let the translucent window material show through the toolbar (native tint).
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)

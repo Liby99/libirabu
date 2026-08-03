@@ -79,6 +79,34 @@ public enum MenuWindow: Sendable { case assistant, help, settings }
         } catch { report("Couldn’t import that .ics file.", error) }
     }
 
+    /// Drag-and-drop import (the main window's .ics drop target): several files at once, ONE
+    /// summary alert. File ▸ Import stays single-file via the open panel above.
+    public static func importICSFiles(_ urls: [URL], engine: CalendarEngine) {
+        let ics = urls.filter { $0.pathExtension.lowercased() == "ics" }
+        guard !ics.isEmpty else { return }
+        var total = 0
+        var failed: [String] = []
+        for url in ics {
+            // Dropped-file URLs carry a sandbox extension; scope access around the read.
+            let scoped = url.startAccessingSecurityScopedResource()
+            do {
+                total += try engine.importICS(from: url)
+            } catch {
+                failed.append(url.lastPathComponent)
+            }
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        let from = ics.count == 1 ? "“\(ics[0].lastPathComponent)”" : "\(ics.count) files"
+        if failed.isEmpty {
+            info("Imported \(total) item\(total == 1 ? "" : "s") from \(from).")
+        } else {
+            info("Imported \(total) item\(total == 1 ? "" : "s"); couldn’t read "
+                + failed.joined(separator: ", ") + ".")
+        }
+    }
+
     public static func importMDC(_ engine: CalendarEngine) {
         // .mgc = MaGiCal backup (current); .mdc = the legacy MaDoCal name; .zip = the web export.
         let mgc = UTType(filenameExtension: "mgc") ?? .data
