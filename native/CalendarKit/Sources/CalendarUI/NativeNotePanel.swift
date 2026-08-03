@@ -90,12 +90,17 @@ struct NativeNotePanel: View {
                                         text, line: line, stamp: stamp
                                     ), next != text {
                                         engine.setDailyNote(storageKey, next)
+                                        if NativeDash.diag {
+                                            print("[dash-diag] noteToggle line=\(line) key=\(storageKey) stamp→\(engine.todoDataStamp)")
+                                        }
                                         // The engine is NOT @Observable — panels refresh only
                                         // when the render loop ticks and the new noteGen flows
                                         // into the host's dataStamp. A checkbox click at rest
                                         // (clock asleep) otherwise shows nothing until the
                                         // next slide/zoom wakes the loop.
                                         engine.wake()
+                                    } else if NativeDash.diag {
+                                        print("[dash-diag] noteToggle NO-OP line=\(line) key=\(storageKey) (toggleTodoLine miss)")
                                     }
                                 },
                                 onLineEdit: { line in

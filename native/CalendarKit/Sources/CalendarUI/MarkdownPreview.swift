@@ -68,6 +68,9 @@ struct MarkdownPreview: NSViewRepresentable {
             let key = p.text + "|" + NSColor(p.theme.text).description
             guard key != renderedKey else { return }
             renderedKey = key
+            if NativeDash.diag {
+                print("[dash-diag] preview re-render \(p.text.count)ch")
+            }
             let doc = NativeDash.diagTime("MarkdownDoc.render(\(p.text.count)ch)") {
                 MarkdownDoc.render(p.text, theme: p.theme, interactive: p.onToggle != nil)
             }
