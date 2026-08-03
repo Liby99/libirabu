@@ -18,6 +18,7 @@ guard args.count == 3 else {
     FileHandle.standardError.write(Data("usage: make-dmg-icon.swift <app-icon> <out.icns>\n".utf8))
     exit(1)
 }
+
 guard let appIcon = NSImage(contentsOfFile: args[1]) else {
     FileHandle.standardError.write(Data("cannot load app icon: \(args[1])\n".utf8))
     exit(1)
@@ -91,6 +92,7 @@ for size in [16, 32, 128, 256, 512] {
     drawDisk(appIcon: appIcon, px: size, to: tmp.appendingPathComponent("icon_\(size)x\(size).png"))
     drawDisk(appIcon: appIcon, px: size * 2, to: tmp.appendingPathComponent("icon_\(size)x\(size)@2x.png"))
 }
+
 let out = URL(fileURLWithPath: args[2])
 try? fm.removeItem(at: out)
 let task = Process()
@@ -103,4 +105,5 @@ guard task.terminationStatus == 0 else {
     FileHandle.standardError.write(Data("iconutil failed\n".utf8))
     exit(1)
 }
+
 print("wrote \(out.path)")

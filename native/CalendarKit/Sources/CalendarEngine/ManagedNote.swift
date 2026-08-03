@@ -36,10 +36,12 @@ public enum ManagedNote {
         (notes ?? "")
             .replacingOccurrences(
                 of: "[ \\t]*<!--\\s*\(begin)[\\s\\S]*?-->[ \\t]*\\n?", with: "",
-                options: [.regularExpression, .caseInsensitive])
+                options: [.regularExpression, .caseInsensitive]
+            )
             .replacingOccurrences(
                 of: "[ \\t]*<!--\\s*\(end)\\s*-->[ \\t]*\\n?", with: "",
-                options: [.regularExpression, .caseInsensitive])
+                options: [.regularExpression, .caseInsensitive]
+            )
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -64,7 +66,8 @@ public enum ManagedNote {
             fields.append(ManagedField(
                 label: ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces),
                 value: value,
-                href: isURL(value) ? value : nil))
+                href: isURL(value) ? value : nil
+            ))
             i += 1
         }
         let desc = lines[min(i, lines.count)...].joined(separator: "\n")

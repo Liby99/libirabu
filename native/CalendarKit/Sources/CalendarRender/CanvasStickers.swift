@@ -47,7 +47,11 @@ private struct TruncKey: Hashable {
         var lo = 0, hi = s.count
         while lo < hi {
             let mid = (lo + hi + 1) / 2
-            if bandTitleWidth(String(s.prefix(mid)) + "…") <= width { lo = mid } else { hi = mid - 1 }
+            if bandTitleWidth(String(s.prefix(mid)) + "…") <= width {
+                lo = mid
+            } else {
+                hi = mid - 1
+            }
         }
         out = lo > 0 ? String(s.prefix(lo)) + "…" : "…"
     }
@@ -88,8 +92,8 @@ struct TimedDraw {
     let clipBottom: Bool // …into the next day
     let badges: EventBadges
     var showText: Bool = false // week/day zoom: title + time (+subline), badges top-right
-    var timeText: String? = nil // the WHOLE event's range ("23:00 – 06:00")
-    var subTimeText: String? = nil // anchor-zone range when it differs from the view tz
+    var timeText: String? // the WHOLE event's range ("23:00 – 06:00")
+    var subTimeText: String? // anchor-zone range when it differs from the view tz
 }
 
 enum StickerDraw { case band(BandDraw), timed(TimedDraw) }
@@ -113,7 +117,7 @@ struct CanvasSticker {
         }
     }
 
-    // ── Band: fill + accent bar + (badges above title, 3px overlapped) + warn triangle ──────────
+    /// ── Band: fill + accent bar + (badges above title, 3px overlapped) + warn triangle ──────────
     private static func drawBand(_ b: BandDraw, rect: CGRect, fade: Double,
                                  ctx: inout GraphicsContext, theme: Theme) {
         guard fade > 0.001, rect.width > 0.5 else { return }
@@ -175,7 +179,7 @@ struct CanvasSticker {
         }
     }
 
-    // ── Timed (month zoom, no text): fill + accent bar (dotted when hidden) + badge row ─────────
+    /// ── Timed (month zoom, no text): fill + accent bar (dotted when hidden) + badge row ─────────
     private static func drawTimed(_ t: TimedDraw, rect: CGRect, fade: Double,
                                   ctx: inout GraphicsContext, theme: Theme) {
         guard fade > 0.001, rect.width > 0.5 else { return }

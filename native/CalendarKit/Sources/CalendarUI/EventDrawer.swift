@@ -382,7 +382,7 @@ struct EventDrawer: View {
     // …and the recurring scene's cues: expand the Configuration section, and apply a repeat rule through
     // the drawer (updates the pickers AND commits, exactly like the user choosing it).
     var demoConfigOpen: Int = 0
-    var demoRepeatFeed: Repeat? = nil
+    var demoRepeatFeed: Repeat?
 
     @FocusState private var fieldFocus: DrawerField? // the keyboard-focused drawer control (mirrors ui.drawerFocus)
     @State private var kind: ItemKind2 = .timed
@@ -636,7 +636,9 @@ struct EventDrawer: View {
                         onSave: { notesMode = .preview; refocus() }, // ⌘S → preview → notes ring
                         onExit: { // Escape → back to the notes ring (preview if there's content)
                             if !activeNote.wrappedValue
-                                .trimmingCharacters(in: .whitespaces).isEmpty { notesMode = .preview }
+                                .trimmingCharacters(in: .whitespaces).isEmpty {
+                                notesMode = .preview
+                            }
                             refocus()
                         },
                         session: noteSession,
@@ -657,7 +659,8 @@ struct EventDrawer: View {
                                         let stamp = NativeDashPanel.todayIso() + "T"
                                             + NativeDashPanel.clockNow()
                                         if let next = TodoIndex.toggleTodoLine(
-                                            activeNote.wrappedValue, line: line, stamp: stamp),
+                                            activeNote.wrappedValue, line: line, stamp: stamp
+                                        ),
                                             next != activeNote.wrappedValue {
                                             activeNote.wrappedValue = next
                                         }
@@ -679,7 +682,9 @@ struct EventDrawer: View {
             // Leaving edit by ANY route (toggle, scope flip landing in preview) ends the
             // created:-stamp session before the preview reads the note.
             .onChange(of: notesMode) { old, new in
-                if old == .edit, new != .edit { noteSession.end?() }
+                if old == .edit, new != .edit {
+                    noteSession.end?()
+                }
             }
 
             footRow
@@ -1895,7 +1900,6 @@ private final class FocusOnAppearField: NSTextField {
         DispatchQueue.main.async { [weak self] in guard let self else { return }; w.makeFirstResponder(self) }
     }
 }
-
 
 /// GIF-recording cues for the drawer (bundled into ONE modifier link — inline onChanges tipped the
 /// type-checker budget): expand the Configuration section, and apply a repeat rule as if chosen in the

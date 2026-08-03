@@ -120,7 +120,9 @@ extension CalendarEngine {
     /// as they mount, so the cache is warm by the time a completion needs it.
     public func prewarmEntityIndex() {
         if let c = entityIdxCache {
-            if c.gen != caches.editGen { scheduleEntityIndexRefresh() }
+            if c.gen != caches.editGen {
+                scheduleEntityIndexRefresh()
+            }
             return
         }
         let gen = caches.editGen
@@ -128,7 +130,9 @@ extension CalendarEngine {
         Task.detached(priority: .utility) {
             let json = CalendarEngine.scanEntityIndex(notes)
             await MainActor.run {
-                if self.entityIdxCache == nil { self.entityIdxCache = (gen, json) }
+                if self.entityIdxCache == nil {
+                    self.entityIdxCache = (gen, json)
+                }
             }
         }
     }
@@ -439,9 +443,15 @@ extension CalendarEngine {
 
     /// The item's own (series-base) date, kind-agnostic.
     private func baseYMD(of id: String) -> YMD? {
-        if let e = items.events.first(where: { $0.id == id }) { return YMD(e.year, e.month, e.day) }
-        if let b = items.bands.first(where: { $0.id == id }) { return YMD(b.year, b.month, b.startDay) }
-        if let d = items.deadlines.first(where: { $0.id == id }) { return YMD(d.year, d.month, d.day) }
+        if let e = items.events.first(where: { $0.id == id }) {
+            return YMD(e.year, e.month, e.day)
+        }
+        if let b = items.bands.first(where: { $0.id == id }) {
+            return YMD(b.year, b.month, b.startDay)
+        }
+        if let d = items.deadlines.first(where: { $0.id == id }) {
+            return YMD(d.year, d.month, d.day)
+        }
         return nil
     }
 

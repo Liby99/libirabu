@@ -307,7 +307,9 @@ final class CatcherView: NSView, NSMenuItemValidation {
             .removeObserver(self); if let m = keyMonitor {
             NSEvent.removeMonitor(m)
         }
-        if let m = panelScrollMonitor { NSEvent.removeMonitor(m) }
+        if let m = panelScrollMonitor {
+            NSEvent.removeMonitor(m)
+        }
         repeatTimer?.invalidate()
     }
 
@@ -398,14 +400,22 @@ final class CatcherView: NSView, NSMenuItemValidation {
         }
         if engine.isFlipping || engine.isMonthFlipping || engine.isWeekFlipping || engine.isDayFlipping || engine
             .trackEditing || engine.bandEditing || engine.timedEditing {
-            dlog("scroll DROPPED: flip=\(engine.isDayFlipping ? "day" : "other")/\(engine.isFlipping)|\(engine.isMonthFlipping)|\(engine.isWeekFlipping) edit=\(engine.trackEditing)|\(engine.bandEditing)|\(engine.timedEditing)")
+            dlog(
+                "scroll DROPPED: flip=\(engine.isDayFlipping ? "day" : "other")/\(engine.isFlipping)|\(engine.isMonthFlipping)|\(engine.isWeekFlipping) edit=\(engine.trackEditing)|\(engine.bandEditing)|\(engine.timedEditing)"
+            )
             return
         } // don't fight flip / inline edit
         noteScroll() // suppress hover while this scroll (and its momentum) is live
         if CCTrace.on {
-            if e.phase.contains(.began) { CCTrace.event("scrollBegan L\(engine.chrome.level)") }
-            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { CCTrace.event("scrollEnded") }
-            if e.momentumPhase.contains(.began) { CCTrace.event("momentumBegan") }
+            if e.phase.contains(.began) {
+                CCTrace.event("scrollBegan L\(engine.chrome.level)")
+            }
+            if e.phase.contains(.ended) || e.phase.contains(.cancelled) {
+                CCTrace.event("scrollEnded")
+            }
+            if e.momentumPhase.contains(.began) {
+                CCTrace.event("momentumBegan")
+            }
         }
         if e.phase
             .contains(.began) {
@@ -539,8 +549,12 @@ final class CatcherView: NSView, NSMenuItemValidation {
         let began = e.phase.contains(.began)
         let ended = e.phase.contains(.ended) || e.phase.contains(.cancelled)
         if CCTrace.on {
-            if began { CCTrace.event("pinchBegan L\(engine?.chrome.level ?? -1)") }
-            if ended { CCTrace.event("pinchEnded") }
+            if began {
+                CCTrace.event("pinchBegan L\(engine?.chrome.level ?? -1)")
+            }
+            if ended {
+                CCTrace.event("pinchEnded")
+            }
         }
         engine?.onMagnify(delta: e.magnification, at: point(e), began: began, ended: ended)
     }
@@ -681,7 +695,9 @@ final class CatcherView: NSView, NSMenuItemValidation {
         if let engine,
            engine.chrome.level == 3 || (engine.dashPinned && (1 ... 2).contains(engine.chrome.level)),
            engine.inDayDashboard(p) {
-            if appliedCursor != .arrow { setCursor(.arrow) }
+            if appliedCursor != .arrow {
+                setCursor(.arrow)
+            }
             toolTip = nil
             return
         }
@@ -709,7 +725,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
         if let w = window {
             let live = convert(w.mouseLocationOutsideOfEventStream, from: nil)
             let gp = CGPoint(x: live.x - Layout.padLeft + (engine?.drawerShift ?? 0)
-                                 + (engine?.gutterShift ?? 0), y: live.y)
+                + (engine?.gutterShift ?? 0), y: live.y)
             if engine?.inDayDashboard(gp) == true {
                 return
             } // the dashboard (web view or native panel) owns its own cursor
@@ -778,16 +794,21 @@ final class CatcherView: NSView, NSMenuItemValidation {
     private var lastDiag = Date.distantPast
     func dlog(_ msg: @autoclosure () -> String, always: Bool = false) {
         guard Self.diag else { return }
-        if !always, Date().timeIntervalSince(lastDiag) < 0.2 { return }
+        if !always, Date().timeIntervalSince(lastDiag) < 0.2 {
+            return
+        }
         lastDiag = Date()
         print("[dash-diag] \(msg())")
     }
+
     func installPanelScrollMonitor() {
         guard panelScrollMonitor == nil else { return }
         panelScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
             guard let self, let engine = self.engine,
                   e.window === self.window else { return e }
-            if e.phase.isEmpty, e.momentumPhase.isEmpty { return e } // legacy wheel: hands off
+            if e.phase.isEmpty, e.momentumPhase.isEmpty {
+                return e
+            } // legacy wheel: hands off
             if e.phase.contains(.began) || e.phase.contains(.mayBegin) {
                 self.panelAxis = .undecided
                 // Who does this gesture belong to? Hit-test its start point once and latch.
@@ -798,8 +819,10 @@ final class CatcherView: NSView, NSMenuItemValidation {
                     || (engine.dashPinned && (1 ... 2).contains(engine.chrome.level))
                 self.panelGestureCaptured = !self.catcherOwnsGesture && levelOK
                     && !engine.drawerOpen && engine.inDayDashboard(self.point(e))
-                self.dlog("monitor: gesture began, owns=\(self.catcherOwnsGesture) captured=\(self.panelGestureCaptured)",
-                          always: true)
+                self.dlog(
+                    "monitor: gesture began, owns=\(self.catcherOwnsGesture) captured=\(self.panelGestureCaptured)",
+                    always: true
+                )
             }
             if self.catcherOwnsGesture {
                 // Deliver directly (and consume) so pointer drift can't re-route the tail.
@@ -809,10 +832,15 @@ final class CatcherView: NSView, NSMenuItemValidation {
             guard self.panelGestureCaptured else { return e }
             if self.panelAxis == .undecided {
                 let dx = abs(e.scrollingDeltaX), dy = abs(e.scrollingDeltaY)
-                if dx > 0 || dy > 0 { self.panelAxis = dx > dy ? .horizontal : .vertical }
+                if dx > 0 || dy > 0 {
+                    self.panelAxis = dx > dy ? .horizontal : .vertical
+                }
             }
             guard self.panelAxis == .horizontal else { return e } // vertical: the panel scrolls
-            self.dlog("monitor: → catcher (horizontal over panel) phase=\(e.phase.rawValue) mom=\(e.momentumPhase.rawValue)")
+            self
+                .dlog(
+                    "monitor: → catcher (horizontal over panel) phase=\(e.phase.rawValue) mom=\(e.momentumPhase.rawValue)"
+                )
             self.scrollWheel(with: e) // day/week paging with native momentum, like the webview
             return nil
         }

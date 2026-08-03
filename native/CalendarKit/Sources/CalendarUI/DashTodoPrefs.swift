@@ -160,7 +160,11 @@ enum DashTodoCatalog {
         let sc = scope()
         var p = settings[sc]
         func flip(_ set: inout Set<String>, _ key: String) {
-            if set.contains(key) { set.remove(key) } else { set.insert(key) }
+            if set.contains(key) {
+                set.remove(key)
+            } else {
+                set.insert(key)
+            }
         }
         if token == "deadlines" {
             p.deadlines.toggle()

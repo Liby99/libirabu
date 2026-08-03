@@ -117,12 +117,14 @@ extension CalendarEngine {
               let pos = deadlinePos(d, snapshotInput()) else { return nil }
         return CGPoint(x: pos.x + pos.w * 0.2 + Layout.padLeft - drawerShift - gutterShift, y: pos.y)
     }
+
     /// A BAND box's rect (incl. promoted ghosts), VIEW coords — the promote scene drags the ghost by it.
     public func demoBandRectView(_ boxId: String) -> CGRect? {
         guard let b = viewBands().first(where: { $0.id == boxId }),
               let r = bandEventRect(b, snapshotInput()) else { return nil }
         return CGRect(x: r.x + Layout.padLeft - drawerShift - gutterShift, y: r.y, width: r.w, height: r.h)
     }
+
     /// Center the week/day timeline on `hour` (scenes must not assume where the pinned-16:00 scroll sits).
     public func demoScrollTimelineToHour(_ hour: CGFloat) {
         let tl = timelineInfo(snapshotInput())
@@ -133,7 +135,10 @@ extension CalendarEngine {
 
     /// Scroll the timeline so the SELECTED event is on screen (the week view's scroll follows the clock,
     /// so a scene can't assume where any hour sits — reveal first, then read the rect).
-    public func demoRevealSelected() { scrollToSelected() }
+    public func demoRevealSelected() {
+        scrollToSelected()
+    }
+
     /// A timed event's box rect in VIEW coordinates, straight from the display geometry — scenes aim the
     /// synthetic cursor with this instead of hardcoded fractions (which break as the time-of-day scroll
     /// shifts the grid). Independent of selection/keyboard state.

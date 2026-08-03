@@ -117,7 +117,7 @@ private struct PhoneYearDriver: View {
         }
         // NOTE: no begin/endYearScrollGesture here — those arm the overscroll year FLIP,
         // which is disabled on the phone for now (edge pulls just rubber-band back).
-        .onScrollPhaseChange { old, new in
+        .onScrollPhaseChange { _, new in
             // An actual DRAG makes the user's offset truth. (Not .tracking — a mere touch-down
             // grazing a freshly-mounted strip must not bless a restore that hasn't landed yet.)
             if new == .interacting {
@@ -176,7 +176,7 @@ private struct QuarterStrip: View {
             }
             engine.setYearQuarterScroll(q, x)
         }
-        .onScrollPhaseChange { old, new in
+        .onScrollPhaseChange { _, new in
             if new == .interacting { // drag only — see PhoneYearDriver
                 pendingRestore = nil
             }
@@ -395,7 +395,8 @@ private struct PhoneWeekDriver: View {
         .scrollIndicators(.hidden)
         .frame(width: gridW, height: vp.h)
         .offset(x: Layout.padLeft + Layout.labelW)
-        .onScrollGeometryChange(for: CGPoint.self, of: { CGPoint(x: $0.contentOffset.x, y: $0.contentOffset.y) }) { _, o in
+        .onScrollGeometryChange(for: CGPoint.self,
+                                of: { CGPoint(x: $0.contentOffset.x, y: $0.contentOffset.y) }) { _, o in
             if let t = pendingRestore {
                 if abs(o.x - t.x) < 1, abs(o.y - t.y) < 1 {
                     pendingRestore = nil // restore landed → mirror live

@@ -100,7 +100,7 @@ enum LLMClient {
             model: model, messages: messages, temperature: temperature, maxTokens: maxTokens,
             tools: tools.isEmpty ? nil : tools.map { ToolWrapper(function: $0) }
         ))
-        return try parse(try await send(request))
+        return try await parse(send(request))
     }
 
     /// Shared transport: POST with retries on 5xx/429/network (exponential backoff); returns the

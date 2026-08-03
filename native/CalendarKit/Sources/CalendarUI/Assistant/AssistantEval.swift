@@ -64,7 +64,7 @@ public enum AssistantEval {
         print("done.")
     }
 
-    // ── One scenario: isolated engine + state, seeded fixture, send, settle, dump ───────────
+    /// ── One scenario: isolated engine + state, seeded fixture, send, settle, dump ───────────
     private static func runOne(_ s: Scenario, opts: Options) async {
         let dataDir = NSTemporaryDirectory() + "cc-eval-\(s.id)-\(UUID().uuidString.prefix(8))"
         setenv("CC_DEMO", "eval", 1)
@@ -123,9 +123,9 @@ public enum AssistantEval {
         return true
     }
 
-    // ── Fixture: a deterministic, plausible personal calendar around "today" ────────────────
-    // Enough material for query / conflict / optimization scenarios: weekly meetings spread
-    // across weekdays (so "condense to Monday" has work to do), classes, a deadline, tags.
+    /// ── Fixture: a deterministic, plausible personal calendar around "today" ────────────────
+    /// Enough material for query / conflict / optimization scenarios: weekly meetings spread
+    /// across weekdays (so "condense to Monday" has work to do), classes, a deadline, tags.
     private static func seedFixture(_ e: CalendarEngine) {
         let cal = Calendar.current
         let now = Date()
@@ -144,7 +144,8 @@ public enum AssistantEval {
         }
         // Weekly 1:1s scattered over the week (targets for "condense my meetings").
         weekly(e.createTimedEvent(year: mon.y, month: mon.m, day: mon.d, startHour: 10, endHour: 11,
-                                  title: "Advising 1:1 — Kai", color: "blue", tags: ["research", "meeting"], byAI: false))
+                                  title: "Advising 1:1 — Kai", color: "blue", tags: ["research", "meeting"],
+                                  byAI: false))
         let tue = day(offset: (2 - day(offset: 0).weekday + 8) % 7 + 1)
         weekly(e.createTimedEvent(year: tue.y, month: tue.m, day: tue.d, startHour: 14, endHour: 15,
                                   title: "Lab meeting", color: "purple", tags: ["research", "meeting"], byAI: false))
@@ -165,7 +166,7 @@ public enum AssistantEval {
                          tags: ["travel", "conference"], byAI: false)
     }
 
-    // ── Calendar snapshot: one normalized line per item (diffable) ──────────────────────────
+    /// ── Calendar snapshot: one normalized line per item (diffable) ──────────────────────────
     private static func snapshot(_ e: CalendarEngine) -> [String] {
         func t(_ h: CGFloat) -> String {
             String(format: "%02d:%02d", Int(h), Int((h - CGFloat(Int(h))) * 60 + 0.5))
@@ -174,7 +175,8 @@ public enum AssistantEval {
         for ev in e.items.events {
             out.append("timed|\(ev.year)-\(ev.month + 1)-\(ev.day) \(t(ev.startHour))–\(t(ev.endHour))|\(ev.title)"
                 + "|tz:\(ev.anchorTz ?? "-")|rep:\(e.repeatConfig(ev.id)?.kind ?? "-")"
-                + "|tags:\(e.richTags(ev.id).joined(separator: ","))|promote:\(e.promoteTrack(ev.id).map(String.init) ?? "-")")
+                +
+                "|tags:\(e.richTags(ev.id).joined(separator: ","))|promote:\(e.promoteTrack(ev.id).map(String.init) ?? "-")")
         }
         for b in e.items.bands {
             out.append("band|\(b.year)-\(b.month + 1) d\(b.startDay)–\(b.endDay) track\(b.track + 1)|\(b.title)"
@@ -183,12 +185,13 @@ public enum AssistantEval {
         for d in e.items.deadlines {
             out.append("deadline|\(d.year)-\(d.month + 1)-\(d.day) \(t(d.hour))|\(d.title)"
                 + "|tz:\(d.anchorTz ?? "-")|rep:\(e.repeatConfig(d.id)?.kind ?? "-")"
-                + "|tags:\(e.richTags(d.id).joined(separator: ","))|promote:\(e.promoteTrack(d.id).map(String.init) ?? "-")")
+                +
+                "|tags:\(e.richTags(d.id).joined(separator: ","))|promote:\(e.promoteTrack(d.id).map(String.init) ?? "-")")
         }
         return out.sorted()
     }
 
-    // ── Trajectory dump ─────────────────────────────────────────────────────────────────────
+    /// ── Trajectory dump ─────────────────────────────────────────────────────────────────────
     private static func dump(_ s: Scenario, state: AssistantState, before: [String], after: [String],
                              policies: [String], seconds: TimeInterval, outDir: String) {
         let beforeSet = Set(before)

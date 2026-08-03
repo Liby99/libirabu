@@ -165,7 +165,9 @@ struct CalendarNameDialog: View {
     let engine: CalendarEngine
     let theme: Theme
     @FocusState private var focused: Bool
-    private var isRename: Bool { ui.calendarPrompt == .rename }
+    private var isRename: Bool {
+        ui.calendarPrompt == .rename
+    }
 
     var body: some View {
         ZStack {
@@ -191,13 +193,21 @@ struct CalendarNameDialog: View {
         }
         .onAppear { focused = true }
     }
+
     private func commit() {
         let name = ui.calendarPromptText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        if isRename { engine.renameCurrentCalendar(name) } else { engine.createCalendar(named: name) }
+        if isRename {
+            engine.renameCurrentCalendar(name)
+        } else {
+            engine.createCalendar(named: name)
+        }
         ui.calendarPrompt = nil; engine.wake()
     }
-    private func cancel() { ui.calendarPrompt = nil }
+
+    private func cancel() {
+        ui.calendarPrompt = nil
+    }
 }
 
 /// Remove the current calendar — destructive confirm (deletes all its data). Switches to the most-recent
@@ -214,9 +224,11 @@ struct CalendarRemoveDialog: View {
                 Text("Remove “\(engine.activeCalendarName)”?")
                     .font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.text)
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                Text("This permanently deletes this calendar and everything in it — events, deadlines, notes, and its calendar settings. This can’t be undone.")
-                    .font(.system(size: 12)).foregroundStyle(theme.textMuted)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                Text(
+                    "This permanently deletes this calendar and everything in it — events, deadlines, notes, and its calendar settings. This can’t be undone."
+                )
+                .font(.system(size: 12)).foregroundStyle(theme.textMuted)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 12) {
                     DeleteDialogButton(label: "Cancel", destructive: false, focused: false, theme: theme) {
                         ui.pendingCalendarRemove = false
@@ -364,7 +376,9 @@ struct ModalOverlays: ViewModifier {
                 ui.calendarPromptText = engine.activeCalendarName; ui.calendarPrompt = .rename
             }
             .onReceive(NotificationCenter.default.publisher(for: .removeCalendar)) { _ in
-                if engine.canRemoveCalendar { ui.pendingCalendarRemove = true }
+                if engine.canRemoveCalendar {
+                    ui.pendingCalendarRemove = true
+                }
             }
             .overlay { // tutorial carousel — topmost
                 if ui.showTutorial {

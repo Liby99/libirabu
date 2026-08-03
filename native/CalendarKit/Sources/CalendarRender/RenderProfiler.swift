@@ -18,7 +18,9 @@ import os
     /// key → (samples, total ms, max ms). Reset per bench window by the harness.
     public private(set) static var acc: [String: (n: Int, total: Double, peak: Double)] = [:]
 
-    public static func reset() { acc.removeAll(keepingCapacity: true) }
+    public static func reset() {
+        acc.removeAll(keepingCapacity: true)
+    }
 
     /// Time `body`, emit a signpost interval, and fold the sample into `acc[key]`. The signpost `name`
     /// must be a compile-time literal, so callers pass a fixed StaticString per layer.

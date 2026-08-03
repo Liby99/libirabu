@@ -32,7 +32,9 @@ struct BedrockProvider: LLMProvider {
         for m in messages {
             switch m.role {
             case "system":
-                if let c = m.content, !c.isEmpty { system.append(["text": c]) }
+                if let c = m.content, !c.isEmpty {
+                    system.append(["text": c])
+                }
             case "tool":
                 pendingToolResults.append(["toolResult": [
                     "toolUseId": m.toolCallId ?? "",
@@ -41,12 +43,16 @@ struct BedrockProvider: LLMProvider {
             case "assistant":
                 flushToolResults()
                 var blocks: [[String: Any]] = []
-                if let c = m.content, !c.isEmpty { blocks.append(["text": c]) }
+                if let c = m.content, !c.isEmpty {
+                    blocks.append(["text": c])
+                }
                 for tc in m.toolCalls ?? [] {
                     let input = (try? JSONSerialization.jsonObject(with: Data(tc.function.arguments.utf8))) ?? [:]
                     blocks.append(["toolUse": ["toolUseId": tc.id, "name": tc.function.name, "input": input]])
                 }
-                if !blocks.isEmpty { out.append(["role": "assistant", "content": blocks]) }
+                if !blocks.isEmpty {
+                    out.append(["role": "assistant", "content": blocks])
+                }
             default:
                 flushToolResults()
                 out.append(["role": "user", "content": [["text": m.content ?? ""]]])
@@ -54,8 +60,13 @@ struct BedrockProvider: LLMProvider {
         }
         flushToolResults()
 
-        var body: [String: Any] = ["messages": out, "inferenceConfig": ["maxTokens": maxTokens, "temperature": temperature]]
-        if !system.isEmpty { body["system"] = system }
+        var body: [String: Any] = [
+            "messages": out,
+            "inferenceConfig": ["maxTokens": maxTokens, "temperature": temperature],
+        ]
+        if !system.isEmpty {
+            body["system"] = system
+        }
         if !tools.isEmpty {
             body["toolConfig"] = ["tools": tools.map { t -> [String: Any] in
                 let schema = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(t.parameters))) ?? [:]
@@ -85,10 +96,13 @@ struct BedrockProvider: LLMProvider {
         var text = ""
         var calls: [ToolCall] = []
         for block in content {
-            if let t = block["text"] as? String { text += t }
+            if let t = block["text"] as? String {
+                text += t
+            }
             if let tu = block["toolUse"] as? [String: Any] {
                 let input = tu["input"] ?? [:]
-                let args = (try? JSONSerialization.data(withJSONObject: input)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+                let args = (try? JSONSerialization.data(withJSONObject: input))
+                    .map { String(decoding: $0, as: UTF8.self) } ?? "{}"
                 calls.append(ToolCall(id: (tu["toolUseId"] as? String) ?? UUID().uuidString,
                                       function: .init(name: (tu["name"] as? String) ?? "", arguments: args)))
             }
@@ -111,7 +125,9 @@ struct BedrockProvider: LLMProvider {
         var headers: [(String, String)] = [("content-type", "application/json"),
                                            ("host", host),
                                            ("x-amz-date", amzDate)]
-        if !sessionToken.isEmpty { headers.append(("x-amz-security-token", sessionToken)) }
+        if !sessionToken.isEmpty {
+            headers.append(("x-amz-security-token", sessionToken))
+        }
         headers.sort { $0.0 < $1.0 }
         let signedHeaders = headers.map(\.0).joined(separator: ";")
         let canonicalHeaders = headers.map { "\($0.0):\($0.1)\n" }.joined()
@@ -141,7 +157,9 @@ struct BedrockProvider: LLMProvider {
 
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(amzDate, forHTTPHeaderField: "X-Amz-Date")
-        if !sessionToken.isEmpty { req.setValue(sessionToken, forHTTPHeaderField: "X-Amz-Security-Token") }
+        if !sessionToken.isEmpty {
+            req.setValue(sessionToken, forHTTPHeaderField: "X-Amz-Security-Token")
+        }
         req.setValue("AWS4-HMAC-SHA256 Credential=\(accessKey)/\(scope), "
             + "SignedHeaders=\(signedHeaders), Signature=\(signature)",
             forHTTPHeaderField: "Authorization")
@@ -153,9 +171,13 @@ struct BedrockProvider: LLMProvider {
 }
 
 private extension Data {
-    var hex: String { map { String(format: "%02x", $0) }.joined() }
+    var hex: String {
+        map { String(format: "%02x", $0) }.joined()
+    }
 }
 
 private extension SHA256Digest {
-    var hex: String { map { String(format: "%02x", $0) }.joined() }
+    var hex: String {
+        map { String(format: "%02x", $0) }.joined()
+    }
 }

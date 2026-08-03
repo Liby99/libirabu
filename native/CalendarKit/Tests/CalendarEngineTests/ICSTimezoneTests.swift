@@ -37,7 +37,7 @@ final class ICSTimezoneTests: XCTestCase {
         """)
         let r = ICSImport.items(from: text, provenance: "t.ics")
         let ev = try XCTUnwrap(r.events.first)
-        let want = localWC(zone: TimeZone(identifier: "America/New_York")!, 2026, 8, 10, 10, 0)
+        let want = try localWC(zone: XCTUnwrap(TimeZone(identifier: "America/New_York")), 2026, 8, 10, 10, 0)
         XCTAssertEqual(ev.day, want.day)
         XCTAssertEqual(ev.startHour, want.hour, accuracy: 0.001, "10:00 EDT, not 10:00-as-UTC")
         XCTAssertEqual(ev.endHour - ev.startHour, 1, accuracy: 0.001)
@@ -114,7 +114,7 @@ final class ICSTimezoneTests: XCTestCase {
 
         """)
         let ev = try XCTUnwrap(ICSImport.items(from: text, provenance: "t.ics").events.first)
-        let want = localWC(zone: TimeZone(identifier: "America/New_York")!, 2026, 8, 10, 10, 0)
+        let want = try localWC(zone: XCTUnwrap(TimeZone(identifier: "America/New_York")), 2026, 8, 10, 10, 0)
         XCTAssertEqual(ev.startHour, want.hour, accuracy: 0.001)
     }
 
@@ -122,7 +122,7 @@ final class ICSTimezoneTests: XCTestCase {
     func testUTCStampStillConverts() throws {
         let text = ics("DTSTART:20260810T140000Z\r\n")
         let ev = try XCTUnwrap(ICSImport.items(from: text, provenance: "t.ics").events.first)
-        let want = localWC(zone: TimeZone(identifier: "UTC")!, 2026, 8, 10, 14, 0)
+        let want = try localWC(zone: XCTUnwrap(TimeZone(identifier: "UTC")), 2026, 8, 10, 14, 0)
         XCTAssertEqual(ev.day, want.day)
         XCTAssertEqual(ev.startHour, want.hour, accuracy: 0.001)
     }

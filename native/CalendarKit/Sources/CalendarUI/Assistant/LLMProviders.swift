@@ -20,7 +20,9 @@ import Foundation
 
 enum ProviderID: String, CaseIterable, Codable, Identifiable {
     case gateway, openai, anthropic, bedrock
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var label: String {
         switch self {
@@ -101,7 +103,9 @@ enum ProviderStore {
 
     /// Keychain account for a provider's (primary) secret.
     static func secretAccount(_ id: ProviderID, field: String = "key") -> String {
-        if id == .gateway, field == "key" { return LLMClient.keychainAccount } // legacy migration
+        if id == .gateway, field == "key" {
+            return LLMClient.keychainAccount
+        } // legacy migration
         return "llm-\(id.rawValue)-\(field)"
     }
 
@@ -124,7 +128,9 @@ enum ProviderStore {
         }
     }
 
-    static var activeModel: String { active.map { settings($0).model } ?? AssistantModels.fallback }
+    static var activeModel: String {
+        active.map { settings($0).model } ?? AssistantModels.fallback
+    }
 
     static func provider(_ id: ProviderID) -> LLMProvider {
         let s = settings(id)
@@ -224,12 +230,16 @@ struct AnthropicProvider: LLMProvider {
             case "assistant":
                 flushToolResults()
                 var blocks: [[String: Any]] = []
-                if let c = m.content, !c.isEmpty { blocks.append(["type": "text", "text": c]) }
+                if let c = m.content, !c.isEmpty {
+                    blocks.append(["type": "text", "text": c])
+                }
                 for tc in m.toolCalls ?? [] {
                     let input = (try? JSONSerialization.jsonObject(with: Data(tc.function.arguments.utf8))) ?? [:]
                     blocks.append(["type": "tool_use", "id": tc.id, "name": tc.function.name, "input": input])
                 }
-                if !blocks.isEmpty { out.append(["role": "assistant", "content": blocks]) }
+                if !blocks.isEmpty {
+                    out.append(["role": "assistant", "content": blocks])
+                }
             default: // user
                 flushToolResults()
                 out.append(["role": "user", "content": m.content ?? ""])
@@ -238,7 +248,9 @@ struct AnthropicProvider: LLMProvider {
         flushToolResults()
 
         var body: [String: Any] = ["model": model, "max_tokens": maxTokens, "messages": out, "temperature": temperature]
-        if !system.isEmpty { body["system"] = system }
+        if !system.isEmpty {
+            body["system"] = system
+        }
         if !tools.isEmpty {
             body["tools"] = tools.map { t -> [String: Any] in
                 let schema = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(t.parameters))) ?? [:]
@@ -264,7 +276,8 @@ struct AnthropicProvider: LLMProvider {
             case "text": text += (block["text"] as? String) ?? ""
             case "tool_use":
                 let input = block["input"] ?? [:]
-                let args = (try? JSONSerialization.data(withJSONObject: input)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+                let args = (try? JSONSerialization.data(withJSONObject: input))
+                    .map { String(decoding: $0, as: UTF8.self) } ?? "{}"
                 calls.append(ToolCall(id: (block["id"] as? String) ?? UUID().uuidString,
                                       function: .init(name: (block["name"] as? String) ?? "", arguments: args)))
             default: break

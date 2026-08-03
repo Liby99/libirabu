@@ -91,6 +91,7 @@ struct CalendarPhoneApp: App {
             .ignoresSafeArea(.container, edges: .top) // reintroduces the inset on the proxy
         }
     }
+
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some SwiftUI.Scene { // CalendarGeometry also has a `Scene` (the render item list)

@@ -23,7 +23,9 @@ import Observation
     @ObservationIgnored var rowsByPanel: [String: [ParsedTodo]] = [:]
     @ObservationIgnored var activePanel = ""
 
-    var rows: [ParsedTodo] { rowsByPanel[activePanel] ?? [] }
+    var rows: [ParsedTodo] {
+        rowsByPanel[activePanel] ?? []
+    }
 
     /// A note-row jump landing: the NOTE panel whose storage key matches consumes this —
     /// flips to edit with the line selected (the web's onJumpDay line-focus flow).

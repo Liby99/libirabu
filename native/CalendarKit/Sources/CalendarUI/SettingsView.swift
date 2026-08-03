@@ -228,10 +228,13 @@ private struct GoogleCalendarRows: View {
         // Route A — the easiest: let macOS do the OAuth.
         VStack(alignment: .leading, spacing: 4) {
             Text("Easiest: add your Google account to macOS").font(.callout).fontWeight(.medium)
-            Text("System Settings ▸ Internet Accounts ▸ Google, with Calendars enabled — your Google events then appear through the Apple Calendar connection above, kept fresh by macOS.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "System Settings ▸ Internet Accounts ▸ Google, with Calendars enabled — your Google events then appear through the Apple Calendar connection above, kept fresh by macOS."
+            )
+            .font(.caption).foregroundStyle(.secondary)
             Button("Open Internet Accounts…") {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!)
+                NSWorkspace.shared
+                    .open(URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!)
             }
             .font(.caption)
         }
@@ -369,8 +372,10 @@ private struct APIKeysTab: View {
                 }
                 .onChange(of: selected) { _, v in ProviderStore.active = v }
                 if selected == nil {
-                    Text("Pick a provider to configure it. The assistant activates once the selected provider has its key and model set. Configurations for every provider are kept, so switching back is instant.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text(
+                        "Pick a provider to configure it. The assistant activates once the selected provider has its key and model set. Configurations for every provider are kept, so switching back is instant."
+                    )
+                    .font(.caption).foregroundStyle(.secondary)
                 }
             }
             if let id = selected {
@@ -385,8 +390,10 @@ private struct APIKeysTab: View {
                 ) { EmptyView() }
             }
             Section {
-                Text("Keys are stored in your macOS Keychain on this device only — not synced. The assistant talks to whichever provider is selected above; the Tavily key powers web search.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(
+                    "Keys are stored in your macOS Keychain on this device only — not synced. The assistant talks to whichever provider is selected above; the Tavily key powers web search."
+                )
+                .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -440,7 +447,9 @@ private struct ProviderConfigSection: View {
                 TextField("Custom model id (optional)", text: $customModel)
                 Button("Use") {
                     let m = customModel.trimmingCharacters(in: .whitespaces)
-                    if !m.isEmpty { cfg.model = m; invalidate() }
+                    if !m.isEmpty {
+                        cfg.model = m; invalidate()
+                    }
                 }
                 .disabled(customModel.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -573,7 +582,6 @@ private struct APIKeyRow<Extra: View>: View {
         onChanged()
     }
 }
-
 
 // ── Developer ─────────────────────────────────────────────────────────────────────
 
@@ -719,7 +727,11 @@ private struct KindSection: View {
             get: { Set(offsets.split(separator: ",").map(String.init)).contains(o.rawValue) },
             set: { v in
                 var s = Set(offsets.split(separator: ",").map(String.init))
-                if v { s.insert(o.rawValue) } else { s.remove(o.rawValue) }
+                if v {
+                    s.insert(o.rawValue)
+                } else {
+                    s.remove(o.rawValue)
+                }
                 offsets = s.sorted().joined(separator: ",")
                 postPrefsChanged()
             }

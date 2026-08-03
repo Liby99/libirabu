@@ -338,7 +338,11 @@ struct ConversationView: View {
         .animation(.easeOut(duration: 0.12), value: editorHeight)
         // Sending clears the draft → snap the editor back to its single-line resting height (the height
         // report from the emptied text view isn't reliable enough on its own).
-        .onChange(of: state.draft) { _, v in if v.isEmpty { editorHeight = 20 } }
+        .onChange(of: state.draft) {
+            _, v in if v.isEmpty {
+                editorHeight = 20
+            }
+        }
         // Frosted glass with a FIXED radius (half the resting height): the box keeps its resting curvature
         // as it grows into multiple lines instead of re-rounding like a capsule would.
         .background {

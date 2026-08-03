@@ -383,7 +383,9 @@ public struct DashBodyPanel: Equatable, Sendable {
     public var op: CGFloat // scope cross-fade × turn fade
 
     /// Stable carousel identity (ForEach id + the parking key).
-    public var panelId: String { scope + "|" + key }
+    public var panelId: String {
+        scope + "|" + key
+    }
 
     public init(scope: String, key: String, x: CGFloat, w: CGFloat, dx: CGFloat, dy: CGFloat,
                 op: CGFloat) {
@@ -485,7 +487,16 @@ public func frameFor(_ m: Int, _ g: SceneInput, anim: PageAnim? = nil) -> Frame 
         f = yearToMonthFrame(m, easeInOut(clamp(g.z, 0, 1)), g.focus, g.vp, g.scrollY,
                              qx: g.qx(m), mx: g.monthQX, pin: g.dashPin, monthFrac: g.dashMonthFrac)
     } else if g.z <= 2 {
-        let mf = yearToMonthFrame(m, 1, g.focus, g.vp, g.scrollY, mx: g.monthQX, pin: g.dashPin, monthFrac: g.dashMonthFrac)
+        let mf = yearToMonthFrame(
+            m,
+            1,
+            g.focus,
+            g.vp,
+            g.scrollY,
+            mx: g.monthQX,
+            pin: g.dashPin,
+            monthFrac: g.dashMonthFrac
+        )
         f = blend(mf, weekFrame(m, g), easeInOut(clamp(g.z - 1, 0, 1)))
     } else {
         f = blend(weekFrame(m, g), dayFrame(m, g), easeInOut(clamp(g.z - 2, 0, 1)))

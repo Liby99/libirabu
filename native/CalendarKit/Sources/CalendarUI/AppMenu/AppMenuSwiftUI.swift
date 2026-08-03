@@ -3,18 +3,29 @@
 // The View-menu payload (go-to-today, show-hidden, timezone pickers, tag filter) lives here too, so
 // both the item set AND the widgets are defined once.
 
-import SwiftUI
 import CalendarEngine
+import SwiftUI
 
-// ── Shortcut conversion (spec → SwiftUI) ────────────────────────────────────────────────────────
+/// ── Shortcut conversion (spec → SwiftUI) ────────────────────────────────────────────────────────
 public extension MenuShortcut {
-    var swiftUIKey: KeyEquivalent { KeyEquivalent(key) }
+    var swiftUIKey: KeyEquivalent {
+        KeyEquivalent(key)
+    }
+
     var swiftUIModifiers: EventModifiers {
         var m: EventModifiers = []
-        if mods.contains(.command) { m.insert(.command) }
-        if mods.contains(.shift)   { m.insert(.shift) }
-        if mods.contains(.control) { m.insert(.control) }
-        if mods.contains(.option)  { m.insert(.option) }
+        if mods.contains(.command) {
+            m.insert(.command)
+        }
+        if mods.contains(.shift) {
+            m.insert(.shift)
+        }
+        if mods.contains(.control) {
+            m.insert(.control)
+        }
+        if mods.contains(.option) {
+            m.insert(.option)
+        }
         return m
     }
 }
@@ -22,10 +33,16 @@ public extension MenuShortcut {
 /// Applies a MenuShortcut as a `.keyboardShortcut`, or nothing when the item has none.
 public struct OptionalShortcut: ViewModifier {
     let s: MenuShortcut?
-    public init(s: MenuShortcut?) { self.s = s }
+    public init(s: MenuShortcut?) {
+        self.s = s
+    }
+
     public func body(content: Content) -> some View {
-        if let s { content.keyboardShortcut(s.swiftUIKey, modifiers: s.swiftUIModifiers) }
-        else { content }
+        if let s {
+            content.keyboardShortcut(s.swiftUIKey, modifiers: s.swiftUIModifiers)
+        } else {
+            content
+        }
     }
 }
 
@@ -35,24 +52,30 @@ public struct OptionalShortcut: ViewModifier {
 public struct MenuActionButton: View {
     let id: MenuItemID
     let engine: CalendarEngine
-    public init(_ id: MenuItemID, engine: CalendarEngine) { self.id = id; self.engine = engine }
+    public init(_ id: MenuItemID, engine: CalendarEngine) {
+        self.id = id; self.engine = engine
+    }
+
     public var body: some View {
         Button {
             runMenuItem(id, MenuContext(engine: { engine }, open: { _ in }))
         } label: { menuLabel(id) }
-        .modifier(OptionalShortcut(s: id.shortcut))
+            .modifier(OptionalShortcut(s: id.shortcut))
     }
 }
 
-// ── File menu: multiple-calendars payload (shared) ──────────────────────────────────────────────
+/// ── File menu: multiple-calendars payload (shared) ──────────────────────────────────────────────
 /// The calendar ("document") controls at the top of the File menu: the open-calendar row, New/Remove,
 /// the Recently-Opened submenu, and Rename. New/Remove/Rename post notifications → CalendarView shows a
 /// dialog; the recents switch directly. Mirrors AppMenu.sections(...)'s File `currentCalendar`/`recentCalendars`.
 public struct CalendarMenuContent: View {
     let engine: CalendarEngine
-    public init(engine: CalendarEngine) { self.engine = engine }
+    public init(engine: CalendarEngine) {
+        self.engine = engine
+    }
+
     public var body: some View {
-        Text("Calendar: \(engine.activeCalendarName)")   // disabled info row (plain Text isn't actionable)
+        Text("Calendar: \(engine.activeCalendarName)") // disabled info row (plain Text isn't actionable)
         MenuActionButton(.newCalendar, engine: engine)
         MenuActionButton(.removeCalendar, engine: engine).disabled(!engine.canRemoveCalendar)
         Menu {
@@ -67,7 +90,7 @@ public struct CalendarMenuContent: View {
     }
 }
 
-// ── View menu payload (shared) ──────────────────────────────────────────────────────────────────
+/// ── View menu payload (shared) ──────────────────────────────────────────────────────────────────
 /// The full contents of the View menu, minus the system-provided Enter/Exit Full Screen (SwiftUI adds
 /// that itself). Ordering mirrors AppMenu.sections(...)'s `.view` section.
 public struct ViewMenuContent: View {
@@ -75,7 +98,9 @@ public struct ViewMenuContent: View {
     @AppStorage(PrefKeys.showHiddenImported) private var showHidden = false
     @AppStorage(PrefKeys.mainTz) private var mainTz = CalendarTimezones.autoId
     @AppStorage(PrefKeys.altTz) private var altTz = "none"
-    public init(engine: CalendarEngine) { self.engine = engine }
+    public init(engine: CalendarEngine) {
+        self.engine = engine
+    }
 
     public var body: some View {
         MenuActionButton(.goToYear, engine: engine)
@@ -83,7 +108,7 @@ public struct ViewMenuContent: View {
         MenuActionButton(.goToWeek, engine: engine)
         MenuActionButton(.goToDay, engine: engine)
         Divider()
-        // TODO List / Note Editor (⌘B/⌘E): focus the dashboard's tab — the open/flip/retract state
+        // TODO: List / Note Editor (⌘B/⌘E): focus the dashboard's tab — the open/flip/retract state
         // machine lives in CalendarView (it owns the tab state), reached via notification in both
         // shells. Enabled wherever the dashboard is reachable (never at year / under the drawer).
         Button { NotificationCenter.default.post(name: .focusDashTodo, object: nil) } label: {

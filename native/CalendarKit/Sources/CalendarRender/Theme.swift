@@ -24,20 +24,23 @@ public enum AccentPref {
     public static let defaultHex: UInt32 = 0xFF3B6B // MagiCal red
     /// The alternatives row in Settings (name, hex).
     public static let alternatives: [(name: String, hex: UInt32)] = [
-        ("Blue", 0x007AFF),          // Apple system blue
+        ("Blue", 0x007AFF), // Apple system blue
         ("Purple", 0xAF52DE),
-        ("Red", 0xD70015),           // big red
+        ("Red", 0xD70015), // big red
         ("Pink", 0xFF2D55),
         ("Orange", 0xFF9500),
-        ("Forest Green", 0x0E8A3E),  // saturated forest green
-        ("Cyan Blue", 0x32ADE6),     // cyan-leaning blue
+        ("Forest Green", 0x0E8A3E), // saturated forest green
+        ("Cyan Blue", 0x32ADE6), // cyan-leaning blue
     ]
-    nonisolated(unsafe) private static var cached: UInt32 = {
+    private nonisolated(unsafe) static var cached: UInt32 = {
         let v = UserDefaults.standard.integer(forKey: key)
         return v == 0 ? defaultHex : UInt32(truncatingIfNeeded: v)
     }()
 
-    public static var hex: UInt32 { cached }
+    public static var hex: UInt32 {
+        cached
+    }
+
     public static func set(_ h: UInt32) {
         cached = h
         UserDefaults.standard.set(Int(h), forKey: key)
@@ -48,7 +51,9 @@ public enum AccentPref {
 public struct Theme {
     /// The app-wide accent (now-line, selection pills, send button, …). User-selectable in
     /// Settings ▸ Appearance; SINGLE source of truth — never hardcode an accent hex elsewhere.
-    public static var accent: Color { Color(hex: AccentPref.hex) }
+    public static var accent: Color {
+        Color(hex: AccentPref.hex)
+    }
 
     public let dark: Bool // only affects the event palette; structural colors are system-native
 

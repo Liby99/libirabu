@@ -20,13 +20,19 @@ import SwiftUI
 private struct HandCursor: ViewModifier {
     func body(content: Content) -> some View {
         content.onHover { inside in
-            if inside { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+            if inside {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
         }
     }
 }
 
 extension View {
-    func handCursor() -> some View { modifier(HandCursor()) }
+    func handCursor() -> some View {
+        modifier(HandCursor())
+    }
 }
 
 enum NativeDash {
@@ -40,7 +46,9 @@ enum NativeDash {
     /// and flew to its definition. The pinch handlers stamp this clock; row activations
     /// (open/jump/toggle) are ignored while a pinch is in flight or just ended.
     @MainActor static var lastPinch: Date = .distantPast
-    @MainActor static var tapsSuppressed: Bool { Date().timeIntervalSince(lastPinch) < 0.35 }
+    @MainActor static var tapsSuppressed: Bool {
+        Date().timeIntervalSince(lastPinch) < 0.35
+    }
 
     /// Recently-shown panels PARKED MOUNTED (most-recent last, capped): a panel leaving the
     /// carousel keeps its view alive at opacity 0 instead of unmounting, so swiping back to it
@@ -80,7 +88,9 @@ enum NativeDash {
         diagFirstScenePending = true
         diagLastStamp = engine.todoDataStamp
         let parked = parkedPanels.map(\.panelId).joined(separator: ",")
-        print("[dash-diag] \(label) pressed | awake=\(engine.renderClock.awake) pinned=\(engine.dashPinned) level=\(engine.chrome.level) parked=[\(parked)] warm=[\(warmIds.joined(separator: ","))]")
+        print(
+            "[dash-diag] \(label) pressed | awake=\(engine.renderClock.awake) pinned=\(engine.dashPinned) level=\(engine.chrome.level) parked=[\(parked)] warm=[\(warmIds.joined(separator: ","))]"
+        )
     }
 
     /// Time a suspect on the main thread; prints only when it exceeds 50ms (diag builds).
@@ -89,7 +99,9 @@ enum NativeDash {
         let t0 = Date()
         let out = work()
         let ms = -t0.timeIntervalSinceNow * 1000
-        if ms > 50 { print(String(format: "[dash-diag] %@ took %.0fms", label, ms)) }
+        if ms > 50 {
+            print(String(format: "[dash-diag] %@ took %.0fms", label, ms))
+        }
         return out
     }
 
@@ -104,7 +116,10 @@ enum NativeDash {
             diagFirstScenePending = false
             let ms = now.timeIntervalSince(press) * 1000
             if ms > 40 {
-                print(String(format: "[dash-diag] FIRST SCENE frame %.0fms after press (the tween ran blind until here)", ms))
+                print(String(
+                    format: "[dash-diag] FIRST SCENE frame %.0fms after press (the tween ran blind until here)",
+                    ms
+                ))
             }
         }
         if let last = diagLastScene {
@@ -156,7 +171,9 @@ enum NativeDash {
             parkedPanels.removeAll { $0.panelId == p.panelId }
             parkedPanels.append(p)
         }
-        if parkedPanels.count > 4 { parkedPanels.removeFirst(parkedPanels.count - 4) }
+        if parkedPanels.count > 4 {
+            parkedPanels.removeFirst(parkedPanels.count - 4)
+        }
     }
 
     /// The settled panel's ADJACENT keys (month ±1, week ±7d, day ±1d) — pre-mounted parked
@@ -241,10 +258,12 @@ struct NativeDashPanel: View {
             return flatten(visibleTree(roots: roots, kids: kids))
                 .map { live[Self.anchor($0.todo)] ?? $0.todo }
         }
-        let _ = { if let nav {
-            let pid = scope + "|" + key
-            DispatchQueue.main.async { nav.rowsByPanel[pid] = displayRows }
-        } }()
+        let _ = {
+            if let nav {
+                let pid = scope + "|" + key
+                DispatchQueue.main.async { nav.rowsByPanel[pid] = displayRows }
+            }
+        }()
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {
@@ -255,10 +274,12 @@ struct NativeDashPanel: View {
                         section(s, kids: kids, live: live, today: today, proxy: proxy)
                     }
                     if sections.isEmpty {
-                        Text("Nothing on the list — you’re clear. Add “- [ ] …” items to an event’s note or this scope’s notepad.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(theme.text.opacity(0.5))
-                            .padding(.top, 6)
+                        Text(
+                            "Nothing on the list — you’re clear. Add “- [ ] …” items to an event’s note or this scope’s notepad."
+                        )
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.text.opacity(0.5))
+                        .padding(.top, 6)
                     }
                 }
                 .padding(.trailing, 10)
@@ -279,7 +300,9 @@ struct NativeDashPanel: View {
 
     /// A todo's soft-link identity (note scope + line) — stable across a toggle, unlike tieKey
     /// (whose raw-line component changes when `[ ]` flips or a done: stamp lands).
-    static func anchor(_ t: ParsedTodo) -> String { "\(TodoFeed.scopeKey(t))\0\(t.line)" }
+    static func anchor(_ t: ParsedTodo) -> String {
+        "\(TodoFeed.scopeKey(t))\0\(t.line)"
+    }
 
     /// One visible row of the fold-aware tree walk.
     struct RowItem {
@@ -305,7 +328,9 @@ struct NativeDashPanel: View {
         }
     }
 
-    private var collapsedSet: Set<String> { nav?.collapsedSubs ?? [] }
+    private var collapsedSet: Set<String> {
+        nav?.collapsedSubs ?? []
+    }
 
     /// Click on a subtree's guide line: fold that parent and smoothly center its row.
     private func foldAndCenter(_ t: ParsedTodo, proxy: ScrollViewProxy?) {
@@ -320,8 +345,11 @@ struct NativeDashPanel: View {
         guard let nav else { return }
         let a = Self.anchor(t)
         withAnimation(.easeInOut(duration: 0.17)) {
-            if nav.collapsedSubs.contains(a) { nav.collapsedSubs.remove(a) }
-            else { nav.collapsedSubs.insert(a) }
+            if nav.collapsedSubs.contains(a) {
+                nav.collapsedSubs.remove(a)
+            } else {
+                nav.collapsedSubs.insert(a)
+            }
         }
         engine.wake()
     }
@@ -389,8 +417,11 @@ struct NativeDashPanel: View {
                     Toggle(entry.label, isOn: Binding(
                         get: { settings[dashScope].sections.contains(entry.key) },
                         set: { on in
-                            if on { settings[dashScope].sections.insert(entry.key) }
-                            else { settings[dashScope].sections.remove(entry.key) }
+                            if on {
+                                settings[dashScope].sections.insert(entry.key)
+                            } else {
+                                settings[dashScope].sections.remove(entry.key)
+                            }
                             engine.wake()
                         }
                     ))
@@ -401,8 +432,11 @@ struct NativeDashPanel: View {
                     Toggle(entry.label, isOn: Binding(
                         get: { settings[dashScope].sources.contains(entry.key) },
                         set: { on in
-                            if on { settings[dashScope].sources.insert(entry.key) }
-                            else { settings[dashScope].sources.remove(entry.key) }
+                            if on {
+                                settings[dashScope].sources.insert(entry.key)
+                            } else {
+                                settings[dashScope].sources.remove(entry.key)
+                            }
                             engine.wake()
                         }
                     ))
@@ -447,7 +481,11 @@ struct NativeDashPanel: View {
             SectionHeader(title: s.title, count: s.items.count,
                           hidden: capped && !open ? s.items.count - Self.doneShow : 0,
                           chevron: capped, open: open, theme: theme) {
-                if open { doneOpen.remove(s.key) } else { doneOpen.insert(s.key) }
+                if open {
+                    doneOpen.remove(s.key)
+                } else {
+                    doneOpen.insert(s.key)
+                }
             }
             // Recursive subtrees: zero-spacing wrappers own the CONTINUOUS guide borders; each
             // row still renders the LIVE parse of its line in its frozen position.
@@ -505,9 +543,9 @@ struct NativeDashPanel: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
                     SectionHeader(title: day ? "Upcoming Deadlines"
-                                      : "Deadlines in \(scope == "week" ? "this week" : "this month")",
-                                  count: list.count, hidden: 0, chevron: false, open: true,
-                                  theme: theme, onChevron: {})
+                        : "Deadlines in \(scope == "week" ? "this week" : "this month")",
+                        count: list.count, hidden: 0, chevron: false, open: true,
+                        theme: theme, onChevron: {})
                     if day { // the web's window dropdown, as a native menu
                         Menu {
                             ForEach(Self.dayDeadlineOpts, id: \.0) { v, label in
@@ -600,10 +638,16 @@ struct NativeDashPanel: View {
     static func relDue(_ today: String, _ iso: String) -> String {
         guard iso.count >= 10 else { return iso }
         let d = String(iso.prefix(10))
-        if d == today { return "today" }
+        if d == today {
+            return "today"
+        }
         let days = daysBetween(today, d)
-        if days == 1 { return "tomorrow" }
-        if days == -1 { return "yesterday" }
+        if days == 1 {
+            return "tomorrow"
+        }
+        if days == -1 {
+            return "yesterday"
+        }
         return days < 0 ? "\(-days)d ago" : "in \(days)d"
     }
 
@@ -612,7 +656,9 @@ struct NativeDashPanel: View {
     @MainActor private static var daysCache: [String: Int] = [:]
     @MainActor static func daysBetween(_ a: String, _ b: String) -> Int {
         let key = a + "|" + b
-        if let hit = daysCache[key] { return hit }
+        if let hit = daysCache[key] {
+            return hit
+        }
         func date(_ s: String) -> Date? {
             let p = s.split(separator: "-").compactMap { Int($0) }
             guard p.count == 3 else { return nil }
@@ -620,7 +666,9 @@ struct NativeDashPanel: View {
         }
         guard let da = date(a), let db = date(b) else { return 0 }
         let d = utcCalendar.dateComponents([.day], from: da, to: db).day ?? 0
-        if daysCache.count > 4096 { daysCache.removeAll() }
+        if daysCache.count > 4096 {
+            daysCache.removeAll()
+        }
         daysCache[key] = d
         return d
     }
@@ -1014,4 +1062,3 @@ private struct TodoRow: View {
         }
     }
 }
-

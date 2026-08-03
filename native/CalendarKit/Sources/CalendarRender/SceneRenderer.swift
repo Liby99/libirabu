@@ -633,8 +633,8 @@ import SwiftUI
             }
         }
 
-        // ── Scope carousel along the zoom axis: dashScopePanels placed each panel at its OWN
-        // target width and absolute position; dispatch by name.
+        /// ── Scope carousel along the zoom axis: dashScopePanels placed each panel at its OWN
+        /// target width and absolute position; dispatch by name.
         func draw(_ p: DashPanel) {
             switch p.name {
             case "month": drawMonthScope(p)
@@ -789,7 +789,7 @@ private struct TextKey: Hashable {
 
 @MainActor
 public func resolvedText(_ s: String, _ f: Font, _ tracking: CGFloat, _ color: Color,
-                  _ ctx: inout GraphicsContext) -> GraphicsContext.ResolvedText {
+                         _ ctx: inout GraphicsContext) -> GraphicsContext.ResolvedText {
     let key = TextKey(s: s, size: 0, font: f, tracking: tracking, color: color)
     if let hit = textCache[key] {
         return hit

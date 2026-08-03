@@ -130,7 +130,8 @@ public final class NotificationScheduler: NSObject {
             .filter { $0.hasPrefix(NotifyPlanner.idPrefix) }
         guard prefs.enabled, authorized else {
             // Master off / permission revoked → withdraw everything we ever scheduled.
-            notifyLog.notice("resync idle (enabled=\(prefs.enabled), status=\(status.rawValue)) — withdrew \(ours.count)")
+            notifyLog
+                .notice("resync idle (enabled=\(prefs.enabled), status=\(status.rawValue)) — withdrew \(ours.count)")
             if !ours.isEmpty {
                 center.removePendingNotificationRequests(withIdentifiers: ours)
             }
@@ -169,15 +170,22 @@ public final class NotificationScheduler: NSObject {
                     trigger: UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
                 ))
                 added += 1
-                notifyLog.notice("➕ \(Self.fireFmt.string(from: p.fireDate), privacy: .public)  \(p.title, privacy: .public) — \(p.body, privacy: .public)  [\(id, privacy: .public)]")
+                notifyLog
+                    .notice(
+                        "➕ \(Self.fireFmt.string(from: p.fireDate), privacy: .public)  \(p.title, privacy: .public) — \(p.body, privacy: .public)  [\(id, privacy: .public)]"
+                    )
             } catch {
-                notifyLog.error("add FAILED for \(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                notifyLog
+                    .error("add FAILED for \(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
         for id in stale {
             notifyLog.notice("➖ withdrew \(id, privacy: .public)")
         }
-        notifyLog.notice("resync: \(desired.count) desired, \(added) newly scheduled, \(stale.count) withdrawn, \(pending.count) were pending")
+        notifyLog
+            .notice(
+                "resync: \(desired.count) desired, \(added) newly scheduled, \(stale.count) withdrawn, \(pending.count) were pending"
+            )
     }
 
     /// "MM-dd HH:mm" for log lines — glanceable fire times.
@@ -203,12 +211,15 @@ public final class NotificationScheduler: NSObject {
                 .sorted { $0.1 < $1.1 }
             notifyLog.notice("―― pending with macOS: \(ours.count) (auth status \(status.rawValue)) ――")
             for (r, fire) in ours {
-                notifyLog.notice("🕰 \(Self.fireFmt.string(from: fire), privacy: .public)  \(r.content.title, privacy: .public) — \(r.content.body, privacy: .public)  [\(r.identifier, privacy: .public)]")
+                notifyLog
+                    .notice(
+                        "🕰 \(Self.fireFmt.string(from: fire), privacy: .public)  \(r.content.title, privacy: .public) — \(r.content.body, privacy: .public)  [\(r.identifier, privacy: .public)]"
+                    )
             }
         }
     }
 
-    /// ── Settings UI surface ─────────────────────────────────────────────────────────────────
+    // ── Settings UI surface ─────────────────────────────────────────────────────────────────
 
     /// The system permission prompt (shows at most once, ever) — called when the user flips the
     /// master toggle on. Returns whether notifications are now allowed.

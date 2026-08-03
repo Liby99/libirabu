@@ -52,7 +52,7 @@ enum Auditor {
 
         do {
             let resp = try await LLM.chat(messages: messages, model: model,
-                                                temperature: 0, maxTokens: 512)
+                                          temperature: 0, maxTokens: 512)
             return parse(resp.content) ?? .failOpen
         } catch {
             return .failOpen // fail open — matches the web auditor

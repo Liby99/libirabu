@@ -4,10 +4,10 @@
 // work identically from either host. Window-opening is the one host-specific bit, injected as a closure.
 
 import AppKit
+import CalendarEngine
+import CalendarGeometry // isoDayString
 import SwiftUI
 import UniformTypeIdentifiers
-import CalendarEngine
-import CalendarGeometry   // isoDayString
 
 /// Which host window a menu action wants to summon (opened differently per shell).
 public enum MenuWindow: Sendable { case assistant, help, settings }
@@ -30,40 +30,46 @@ public enum MenuWindow: Sendable { case assistant, help, settings }
 /// Run a plain menu item's action. Identical behavior in both shells.
 @MainActor public func runMenuItem(_ id: MenuItemID, _ ctx: MenuContext) {
     switch id {
-    case .about:               ctx.showAbout()
-    case .openAssistant:       ctx.open(.assistant)
-    case .settings:            ctx.open(.settings)
-    case .hide:                NSApp.hide(nil)
-    case .quit:                NSApp.terminate(nil)
-    case .newCalendar:         NotificationCenter.default.post(name: .newCalendar, object: nil)
-    case .removeCalendar:      NotificationCenter.default.post(name: .removeCalendar, object: nil)
-    case .renameCalendar:      NotificationCenter.default.post(name: .renameCalendar, object: nil)
-    case .importICS:           if let e = ctx.engine() { MenuFileActions.importICS(e) }
-    case .importMDC:           if let e = ctx.engine() { MenuFileActions.importMDC(e) }
-    case .exportMDC:           if let e = ctx.engine() { MenuFileActions.exportMDC(e) }
-    case .printCalendar:       NotificationCenter.default.post(name: .requestPrint, object: nil)
-    case .deselectAll:         ctx.engine()?.deselectAll()
-    case .goToYear:            ctx.engine()?.goToCurrent("year")
-    case .goToMonth:           ctx.engine()?.goToCurrent("month")
-    case .goToWeek:            ctx.engine()?.goToCurrent("week")
-    case .goToDay:             ctx.engine()?.goToCurrent("day")
-    case .todoList:            NotificationCenter.default.post(name: .focusDashTodo, object: nil)
-    case .noteEditor:          NotificationCenter.default.post(name: .focusDashNote, object: nil)
-    case .projList:            NotificationCenter.default.post(name: .focusDashProj, object: nil)
-    case .newConversation:     ctx.newChat(); ctx.open(.assistant)
+    case .about: ctx.showAbout()
+    case .openAssistant: ctx.open(.assistant)
+    case .settings: ctx.open(.settings)
+    case .hide: NSApp.hide(nil)
+    case .quit: NSApp.terminate(nil)
+    case .newCalendar: NotificationCenter.default.post(name: .newCalendar, object: nil)
+    case .removeCalendar: NotificationCenter.default.post(name: .removeCalendar, object: nil)
+    case .renameCalendar: NotificationCenter.default.post(name: .renameCalendar, object: nil)
+    case .importICS: if let e = ctx.engine() {
+            MenuFileActions.importICS(e)
+        }
+    case .importMDC: if let e = ctx.engine() {
+            MenuFileActions.importMDC(e)
+        }
+    case .exportMDC: if let e = ctx.engine() {
+            MenuFileActions.exportMDC(e)
+        }
+    case .printCalendar: NotificationCenter.default.post(name: .requestPrint, object: nil)
+    case .deselectAll: ctx.engine()?.deselectAll()
+    case .goToYear: ctx.engine()?.goToCurrent("year")
+    case .goToMonth: ctx.engine()?.goToCurrent("month")
+    case .goToWeek: ctx.engine()?.goToCurrent("week")
+    case .goToDay: ctx.engine()?.goToCurrent("day")
+    case .todoList: NotificationCenter.default.post(name: .focusDashTodo, object: nil)
+    case .noteEditor: NotificationCenter.default.post(name: .focusDashNote, object: nil)
+    case .projList: NotificationCenter.default.post(name: .focusDashProj, object: nil)
+    case .newConversation: ctx.newChat(); ctx.open(.assistant)
     case .currentConversation: ctx.open(.assistant)
-    case .apiKeys:             ctx.open(.settings)
-    case .syncNow:             ctx.engine()?.refreshConnectivity()
-    case .help:                ctx.open(.help)
-    case .tutorial:            NotificationCenter.default.post(name: .showTutorial, object: nil)
-    case .keyboardShortcuts:   NotificationCenter.default.post(name: .showKeyboardShortcuts, object: nil)
-    case .closeWindow:         NSApp.keyWindow?.performClose(nil)
-    case .minimize:            NSApp.keyWindow?.performMiniaturize(nil)
+    case .apiKeys: ctx.open(.settings)
+    case .syncNow: ctx.engine()?.refreshConnectivity()
+    case .help: ctx.open(.help)
+    case .tutorial: NotificationCenter.default.post(name: .showTutorial, object: nil)
+    case .keyboardShortcuts: NotificationCenter.default.post(name: .showKeyboardShortcuts, object: nil)
+    case .closeWindow: NSApp.keyWindow?.performClose(nil)
+    case .minimize: NSApp.keyWindow?.performMiniaturize(nil)
     }
 }
 
-// ── File ▸ import/export. AppKit panels + alerts; the work is on the engine. Shared so both the SwiftUI
-//    FileCommands view and the AppKit menu run the exact same code. ─────────────────────────────────
+/// ── File ▸ import/export. AppKit panels + alerts; the work is on the engine. Shared so both the SwiftUI
+///    FileCommands view and the AppKit menu run the exact same code. ─────────────────────────────────
 @MainActor public enum MenuFileActions {
     public static func importICS(_ engine: CalendarEngine) {
         guard let url = openPanel([UTType(filenameExtension: "ics") ?? .plainText, .plainText]) else { return }
@@ -106,9 +112,12 @@ public enum MenuWindow: Sendable { case assistant, help, settings }
         panel.canChooseDirectories = false
         return panel.runModal() == .OK ? panel.url : nil
     }
+
     private static func info(_ text: String) {
-        let a = NSAlert(); a.messageText = text; a.alertStyle = .informational; a.addButton(withTitle: "OK"); a.runModal()
+        let a = NSAlert(); a.messageText = text; a.alertStyle = .informational; a.addButton(withTitle: "OK"); a
+            .runModal()
     }
+
     private static func report(_ text: String, _ error: Error) {
         let a = NSAlert(); a.messageText = text
         a.informativeText = error.localizedDescription

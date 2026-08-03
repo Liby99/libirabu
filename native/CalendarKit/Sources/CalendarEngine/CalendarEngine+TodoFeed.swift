@@ -10,8 +10,9 @@ extension CalendarEngine {
     /// A stamp that changes whenever the todo feed's inputs change (edits or note edits) —
     /// the native panels use it to tell THEIR OWN toggle's echo apart from external changes
     /// (the stay-in-place rule: a self-toggle must not re-sort the visible list).
-    public var todoDataStamp: String { "\(caches.editGen)|\(caches.noteGen)" }
-
+    public var todoDataStamp: String {
+        "\(caches.editGen)|\(caches.noteGen)"
+    }
 
     /// The store as tokenizer inputs. Timed events + deadlines are anchor→view-tz converted (like
     /// the timeline) so the feed's dates match what's drawn; bands are all-day, no conversion.
@@ -135,7 +136,9 @@ extension CalendarEngine {
         defer {
             if ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil {
                 let ms = -_diagT0.timeIntervalSinceNow * 1000
-                if ms > 50 { print(String(format: "[dash-diag] buildTodoFeed took %.0fms", ms)) }
+                if ms > 50 {
+                    print(String(format: "[dash-diag] buildTodoFeed took %.0fms", ms))
+                }
             }
         }
         let todos = Self.buildFeedPure(sources: todoSources(), dailyNotes: items.dailyNotes,
@@ -180,7 +183,9 @@ extension CalendarEngine {
             var t = t
             t.dailyDate = key
             t.eventTitle = title
-            if t.dueSource != "line" { t.due = end }
+            if t.dueSource != "line" {
+                t.due = end
+            }
             return t
         }
     }

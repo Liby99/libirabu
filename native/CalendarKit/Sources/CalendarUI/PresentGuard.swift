@@ -57,7 +57,9 @@ public enum PresentGuard {
                 lastFlush = now
                 forcedFlushes += 1
                 CATransaction.flush()
-                if CCTrace.on { CCTrace.event("presentGuard flush") }
+                if CCTrace.on {
+                    CCTrace.event("presentGuard flush")
+                }
             }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), idle, .commonModes)

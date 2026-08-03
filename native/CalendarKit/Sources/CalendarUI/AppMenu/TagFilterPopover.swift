@@ -3,30 +3,39 @@
 // the tag universe is served from the engine's per-edit cache (CalendarEngine.tagUniverse). Toggling a row
 // writes the hidden-tags pref and repaints the calendar (.calendarViewPrefsChanged → engine.viewPrefsChanged).
 
-import SwiftUI
 import CalendarEngine
+import SwiftUI
 
 public struct TagFilterPopover: View {
     let engine: CalendarEngine
     @State private var query = ""
-    @State private var tick = 0            // bumped on each toggle so checkmarks re-read the pref live
+    @State private var tick = 0 // bumped on each toggle so checkmarks re-read the pref live
     @FocusState private var searchFocused: Bool
     @Environment(\.colorScheme) private var scheme
 
-    public init(engine: CalendarEngine) { self.engine = engine }
+    public init(engine: CalendarEngine) {
+        self.engine = engine
+    }
 
     private var hidden: Set<String> {
         Set(UserDefaults.standard.stringArray(forKey: PrefKeys.hiddenTags) ?? [])
     }
+
     private func setHidden(_ s: Set<String>) {
         UserDefaults.standard.set(Array(s).sorted(), forKey: PrefKeys.hiddenTags)
         NotificationCenter.default.post(name: .calendarViewPrefsChanged, object: nil)
         tick += 1
     }
+
     private func toggle(_ key: String) {
-        var s = hidden; if s.contains(key) { s.remove(key) } else { s.insert(key) }; setHidden(s)
+        var s = hidden; if s.contains(key) {
+            s.remove(key)
+        } else {
+            s.insert(key)
+        }; setHidden(s)
     }
-    private func bind(_ key: String) -> Binding<Bool> {   // ✓ = shown → the key is NOT in the hidden set
+
+    private func bind(_ key: String) -> Binding<Bool> { // ✓ = shown → the key is NOT in the hidden set
         Binding(get: { !hidden.contains(key) }, set: { _ in toggle(key) })
     }
 
@@ -58,7 +67,7 @@ public struct TagFilterPopover: View {
 
             if !searching, !uni.rows.isEmpty {
                 Text(uni.rows.count > 10 ? "Top 10 of \(uni.rows.count) tags — search for more"
-                                         : "\(uni.rows.count) tag\(uni.rows.count == 1 ? "" : "s")")
+                    : "\(uni.rows.count) tag\(uni.rows.count == 1 ? "" : "s")")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
 
@@ -73,7 +82,8 @@ public struct TagFilterPopover: View {
                         Toggle(isOn: bind(row.key)) { tagRow(row.label, row.count) }
                     }
                     if showUntagged {
-                        Toggle(isOn: bind(CalendarEngine.untaggedKey)) { tagRow("Untagged", uni.untagged, italic: true) }
+                        Toggle(isOn: bind(CalendarEngine.untaggedKey)) { tagRow("Untagged", uni.untagged, italic: true)
+                        }
                     }
                 }
                 .toggleStyle(.checkbox)
@@ -96,7 +106,7 @@ public struct TagFilterPopover: View {
         .onAppear { searchFocused = true }
     }
 
-    @ViewBuilder private func tagRow(_ label: String, _ count: Int, italic: Bool = false) -> some View {
+    private func tagRow(_ label: String, _ count: Int, italic: Bool = false) -> some View {
         HStack {
             Text(label).italic(italic)
             Spacer(minLength: 8)

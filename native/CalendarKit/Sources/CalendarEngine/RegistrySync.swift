@@ -28,7 +28,7 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
         self.engine = engine
         self.readOnly = readOnly
         self.container = CKContainer(identifier: CloudSync.containerID)
-        let base = calendarKitBaseDir()   // beside calendars.json — the registry is app-wide, not per-calendar
+        let base = calendarKitBaseDir() // beside calendars.json — the registry is app-wide, not per-calendar
         self.stateURL = base.appendingPathComponent("registrySync.bin")
         self.recordCacheURL = base.appendingPathComponent("registryRecords.plist")
         super.init()
@@ -42,11 +42,13 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
         loadRecordCache()
         let savedState = loadState()
         let config = CKSyncEngine.Configuration(
-            database: container.privateCloudDatabase, stateSerialization: savedState, delegate: self)
+            database: container.privateCloudDatabase, stateSerialization: savedState, delegate: self
+        )
         syncEngine = CKSyncEngine(config)
         if savedState == nil, !readOnly {
             syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
-            syncEngine.state.add(pendingRecordZoneChanges: engine.allCalendars.map { .saveRecord(recordID(for: $0.id)) })
+            syncEngine.state
+                .add(pendingRecordZoneChanges: engine.allCalendars.map { .saveRecord(recordID(for: $0.id)) })
         }
         Task { [weak self] in try? await self?.syncEngine.fetchChanges() }
     }
@@ -61,28 +63,33 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
         }
     }
 
-    // ── Local mutations ────────────────────────────────────────────────────────────────────────────
+    /// ── Local mutations ────────────────────────────────────────────────────────────────────────────
     func upsertCalendar(_ id: String) {
         guard !readOnly else { return }
         syncEngine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID(for: id))])
     }
+
     func removeCalendar(_ id: String) {
         knownRecords[id] = nil
         guard !readOnly else { return }
         syncEngine?.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID(for: id))])
     }
 
-    // ── Outbound: materialize a calendar's record from the local registry ────────────────────────────
+    /// ── Outbound: materialize a calendar's record from the local registry ────────────────────────────
     func nextRecordZoneChangeBatch(
         _ context: CKSyncEngine.SendChangesContext, syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
-        if readOnly { return nil } // hard block: a read-only client sends NOTHING
+        if readOnly {
+            return nil
+        } // hard block: a read-only client sends NOTHING
         let scope = context.options.scope
         let pending = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         guard !pending.isEmpty else { return nil }
         var records: [CKRecord.ID: CKRecord] = [:]
         for change in pending {
-            if case let .saveRecord(id) = change { records[id] = materialize(id) }
+            if case let .saveRecord(id) = change {
+                records[id] = materialize(id)
+            }
         }
         let resolved = records
         return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) { resolved[$0] }
@@ -90,7 +97,8 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
 
     private func materialize(_ id: CKRecord.ID) -> CKRecord? {
         let name = id.recordName
-        guard let meta = engine?.registry.meta(name) else { return nil }   // deleted locally → matching delete resolves it
+        guard let meta = engine?.registry.meta(name)
+        else { return nil } // deleted locally → matching delete resolves it
         let r = knownRecords[name] ?? CKRecord(recordType: Self.recordType, recordID: id)
         r["name"] = meta.name as NSString
         r["createdAt"] = meta.createdAt as NSDate
@@ -98,7 +106,7 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
         return r
     }
 
-    // ── Delegate event pump ──────────────────────────────────────────────────────────────────────
+    /// ── Delegate event pump ──────────────────────────────────────────────────────────────────────
     func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {
         switch event {
         case let .stateUpdate(e): saveState(e.stateSerialization)
@@ -117,7 +125,7 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
         }
     }
 
-    // ── Inbound: server records → local registry ──────────────────────────────────────────────────
+    /// ── Inbound: server records → local registry ──────────────────────────────────────────────────
     private func applyFetched(
         modifications: [CKDatabase.RecordZoneChange.Modification],
         deletions: [CKDatabase.RecordZoneChange.Deletion]
@@ -130,10 +138,13 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
             upserts.append(CalendarMeta(
                 id: r.recordID.recordName, name: name,
                 createdAt: (r["createdAt"] as? Date) ?? .distantPast,
-                order: (r["order"] as? Int) ?? 0))
+                order: (r["order"] as? Int) ?? 0
+            ))
         }
         let deletes = deletions.map(\.recordID.recordName)
-        for id in deletes { knownRecords[id] = nil }
+        for id in deletes {
+            knownRecords[id] = nil
+        }
         saveRecordCache()
         if !upserts.isEmpty || !deletes.isEmpty {
             engine?.applyRemoteCalendars(upserts: upserts, deletes: deletes)
@@ -141,12 +152,16 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
     }
 
     private func handleSent(_ e: CKSyncEngine.Event.SentRecordZoneChanges) {
-        for saved in e.savedRecords { knownRecords[saved.recordID.recordName] = saved }
+        for saved in e.savedRecords {
+            knownRecords[saved.recordID.recordName] = saved
+        }
         for fail in e.failedRecordSaves {
             let id = fail.record.recordID
             switch fail.error.code {
             case .serverRecordChanged:
-                if let server = fail.error.serverRecord { knownRecords[id.recordName] = server }
+                if let server = fail.error.serverRecord {
+                    knownRecords[id.recordName] = server
+                }
                 syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(id)])
             case .zoneNotFound, .userDeletedZone:
                 syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
@@ -157,17 +172,23 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
         saveRecordCache()
     }
 
-    // ── Persistence ────────────────────────────────────────────────────────────────────────────────
-    private func recordID(for name: String) -> CKRecord.ID { CKRecord.ID(recordName: name, zoneID: zoneID) }
+    /// ── Persistence ────────────────────────────────────────────────────────────────────────────────
+    private func recordID(for name: String) -> CKRecord.ID {
+        CKRecord.ID(recordName: name, zoneID: zoneID)
+    }
 
     private func loadState() -> CKSyncEngine.State.Serialization? {
         guard let data = try? Data(contentsOf: stateURL) else { return nil }
         return try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
     }
+
     private func saveState(_ s: CKSyncEngine.State.Serialization) {
         try? JSONEncoder().encode(s).write(to: stateURL, options: .atomic)
     }
-    private func clearState() { try? FileManager.default.removeItem(at: stateURL) }
+
+    private func clearState() {
+        try? FileManager.default.removeItem(at: stateURL)
+    }
 
     private func loadRecordCache() {
         guard let data = try? Data(contentsOf: recordCacheURL),
@@ -176,10 +197,13 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
         for (id, d) in dict {
             guard let coder = try? NSKeyedUnarchiver(forReadingFrom: d) else { continue }
             coder.requiresSecureCoding = true
-            if let rec = CKRecord(coder: coder) { knownRecords[id] = rec }
+            if let rec = CKRecord(coder: coder) {
+                knownRecords[id] = rec
+            }
             coder.finishDecoding()
         }
     }
+
     private func saveRecordCache() {
         var dict: [String: Data] = [:]
         for (id, rec) in knownRecords {

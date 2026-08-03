@@ -5,6 +5,9 @@
 import SwiftUI
 
 @ViewBuilder public func menuLabel(_ id: MenuItemID) -> some View {
-    if let icon = id.icon { Label(id.title, systemImage: icon) }
-    else { Text(id.title) }
+    if let icon = id.icon {
+        Label(id.title, systemImage: icon)
+    } else {
+        Text(id.title)
+    }
 }

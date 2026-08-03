@@ -16,14 +16,16 @@ public final class CalendarChrome {
     /// slide carries the content off-right with the panel (keying on `dashPinned` teleported the
     /// webview to the day-split position mid-retract). Interactivity gates keep using dashPinned.
     public internal(set) var dashPresented = UserDefaults.standard.bool(forKey: PrefKeys.dashPinned)
-    // Pinned panel widths, mirrored here (observable) so the WebView frame + tab overlays re-lay-out
-    // LIVE while the split handle drags (the engine itself isn't @Observable).
+    /// Pinned panel widths, mirrored here (observable) so the WebView frame + tab overlays re-lay-out
+    /// LIVE while the split handle drags (the engine itself isn't @Observable).
     public internal(set) var dashWeekFrac: CGFloat = {
         let v = UserDefaults.standard.double(forKey: PrefKeys.dashWeekFrac); return v > 0 ? v : 0.35
     }()
+
     public internal(set) var dashMonthFrac: CGFloat = {
         let v = UserDefaults.standard.double(forKey: PrefKeys.dashMonthFrac); return v > 0 ? v : 0.25
     }()
+
     /// The event drawer is open — observable mirror of `engine.drawerOpen` (menus gray out
     /// the dashboard tab commands under it).
     public var drawerOpen = false

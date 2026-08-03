@@ -17,7 +17,9 @@ struct MarkdownPreview: NSViewRepresentable {
     var onToggle: ((Int) -> Void)? // 1-based source line of a tapped todo checkbox
     var onLineEdit: ((Int) -> Void)? // ⌘-click → edit at this source line
 
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let tv = PreviewTextView()
@@ -56,7 +58,9 @@ struct MarkdownPreview: NSViewRepresentable {
         weak var textView: PreviewTextView?
         private var renderedKey = "\u{0}"
 
-        init(_ parent: MarkdownPreview) { self.parent = parent }
+        init(_ parent: MarkdownPreview) {
+            self.parent = parent
+        }
 
         func rebuild(_ p: MarkdownPreview) {
             parent = p
@@ -216,7 +220,11 @@ enum MarkdownDoc {
 
     private static func userStartLine(_ user: String, in text: String) -> Int {
         guard !user.isEmpty, let r = text.range(of: user, options: .backwards) else { return 1 }
-        return text[..<r.lowerBound].reduce(into: 1) { if $1 == "\n" { $0 += 1 } }
+        return text[..<r.lowerBound].reduce(into: 1) {
+            if $1 == "\n" {
+                $0 += 1
+            }
+        }
     }
 
     // ── Block walk ───────────────────────────────────────────────────────────────────────────
@@ -241,9 +249,9 @@ enum MarkdownDoc {
             lineMap.append((NSRange(location: from, length: out.length - from), line))
         }
 
-        // SOFT BREAKS (user spec, standard markdown): a lone newline does NOT start a new
-        // paragraph — consecutive text lines merge with a space; only a BLANK line (or a
-        // structural block) breaks the paragraph. Same for consecutive "> " lines.
+        /// SOFT BREAKS (user spec, standard markdown): a lone newline does NOT start a new
+        /// paragraph — consecutive text lines merge with a space; only a BLANK line (or a
+        /// structural block) breaks the paragraph. Same for consecutive "> " lines.
         func flushPara() {
             guard !paraBuf.isEmpty else { return }
             let from = out.length
@@ -308,7 +316,11 @@ enum MarkdownDoc {
                 var j = i + 2
                 while j < lines.count {
                     let r = lines[j].trimmingCharacters(in: .whitespaces)
-                    if r.hasPrefix("|") { rows.append(tableCells(r)); j += 1 } else { break }
+                    if r.hasPrefix("|") {
+                        rows.append(tableCells(r)); j += 1
+                    } else {
+                        break
+                    }
                 }
                 appendTable(rows, to: &out, base: base, accent: accent, theme: theme)
                 mark(from, line: srcLine)
@@ -347,11 +359,15 @@ enum MarkdownDoc {
                 mark(from, line: srcLine)
             } else if let rest = strip(line, ["> "]) {
                 flushPara()
-                if quoteBuf.isEmpty { quoteLine = srcLine }
+                if quoteBuf.isEmpty {
+                    quoteLine = srcLine
+                }
                 quoteBuf.append(rest)
             } else {
                 flushQuote()
-                if paraBuf.isEmpty { paraLine = srcLine }
+                if paraBuf.isEmpty {
+                    paraLine = srcLine
+                }
                 paraBuf.append(line)
             }
         }
@@ -418,13 +434,27 @@ enum MarkdownDoc {
         if let p = tok.priority {
             pill(ChipSpec.priority(level: p, accent: accent))
         }
-        if let due = tok.due { pill(grey.with(prefix: "DUE", text: due)) }
-        if let st = tok.start { pill(grey.with(prefix: "FROM", text: st)) }
-        if let d = tok.done { pill(grey.with(prefix: "DONE", text: d, extraDim: true)) }
-        if let f = tok.followup { pill(ChipSpec.followup(f)) }
-        for tag in tok.tags { pill(ChipSpec.tag("#" + tag, accent: accent)) }
-        for person in tok.entities["person"] ?? [] { pill(ChipSpec.person("@" + person)) }
-        for proj in tok.entities["project"] ?? [] { pill(ChipSpec.project("@" + proj)) }
+        if let due = tok.due {
+            pill(grey.with(prefix: "DUE", text: due))
+        }
+        if let st = tok.start {
+            pill(grey.with(prefix: "FROM", text: st))
+        }
+        if let d = tok.done {
+            pill(grey.with(prefix: "DONE", text: d, extraDim: true))
+        }
+        if let f = tok.followup {
+            pill(ChipSpec.followup(f))
+        }
+        for tag in tok.tags {
+            pill(ChipSpec.tag("#" + tag, accent: accent))
+        }
+        for person in tok.entities["person"] ?? [] {
+            pill(ChipSpec.person("@" + person))
+        }
+        for proj in tok.entities["project"] ?? [] {
+            pill(ChipSpec.project("@" + proj))
+        }
         out.append(newline(para))
     }
 
@@ -519,7 +549,9 @@ enum MarkdownDoc {
                 for edge in [NSRectEdge.minY, .maxY] {
                     cell.setWidth(4.5, type: .absoluteValueType, for: .padding, edge: edge)
                 }
-                if r == 0 { cell.backgroundColor = base.withAlphaComponent(0.06) }
+                if r == 0 {
+                    cell.backgroundColor = base.withAlphaComponent(0.06)
+                }
                 let para = paragraph(spacing: 0)
                 para.textBlocks = [cell]
                 let text = c < row.count ? row[c] : ""
@@ -544,7 +576,9 @@ enum MarkdownDoc {
                     cell.setWidth(c == 0 ? 0 : 6, type: .absoluteValueType, for: .padding, edge: .minX)
                     cell.setWidth(2.5, type: .absoluteValueType, for: .padding, edge: .minY)
                     cell.setWidth(2.5, type: .absoluteValueType, for: .padding, edge: .maxY)
-                    if c == 0 { cell.setContentWidth(96, type: .absoluteValueType) }
+                    if c == 0 {
+                        cell.setContentWidth(96, type: .absoluteValueType)
+                    }
                     let para = paragraph(spacing: 0)
                     para.textBlocks = [cell]
                     if c == 0 {
@@ -585,7 +619,8 @@ enum MarkdownDoc {
     static func inline(_ s: String, font: NSFont, color: NSColor, accent: NSColor,
                        para: NSParagraphStyle) -> NSAttributedString {
         let parsed = (try? AttributedString(
-            markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ))
             ?? AttributedString(s)
         let out = NSMutableAttributedString()
         for run in parsed.runs {
@@ -628,9 +663,11 @@ enum MarkdownDoc {
 
     /// TAG_RE + ENTITY_RE over a text run, non-token text kept verbatim, tokens as pills.
     private static let proseTagRe = try! NSRegularExpression(
-        pattern: #"(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)"#)
+        pattern: #"(^|\s)#([A-Za-z0-9_][\w-]*)(?=\s|$)"#
+    )
     private static let proseEntityRe = try! NSRegularExpression(
-        pattern: #"(^|\s)@(?:([A-Za-z][\w-]*):)?([A-Za-z0-9_][\w-]*)(?=\s|$)"#)
+        pattern: #"(^|\s)@(?:([A-Za-z][\w-]*):)?([A-Za-z0-9_][\w-]*)(?=\s|$)"#
+    )
 
     private static func chippedText(_ text: String, attrs: [NSAttributedString.Key: Any],
                                     para: NSParagraphStyle) -> NSAttributedString {
@@ -671,9 +708,12 @@ enum MarkdownDoc {
             if range.location > pos {
                 out.append(NSAttributedString(
                     string: ns.substring(with: NSRange(location: pos, length: range.location - pos)),
-                    attributes: attrs))
+                    attributes: attrs
+                ))
             }
-            if !boundary.isEmpty { out.append(NSAttributedString(string: boundary, attributes: attrs)) }
+            if !boundary.isEmpty {
+                out.append(NSAttributedString(string: boundary, attributes: attrs))
+            }
             let att = NSTextAttachment()
             let img = chipImage(spec, alpha: 1)
             att.image = img
@@ -726,12 +766,16 @@ enum MarkdownDoc {
 
     private static func tableCells(_ line: String) -> [String] {
         var l = line
-        if l.hasPrefix("|") { l.removeFirst() }
-        if l.hasSuffix("|") { l.removeLast() }
+        if l.hasPrefix("|") {
+            l.removeFirst()
+        }
+        if l.hasSuffix("|") {
+            l.removeLast()
+        }
         return l.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
-    // ── Token pills (the web's .cc-todo-tok badges) ─────────────────────────────────────────
+    /// ── Token pills (the web's .cc-todo-tok badges) ─────────────────────────────────────────
     struct ChipSpec {
         var prefix: String? // faint uppercase key ("DUE", "FROM", "↪ FOLLOWUP")
         var text: String
@@ -790,7 +834,9 @@ enum MarkdownDoc {
     private static var chipCache: [String: NSImage] = [:]
     static func chipImage(_ spec: ChipSpec, alpha: CGFloat) -> NSImage {
         let key = "\(spec.prefix ?? "")|\(spec.text)|\(spec.fg.description)|\(spec.bg.description)|\(spec.bold)|\(spec.extraDim)|\(alpha)"
-        if let hit = chipCache[key] { return hit }
+        if let hit = chipCache[key] {
+            return hit
+        }
         let mono = NSFont(name: spec.bold ? "Menlo-Bold" : "Menlo", size: 10)
             ?? .monospacedSystemFont(ofSize: 10, weight: spec.bold ? .bold : .regular)
         let prefixFont = NSFont(name: "Menlo-Bold", size: 8.2) ?? mono
@@ -825,7 +871,9 @@ enum MarkdownDoc {
                                          withAttributes: textAttrs)
             return true
         }
-        if chipCache.count > 512 { chipCache.removeAll() }
+        if chipCache.count > 512 {
+            chipCache.removeAll()
+        }
         chipCache[key] = img
         return img
     }
@@ -834,7 +882,9 @@ enum MarkdownDoc {
     private static var checkboxCache: [String: NSImage] = [:]
     private static func checkboxImage(checked: Bool, accent: NSColor, grey: NSColor) -> NSImage {
         let key = "\(checked)|\(accent.description)|\(grey.description)"
-        if let hit = checkboxCache[key] { return hit }
+        if let hit = checkboxCache[key] {
+            return hit
+        }
         let img = NSImage(size: NSSize(width: 15, height: 15), flipped: false) { _ in
             let r = NSRect(x: 0.75, y: 0.75, width: 13.5, height: 13.5)
             let path = NSBezierPath(roundedRect: r, xRadius: 5, yRadius: 5)

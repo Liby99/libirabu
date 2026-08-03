@@ -76,7 +76,9 @@ public struct EventsOverlay: View {
     /// where off-screen months are culled and only a handful of bars are live. Rest (year) ≈ z<0.5; the 0.6
     /// cutoff also covers the first sliver of the year→month zoom, before culling thins the sticker count.
     static let glassZoomFloor: CGFloat = 0.6
-    private var plainEff: Bool { perfMode || input.z < Self.glassZoomFloor }
+    private var plainEff: Bool {
+        perfMode || input.z < Self.glassZoomFloor
+    }
 
     /// Canvas fast path (see CanvasStickers.swift): at year/month zoom, PLAIN flat stickers draw in one
     /// Canvas instead of being SwiftUI views — the flamegraph put ~66% of swipe frame time in the view
@@ -135,15 +137,15 @@ public struct EventsOverlay: View {
     /// The mounted timed layers this frame: the focus month, plus (at month rest / mid-turn) the
     /// pre-mounted neighbor months. Extracted from `body` so the Canvas fast path and the view
     /// stickers iterate the SAME layer list (identical clips, fades, and pre-mount policy).
-    //
-    // Neighbor months' stickers are mounted the whole time month view is AT REST (plus any
-    // in-flight turn): creating a dense month's sticker views is a measured ~50ms hitch,
-    // and doing it lazily put that hitch INSIDE the page-turn animation (bench-month-swipe:
-    // p95 16.7ms, 6-8 hitches; with pre-mounted neighbors p95 8.3ms). Mounted at arrival,
-    // the churn lands on the settled frame — where a slow frame is invisible — and every
-    // swipe finds both neighbors ready. The z-window keeps the mount off the animated
-    // zoom-in (it lands once the zoom settles); non-matching neighbors sit at progress 0
-    // (one page off-screen) with fade 0.
+    ///
+    /// Neighbor months' stickers are mounted the whole time month view is AT REST (plus any
+    /// in-flight turn): creating a dense month's sticker views is a measured ~50ms hitch,
+    /// and doing it lazily put that hitch INSIDE the page-turn animation (bench-month-swipe:
+    /// p95 16.7ms, 6-8 hitches; with pre-mounted neighbors p95 8.3ms). Mounted at arrival,
+    /// the churn lands on the settled frame — where a slow frame is invisible — and every
+    /// swipe finds both neighbors ready. The z-window keeps the mount off the animated
+    /// zoom-in (it lands once the zoom settles); non-matching neighbors sit at progress 0
+    /// (one page off-screen) with fade 0.
     private func timedLayers(_ anim: PageAnim?, _ tlOut: TimelineInfo, _ outMul: CGFloat,
                              _ clipRight: CGFloat) -> [TimedLayer] {
         var layers: [TimedLayer] = []
@@ -245,7 +247,6 @@ public struct EventsOverlay: View {
         }
         .allowsHitTesting(false)
     }
-
 }
 
 /// The CURRENT TIME pill + the cursor time tag, in their own layer ABOVE the chrome Canvas
@@ -312,16 +313,16 @@ public struct TimeTagsOverlay: View {
         .padding(.horizontal, 6)
         .frame(width: spec.rect.width, height: spec.rect.height,
                alignment: spec.pointsRight ? .trailing : .leading)
-            .background(shape.fill(baseFill))
-            .glassEffect(.regular.tint(glassTint), in: shape)
-            .overlay(shape.strokeBorder(c, lineWidth: 1))
-            // Caret on the line-facing edge; on a side flip the old one retracts and the new one grows.
-            .overlay { flipCaret(pointsRight: true, shown: spec.pointsRight, color: c, h: 8) }
-            .overlay { flipCaret(pointsRight: false, shown: !spec.pointsRight, color: c, h: 8) }
-            .opacity(spec.opacity)
-            .position(x: spec.rect.midX, y: spec.rect.midY)
-            .animation(.easeInOut(duration: 0.2), value: spec.pointsRight) // slide + caret-swap on flip
-            .allowsHitTesting(false)
+        .background(shape.fill(baseFill))
+        .glassEffect(.regular.tint(glassTint), in: shape)
+        .overlay(shape.strokeBorder(c, lineWidth: 1))
+        // Caret on the line-facing edge; on a side flip the old one retracts and the new one grows.
+        .overlay { flipCaret(pointsRight: true, shown: spec.pointsRight, color: c, h: 8) }
+        .overlay { flipCaret(pointsRight: false, shown: !spec.pointsRight, color: c, h: 8) }
+        .opacity(spec.opacity)
+        .position(x: spec.rect.midX, y: spec.rect.midY)
+        .animation(.easeInOut(duration: 0.2), value: spec.pointsRight) // slide + caret-swap on flip
+        .allowsHitTesting(false)
     }
 
     /// A caret on one edge that grows in / retracts out as `shown` toggles — so a left↔right flip
@@ -446,7 +447,9 @@ extension EventsOverlay {
         return rect.maxY > -M && rect.minY < input.vp.h + M && rect.maxX > -M && rect.minX < input.vp.w + M
     }
 
-    private func bandItems() -> [Item2] { RenderProf.measure("bandItems", "2a_bandItems") { bandItemsUncached() } }
+    private func bandItems() -> [Item2] {
+        RenderProf.measure("bandItems", "2a_bandItems") { bandItemsUncached() }
+    }
 
     private func bandItemsUncached() -> [Item2] {
         var placed: [(ev: BandEvent, rect: CGRect, fade: Double, clipStart: Bool, clipEnd: Bool)] = []
@@ -621,7 +624,8 @@ extension EventsOverlay {
                 continue
             }
             for s in day.segs {
-                guard let r = eventRect(s.event, input.year, focus, tl, input.vp, day.layout[s.event.id]) else { continue }
+                guard let r = eventRect(s.event, input.year, focus, tl, input.vp, day.layout[s.event.id])
+                else { continue }
                 let rect = CGRect(x: r.minX, y: tl.tlTop - tl.scroll + r.minY, width: r.width, height: r.height)
                 if rect.maxY < tl.tlTop || rect.minY > tl.tlBottom {
                     continue
@@ -731,9 +735,17 @@ extension EventsOverlay {
     }
 
     /// Fileprivate accessors for YearBandsCanvas (same file; keeps the members private otherwise).
-    fileprivate func rigidBandStickers() -> [CanvasSticker] { canvasList(bandItems()) }
-    fileprivate var themeRef: Theme { theme }
-    fileprivate var inputRef: SceneInput { input }
+    fileprivate func rigidBandStickers() -> [CanvasSticker] {
+        canvasList(bandItems())
+    }
+
+    fileprivate var themeRef: Theme {
+        theme
+    }
+
+    fileprivate var inputRef: SceneInput {
+        input
+    }
 
     /// Draw order: later-starting events in front; the selected box always frontmost.
     private func orderTimed(
@@ -1317,9 +1329,15 @@ private func badgeRow(_ badges: EventBadges, _ color: Color) -> some View {
     }
     return ViewThatFits(in: .horizontal) {
         row(syms.count)
-        if syms.count > 1 { row(syms.count - 1) }
-        if syms.count > 2 { row(syms.count - 2) }
-        if syms.count > 3 { row(syms.count - 3) }
+        if syms.count > 1 {
+            row(syms.count - 1)
+        }
+        if syms.count > 2 {
+            row(syms.count - 2)
+        }
+        if syms.count > 3 {
+            row(syms.count - 3)
+        }
         Color.clear.frame(width: 0, height: 0) // nothing fits → show nothing
     }
     .foregroundStyle(color)

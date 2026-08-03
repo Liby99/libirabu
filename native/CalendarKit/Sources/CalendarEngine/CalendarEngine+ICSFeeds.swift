@@ -36,8 +36,10 @@ extension CalendarEngine {
             b.id.hasPrefix("gcal-") && !liveKeys.contains(where: { b.id.hasPrefix($0) })
         }
         if stale {
-            imported.events.removeAll { e in e.id.hasPrefix("gcal-") && !liveKeys.contains(where: { e.id.hasPrefix($0) }) }
-            imported.bands.removeAll { b in b.id.hasPrefix("gcal-") && !liveKeys.contains(where: { b.id.hasPrefix($0) }) }
+            imported.events
+                .removeAll { e in e.id.hasPrefix("gcal-") && !liveKeys.contains(where: { e.id.hasPrefix($0) }) }
+            imported.bands
+                .removeAll { b in b.id.hasPrefix("gcal-") && !liveKeys.contains(where: { b.id.hasPrefix($0) }) }
             caches.editGen &+= 1; caches.deadlineGen &+= 1; wake()
         }
         guard !urls.isEmpty else { return }

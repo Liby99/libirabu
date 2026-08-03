@@ -56,10 +56,14 @@ final class CCTrace {
 
     private func recordFrame(_ engine: CalendarEngine) {
         ensureStarted()
-        if displayLink == nil { attachDisplayLinkIfPossible() }
+        if displayLink == nil {
+            attachDisplayLinkIfPossible()
+        }
         lines.append(String(format: "F %@ %.3f %.3f", ts(), engine.z, engine.dashPin))
         sampler.noteFrame()
-        if lines.count > 400_000 { lines.removeFirst(100_000) } // rolling window
+        if lines.count > 400_000 {
+            lines.removeFirst(100_000)
+        } // rolling window
         if Date().timeIntervalSince(lastAutosave) > 60 {
             lastAutosave = Date()
             dump(reason: "autosave")
@@ -84,7 +88,8 @@ final class CCTrace {
             let awake = (note.object as? Bool) ?? false
             MainActor.assumeIsolated {
                 CCTrace.shared.lines.append(
-                    "E \(CCTrace.shared.ts()) \(awake ? "clockAwake" : "clockAsleep")")
+                    "E \(CCTrace.shared.ts()) \(awake ? "clockAwake" : "clockAsleep")"
+                )
             }
         }
         attachDisplayLinkIfPossible()
@@ -115,7 +120,8 @@ final class CCTrace {
                 let ms = (CFAbsoluteTimeGetCurrent() - began) * 1000
                 if ms > 8 {
                     CCTrace.shared.lines.append(
-                        "E \(CCTrace.shared.ts()) commit \(String(format: "%.0f", ms))ms")
+                        "E \(CCTrace.shared.ts()) commit \(String(format: "%.0f", ms))ms"
+                    )
                 }
             }
         }
@@ -196,7 +202,8 @@ final class CCTrace {
         }
         let dir = NSTemporaryDirectory()
         let path = (dir as NSString).appendingPathComponent(
-            "cc-trace-\(Int(t0.timeIntervalSince1970)).trace")
+            "cc-trace-\(Int(t0.timeIntervalSince1970)).trace"
+        )
         try? out.joined(separator: "\n").appending("\n")
             .write(toFile: path, atomically: true, encoding: .utf8)
         print("[cc-trace] \(reason): \(out.count) lines → \(path)")
@@ -238,19 +245,21 @@ final class TraceSampler: @unchecked Sendable {
 
     private func loop() {
         while true {
-            usleep(10_000) // ~100Hz
+            usleep(10000) // ~100Hz
             // Sample while frames flowed within the last 2s: covers interactions AND the
             // blocks that stall them; skips deep idle (no pointless suspends).
             guard CFAbsoluteTimeGetCurrent() - lastFrame < 2.0 else { continue }
             guard let s = captureMainStack() else { continue }
             lock.lock()
             buf.append(s)
-            if buf.count > 30_000 { buf.removeFirst(6000) } // ~5min rolling
+            if buf.count > 30000 {
+                buf.removeFirst(6000)
+            } // ~5min rolling
             lock.unlock()
         }
     }
 
-    // mach/arm/thread_status.h layout, local (see DashWatchdog: not exposed in all contexts).
+    /// mach/arm/thread_status.h layout, local (see DashWatchdog: not exposed in all contexts).
     private struct ARMThreadState64 {
         var x: (UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64,
                 UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64, UInt64,
@@ -268,36 +277,41 @@ final class TraceSampler: @unchecked Sendable {
 
     private func captureMainStack() -> Sample? {
         #if arch(arm64)
-        var addrs = [UInt64]()
-        addrs.reserveCapacity(208)
-        guard thread_suspend(mainPort) == KERN_SUCCESS else { return nil }
-        var state = ARMThreadState64()
-        var count = mach_msg_type_number_t(
-            MemoryLayout<ARMThreadState64>.size / MemoryLayout<natural_t>.size)
-        let kr = withUnsafeMutablePointer(to: &state) {
-            $0.withMemoryRebound(to: natural_t.self, capacity: Int(count)) {
-                thread_get_state(mainPort, 6 /* ARM_THREAD_STATE64 */, $0, &count)
+            var addrs = [UInt64]()
+            addrs.reserveCapacity(208)
+            guard thread_suspend(mainPort) == KERN_SUCCESS else { return nil }
+            var state = ARMThreadState64()
+            var count = mach_msg_type_number_t(
+                MemoryLayout<ARMThreadState64>.size / MemoryLayout<natural_t>.size
+            )
+            let kr = withUnsafeMutablePointer(to: &state) {
+                $0.withMemoryRebound(to: natural_t.self, capacity: Int(count)) {
+                    thread_get_state(mainPort, 6 /* ARM_THREAD_STATE64 */, $0, &count)
+                }
             }
-        }
-        if kr == KERN_SUCCESS {
-            let mask: UInt64 = 0x0000_7FFF_FFFF_FFFF
-            addrs.append(state.pc & mask)
-            var fp = state.fp & mask
-            while addrs.count < 200, fp > 0x1000, fp % 8 == 0 {
-                guard let p = UnsafeRawPointer(bitPattern: UInt(fp)) else { break }
-                let nextFP = p.load(as: UInt64.self) & mask
-                let lr = p.load(fromByteOffset: 8, as: UInt64.self) & mask
-                if lr <= 0x1000 { break }
-                addrs.append(lr)
-                if nextFP <= fp { break }
-                fp = nextFP
+            if kr == KERN_SUCCESS {
+                let mask: UInt64 = 0x0000_7FFF_FFFF_FFFF
+                addrs.append(state.pc & mask)
+                var fp = state.fp & mask
+                while addrs.count < 200, fp > 0x1000, fp % 8 == 0 {
+                    guard let p = UnsafeRawPointer(bitPattern: UInt(fp)) else { break }
+                    let nextFP = p.load(as: UInt64.self) & mask
+                    let lr = p.load(fromByteOffset: 8, as: UInt64.self) & mask
+                    if lr <= 0x1000 {
+                        break
+                    }
+                    addrs.append(lr)
+                    if nextFP <= fp {
+                        break
+                    }
+                    fp = nextFP
+                }
             }
-        }
-        thread_resume(mainPort)
-        guard !addrs.isEmpty else { return nil }
-        return Sample(t: Date().timeIntervalSince(t0), addrs: addrs)
+            thread_resume(mainPort)
+            guard !addrs.isEmpty else { return nil }
+            return Sample(t: Date().timeIntervalSince(t0), addrs: addrs)
         #else
-        return nil
+            return nil
         #endif
     }
 }

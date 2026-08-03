@@ -194,7 +194,7 @@ private struct HelpGIF: View {
         let variant = "\(name)-\(scheme == .dark ? "dark" : "light")"
         if let url = Bundle.module.url(forResource: variant, withExtension: "gif", subdirectory: "tutorial")
             ?? Bundle.module.url(forResource: name, withExtension: "gif", subdirectory: "tutorial"),
-           let img = NSImage(contentsOf: url) {
+            let img = NSImage(contentsOf: url) {
             GIFImageView(image: img)
                 .aspectRatio(img.size.width / max(1, img.size.height), contentMode: .fit)
         }

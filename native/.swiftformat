@@ -55,4 +55,5 @@
 --exclude CalendarKit/.build
 --exclude CalendarApp/build
 --exclude CalendarKit/Sources/CalendarUI/Resources   # bundled JS/CSS, not Swift
+--exclude CalendarKit/legacy                         # retired code, kept byte-exact as shipped
 --exclude CalendarApp/CalendarApp.xcodeproj

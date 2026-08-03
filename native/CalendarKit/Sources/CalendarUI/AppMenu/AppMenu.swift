@@ -15,23 +15,28 @@
 import AppKit
 import CalendarEngine
 
-// ── Shortcut description (API-neutral; each adapter converts to its own modifier type) ──────────
+/// ── Shortcut description (API-neutral; each adapter converts to its own modifier type) ──────────
 public struct MenuMods: OptionSet, Sendable {
     public let rawValue: Int
-    public init(rawValue: Int) { self.rawValue = rawValue }
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
     public static let command = MenuMods(rawValue: 1 << 0)
-    public static let shift   = MenuMods(rawValue: 1 << 1)
+    public static let shift = MenuMods(rawValue: 1 << 1)
     public static let control = MenuMods(rawValue: 1 << 2)
-    public static let option  = MenuMods(rawValue: 1 << 3)
+    public static let option = MenuMods(rawValue: 1 << 3)
 }
 
 public struct MenuShortcut: Sendable {
     public let key: Character
     public let mods: MenuMods
-    public init(_ key: Character, _ mods: MenuMods = .command) { self.key = key; self.mods = mods }
+    public init(_ key: Character, _ mods: MenuMods = .command) {
+        self.key = key; self.mods = mods
+    }
 }
 
-// ── The plain (button) items. Each carries its own title / shortcut / SF Symbol. ────────────────
+/// ── The plain (button) items. Each carries its own title / shortcut / SF Symbol. ────────────────
 public enum MenuItemID: Sendable {
     case about, openAssistant, settings, hide, quit
     case newCalendar, removeCalendar, renameCalendar
@@ -51,84 +56,84 @@ public enum MenuItemID: Sendable {
 
     public var title: String {
         switch self {
-        case .about:               return "About \(Self.appName)"
-        case .openAssistant:       return "\(Self.appName) AI"
-        case .settings:            return "Settings…"
-        case .hide:                return "Hide \(Self.appName)"
-        case .quit:                return "Quit \(Self.appName)"
-        case .newCalendar:         return "New \(Self.appName)"
-        case .removeCalendar:      return "Remove Current \(Self.appName)"
-        case .renameCalendar:      return "Rename…"
-        case .importICS:           return "Import .ics…"
-        case .importMDC:           return "Import Backup (.mdc)…"
-        case .exportMDC:           return "Export Backup (.mdc)…"
-        case .printCalendar:       return "Print…"
-        case .deselectAll:         return "Deselect All"
-        case .goToYear:            return "Go to Current Year"
-        case .goToMonth:           return "Go to Current Month"
-        case .goToWeek:            return "Go to Current Week"
-        case .goToDay:             return "Go to Current Day"
-        case .todoList:            return "TODO List"
-        case .noteEditor:          return "Note Editor"
-        case .projList:            return "Projects"
-        case .newConversation:     return "New Conversation"
-        case .currentConversation: return "Current Conversation"
-        case .apiKeys:             return "Configure API Keys…"
-        case .syncNow:             return "Sync Now"
-        case .help:                return "\(Self.appName) Help"
-        case .tutorial:            return "Welcome to \(Self.appName)"
-        case .keyboardShortcuts:   return "Keyboard Shortcuts"
-        case .closeWindow:         return "Close"
-        case .minimize:            return "Minimize"
+        case .about: "About \(Self.appName)"
+        case .openAssistant: "\(Self.appName) AI"
+        case .settings: "Settings…"
+        case .hide: "Hide \(Self.appName)"
+        case .quit: "Quit \(Self.appName)"
+        case .newCalendar: "New \(Self.appName)"
+        case .removeCalendar: "Remove Current \(Self.appName)"
+        case .renameCalendar: "Rename…"
+        case .importICS: "Import .ics…"
+        case .importMDC: "Import Backup (.mdc)…"
+        case .exportMDC: "Export Backup (.mdc)…"
+        case .printCalendar: "Print…"
+        case .deselectAll: "Deselect All"
+        case .goToYear: "Go to Current Year"
+        case .goToMonth: "Go to Current Month"
+        case .goToWeek: "Go to Current Week"
+        case .goToDay: "Go to Current Day"
+        case .todoList: "TODO List"
+        case .noteEditor: "Note Editor"
+        case .projList: "Projects"
+        case .newConversation: "New Conversation"
+        case .currentConversation: "Current Conversation"
+        case .apiKeys: "Configure API Keys…"
+        case .syncNow: "Sync Now"
+        case .help: "\(Self.appName) Help"
+        case .tutorial: "Welcome to \(Self.appName)"
+        case .keyboardShortcuts: "Keyboard Shortcuts"
+        case .closeWindow: "Close"
+        case .minimize: "Minimize"
         }
     }
 
     public var shortcut: MenuShortcut? {
         switch self {
-        case .openAssistant: return MenuShortcut("i")
-        case .syncNow:       return MenuShortcut("r")
-        case .settings:      return MenuShortcut(",")
-        case .hide:          return MenuShortcut("h")
-        case .quit:          return MenuShortcut("q")
-        case .printCalendar: return MenuShortcut("p")
-        case .deselectAll:   return MenuShortcut("d")
-        case .todoList:      return MenuShortcut("b")
-        case .noteEditor:    return MenuShortcut("e")
-        case .projList:      return MenuShortcut("j")
-        case .help:          return MenuShortcut("?")
-        case .closeWindow:   return MenuShortcut("w")
-        case .minimize:      return MenuShortcut("m")
-        default:             return nil
+        case .openAssistant: MenuShortcut("i")
+        case .syncNow: MenuShortcut("r")
+        case .settings: MenuShortcut(",")
+        case .hide: MenuShortcut("h")
+        case .quit: MenuShortcut("q")
+        case .printCalendar: MenuShortcut("p")
+        case .deselectAll: MenuShortcut("d")
+        case .todoList: MenuShortcut("b")
+        case .noteEditor: MenuShortcut("e")
+        case .projList: MenuShortcut("j")
+        case .help: MenuShortcut("?")
+        case .closeWindow: MenuShortcut("w")
+        case .minimize: MenuShortcut("m")
+        default: nil
         }
     }
 
     /// SF Symbol for the SwiftUI `Label` (AppKit ignores it). nil = no icon.
     public var icon: String? {
         switch self {
-        case .openAssistant:       return "sparkles"
-        case .newCalendar:         return "plus.rectangle.on.rectangle"
-        case .removeCalendar:      return "trash"
-        case .renameCalendar:      return "pencil"
-        case .importICS:           return "calendar.badge.plus"
-        case .importMDC:           return "square.and.arrow.down"
-        case .exportMDC:           return "square.and.arrow.up"
-        case .deselectAll:         return "square.dashed"
-        case .todoList:            return "checklist"
-        case .noteEditor:          return "square.and.pencil"
-        case .projList:            return "chart.bar.doc.horizontal"
-        case .newConversation:     return "square.and.pencil"
-        case .currentConversation: return "bubble.left"
-        case .apiKeys:             return "key"
-        case .syncNow:             return "arrow.triangle.2.circlepath"
-        case .help:                return "questionmark.circle"
-        case .tutorial:            return "graduationcap"
-        case .keyboardShortcuts:   return "keyboard"
-        default:                   return nil
+        case .openAssistant: "sparkles"
+        case .newCalendar: "plus.rectangle.on.rectangle"
+        case .removeCalendar: "trash"
+        case .renameCalendar: "pencil"
+        case .importICS: "calendar.badge.plus"
+        case .importMDC: "square.and.arrow.down"
+        case .exportMDC: "square.and.arrow.up"
+        case .deselectAll: "square.dashed"
+        case .todoList: "checklist"
+        case .noteEditor: "square.and.pencil"
+        case .projList: "chart.bar.doc.horizontal"
+        case .newConversation: "square.and.pencil"
+        case .currentConversation: "bubble.left"
+        case .apiKeys: "key"
+        case .syncNow: "arrow.triangle.2.circlepath"
+        case .help: "questionmark.circle"
+        case .tutorial: "graduationcap"
+        case .keyboardShortcuts: "keyboard"
+        default: nil
         }
     }
 }
 
-// ── Standard responder-chain Edit items. SwiftUI provides these itself; AppKit wires the selectors. ──
+/// ── Standard responder-chain Edit items. SwiftUI provides these itself; AppKit wires the selectors. ──
 public enum StandardItem: Sendable {
     case undo, redo, cut, copy, paste, selectAll
     public var title: String {
@@ -138,14 +143,16 @@ public enum StandardItem: Sendable {
         case .selectAll: return "Select All"
         }
     }
+
     public var shortcut: MenuShortcut {
         switch self {
         case .undo: return MenuShortcut("z")
         case .redo: return MenuShortcut("z", [.command, .shift])
-        case .cut:  return MenuShortcut("x"); case .copy: return MenuShortcut("c")
+        case .cut: return MenuShortcut("x"); case .copy: return MenuShortcut("c")
         case .paste: return MenuShortcut("v"); case .selectAll: return MenuShortcut("a")
         }
     }
+
     /// The AppKit responder selector name (SwiftUI routes these automatically).
     public var selector: String {
         switch self {
@@ -156,20 +163,20 @@ public enum StandardItem: Sendable {
     }
 }
 
-// ── Rich controls that each adapter renders in its own idiom (pickers, dynamic submenus, toggles). ──
+/// ── Rich controls that each adapter renders in its own idiom (pickers, dynamic submenus, toggles). ──
 public enum MenuWidget: Sendable {
-    case currentCalendar       // File ▸ "Calendar: [Name]" (disabled info row, dynamic)
-    case recentCalendars       // File ▸ Recently Opened Calendars ▸ (dynamic submenu, switch on click)
-    case showHiddenToggle      // View ▸ Show Hidden Imported Events (checkmark)
-    case currentTimezone       // View ▸ Current Timezone ▸ (picker)
-    case altTimezone           // View ▸ Alternative Timezone ▸ (picker)
-    case tagFilter             // View ▸ Filter by Tags ▸ (dynamic submenu)
-    case fullScreen            // View ▸ Enter/Exit Full Screen (system)
-    case assistantModel        // Assistant ▸ Model ▸ (picker)
-    case syncStatus            // Sync ▸ "Last Sync: …" (disabled info row, dynamic)
+    case currentCalendar // File ▸ "Calendar: [Name]" (disabled info row, dynamic)
+    case recentCalendars // File ▸ Recently Opened Calendars ▸ (dynamic submenu, switch on click)
+    case showHiddenToggle // View ▸ Show Hidden Imported Events (checkmark)
+    case currentTimezone // View ▸ Current Timezone ▸ (picker)
+    case altTimezone // View ▸ Alternative Timezone ▸ (picker)
+    case tagFilter // View ▸ Filter by Tags ▸ (dynamic submenu)
+    case fullScreen // View ▸ Enter/Exit Full Screen (system)
+    case assistantModel // Assistant ▸ Model ▸ (picker)
+    case syncStatus // Sync ▸ "Last Sync: …" (disabled info row, dynamic)
 }
 
-// ── One node in a menu. ─────────────────────────────────────────────────────────────────────────
+/// ── One node in a menu. ─────────────────────────────────────────────────────────────────────────
 public enum MenuNode: Sendable {
     case item(MenuItemID)
     case standard(StandardItem)
@@ -177,12 +184,12 @@ public enum MenuNode: Sendable {
     case separator
 }
 
-// ── A whole menu, tagged with where it lands in each host. ──────────────────────────────────────
+/// ── A whole menu, tagged with where it lands in each host. ──────────────────────────────────────
 public enum MenuPlacement: Sendable { case app, file, edit, view, assistant, sync, window, help }
 
 public struct MenuSection: Sendable {
     public let placement: MenuPlacement
-    public let title: String            // the menu's title (also the AppKit submenu title)
+    public let title: String // the menu's title (also the AppKit submenu title)
     public let nodes: [MenuNode]
     public init(_ placement: MenuPlacement, _ title: String, _ nodes: [MenuNode]) {
         self.placement = placement; self.title = title; self.nodes = nodes
@@ -192,7 +199,9 @@ public struct MenuSection: Sendable {
 public struct AppMenuCaps: Sendable {
     /// The host owns an assistant session (only the .app does) → show the AI item + Assistant menu.
     public var hasAssistant: Bool
-    public init(hasAssistant: Bool) { self.hasAssistant = hasAssistant }
+    public init(hasAssistant: Bool) {
+        self.hasAssistant = hasAssistant
+    }
 }
 
 public enum AppMenu {
@@ -203,7 +212,9 @@ public enum AppMenu {
         // App menu — About / AI / Settings / Hide / Quit. (SwiftUI supplies About·Settings·Hide·Quit
         // itself; its adapter renders only the AI item. AppKit builds the whole thing.)
         var app: [MenuNode] = [.item(.about), .separator]
-        if caps.hasAssistant { app += [.item(.openAssistant), .separator] }
+        if caps.hasAssistant {
+            app += [.item(.openAssistant), .separator]
+        }
         app += [.item(.settings), .separator, .item(.hide), .item(.quit)]
         out.append(MenuSection(.app, AppName.app, app))
 

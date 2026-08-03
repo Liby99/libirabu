@@ -53,7 +53,9 @@ public final class AssistantState {
     @ObservationIgnored private var allowedOverrides: [String] = []
 
     /// The model configured for the ACTIVE provider (Settings ▸ API Keys ▸ Supported LLMs).
-    private var model: String { ProviderStore.activeModel }
+    private var model: String {
+        ProviderStore.activeModel
+    }
 
     // ── Actions ─────────────────────────────────────────────────────────────────────
 
@@ -98,7 +100,9 @@ public final class AssistantState {
             let tavilyMissing = (Keychain.get(account: WebSearchTool.keychainAccount) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             var msg = "Please pick an **AI provider** and add its key in the Settings window (**Settings ▸ API Keys**, ⌘,) — I can answer once one is configured."
-            if tavilyMissing { msg += "\n\nAdding a **Tavily** key there also enables web search." }
+            if tavilyMissing {
+                msg += "\n\nAdding a **Tavily** key there also enables web search."
+            }
             finish(text: msg)
             return
         }

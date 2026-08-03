@@ -9,7 +9,9 @@ import XCTest
 
 @MainActor
 final class ProjPerfBench: XCTestCase {
-    private func ms(_ t0: Date) -> String { String(format: "%7.2fms", -t0.timeIntervalSinceNow * 1000) }
+    private func ms(_ t0: Date) -> String {
+        String(format: "%7.2fms", -t0.timeIntervalSinceNow * 1000)
+    }
 
     func testStageBreakdown() {
         // ── Synthetic dataset: ~1 busy year ─────────────────────────────────────────────
@@ -111,7 +113,7 @@ final class ProjPerfBench: XCTestCase {
         let dates = (0 ..< 200).map { TodoIndex.addDuration("2026-06-01", $0, "d") }
         t0 = Date()
         var acc = 0
-        for i in 0 ..< 10_000 {
+        for i in 0 ..< 10000 {
             acc += ProjIndex.daysBetween("2026-01-01", dates[i % 200])
         }
         print("BENCH daysBetween ×10k (acc \(acc)): \(ms(t0))")

@@ -47,9 +47,14 @@ public enum TodoFeed {
     public static let followupWindow = 7
     public static let recentDoneDays = 7
 
-    public static func dueDate(_ t: ParsedTodo) -> String { String((t.due ?? "").prefix(10)) }
+    public static func dueDate(_ t: ParsedTodo) -> String {
+        String((t.due ?? "").prefix(10))
+    }
+
     /// The operative date: a followup acts as the due date when set.
-    public static func opDate(_ t: ParsedTodo) -> String { t.followup ?? dueDate(t) }
+    public static func opDate(_ t: ParsedTodo) -> String {
+        t.followup ?? dueDate(t)
+    }
 
     /// A fully deterministic identity so items tying on the primary keys keep a STABLE order:
     /// soft-link anchor, then LINE NUMBER (same-note ties keep source order — subtrees stay
@@ -61,7 +66,9 @@ public enum TodoFeed {
 
     /// Which layer a todo came from: event notes, or the note kind its dailyDate key encodes.
     public static func layer(_ t: ParsedTodo) -> String {
-        if t.source == "event" { return "event" }
+        if t.source == "event" {
+            return "event"
+        }
         let d = t.dailyDate ?? ""
         return d.hasPrefix("week:") ? "weekly" : d.hasPrefix("month:") ? "monthly" : "daily"
     }
@@ -78,7 +85,9 @@ public enum TodoFeed {
             guard let p = t.parentLine else { continue }
             idx["\(scopeKey(t))\0\(p)", default: []].append(t)
         }
-        for k in idx.keys { idx[k]!.sort { $0.line < $1.line } }
+        for k in idx.keys {
+            idx[k]!.sort { $0.line < $1.line }
+        }
         return idx
     }
 
@@ -87,7 +96,9 @@ public enum TodoFeed {
         var out: [ParsedTodo] = []
         func walk(_ n: ParsedTodo) {
             out.append(n)
-            for c in kids["\(scopeKey(n))\0\(n.line)"] ?? [] { walk(c) }
+            for c in kids["\(scopeKey(n))\0\(n.line)"] ?? [] {
+                walk(c)
+            }
         }
         walk(t)
         return out
@@ -96,15 +107,21 @@ public enum TodoFeed {
     /// Primary in-section ordering: operative date, then higher priority, then the tiebreak.
     static func byOp(_ a: ParsedTodo, _ b: ParsedTodo) -> Bool {
         let ad = opDate(a), bd = opDate(b)
-        if ad != bd { return ad < bd }
+        if ad != bd {
+            return ad < bd
+        }
         let ap = a.priority ?? 0, bp = b.priority ?? 0
-        if ap != bp { return ap > bp }
+        if ap != bp {
+            return ap > bp
+        }
         return tieKey(a) < tieKey(b)
     }
 
     static func byDoneDesc(_ a: ParsedTodo, _ b: ParsedTodo) -> Bool {
         let ad = a.doneDate ?? "", bd = b.doneDate ?? ""
-        if ad != bd { return ad > bd } // newest completion first
+        if ad != bd {
+            return ad > bd
+        } // newest completion first
         return tieKey(a) < tieKey(b)
     }
 
@@ -146,7 +163,9 @@ public enum TodoFeed {
         ].compactMap { s in
             guard !s.items.isEmpty, prefs.sections.contains(s.key) else { return nil }
             var s2 = s
-            if s.key == "dueDay" { s2.title = viewIso == today ? "Today's Items" : "Due This Day" }
+            if s.key == "dueDay" {
+                s2.title = viewIso == today ? "Today's Items" : "Due This Day"
+            }
             return s2
         }
     }
@@ -162,14 +181,18 @@ public enum TodoFeed {
                                 uniquingKeysWith: { a, _ in a })
         func rootOf(_ t: ParsedTodo) -> ParsedTodo {
             var cur = t
-            while let p = cur.parentLine, let up = byLine["\(scopeKey(cur))\0\(p)"] { cur = up }
+            while let p = cur.parentLine, let up = byLine["\(scopeKey(cur))\0\(p)"] {
+                cur = up
+            }
             return cur
         }
         var open: [ParsedTodo] = []
         var openKeys = Set<String>()
         for h in pool.filter({ !$0.done && inR(opDate($0)) }).sorted(by: byOp) {
             let r = rootOf(h)
-            if openKeys.insert(tieKey(r)).inserted { open.append(r) }
+            if openKeys.insert(tieKey(r)).inserted {
+                open.append(r)
+            }
         }
         let completed = pool.filter { t in
             guard t.done, t.parentLine == nil, let d = t.doneDate.map({ String($0.prefix(10)) })

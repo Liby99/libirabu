@@ -115,8 +115,8 @@ struct CarouselDriver: NSViewRepresentable {
     let anim: DashCarouselAnim
     let dir: Int, p: Double, reveal: Double
     var scopeT: Double = 1 // eased fraction between the lower and upper zoom scopes
-    var headerTopY: Double = Double(Layout.topPad) // focused band's animated top (canvas-anchored)
-    var headerTopY2: Double = Double(Layout.topPad) // incoming month band's top (page-turns)
+    var headerTopY: Double = .init(Layout.topPad) // focused band's animated top (canvas-anchored)
+    var headerTopY2: Double = .init(Layout.topPad) // incoming month band's top (page-turns)
     var panelLeft: Double = 0 // dashboardLeftAnimated (for the native tab overlay)
     var mDir: Int = 0
     var mP: Double = 0 // month page-turn progress
@@ -286,7 +286,9 @@ private struct CogMenuButton: NSViewRepresentable {
         context.coordinator.controller = controller
     }
 
-    func makeCoordinator() -> Coord { Coord() }
+    func makeCoordinator() -> Coord {
+        Coord()
+    }
 
     @MainActor final class Coord: NSObject {
         var controller: DashTodoMenuController?

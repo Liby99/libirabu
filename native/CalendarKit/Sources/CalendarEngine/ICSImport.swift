@@ -100,14 +100,14 @@ public enum ICSImport {
         var summary = "", location: String? = nil, organizer: String? = nil, url: String? = nil,
             description: String? = nil
         var start: WC?, end: WC? = nil
-        var durationMinutes: Int? = nil // DURATION property (Outlook sometimes sends it instead of DTEND)
-        var status: String? = nil // STATUS — CANCELLED stubs (METHOD:CANCEL mails) are skipped
+        var durationMinutes: Int? // DURATION property (Outlook sometimes sends it instead of DTEND)
+        var status: String? // STATUS — CANCELLED stubs (METHOD:CANCEL mails) are skipped
         var attendees: [(name: String, status: String?)] = []
         // Feed-subscription extras (see feedItems): stable identity + recurrence.
-        var uid: String? = nil
-        var rrule: String? = nil
+        var uid: String?
+        var rrule: String?
         var exdates: [WC] = []
-        var recurrenceId: WC? = nil
+        var recurrenceId: WC?
         /// DTEND, else DTSTART + DURATION. For all-day events both are EXCLUSIVE ends.
         var effectiveEnd: WC? {
             end ?? start.flatMap { s in durationMinutes.map { addMinutes(s, $0) } }
@@ -153,7 +153,9 @@ public enum ICSImport {
             case "RECURRENCE-ID": event.recurrenceId = parseDT(value: value, params: params, tzdb: tzdb)
             case "EXDATE": // may carry several comma-separated date-times
                 for v in value.split(separator: ",") {
-                    if let d = parseDT(value: String(v), params: params, tzdb: tzdb) { event.exdates.append(d) }
+                    if let d = parseDT(value: String(v), params: params, tzdb: tzdb) {
+                        event.exdates.append(d)
+                    }
                 }
             default: break
             }
@@ -283,7 +285,7 @@ public enum ICSImport {
         )
     }
 
-    // ── TZID resolution ───────────────────────────────────────────────────────────────
+    /// ── TZID resolution ───────────────────────────────────────────────────────────────
     /// Resolve a TZID to the zone the sender meant, trying, in order:
     ///   1. an IANA identifier ("America/New_York") — the standards-compliant case;
     ///   2. a trailing IANA path — Mozilla-style "/mozilla.org/20070129_1/America/New_York";
@@ -293,14 +295,22 @@ public enum ICSImport {
     /// nil → the caller treats the time as floating (never UTC).
     private static func sourceZone(_ tzid: String, month: Int, day: Int, minutes: Int, year: Int,
                                    tzdb: [String: VTZ]) -> TimeZone? {
-        if let z = TimeZone(identifier: tzid) { return z }
+        if let z = TimeZone(identifier: tzid) {
+            return z
+        }
         let parts = tzid.split(separator: "/").map(String.init)
-        if parts.count >= 2, let z = TimeZone(identifier: parts.suffix(2).joined(separator: "/")) { return z }
-        if let iana = windowsTZ[tzid], let z = TimeZone(identifier: iana) { return z }
+        if parts.count >= 2, let z = TimeZone(identifier: parts.suffix(2).joined(separator: "/")) {
+            return z
+        }
+        if let iana = windowsTZ[tzid], let z = TimeZone(identifier: iana) {
+            return z
+        }
         if let vtz = tzdb[tzid] {
             return TimeZone(secondsFromGMT: vtz.offset(month: month, day: day, minutes: minutes, year: year))
         }
-        if let secs = embeddedOffsetSeconds(tzid) { return TimeZone(secondsFromGMT: secs) }
+        if let secs = embeddedOffsetSeconds(tzid) {
+            return TimeZone(secondsFromGMT: secs)
+        }
         return nil
     }
 
@@ -317,20 +327,22 @@ public enum ICSImport {
         return sign == "-" ? -total : total
     }
 
-    // ── VTIMEZONE (self-defined zones) ────────────────────────────────────────────────
+    /// ── VTIMEZONE (self-defined zones) ────────────────────────────────────────────────
     /// One STANDARD/DAYLIGHT component: the offset it switches TO and when in the year it starts.
     private struct SeasonRule {
         var offsetTo = 0 // seconds east of GMT (TZOFFSETTO)
         var startStamp = "" // DTSTART value — the NEWEST definition wins when a zone lists revisions
         var month = 1 // transition month (RRULE BYMONTH, else DTSTART's month)
-        var monthDay: Int? = nil // BYMONTHDAY (rare)
-        var weekOrd: Int? = nil // BYDAY ordinal: 1…4, -1 = last (−2 = one before last, …)
-        var weekday: Int? = nil // BYDAY day: 0=Sun … 6=Sat
+        var monthDay: Int? // BYMONTHDAY (rare)
+        var weekOrd: Int? // BYDAY ordinal: 1…4, -1 = last (−2 = one before last, …)
+        var weekday: Int? // BYDAY day: 0=Sun … 6=Sat
         var minutes = 120 // transition time-of-day (DTSTART's clock; iCal convention 02:00)
 
         /// Day-of-month this rule's transition lands on in `year`.
         func transitionDay(year: Int) -> Int {
-            if let md = monthDay { return md }
+            if let md = monthDay {
+                return md
+            }
             guard let ord = weekOrd, let wd = weekday else { return 1 }
             let cal = utcCalendar
             var c = DateComponents(); c.year = year; c.month = month; c.day = 1
@@ -346,13 +358,15 @@ public enum ICSImport {
     }
 
     private struct VTZ {
-        var standard: SeasonRule? = nil, daylight: SeasonRule? = nil
+        var standard: SeasonRule?, daylight: SeasonRule? = nil
         /// The offset in force at a given local date/time. Single-component zones are fixed;
         /// two-component zones pick the season by the yearly transition points (southern-hemisphere
         /// zones wrap the year end).
         func offset(month: Int, day: Int, minutes: Int, year: Int) -> Int {
             guard let st = standard, let dl = daylight else { return (standard ?? daylight)?.offsetTo ?? 0 }
-            func key(_ r: SeasonRule) -> (Int, Int, Int) { (r.month, r.transitionDay(year: year), r.minutes) }
+            func key(_ r: SeasonRule) -> (Int, Int, Int) {
+                (r.month, r.transitionDay(year: year), r.minutes)
+            }
             let t = (month, day, minutes), dlK = key(dl), stK = key(st)
             let inDaylight = dlK < stK ? (t >= dlK && t < stK) : (t >= dlK || t < stK)
             return inDaylight ? dl.offsetTo : st.offsetTo
@@ -370,7 +384,9 @@ public enum ICSImport {
             switch line.uppercased() {
             case "BEGIN:VTIMEZONE": tzid = nil; vtz = VTZ(); continue
             case "END:VTIMEZONE":
-                if let id = tzid, let z = vtz { out[id] = z }
+                if let id = tzid, let z = vtz {
+                    out[id] = z
+                }
                 tzid = nil; vtz = nil; continue
             case "BEGIN:STANDARD", "BEGIN:DAYLIGHT":
                 guard vtz != nil else { continue }
@@ -379,22 +395,30 @@ public enum ICSImport {
                 if let c = comp, vtz != nil {
                     // Zones may list historical revisions — keep the newest (largest DTSTART).
                     if compIsStandard {
-                        if (vtz!.standard?.startStamp ?? "") <= c.startStamp { vtz!.standard = c }
-                    } else if (vtz!.daylight?.startStamp ?? "") <= c.startStamp { vtz!.daylight = c }
+                        if (vtz!.standard?.startStamp ?? "") <= c.startStamp {
+                            vtz!.standard = c
+                        }
+                    } else if (vtz!.daylight?.startStamp ?? "") <= c.startStamp {
+                        vtz!.daylight = c
+                    }
                 }
                 comp = nil; continue
             default: break
             }
             guard vtz != nil, let (name, _, value) = property(line) else { continue }
             guard comp != nil else {
-                if name == "TZID" { tzid = value }
+                if name == "TZID" {
+                    tzid = value
+                }
                 continue
             }
             switch name {
             case "TZOFFSETTO": comp!.offsetTo = offsetSeconds(value) ?? 0
             case "DTSTART":
                 comp!.startStamp = value
-                if value.count >= 6, let m = Int(value.dropFirst(4).prefix(2)) { comp!.month = m }
+                if value.count >= 6, let m = Int(value.dropFirst(4).prefix(2)) {
+                    comp!.month = m
+                }
                 if let t = value.split(separator: "T").last, t.count >= 4,
                    let h = Int(t.prefix(2)), let m = Int(t.dropFirst(2).prefix(2)) {
                     comp!.minutes = h * 60 + m
@@ -645,7 +669,7 @@ public enum ICSImport {
         return out
     }
 
-    // ── Feed subscriptions (Google Calendar secret ICS URLs etc.) ─────────────────────
+    /// ── Feed subscriptions (Google Calendar secret ICS URLs etc.) ─────────────────────
     /// Parse feed text into READ-ONLY imported items with STABLE ids that survive refetches:
     ///   series key  "gcal-<feedKey>-<uid>"          (user overlays — color/hide/notes — key here)
     ///   occurrence  "<series>-YYYYMMDD-HHMM"        (same suffix shape as the Apple import, so the
@@ -680,17 +704,18 @@ public enum ICSImport {
                                            meetingUrl: ve.url, location: ve.location, organizer: ve.organizer,
                                            attendees: ve.attendees.map { ($0.name, $0.status ?? "") },
                                            description: ve.description)
-            if rich[series] == nil { rich[series] = importedRich(block.isEmpty ? nil : block) }
+            if rich[series] == nil {
+                rich[series] = importedRich(block.isEmpty ? nil : block)
+            }
 
             // Occurrence start dates: the base date + RRULE expansion (skipping EXDATEs and slots
             // claimed by an overridden instance). An overridden instance is its own single event.
-            var starts: [WC]
-            if ve.recurrenceId != nil {
-                starts = [s]
+            var starts: [WC] = if ve.recurrenceId != nil {
+                [s]
             } else if let rule = ve.rrule {
-                starts = expandRRule(base: s, rule: rule, years: years)
+                expandRRule(base: s, rule: rule, years: years)
             } else {
-                starts = [s]
+                [s]
             }
             let ex = Set(ve.exdates.map { "\($0.year)-\($0.month)-\($0.day)" })
             starts = starts.filter { w in
@@ -751,7 +776,9 @@ public enum ICSImport {
             case "UNTIL":
                 let v = kv[1]
                 if v.count >= 8, let y = Int(v.prefix(4)), let m = Int(v.dropFirst(4).prefix(2)),
-                   let d = Int(v.dropFirst(6).prefix(2)) { until = (y, m, d) }
+                   let d = Int(v.dropFirst(6).prefix(2)) {
+                    until = (y, m, d)
+                }
             case "BYDAY": byday = kv[1].split(separator: ",").compactMap { dayMap[String($0.suffix(2))] }
             default: break
             }
@@ -770,19 +797,22 @@ public enum ICSImport {
         }
         func pastEnd(_ d: Date) -> Bool {
             let x = cal.dateComponents([.year, .month, .day], from: d)
-            if (x.year ?? 0) > years.upperBound { return true }
-            if let u = until, ((x.year ?? 0), (x.month ?? 0), (x.day ?? 0)) > u { return true }
+            if (x.year ?? 0) > years.upperBound {
+                return true
+            }
+            if let u = until, (x.year ?? 0, x.month ?? 0, x.day ?? 0) > u {
+                return true
+            }
             return false
         }
         while made < min(count, 1000), guardN < 20000, !pastEnd(cursor) {
             guardN += 1
             let dow = (cal.dateComponents([.weekday], from: cursor).weekday ?? 1) - 1
-            let emit: Bool
-            switch freq {
+            let emit: Bool = switch freq {
             case "WEEKLY" where !byday.isEmpty:
-                emit = byday.contains(dow)
+                byday.contains(dow)
             default:
-                emit = true
+                true
             }
             if emit {
                 out.append(wc(cursor)); made += 1
@@ -795,7 +825,8 @@ public enum ICSImport {
                 // walk day-by-day within the week; jump (interval-1) extra weeks at each week boundary
                 let next = cal.date(byAdding: .day, value: 1, to: cursor)!
                 let nextDow = (cal.dateComponents([.weekday], from: next).weekday ?? 1) - 1
-                step = nextDow == 0 && interval > 1 ? DateComponents(day: 1 + 7 * (interval - 1)) : DateComponents(day: 1)
+                step = nextDow == 0 && interval > 1 ? DateComponents(day: 1 + 7 * (interval - 1)) :
+                    DateComponents(day: 1)
             default: step = DateComponents(day: 7 * interval) // plain WEEKLY
             }
             guard let n = cal.date(byAdding: step, to: cursor) else { break }

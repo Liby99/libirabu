@@ -10,7 +10,9 @@ import CalendarEngine
 @MainActor public final class AppMenuCoordinator: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private let ctx: MenuContext
     /// Boxes a MenuItemID onto an NSMenuItem (enums can't be a representedObject directly).
-    private final class IDBox { let id: MenuItemID; init(_ id: MenuItemID) { self.id = id } }
+    private final class IDBox { let id: MenuItemID; init(_ id: MenuItemID) {
+        self.id = id
+    } }
 
     // Dynamic Sync menu state, refreshed when the menu opens.
     private weak var syncMenu: NSMenu?
@@ -20,7 +22,9 @@ import CalendarEngine
     private weak var currentCalendarItem: NSMenuItem?
     private weak var recentCalendarsMenu: NSMenu?
 
-    public init(ctx: MenuContext) { self.ctx = ctx }
+    public init(ctx: MenuContext) {
+        self.ctx = ctx
+    }
 
     /// Build the menu bar from the spec and install it as `NSApp.mainMenu`.
     public func install(caps: AppMenuCaps) {
@@ -33,35 +37,37 @@ import CalendarEngine
             // Leave autoenablesItems at its default (true) so the Edit menu's responder-chain items
             // (cut/copy/paste/undo/selectAll) gray out when nothing handles them. Dynamic submenus that
             // manage their own enablement (tag filter, timezone pickers) set it false themselves.
-            for node in section.nodes { add(node, to: sub, placement: section.placement) }
+            for node in section.nodes {
+                add(node, to: sub, placement: section.placement)
+            }
             switch section.placement {
             case .window: NSApp.windowsMenu = sub
-            case .help:   NSApp.helpMenu = sub
-            case .sync:   syncMenu = sub; sub.delegate = self   // refresh "Last Sync: …"
-            case .file:   fileMenu = sub; sub.delegate = self   // refresh "Calendar: [Name]" + remove-enable
+            case .help: NSApp.helpMenu = sub
+            case .sync: syncMenu = sub; sub.delegate = self // refresh "Last Sync: …"
+            case .file: fileMenu = sub; sub.delegate = self // refresh "Calendar: [Name]" + remove-enable
             default: break
             }
         }
         NSApp.mainMenu = main
     }
 
-    // ── Node rendering ──────────────────────────────────────────────────────────────────────────
+    /// ── Node rendering ──────────────────────────────────────────────────────────────────────────
     private func add(_ node: MenuNode, to menu: NSMenu, placement: MenuPlacement) {
         switch node {
         case .separator:
             menu.addItem(.separator())
-        case .item(let id):
+        case let .item(id):
             let mi = menu.addItem(withTitle: id.title, action: #selector(fire(_:)),
                                   keyEquivalent: keyChar(id.shortcut))
             mi.keyEquivalentModifierMask = flags(id.shortcut)
             mi.target = self
             mi.representedObject = IDBox(id)
-        case .standard(let std):
+        case let .standard(std):
             // Responder-chain items (undo:/redo:/cut:/… ) — no target, AppKit routes to the focused view.
             let mi = menu.addItem(withTitle: std.title, action: NSSelectorFromString(std.selector),
                                   keyEquivalent: String(std.shortcut.key))
             mi.keyEquivalentModifierMask = flags(std.shortcut)
-        case .widget(let w):
+        case let .widget(w):
             addWidget(w, to: menu)
         }
     }
@@ -92,7 +98,11 @@ import CalendarEngine
         case .tagFilter:
             // A menu can't stay open while multi-toggling on macOS, so this opens the tag-filter popover
             // (in CalendarView's toolbar) via a notification — identical to the .app's View menu.
-            let mi = menu.addItem(withTitle: "Filter by Tags…", action: #selector(openTagFilter(_:)), keyEquivalent: "g")
+            let mi = menu.addItem(
+                withTitle: "Filter by Tags…",
+                action: #selector(openTagFilter(_:)),
+                keyEquivalent: "g"
+            )
             mi.target = self // default modifier mask = ⌘ → ⌘G toggles the popover
         case .fullScreen:
             let mi = menu.addItem(withTitle: "Enter Full Screen",
@@ -103,36 +113,50 @@ import CalendarEngine
             mi.isEnabled = false
             syncStatusItem = mi
         case .assistantModel:
-            break   // dev shell has no assistant session (Assistant menu is gated off there)
+            break // dev shell has no assistant session (Assistant menu is gated off there)
         }
     }
 
-    // ── Shortcut conversion (spec → AppKit) ───────────────────────────────────────────────────────
-    private func keyChar(_ s: MenuShortcut?) -> String { s.map { String($0.key) } ?? "" }
-    private func flags(_ s: MenuShortcut?) -> NSEvent.ModifierFlags { s.map { flags($0.mods) } ?? [] }
+    /// ── Shortcut conversion (spec → AppKit) ───────────────────────────────────────────────────────
+    private func keyChar(_ s: MenuShortcut?) -> String {
+        s.map { String($0.key) } ?? ""
+    }
+
+    private func flags(_ s: MenuShortcut?) -> NSEvent.ModifierFlags {
+        s.map { flags($0.mods) } ?? []
+    }
+
     private func flags(_ m: MenuMods) -> NSEvent.ModifierFlags {
         var f: NSEvent.ModifierFlags = []
-        if m.contains(.command) { f.insert(.command) }
-        if m.contains(.shift)   { f.insert(.shift) }
-        if m.contains(.control) { f.insert(.control) }
-        if m.contains(.option)  { f.insert(.option) }
+        if m.contains(.command) {
+            f.insert(.command)
+        }
+        if m.contains(.shift) {
+            f.insert(.shift)
+        }
+        if m.contains(.control) {
+            f.insert(.control)
+        }
+        if m.contains(.option) {
+            f.insert(.option)
+        }
         return f
     }
 
-    // ── Plain-item dispatch ───────────────────────────────────────────────────────────────────────
+    /// ── Plain-item dispatch ───────────────────────────────────────────────────────────────────────
     @objc private func fire(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? IDBox else { return }
         runMenuItem(box.id, ctx)
     }
 
-    // ── Show Hidden Imported Events (checkmark toggle) ─────────────────────────────────────────────
+    /// ── Show Hidden Imported Events (checkmark toggle) ─────────────────────────────────────────────
     @objc private func toggleShowHidden(_ sender: NSMenuItem) {
         let key = PrefKeys.showHiddenImported
         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
         NotificationCenter.default.post(name: .calendarViewPrefsChanged, object: nil)
     }
 
-    // ── Timezone pickers (submenu of checkmarked zones writing a pref) ────────────────────────────
+    /// ── Timezone pickers (submenu of checkmarked zones writing a pref) ────────────────────────────
     private func addTimezonePicker(to menu: NSMenu, title: String, key: String,
                                    includeNone: Bool, defaultId: String) {
         let parent = menu.addItem(withTitle: title, action: nil, keyEquivalent: "")
@@ -149,25 +173,32 @@ import CalendarEngine
             addZone(to: sub, key: key, id: z.id, label: z.label, current: current)
         }
     }
+
     private func addZone(to menu: NSMenu, key: String, id: String, label: String, current: String) {
         let mi = menu.addItem(withTitle: label, action: #selector(pickZone(_:)), keyEquivalent: "")
         mi.target = self
         mi.representedObject = ZonePick(key: key, id: id)
         mi.state = (id == current) ? .on : .off
     }
-    private final class ZonePick { let key: String; let id: String; init(key: String, id: String) { self.key = key; self.id = id } }
+
+    private final class ZonePick {
+        let key: String; let id: String; init(key: String, id: String) {
+            self.key = key; self.id = id
+        }
+    }
+
     @objc private func pickZone(_ sender: NSMenuItem) {
         guard let p = sender.representedObject as? ZonePick else { return }
         UserDefaults.standard.set(p.id, forKey: p.key)
         NotificationCenter.default.post(name: .calendarViewPrefsChanged, object: nil)
     }
 
-    // ── Filter by Tags → open the stay-open popover (hosted in CalendarView's toolbar) ────────────
+    /// ── Filter by Tags → open the stay-open popover (hosted in CalendarView's toolbar) ────────────
     @objc private func openTagFilter(_ sender: Any?) {
         NotificationCenter.default.post(name: .toggleTagFilter, object: nil)
     }
 
-    // ── validation + dynamic submenus ─────────────────────────────────────────────────────────────
+    /// ── validation + dynamic submenus ─────────────────────────────────────────────────────────────
     public func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(toggleShowHidden(_:)) {
             item.state = UserDefaults.standard.bool(forKey: PrefKeys.showHiddenImported) ? .on : .off
@@ -176,7 +207,7 @@ import CalendarEngine
         if let box = item.representedObject as? IDBox, box.id == .removeCalendar {
             return ctx.engine()?.canRemoveCalendar ?? false
         }
-        // TODO List / Note Editor / Projects (⌘B/⌘E/⌘J): dashboard tab focus — enabled wherever
+        // TODO: List / Note Editor / Projects (⌘B/⌘E/⌘J): dashboard tab focus — enabled wherever
         // the dashboard is reachable (day always; month/week can open it), never at year or
         // under the drawer.
         if let box = item.representedObject as? IDBox,
@@ -188,15 +219,21 @@ import CalendarEngine
     }
 
     public func menuNeedsUpdate(_ menu: NSMenu) {
-        if menu === syncMenu { refreshSyncStatus() }
-        if menu === fileMenu {   // "Calendar: [Name]" row reflects the open calendar
+        if menu === syncMenu {
+            refreshSyncStatus()
+        }
+        if menu === fileMenu { // "Calendar: [Name]" row reflects the open calendar
             currentCalendarItem?.title = "Calendar: \(ctx.engine()?.activeCalendarName ?? "Main")"
         }
-        if menu === recentCalendarsMenu { rebuildRecents(menu) }
+        if menu === recentCalendarsMenu {
+            rebuildRecents(menu)
+        }
     }
 
-    // ── Recently Opened Calendars (dynamic; switch on click) ──────────────────────────────────────
-    private final class RecentPick { let id: String; init(_ id: String) { self.id = id } }
+    /// ── Recently Opened Calendars (dynamic; switch on click) ──────────────────────────────────────
+    private final class RecentPick { let id: String; init(_ id: String) {
+        self.id = id
+    } }
     private func rebuildRecents(_ menu: NSMenu) {
         menu.removeAllItems()
         let recents = ctx.engine()?.recentCalendars ?? []
@@ -209,26 +246,30 @@ import CalendarEngine
             mi.target = self; mi.representedObject = RecentPick(c.id)
         }
     }
+
     @objc private func switchToRecent(_ sender: NSMenuItem) {
         guard let p = sender.representedObject as? RecentPick else { return }
         ctx.engine()?.switchCalendar(to: p.id)
     }
 
-    // ── Sync status (dev-shell mirror of ConnectivityMenu's label) ────────────────────────────────
+    /// ── Sync status (dev-shell mirror of ConnectivityMenu's label) ────────────────────────────────
     private func refreshSyncStatus() {
         syncStatusItem?.title = lastSyncedLabel
     }
+
     private var lastSyncedLabel: String {
         guard let mon = ctx.engine()?.syncMonitor else { return "iCloud: Local only" }
         guard mon.cloudEnabled else { return "iCloud: Local only" }
         guard let at = mon.lastSyncedAt else { return "Last Sync: never" }
         let cal = Calendar.current
         let time = at.formatted(date: .omitted, time: .shortened)
-        let day: String
-        if cal.isDateInToday(at) { day = "Today" }
-        else if cal.isDateInYesterday(at) { day = "Yesterday" }
-        else { day = at.formatted(date: .abbreviated, time: .omitted) }
+        let day: String = if cal.isDateInToday(at) {
+            "Today"
+        } else if cal.isDateInYesterday(at) {
+            "Yesterday"
+        } else {
+            at.formatted(date: .abbreviated, time: .omitted)
+        }
         return "Last Sync: \(day), \(time)"
     }
-
 }

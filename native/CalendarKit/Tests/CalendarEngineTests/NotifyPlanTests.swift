@@ -166,7 +166,7 @@ final class NotifyPlanTests: XCTestCase {
         XCTAssertTrue(TodoScan.scan("- [ ] stamped due:2026-07-21 done:2026-07-18", today: today)[0].done)
     }
 
-    /// TODO kind is OFF by default: only #notify todos plan, and a dateless one stays silent.
+    // TODO: kind is OFF by default: only #notify todos plan, and a dateless one stays silent.
     func testTodoPlanningDefaultOffWithNotifyOptIn() {
         var items = CalendarItems()
         items.dailyNotes["2026-07-19"] = """

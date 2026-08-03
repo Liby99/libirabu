@@ -666,8 +666,12 @@ private func buildMonthBands(_ g: SceneInput) -> [Item] {
 /// Short 12-hour label for the compact (phone) timeline gutter: 12AM, 9AM, 12PM, 4PM…
 private func fmt12Hour(_ hr: Int) -> String {
     let h = ((hr % 24) + 24) % 24
-    if h == 0 { return "12AM" }
-    if h == 12 { return "12PM" }
+    if h == 0 {
+        return "12AM"
+    }
+    if h == 12 {
+        return "12PM"
+    }
     return h < 12 ? "\(h)AM" : "\(h - 12)PM"
 }
 

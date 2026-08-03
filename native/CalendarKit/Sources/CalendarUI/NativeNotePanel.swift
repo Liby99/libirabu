@@ -53,7 +53,9 @@ struct NativeNotePanel: View {
                     onSave: { noteMode = .preview },
                     onExit: {
                         if !engine.dailyNote(storageKey)
-                            .trimmingCharacters(in: .whitespaces).isEmpty { noteMode = .preview }
+                            .trimmingCharacters(in: .whitespaces).isEmpty {
+                            noteMode = .preview
+                        }
                         engine.dashNoteExit()
                     },
                     session: session,
@@ -64,11 +66,13 @@ struct NativeNotePanel: View {
                     focusPulse: editorFocusSeq
                 )
             } else if text.trimmingCharacters(in: .whitespaces).isEmpty {
-                Text("No \(scope == "day" ? "daily" : scope == "week" ? "weekly" : "monthly") note yet — switch to Editor to write one.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.text.opacity(0.5))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.top, 6)
+                Text(
+                    "No \(scope == "day" ? "daily" : scope == "week" ? "weekly" : "monthly") note yet — switch to Editor to write one."
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(theme.text.opacity(0.5))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.top, 6)
             } else {
                 // The refined preview engine: one selectable NSTextView document (tables,
                 // code highlighting, token pills; whole-content copy). ⌘-click → edit at line;
@@ -83,7 +87,8 @@ struct NativeNotePanel: View {
                                     let stamp = NativeDashPanel.todayIso() + "T"
                                         + NativeDashPanel.clockNow()
                                     if let next = TodoIndex.toggleTodoLine(
-                                        text, line: line, stamp: stamp), next != text {
+                                        text, line: line, stamp: stamp
+                                    ), next != text {
                                         engine.setDailyNote(storageKey, next)
                                         // The engine is NOT @Observable — panels refresh only
                                         // when the render loop ticks and the new noteGen flows
@@ -102,7 +107,9 @@ struct NativeNotePanel: View {
         // Content-based default whenever the panel lands on a DIFFERENT note: empty → edit,
         // content → preview (same rule the webview applied on live-editor mounts).
         .onChange(of: noteMode) { old, new in
-            if old == .edit, new != .edit { session.end?() } // toggle button → stamp first
+            if old == .edit, new != .edit {
+                session.end?()
+            } // toggle button → stamp first
         }
         // A todo-row note jump landed here (Enter or click on a note-sourced row): flip to
         // edit with the source line selected + focused — the web's onJumpDay line flow.

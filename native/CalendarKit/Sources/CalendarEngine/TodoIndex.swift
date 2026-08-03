@@ -177,7 +177,9 @@ public enum TodoIndex {
 
     // ── Date resolution (UTC-safe wall-clock arithmetic, like todos.ts) ────────────────────────
 
-    static func pad2(_ n: Int) -> String { String(format: "%02d", n) }
+    static func pad2(_ n: Int) -> String {
+        String(format: "%02d", n)
+    }
 
     /// `30d` / `2w` / `3m` / `1y` added to a base `YYYY-MM-DD` date. Day/week adds are pure
     /// integer JDN arithmetic (this sits in chart axes loops and the feed build — the Calendar
@@ -191,7 +193,11 @@ public enum TodoIndex {
         let p = baseIso.prefix(10).split(separator: "-").compactMap { Int($0) }
         guard p.count == 3 else { return baseIso }
         var c = DateComponents(year: p[0], month: p[1], day: p[2])
-        if unit == "m" { c.month! += n } else { c.year! += n } // "y"
+        if unit == "m" {
+            c.month! += n
+        } else {
+            c.year! += n
+        } // "y"
         let cal = utcCalendar
         guard let d = cal.date(from: c) else { return baseIso }
         let o = cal.dateComponents([.year, .month, .day], from: d)
@@ -212,17 +218,29 @@ public enum TodoIndex {
     /// Resolve a `due:`/`start:` value to a concrete date. Explicit dates pass through; keywords
     /// and offsets resolve against `today`; a bare time resolves to today at that time.
     static func resolveDateToken(_ v: String, today: String?) -> String? {
-        if Re.isoPrefix.first(v) != nil { return v } // explicit date (keeps any THH:MM)
+        if Re.isoPrefix.first(v) != nil {
+            return v
+        } // explicit date (keeps any THH:MM)
         guard let today else { return nil }
-        if v == "today" { return today }
-        if v == "tomorrow" { return addDuration(today, 1, "d") }
-        if v == "yesterday" { return addDuration(today, -1, "d") }
-        if let g = Re.signedDur.first(v) { return addDuration(today, Int(g[1]) ?? 0, g[2].first ?? "d") }
+        if v == "today" {
+            return today
+        }
+        if v == "tomorrow" {
+            return addDuration(today, 1, "d")
+        }
+        if v == "yesterday" {
+            return addDuration(today, -1, "d")
+        }
+        if let g = Re.signedDur.first(v) {
+            return addDuration(today, Int(g[1]) ?? 0, g[2].first ?? "d")
+        }
         if let g = Re.time12.first(v) {
             let h = (Int(g[1])! % 12) + (g[3].lowercased() == "pm" ? 12 : 0)
             return "\(today)T\(pad2(h)):\(g[2].isEmpty ? "00" : g[2])"
         }
-        if let g = Re.time24.first(v) { return "\(today)T\(pad2(Int(g[1])!)):\(g[2])" }
+        if let g = Re.time24.first(v) {
+            return "\(today)T\(pad2(Int(g[1])!)):\(g[2])"
+        }
         return nil
     }
 
@@ -241,7 +259,13 @@ public enum TodoIndex {
     static func indentWidth(_ line: some StringProtocol) -> Int {
         var w = 0
         for ch in line {
-            if ch == " " { w += 1 } else if ch == "\t" { w += 4 } else { break }
+            if ch == " " {
+                w += 1
+            } else if ch == "\t" {
+                w += 4
+            } else {
+                break
+            }
         }
         return w
     }
@@ -254,15 +278,23 @@ public enum TodoIndex {
         var stack: [(width: Int, line: Int, depth: Int)] = []
         for (i, lineText) in lines.enumerated() {
             guard let m = taskLine.first(lineText) else {
-                if lineText.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+                if lineText.trimmingCharacters(in: .whitespaces).isEmpty {
+                    continue
+                }
                 let w = indentWidth(lineText)
-                while let top = stack.last, top.width >= w { stack.removeLast() }
+                while let top = stack.last, top.width >= w {
+                    stack.removeLast()
+                }
                 continue
             }
             let tok = tokenizeLine(m[3])
-            if tok.text.isEmpty { continue } // `- [ ]` with no task text never parents anything
+            if tok.text.isEmpty {
+                continue
+            } // `- [ ]` with no task text never parents anything
             let width = indentWidth(m[1])
-            while let top = stack.last, top.width >= width { stack.removeLast() }
+            while let top = stack.last, top.width >= width {
+                stack.removeLast()
+            }
             let top = stack.last
             let depth = top.map { $0.depth + 1 } ?? 0
             visit(ScannedTask(line: i + 1, raw: lineText, done: m[2].lowercased() == "x",
@@ -294,7 +326,9 @@ public enum TodoIndex {
         for list in lists {
             for v in list {
                 let k = v.lowercased()
-                if seen[k] == nil { seen[k] = v; order.append(v) }
+                if seen[k] == nil {
+                    seen[k] = v; order.append(v)
+                }
             }
         }
         return order
@@ -371,12 +405,20 @@ public enum TodoIndex {
     /// priority, then text. (todos.ts tiebreaks with localeCompare; here it's a case-insensitive
     /// lexicographic compare — the web app is legacy, exact collation parity isn't a contract.)
     public static func orderedBefore(_ a: ParsedTodo, _ b: ParsedTodo) -> Bool {
-        if a.active != b.active { return a.active }
-        if a.done != b.done { return b.done }
+        if a.active != b.active {
+            return a.active
+        }
+        if a.done != b.done {
+            return b.done
+        }
         let ad = a.due ?? "9999-99-99", bd = b.due ?? "9999-99-99"
-        if ad != bd { return ad < bd }
+        if ad != bd {
+            return ad < bd
+        }
         let ap = a.priority ?? 0, bp = b.priority ?? 0
-        if ap != bp { return ap > bp }
+        if ap != bp {
+            return ap > bp
+        }
         return a.text.lowercased() < b.text.lowercased()
     }
 
@@ -394,10 +436,16 @@ public enum TodoIndex {
         let isChecked = m[2].lowercased() == "x"
         let next = checked ?? !isChecked
         var rest = done.replaceAll(m[3]) { _ in "" }
-        while rest.hasSuffix(" ") || rest.hasSuffix("\t") { rest.removeLast() }
-        if next, let stamp { rest = "\(rest) done:\(stamp)" }
+        while rest.hasSuffix(" ") || rest.hasSuffix("\t") {
+            rest.removeLast()
+        }
+        if next, let stamp {
+            rest = "\(rest) done:\(stamp)"
+        }
         let nextLine = "\(m[1])[\(next ? "x" : " ")]\(rest)"
-        if nextLine == lines[line - 1] { return noteText }
+        if nextLine == lines[line - 1] {
+            return noteText
+        }
         lines[line - 1] = nextLine
         return lines.joined(separator: "\n")
     }
@@ -407,7 +455,9 @@ public enum TodoIndex {
     public static func linesNeedingCreated(_ noteText: String) -> [Int] {
         var out: [Int] = []
         scanTaskLines(noteText) { t in
-            if t.depth == 0, t.tok.created == nil { out.append(t.line) }
+            if t.depth == 0, t.tok.created == nil {
+                out.append(t.line)
+            }
         }
         return out
     }
@@ -419,7 +469,7 @@ public enum TodoIndex {
 // fileprivate: TodoNotifyScan has its own (older, simpler) `Re`; keeping this one file-scoped
 // avoids the collision until the notify scan migrates onto TodoIndex.
 
-fileprivate struct Re: @unchecked Sendable {
+private struct Re: @unchecked Sendable {
     let rx: NSRegularExpression
     init(_ pattern: String) {
         // Force-try: every pattern is a compile-time literal, exercised by the test suite.

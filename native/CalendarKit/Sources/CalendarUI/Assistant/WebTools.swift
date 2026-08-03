@@ -43,7 +43,9 @@ struct WebSearchTool: AssistantTool {
             // explicit relay instruction so the model tells the user how to enable it.
             return .obj([
                 "available": .bool(false),
-                "note": .str("Web search is unavailable because no Tavily API key is set. Tell the user verbatim: \"Please add your Tavily API key in the Settings window (Settings ▸ API Keys, ⌘,) to enable web search.\" Do not attempt the search again."),
+                "note": .str(
+                    "Web search is unavailable because no Tavily API key is set. Tell the user verbatim: \"Please add your Tavily API key in the Settings window (Settings ▸ API Keys, ⌘,) to enable web search.\" Do not attempt the search again."
+                ),
             ])
         }
         let maxResults = max(1, min(10, args["max_results"]?.intValue ?? 5))

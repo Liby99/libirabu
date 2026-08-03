@@ -56,8 +56,8 @@ public enum ProjIndex {
     /// Julian Day Number → "YYYY-MM-DD" (the exact inverse of dayNumber).
     static func isoFromDayNumber(_ jdn: Int) -> String {
         let a = jdn + 32044
-        let b = (4 * a + 3) / 146097
-        let c = a - 146097 * b / 4
+        let b = (4 * a + 3) / 146_097
+        let c = a - 146_097 * b / 4
         let d = (4 * c + 3) / 1461
         let e = c - 1461 * d / 4
         let m = (5 * e + 2) / 153
@@ -75,7 +75,9 @@ public enum ProjIndex {
             let l = line.trimmingCharacters(in: .whitespaces)
             guard l.hasPrefix("@project:") else { continue }
             let k = String(l.dropFirst("@project:".count)).trimmingCharacters(in: .whitespaces)
-            if !k.isEmpty, !out.contains(k) { out.append(k) }
+            if !k.isEmpty, !out.contains(k) {
+                out.append(k)
+            }
         }
         return out
     }
@@ -112,10 +114,14 @@ public enum ProjIndex {
             let task = ProjTask(
                 todo: t, start: start,
                 end: t.done ? (doneDay.isEmpty ? start : doneDay) : nil,
-                due: t.dueSource == "line" ? (t.due.map { String($0.prefix(10)) }.flatMap { $0.isEmpty ? nil : $0 }) : nil,
+                due: t
+                    .dueSource == "line" ? (t.due.map { String($0.prefix(10)) }.flatMap { $0.isEmpty ? nil : $0 }) :
+                    nil,
                 color: color
             )
-            for k in t.projects { with(k) { $0.tasks.append(task) } }
+            for k in t.projects {
+                with(k) { $0.tasks.append(task) }
+            }
         }
         // Event bars: BAND events with a bare @project line — the series note, or per tagged
         // occurrence ("<id>@Y-M-D", 0-based month) at its own dates spanning the band's length.
@@ -134,7 +140,9 @@ public enum ProjIndex {
                 var os = s0
                 if let at = okey.firstIndex(of: "@") {
                     let p = okey[okey.index(after: at)...].split(separator: "-").compactMap { Int($0) }
-                    if p.count == 3 { os = String(format: "%04d-%02d-%02d", p[0], p[1] + 1, p[2]) }
+                    if p.count == 3 {
+                        os = String(format: "%04d-%02d-%02d", p[0], p[1] + 1, p[2])
+                    }
                 }
                 let oe = TodoIndex.addDuration(os, spanDays, "d")
                 for k in keys {
@@ -150,7 +158,9 @@ public enum ProjIndex {
         for ev in sources where ev.kind == "deadline" {
             let keys = noteProjectKeys(ev.notes)
             guard !keys.isEmpty, let dl = dlById[ev.id] else { continue }
-            for k in keys { with(k) { $0.deadlines.append(dl) } }
+            for k in keys {
+                with(k) { $0.deadlines.append(dl) }
+            }
         }
         for k in order {
             map[k]!.lastActivity = map[k]!.tasks.reduce("") { acc, x in
@@ -172,14 +182,18 @@ public enum ProjIndex {
         var s = 0.0
         let open = p.tasks.filter { $0.end == nil }
         s += Double(min(4, open.count))
-        for x in open { s += Double(min(3, x.todo.priority ?? 0)) / 3 }
+        for x in open {
+            s += Double(min(3, x.todo.priority ?? 0)) / 3
+        }
         if !p.lastActivity.isEmpty {
             s += 4 * exp(-Double(abs(daysBetween(p.lastActivity, today))) / 30)
         }
         for d in p.deadlines {
             let iso = String(format: "%04d-%02d-%02d", d.year, d.month + 1, d.day)
             let dd = daysBetween(today, iso)
-            if dd >= 0 { s += 3 * exp(-Double(dd) / 21) }
+            if dd >= 0 {
+                s += 3 * exp(-Double(dd) / 21)
+            }
         }
         return s
     }
@@ -187,13 +201,19 @@ public enum ProjIndex {
     /// In-project row relevance: open state, priority, activity recency, near/overdue due.
     public static func taskScore(_ x: ProjTask, today: String) -> Double {
         var s = 0.0
-        if !x.todo.done { s += 4 }
+        if !x.todo.done {
+            s += 4
+        }
         s += Double(x.todo.priority ?? 0)
         let anchor = x.end ?? x.start
-        if !anchor.isEmpty { s += 3 * exp(-Double(abs(daysBetween(anchor, today))) / 30) }
+        if !anchor.isEmpty {
+            s += 3 * exp(-Double(abs(daysBetween(anchor, today))) / 30)
+        }
         if let due = x.due {
             let dd = daysBetween(today, due)
-            if dd >= -30, dd <= 14 { s += 2 }
+            if dd >= -30, dd <= 14 {
+                s += 2
+            }
         }
         return s
     }

@@ -12,6 +12,7 @@ final class MultiCalendarTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: PrefKeys.calActiveId)
         UserDefaults.standard.removeObject(forKey: PrefKeys.calRecents)
     }
+
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: PrefKeys.calActiveId)
         UserDefaults.standard.removeObject(forKey: PrefKeys.calRecents)
@@ -30,7 +31,7 @@ final class MultiCalendarTests: XCTestCase {
         XCTAssertFalse(e.canRemoveCalendar, "the only calendar can't be removed")
     }
 
-    func testCreateSwitchIsolation() {
+    func testCreateSwitchIsolation() throws {
         let e = CalendarEngine()
         let a = addEvent(e, "A")
         XCTAssertTrue(e.items.events.contains { $0.id == a })
@@ -44,7 +45,7 @@ final class MultiCalendarTests: XCTestCase {
         XCTAssertEqual(e.items.events.count, 1)
 
         // Switch back to Main → only A; Debug's event never bleeds in.
-        let mainId = e.allCalendars.first { $0.name == "Main" }!.id
+        let mainId = try XCTUnwrap(e.allCalendars.first { $0.name == "Main" }?.id)
         e.switchCalendar(to: mainId)
         XCTAssertTrue(e.items.events.contains { $0.id == a })
         XCTAssertFalse(e.items.events.contains { $0.id == b })
@@ -52,9 +53,9 @@ final class MultiCalendarTests: XCTestCase {
 
     func testActiveCalendarPersistsAcrossReload() {
         let e = CalendarEngine()
-        _ = addEvent(e, "A")                 // in Main
-        e.createCalendar(named: "Two")       // switches to Two (Main persisted on the way out)
-        _ = addEvent(e, "B")                 // in Two
+        _ = addEvent(e, "A") // in Main
+        e.createCalendar(named: "Two") // switches to Two (Main persisted on the way out)
+        _ = addEvent(e, "B") // in Two
         e.persistNow()
 
         // A fresh engine (relaunch) reopens the active calendar from UserDefaults.
@@ -79,7 +80,7 @@ final class MultiCalendarTests: XCTestCase {
 
     func testRemoveLastIsNoOp() {
         let e = CalendarEngine()
-        e.removeCurrentCalendar()            // only Main exists → no-op
+        e.removeCurrentCalendar() // only Main exists → no-op
         XCTAssertEqual(e.allCalendars.count, 1)
         XCTAssertEqual(e.activeCalendarName, "Main")
     }
@@ -91,7 +92,7 @@ final class MultiCalendarTests: XCTestCase {
         XCTAssertEqual(e.allCalendars.count, 1, "rename doesn't add a calendar")
     }
 
-    func testDataIsDisjointAcrossCalendars() {
+    func testDataIsDisjointAcrossCalendars() throws {
         // Ids are globally-unique UUIDs and each calendar is a separate file, so there's no cross-calendar
         // collision and no bleed: each calendar sees only its own event.
         let e = CalendarEngine()
@@ -100,12 +101,12 @@ final class MultiCalendarTests: XCTestCase {
         let b = addEvent(e, "B")
         XCTAssertNotEqual(a, b)
         XCTAssertEqual(e.items.events.map(\.id), [b], "Other holds only B")
-        let mainId = e.allCalendars.first { $0.name == "Main" }!.id
+        let mainId = try XCTUnwrap(e.allCalendars.first { $0.name == "Main" }?.id)
         e.switchCalendar(to: mainId)
         XCTAssertEqual(e.items.events.map(\.id), [a], "Main holds only A")
     }
 
-    func testAppleSelectionIsPerCalendar() {
+    func testAppleSelectionIsPerCalendar() throws {
         let e = CalendarEngine()
         e.appleSyncEnabled = true
         e.appleCalendarIds = ["work-cal"]
@@ -114,7 +115,7 @@ final class MultiCalendarTests: XCTestCase {
         XCTAssertFalse(e.appleSyncEnabled, "a new calendar has its own (empty) Apple subscription")
         XCTAssertTrue(e.appleCalendarIds.isEmpty)
 
-        let mainId = e.allCalendars.first { $0.name == "Main" }!.id
+        let mainId = try XCTUnwrap(e.allCalendars.first { $0.name == "Main" }?.id)
         e.switchCalendar(to: mainId)
         XCTAssertTrue(e.appleSyncEnabled, "Main's selection is preserved")
         XCTAssertEqual(e.appleCalendarIds, ["work-cal"])
@@ -127,7 +128,8 @@ final class MultiCalendarTests: XCTestCase {
         let legacy = PersistedState(
             events: [TimedEvent(id: "new-1", year: 2026, month: 5, day: 10, startHour: 9, endHour: 10,
                                 title: "Legacy", color: "blue", anchorTz: "America/New_York")],
-            bands: [], deadlines: [])
+            bands: [], deadlines: []
+        )
         try JSONEncoder().encode(legacy).write(to: base.appendingPathComponent("data.json"))
 
         // Booting the engine migrates it into Main.

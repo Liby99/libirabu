@@ -38,7 +38,9 @@ public final class CalendarEngine {
             renderClock.awake = true
             if let began = sleepBegan {
                 recentSleeps.append((began, Date.timeIntervalSinceReferenceDate))
-                if recentSleeps.count > 16 { recentSleeps.removeFirst(8) }
+                if recentSleeps.count > 16 {
+                    recentSleeps.removeFirst(8)
+                }
                 sleepBegan = nil
             }
             if CalendarEngine.diagClock {
@@ -70,6 +72,7 @@ public final class CalendarEngine {
         }
         return total
     }
+
     /// CC_TRACE: clock transitions feed the interaction trace (sleep vs stall separation).
     static let traceOn = ProcessInfo.processInfo.environment["CC_TRACE"] != nil
 
@@ -99,7 +102,8 @@ public final class CalendarEngine {
     /// Anything that changes the scene frame-to-frame (so the loop must stay awake). `isAnimating`
     /// covers the z/scroll/week/day tweens + flips; add the rest of the live/elastic/drag states.
     private var needsRender: Bool {
-        isAnimating || anim.shiftTween != nil || anim.gutterTween != nil || anim.dashPinTween != nil || anim.monthFlip != nil || drag != nil || daily.anim != nil
+        isAnimating || anim.shiftTween != nil || anim.gutterTween != nil || anim.dashPinTween != nil || anim
+            .monthFlip != nil || drag != nil || daily.anim != nil
             // An unsettled week-dash hold MUST keep ticking: its idle-settle fallback (0.3s) and the
             // settle tween itself only advance in the tick — sleeping mid-settle froze the carousel
             // progress at a mid value, which left the week panel's tab row permanently un-clickable
@@ -109,7 +113,7 @@ public final class CalendarEngine {
             || scroll.yearPull != nil || scroll.monthPull != nil || scroll.weekPull != nil || scroll.dayPull != nil
     }
 
-    // View state
+    /// View state
     public internal(set) var z: CGFloat = 0
     /// Upper semantic-zoom bound for this client (year 0 … day 3): the pinch path clamps here
     /// so a zoom can't land on a level whose touch driver isn't mounted. Both platforms
@@ -132,6 +136,7 @@ public final class CalendarEngine {
     public internal(set) var dashWeekFrac: CGFloat = {
         let v = UserDefaults.standard.double(forKey: PrefKeys.dashWeekFrac); return v > 0 ? v : 0.35
     }()
+
     public internal(set) var dashMonthFrac: CGFloat = {
         let v = UserDefaults.standard.double(forKey: PrefKeys.dashMonthFrac); return v > 0 ? v : 0.25
     }()
@@ -234,12 +239,12 @@ public final class CalendarEngine {
     /// Transient scroll-gesture bookkeeping (see ScrollGestureState): live-phase flags, edge
     /// pulls, and overscroll arming. All internal — nothing here is view position.
     var scroll = ScrollGestureState()
-    // Read-only events imported from Apple Calendar (EventKit). Kept SEPARATE from the seed arrays so
-    // they never persist to disk / push to iCloud (they're re-fetched) and can't be edited — every edit
-    // path targets the seed arrays. They're merged into the display caches (see ensureEventCache /
-    // ensureBandCache). User overlays (tags/notes/promote) attach via `items.richById` by the stable id.
-    // Imported id → EKEvent.eventIdentifier, rebuilt each merge. Transient (not persisted): only used to
-    // build the `ical://ekevent/…` deep-link for "Edit original", which is only offered on a live import.
+    /// Read-only events imported from Apple Calendar (EventKit). Kept SEPARATE from the seed arrays so
+    /// they never persist to disk / push to iCloud (they're re-fetched) and can't be edited — every edit
+    /// path targets the seed arrays. They're merged into the display caches (see ensureEventCache /
+    /// ensureBandCache). User overlays (tags/notes/promote) attach via `items.richById` by the stable id.
+    /// Imported id → EKEvent.eventIdentifier, rebuilt each merge. Transient (not persisted): only used to
+    /// build the `ical://ekevent/…` deep-link for "Edit original", which is only offered on a live import.
     let appleImporter = AppleCalendarImporter() // internal: +AppleImport (stored props can't move to extensions)
     /// UI-provided: the subscribed ICS feed URLs (stored in the UI-side Keychain). Lets engine-
     /// initiated refreshes (Sync Now) re-import feeds without the engine touching secrets.
@@ -289,6 +294,7 @@ public final class CalendarEngine {
         /// nav ring stays visible around the editor while the caret blinks inside it.
         case editNote(ring: Bool)
     }
+
     public var onDashCommand: ((DashCmd) -> Void)?
 
     /// ── Gutter hide (narrow window + pinned week/month dashboard) ──────────────────
@@ -316,6 +322,7 @@ public final class CalendarEngine {
             : chrome.dashWeekFrac * (viewport.w - Layout.labelW)
         return viewport.w - dashW - Layout.labelW < Motion.gutterHideMinW ? 1 : 0
     }
+
     /// The timed event currently being moved/resized/created (an ACTIVE drag). The overlay floats it
     /// full-width above its day and excludes it from the others' overlap packing so they don't reflow
     /// mid-edit; nil at rest, so the normal side-by-side layout resumes on drop.
@@ -580,7 +587,9 @@ public final class CalendarEngine {
         // reloaded ones (which produced duplicate SwiftUI ForEach ids).
         for id in items.events.map(\.id) + items.bands.map(\.id) {
             for pre in ["newb-", "new-"] where id.hasPrefix(pre) {
-                if let n = Int(id.dropFirst(pre.count)) { createCounter = max(createCounter, n) }
+                if let n = Int(id.dropFirst(pre.count)) {
+                    createCounter = max(createCounter, n)
+                }
             }
         }
         // Repair any duplicate ids already on disk (from the earlier collision bug).
@@ -676,18 +685,20 @@ public final class CalendarEngine {
         // stored `viewport` stays window-real (setViewport's same-size guard depends on it).
         let sceneVp = gutterShift > 0.01 ? Viewport(w: viewport.w + gutterShift, h: viewport.h) : viewport
         var g = SceneInput(z: z, focus: focus, week: week, vp: sceneVp, scrollY: scrollY, tlScroll: tlScroll,
-                   now: now, year: year, hover: blockHoverOverride() ?? hover, weekHourH: weekHourH, daily: daily,
-                   monthAnim: anim.monthAnim, altDeltaHours: altDeltaHours, altLabel: altColumnLabel,
-                   yearPull: scroll.yearPull, flipFade: anim.flipFade,
-                   animating: anim.tween != nil || anim.scrollTween != nil || anim.tlScrollTween != nil || anim
-                       .weekTween != nil || anim.dayTween != nil || anim.flipAnim != nil || anim
-                       .monthAnim != nil || anim
-                       .weekFlip != nil || anim.dayFlip != nil,
-                   monthPull: scroll.monthPull, monthFlipShift: anim.monthFlipShift, weekPull: scroll.weekPull,
-                   weekFlipDir: anim.weekFlip?.dir ?? 0, weekFlipFade: anim.weekFlipFade, dayPull: scroll.dayPull,
-                   mainTz: mainTz,
-                   yearQX: yearQX,
-                   monthQX: monthQX)
+                           now: now, year: year, hover: blockHoverOverride() ?? hover, weekHourH: weekHourH,
+                           daily: daily,
+                           monthAnim: anim.monthAnim, altDeltaHours: altDeltaHours, altLabel: altColumnLabel,
+                           yearPull: scroll.yearPull, flipFade: anim.flipFade,
+                           animating: anim.tween != nil || anim.scrollTween != nil || anim.tlScrollTween != nil || anim
+                               .weekTween != nil || anim.dayTween != nil || anim.flipAnim != nil || anim
+                               .monthAnim != nil || anim
+                               .weekFlip != nil || anim.dayFlip != nil,
+                           monthPull: scroll.monthPull, monthFlipShift: anim.monthFlipShift, weekPull: scroll.weekPull,
+                           weekFlipDir: anim.weekFlip?.dir ?? 0, weekFlipFade: anim.weekFlipFade,
+                           dayPull: scroll.dayPull,
+                           mainTz: mainTz,
+                           yearQX: yearQX,
+                           monthQX: monthQX)
         g.dashPin = dashPin
         // Gutter hide: the pinned panel must stay PX-STABLE while the scene width inflates —
         // otherwise crossing the hide threshold with the split handle makes the panel lunge
@@ -1215,7 +1226,6 @@ public final class CalendarEngine {
         }
     }
 }
-
 
 public extension Notification.Name {
     /// CC_TRACE: render-clock transitions (object: Bool awake).

@@ -50,9 +50,9 @@ struct MarkdownWebEditor: NSViewRepresentable {
     var onSavePreview: () -> Void = {}
     /// Entity-index JSON provider (engine.entityIndexJSON) → @project:/@person:/#tag completions.
     /// nil → entity completion off (date completion always works).
-    var entityIndex: (() -> String)? = nil
+    var entityIndex: (() -> String)?
     /// "due: this event time" completion value — the note's own moment (engine.dueAnchorString).
-    var dueAnchor: (() -> String?)? = nil
+    var dueAnchor: (() -> String?)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, mode: $mode)
@@ -63,7 +63,8 @@ struct MarkdownWebEditor: NSViewRepresentable {
         cfg.userContentController.add(context.coordinator, name: "ck")
         // Lift WebKit's 60fps rendering cap (typing/scroll feel on 120Hz displays).
         Self.liftWeb60Cap(cfg.preferences)
-        let web: WKWebView = FocusGatedWebView(frame: .zero, configuration: cfg) // don't steal focus when the drawer opens
+        let web: WKWebView = FocusGatedWebView(frame: .zero,
+                                               configuration: cfg) // don't steal focus when the drawer opens
         web.setValue(false, forKey: "drawsBackground") // transparent → glass shows through
         web.navigationDelegate = context.coordinator // open link clicks in the system browser
         context.coordinator.web = web

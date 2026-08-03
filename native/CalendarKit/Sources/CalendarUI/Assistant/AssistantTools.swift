@@ -322,8 +322,13 @@ struct SetDailyNoteTool: AssistantTool {
 
 /// AI-facing track numbers are 1-BASED (1–4, top to bottom — how users speak: "the 3rd track"
 /// is track 3). The engine stores 0-based lanes; convert at THIS boundary only.
-private func laneIn(_ n: Int?) -> Int? { n.map { max(0, min(3, $0 - 1)) } }
-private func laneOut(_ n: Int) -> Double { Double(n + 1) }
+private func laneIn(_ n: Int?) -> Int? {
+    n.map { max(0, min(3, $0 - 1)) }
+}
+
+private func laneOut(_ n: Int) -> Double {
+    Double(n + 1)
+}
 
 /// ── get_tracks ────────────────────────────────────────────────────────────────────────
 struct GetTracksTool: AssistantTool {
@@ -870,7 +875,9 @@ private func repeatConfig(from v: JSONValue?) -> Repeat? {
     guard let o = v?.asObject, var kind = o["kind"]?.stringValue, kind != "none" else { return nil }
     let dayNames = ["su": 0, "mo": 1, "tu": 2, "we": 3, "th": 4, "fr": 5, "sa": 6]
     let days = o["days"]?.arrayValue?.compactMap { d -> Int? in
-        if let n = d.intValue { return (0 ... 6).contains(n) ? n : nil }
+        if let n = d.intValue {
+            return (0 ... 6).contains(n) ? n : nil
+        }
         guard let s = d.stringValue?.lowercased(), s.count >= 2 else { return nil }
         return dayNames[String(s.prefix(2))]
     }

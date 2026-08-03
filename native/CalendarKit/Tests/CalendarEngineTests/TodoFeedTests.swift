@@ -68,7 +68,7 @@ final class TodoFeedTests: XCTestCase {
         XCTAssertEqual(secs.first { $0.key == "open" }?.items.map(\.text), ["from the day note"])
     }
 
-    func testSubtreeAndChildrenIndex() {
+    func testSubtreeAndChildrenIndex() throws {
         let todos = daily("""
         - [ ] root a
           - [ ] child a1
@@ -76,7 +76,7 @@ final class TodoFeedTests: XCTestCase {
         - [ ] root b
         """)
         let kids = TodoFeed.childrenIndex(todos)
-        let rootA = todos.first { $0.text == "root a" }!
+        let rootA = try XCTUnwrap(todos.first { $0.text == "root a" })
         XCTAssertEqual(TodoFeed.subtree(rootA, kids).map(\.text),
                        ["root a", "child a1", "grandchild"])
     }

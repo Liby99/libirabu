@@ -22,9 +22,13 @@ while !args.isEmpty {
             ids = args.removeFirst().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         }
     case "--file":
-        if !args.isEmpty { file = args.removeFirst() }
+        if !args.isEmpty {
+            file = args.removeFirst()
+        }
     case "--out":
-        if !args.isEmpty { out = args.removeFirst() }
+        if !args.isEmpty {
+            out = args.removeFirst()
+        }
     default:
         print("unknown argument: \(a)")
         exit(2)

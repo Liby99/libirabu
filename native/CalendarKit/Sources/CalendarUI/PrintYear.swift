@@ -6,20 +6,20 @@
 // (vector text/shapes) → PDFDocument → NSPrintOperation (system print panel as a window sheet).
 // Dev hook: CC_PRINT_PDF=<path> writes the PDF there and skips the panel (layout verification).
 
-import SwiftUI
 import AppKit
-import PDFKit
-import CalendarGeometry
 import CalendarEngine
+import CalendarGeometry
+import PDFKit
+import SwiftUI
 
 @MainActor
 enum PrintYear {
-    static let pageW: CGFloat = 792, pageH: CGFloat = 612   // landscape US Letter, points
+    static let pageW: CGFloat = 792, pageH: CGFloat = 612 // landscape US Letter, points
 
     /// Build the 2-page PDF for `engine.year` and hand it to the system print panel.
     static func run(engine: CalendarEngine, window: NSWindow?) {
         let year = engine.year
-        let bands = engine.displayBands(for: year)          // incl. recurrence, promoted ghosts, imports, tag filter
+        let bands = engine.displayBands(for: year) // incl. recurrence, promoted ghosts, imports, tag filter
         let tracks = engine.items.trackNames
         guard let pdf = makePDF(year: year, bands: bands, tracks: tracks) else { return }
 
@@ -30,14 +30,17 @@ enum PrintYear {
         }
         guard let doc = PDFDocument(data: pdf) else { return }
         let info = NSPrintInfo()
-        info.paperSize = NSSize(width: 612, height: 792)    // letter; autoRotate turns our landscape pages
+        info.paperSize = NSSize(width: 612, height: 792) // letter; autoRotate turns our landscape pages
         info.orientation = .landscape
         info.topMargin = 0; info.bottomMargin = 0; info.leftMargin = 0; info.rightMargin = 0
         info.isHorizontallyCentered = true; info.isVerticallyCentered = true
         guard let op = doc.printOperation(for: info, scalingMode: .pageScaleDownToFit, autoRotate: true) else { return }
         op.showsPrintPanel = true
-        if let window { op.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil) }
-        else { op.run() }
+        if let window {
+            op.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        } else {
+            op.run()
+        }
     }
 
     /// Two vector PDF pages (Jan–Jun, Jul–Dec) rendered from PrintYearPage.
@@ -46,7 +49,7 @@ enum PrintYear {
         var mediaBox = CGRect(x: 0, y: 0, width: pageW, height: pageH)
         guard let consumer = CGDataConsumer(data: data as CFMutableData),
               let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return nil }
-        for half in 0..<2 {
+        for half in 0 ..< 2 {
             let page = PrintYearPage(year: year, firstMonth: half * 6, bands: bands, tracks: tracks)
                 .frame(width: pageW, height: pageH)
             let renderer = ImageRenderer(content: page)
@@ -67,31 +70,41 @@ enum PrintYear {
 /// self-contained (plain data in) so ImageRenderer can snapshot it.
 struct PrintYearPage: View {
     let year: Int
-    let firstMonth: Int        // 0 (Jan-Jun) or 6 (Jul-Dec)
+    let firstMonth: Int // 0 (Jan-Jun) or 6 (Jul-Dec)
     let bands: [BandEvent]
     let tracks: [[String]]
 
     private let theme = Theme(dark: false)
     private let pad: CGFloat = 22
-    private let monthLabelW: CGFloat = 16    // the rotated month name column
-    private let trackW: CGFloat = 52         // track-name column
-    private let dayNumH: CGFloat = 10        // the quarter's day-label strip
-    private let quarterGap: CGFloat = 18     // the ONLY vertical gap on the page
+    private let monthLabelW: CGFloat = 16 // the rotated month name column
+    private let trackW: CGFloat = 52 // track-name column
+    private let dayNumH: CGFloat = 10 // the quarter's day-label strip
+    private let quarterGap: CGFloat = 18 // the ONLY vertical gap on the page
 
-    private var gridW: CGFloat { PrintYear.pageW - pad * 2 - monthLabelW - trackW }
-    private var dayW: CGFloat { gridW / 31 }
-    private var laneH: CGFloat { (PrintYear.pageH - pad * 2 - quarterGap - 2 * dayNumH) / 24 }   // 24 lanes/page
+    private var gridW: CGFloat {
+        PrintYear.pageW - pad * 2 - monthLabelW - trackW
+    }
 
-    private let frameGray = Color(white: 0.5)   // month/quarter boundaries
-    private let ruleGray = Color(white: 0.84)   // inner lane + day rules
+    private var dayW: CGFloat {
+        gridW / 31
+    }
+
+    private var laneH: CGFloat {
+        (PrintYear.pageH - pad * 2 - quarterGap - 2 * dayNumH) / 24
+    } // 24 lanes/page
+
+    private let frameGray = Color(white: 0.5) // month/quarter boundaries
+    private let ruleGray = Color(white: 0.84) // inner lane + day rules
 
     /// The horizontal lane rules for one month strip, on half-point centers. `boundary` selects the outer
     /// frame lines (top; bottom only on the quarter's LAST month — inner month boundaries are drawn once,
     /// by the month below, so flush months don't double-stroke) vs the inner lane rules.
     private func laneRulePath(width: CGFloat, isLast: Bool, boundary: Bool) -> Path {
         Path { p in
-            for t in 0...4 {
-                if t == 4 && !isLast { continue }          // the next month's top rule draws this boundary
+            for t in 0 ... 4 {
+                if t == 4 && !isLast {
+                    continue
+                } // the next month's top rule draws this boundary
                 let edge = t == 0 || t == 4
                 guard edge == boundary else { continue }
                 let y = (laneH * CGFloat(t)).rounded() + (t == 4 ? -0.4 : 0.4)
@@ -99,12 +112,13 @@ struct PrintYearPage: View {
             }
         }
     }
+
     /// The vertical day-column rules for one month strip, half-point centers. Every month spans the full
     /// 31 slots; the frame lines (dark) sit at 0, the month's real end (`dim`), and 31 — the dead region
     /// between dim and 31 is hatched separately.
     private func dayRulePath(dim: Int, stripH: CGFloat, boundary: Bool) -> Path {
         Path { p in
-            for d in 0...31 {
+            for d in 0 ... 31 {
                 let edge = d == 0 || d == dim || d == 31
                 guard edge == boundary else { continue }
                 let x = (CGFloat(d) * dayW).rounded() + (d == 31 ? -0.4 : 0.4)
@@ -142,7 +156,7 @@ struct PrintYearPage: View {
             HStack(spacing: 0) {
                 Spacer().frame(width: monthLabelW + trackW)
                 ZStack(alignment: .topLeading) {
-                    ForEach(1...31, id: \.self) { d in
+                    ForEach(1 ... 31, id: \.self) { d in
                         Text("\(d)")
                             .font(.system(size: 5.5)).foregroundStyle(theme.textMuted)
                             .frame(width: dayW, height: dayNumH)
@@ -151,7 +165,7 @@ struct PrintYearPage: View {
                 }
                 .frame(width: gridW, height: dayNumH, alignment: .topLeading)
             }
-            ForEach(0..<3, id: \.self) { i in
+            ForEach(0 ..< 3, id: \.self) { i in
                 monthStrip(start + i, isFirst: i == 0, isLast: i == 2)
             }
         }
@@ -182,7 +196,7 @@ struct PrintYearPage: View {
 
             // Track names, with the lane rules running above and below each name.
             ZStack(alignment: .topLeading) {
-                ForEach(0..<4, id: \.self) { t in
+                ForEach(0 ..< 4, id: \.self) { t in
                     Text(tracks.indices.contains(m) && tracks[m].indices.contains(t) ? tracks[m][t] : "")
                         .font(.system(size: 6)).foregroundStyle(theme.textMuted)
                         .lineLimit(1)
@@ -241,7 +255,7 @@ struct PrintYearPage: View {
                         .foregroundStyle(theme.text)
                         .lineLimit(1)
                         .frame(width: max(0, clipX - x - 7), height: laneH - 3, alignment: .leading)
-                        .offset(x: x + 5, y: y)   // bar inset (+1) + text lead-in (+4)
+                        .offset(x: x + 5, y: y) // bar inset (+1) + text lead-in (+4)
                 }
             }
             .frame(width: gridW, height: stripH, alignment: .topLeading)

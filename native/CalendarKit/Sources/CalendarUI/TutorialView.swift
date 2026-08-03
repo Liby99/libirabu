@@ -164,7 +164,11 @@ private struct GIFStage: View {
     let theme: Theme
 
     private var url: URL? {
-        Bundle.module.url(forResource: "\(name)-\(theme.dark ? "dark" : "light")", withExtension: "gif", subdirectory: "tutorial")
+        Bundle.module.url(
+            forResource: "\(name)-\(theme.dark ? "dark" : "light")",
+            withExtension: "gif",
+            subdirectory: "tutorial"
+        )
             ?? Bundle.module.url(forResource: name, withExtension: "gif", subdirectory: "tutorial")
     }
 

@@ -22,7 +22,7 @@ enum CodeHighlight {
     ]
 
     private static let langs: [String: Lang] = {
-        let cLike: [(String, String)] = [("/*", "*/")]
+        let cLike = [("/*", "*/")]
         var m: [String: Lang] = [:]
         m["c"] = Lang(keywords: cKeywords, lineComments: ["//"], blockComments: cLike,
                       preprocessor: true)
@@ -33,7 +33,8 @@ enum CodeHighlight {
                 "using", "try", "catch", "throw", "operator", "friend", "explicit", "mutable",
                 "static_cast", "dynamic_cast", "reinterpret_cast", "const_cast", "noexcept",
             ]),
-            lineComments: ["//"], blockComments: cLike, preprocessor: true)
+            lineComments: ["//"], blockComments: cLike, preprocessor: true
+        )
         m["rust"] = Lang(
             keywords: [
                 "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else",
@@ -42,7 +43,8 @@ enum CodeHighlight {
                 "super", "trait", "type", "unsafe", "use", "where", "while", "true", "false",
                 "Some", "None", "Ok", "Err",
             ],
-            lineComments: ["//"], blockComments: cLike)
+            lineComments: ["//"], blockComments: cLike
+        )
         m["python"] = Lang(
             keywords: [
                 "and", "as", "assert", "async", "await", "break", "class", "continue", "def",
@@ -50,7 +52,8 @@ enum CodeHighlight {
                 "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise",
                 "return", "try", "while", "with", "yield", "True", "False", "None", "self",
             ],
-            lineComments: ["#"], blockComments: [], decorators: true)
+            lineComments: ["#"], blockComments: [], decorators: true
+        )
         m["js"] = Lang(
             keywords: [
                 "async", "await", "break", "case", "catch", "class", "const", "continue",
@@ -59,14 +62,16 @@ enum CodeHighlight {
                 "return", "static", "super", "switch", "this", "throw", "try", "typeof", "var",
                 "void", "while", "with", "yield", "true", "false", "null", "undefined",
             ],
-            lineComments: ["//"], blockComments: cLike)
+            lineComments: ["//"], blockComments: cLike
+        )
         m["ts"] = Lang(
             keywords: m["js"]!.keywords.union([
                 "interface", "type", "enum", "implements", "namespace", "declare", "readonly",
                 "public", "private", "protected", "abstract", "as", "is", "keyof", "infer",
                 "never", "unknown", "any", "string", "number", "boolean", "object", "symbol",
             ]),
-            lineComments: ["//"], blockComments: cLike, decorators: true)
+            lineComments: ["//"], blockComments: cLike, decorators: true
+        )
         m["ocaml"] = Lang(
             keywords: [
                 "and", "as", "assert", "begin", "class", "constraint", "do", "done", "downto",
@@ -75,7 +80,8 @@ enum CodeHighlight {
                 "module", "mutable", "new", "object", "of", "open", "or", "rec", "sig", "struct",
                 "then", "to", "true", "try", "type", "val", "virtual", "when", "while", "with",
             ],
-            lineComments: [], blockComments: [("(*", "*)")])
+            lineComments: [], blockComments: [("(*", "*)")]
+        )
         m["lean"] = Lang(
             keywords: [
                 "def", "theorem", "lemma", "example", "axiom", "inductive", "structure", "class",
@@ -84,14 +90,16 @@ enum CodeHighlight {
                 "variable", "universe", "import", "if", "then", "else", "mutual", "partial",
                 "noncomputable", "abbrev", "deriving", "extends", "return",
             ],
-            lineComments: ["--"], blockComments: [("/-", "-/")])
+            lineComments: ["--"], blockComments: [("/-", "-/")]
+        )
         m["haskell"] = Lang(
             keywords: [
                 "case", "class", "data", "default", "deriving", "do", "else", "foreign", "if",
                 "import", "in", "infix", "infixl", "infixr", "instance", "let", "module",
                 "newtype", "of", "then", "type", "where", "qualified", "as", "hiding",
             ],
-            lineComments: ["--"], blockComments: [("{-", "-}")])
+            lineComments: ["--"], blockComments: [("{-", "-}")]
+        )
         m["java"] = Lang(
             keywords: [
                 "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
@@ -102,7 +110,8 @@ enum CodeHighlight {
                 "switch", "synchronized", "this", "throw", "throws", "transient", "try", "var",
                 "void", "volatile", "while", "true", "false", "null", "record", "sealed",
             ],
-            lineComments: ["//"], blockComments: cLike, decorators: true)
+            lineComments: ["//"], blockComments: cLike, decorators: true
+        )
         m["julia"] = Lang(
             keywords: [
                 "abstract", "baremodule", "begin", "break", "catch", "const", "continue", "do",
@@ -111,7 +120,8 @@ enum CodeHighlight {
                 "quote", "return", "struct", "try", "type", "using", "while", "true", "false",
                 "nothing", "missing",
             ],
-            lineComments: ["#"], blockComments: [("#=", "=#")], decorators: true)
+            lineComments: ["#"], blockComments: [("#=", "=#")], decorators: true
+        )
         // Aliases
         m["c++"] = m["cpp"]; m["cxx"] = m["cpp"]; m["cc"] = m["cpp"]; m["h"] = m["c"]
         m["rs"] = m["rust"]
@@ -130,7 +140,8 @@ enum CodeHighlight {
     /// comments dimmed oblique.
     static func highlight(_ code: String, lang: String, base: NSColor, font: NSFont) -> NSAttributedString {
         let out = NSMutableAttributedString(
-            string: code, attributes: [.font: font, .foregroundColor: base.withAlphaComponent(0.88)])
+            string: code, attributes: [.font: font, .foregroundColor: base.withAlphaComponent(0.88)]
+        )
         guard let l = langs[lang.lowercased()] else { return out }
         let ns = code as NSString
         let keywordColor = NSColor.systemPurple
@@ -145,8 +156,14 @@ enum CodeHighlight {
         while i < ns.length {
             let ch = ns.character(at: i)
             let c = Character(UnicodeScalar(ch) ?? " ")
-            if c == "\n" { bol = true; i += 1; continue }
-            defer { if !c.isWhitespace { bol = false } }
+            if c == "\n" {
+                bol = true; i += 1; continue
+            }
+            defer {
+                if !c.isWhitespace {
+                    bol = false
+                }
+            }
             // c/c++ preprocessor: '#include', '#define', … to end of line
             if l.preprocessor, bol, c == "#" {
                 let nl = ns.range(of: "\n", range: NSRange(location: i, length: ns.length - i))
@@ -162,7 +179,11 @@ enum CodeHighlight {
                 var j = i + 1
                 while j < ns.length {
                     let cj = Character(UnicodeScalar(ns.character(at: j)) ?? " ")
-                    if cj.isLetter || cj.isNumber || cj == "_" || cj == "." { j += 1 } else { break }
+                    if cj.isLetter || cj.isNumber || cj == "_" || cj == "." {
+                        j += 1
+                    } else {
+                        break
+                    }
                 }
                 out.addAttribute(.foregroundColor, value: callColor,
                                  range: NSRange(location: i, length: j - i))
@@ -194,8 +215,12 @@ enum CodeHighlight {
                 var j = i + 1
                 while j < ns.length {
                     let cj = ns.character(at: j)
-                    if cj == 0x5C { j += 2; continue } // backslash escape
-                    if cj == quote || cj == 0x0A { break }
+                    if cj == 0x5C {
+                        j += 2; continue
+                    } // backslash escape
+                    if cj == quote || cj == 0x0A {
+                        break
+                    }
                     j += 1
                 }
                 let stop = min(j + 1, ns.length)
@@ -211,7 +236,9 @@ enum CodeHighlight {
                     let cj = Character(UnicodeScalar(ns.character(at: j)) ?? " ")
                     if cj.isHexDigit || cj == "." || cj == "x" || cj == "_" || cj == "e" {
                         j += 1
-                    } else { break }
+                    } else {
+                        break
+                    }
                 }
                 out.addAttribute(.foregroundColor, value: numberColor,
                                  range: NSRange(location: i, length: j - i))
@@ -223,7 +250,11 @@ enum CodeHighlight {
                 var j = i + 1
                 while j < ns.length {
                     let cj = Character(UnicodeScalar(ns.character(at: j)) ?? " ")
-                    if cj.isLetter || cj.isNumber || cj == "_" { j += 1 } else { break }
+                    if cj.isLetter || cj.isNumber || cj == "_" {
+                        j += 1
+                    } else {
+                        break
+                    }
                 }
                 let word = ns.substring(with: NSRange(location: i, length: j - i))
                 let range = NSRange(location: i, length: j - i)
@@ -239,7 +270,9 @@ enum CodeHighlight {
                 } else {
                     // A call: identifier directly followed by '('
                     var k = j
-                    while k < ns.length, ns.character(at: k) == 0x20 { k += 1 }
+                    while k < ns.length, ns.character(at: k) == 0x20 {
+                        k += 1
+                    }
                     if k < ns.length, ns.character(at: k) == 0x28 {
                         out.addAttribute(.foregroundColor, value: callColor, range: range)
                     }

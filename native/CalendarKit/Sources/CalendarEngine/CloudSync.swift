@@ -85,7 +85,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         guard isEntitled else { return }
         let zoneID = CKRecordZone.ID(zoneName: calendarId, ownerName: CKCurrentUserDefaultName)
         let db = CKContainer(identifier: containerID).privateCloudDatabase
-        db.delete(withRecordZoneID: zoneID) { _, _ in }   // best-effort; server prunes the records
+        db.delete(withRecordZoneID: zoneID) { _, _ in } // best-effort; server prunes the records
     }
 
     /// True only when this binary is signed with the iCloud container entitlement.
@@ -211,7 +211,9 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     func nextRecordZoneChangeBatch(
         _ context: CKSyncEngine.SendChangesContext, syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
-        if readOnly { return nil } // hard block: a read-only client sends NOTHING
+        if readOnly {
+            return nil
+        } // hard block: a read-only client sends NOTHING
         let scope = context.options.scope
         let raw = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         // Dedupe per record id: the same record gets queued repeatedly (edit bursts, conflict

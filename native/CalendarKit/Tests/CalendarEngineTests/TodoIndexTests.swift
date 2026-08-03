@@ -92,11 +92,11 @@ final class TodoIndexTests: XCTestCase {
 
     // ── Soft-link write primitives ─────────────────────────────────────────────────────────────
 
-    func testToggleOnAppendsStampAndOffStripsIt() {
+    func testToggleOnAppendsStampAndOffStripsIt() throws {
         let note = "- [ ] write tests due:2026-08-01\n- [x] old done:2026-07-01"
         let on = TodoIndex.toggleTodoLine(note, line: 1, stamp: "2026-07-30T10:00")
         XCTAssertEqual(on, "- [x] write tests due:2026-08-01 done:2026-07-30T10:00\n- [x] old done:2026-07-01")
-        let off = TodoIndex.toggleTodoLine(on!, line: 1)
+        let off = try TodoIndex.toggleTodoLine(XCTUnwrap(on), line: 1)
         XCTAssertEqual(off, "- [ ] write tests due:2026-08-01\n- [x] old done:2026-07-01")
         // Unchecking line 2 strips its stale stamp too.
         XCTAssertEqual(TodoIndex.toggleTodoLine(note, line: 2), "- [ ] write tests due:2026-08-01\n- [ ] old")

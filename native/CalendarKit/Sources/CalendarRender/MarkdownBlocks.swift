@@ -9,23 +9,23 @@
 import CalendarEngine
 import SwiftUI
 #if canImport(AppKit)
-import AppKit
+    import AppKit
 
-/// Live ⌘-key state for the preview's edit-here capture layer. One shared flagsChanged
-/// monitor; @Observable so views re-render exactly when the modifier flips. macOS only —
-/// the phone build has no ⌘-click affordance.
-@MainActor @Observable public final class ModifierWatch {
-    public static let shared = ModifierWatch()
-    public private(set) var command = false
-    private var monitor: Any?
+    /// Live ⌘-key state for the preview's edit-here capture layer. One shared flagsChanged
+    /// monitor; @Observable so views re-render exactly when the modifier flips. macOS only —
+    /// the phone build has no ⌘-click affordance.
+    @MainActor @Observable public final class ModifierWatch {
+        public static let shared = ModifierWatch()
+        public private(set) var command = false
+        private var monitor: Any?
 
-    private init() {
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
-            self?.command = e.modifierFlags.contains(.command)
-            return e
+        private init() {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
+                self?.command = e.modifierFlags.contains(.command)
+                return e
+            }
         }
     }
-}
 #endif
 
 /// The house checkbox for todo rows everywhere native (dashboard lists, gantt labels, note
@@ -92,9 +92,9 @@ public struct MarkdownBlocksView: View {
 
     public var body: some View {
         #if canImport(AppKit)
-        let cmdDown = onLineEdit != nil && ModifierWatch.shared.command
+            let cmdDown = onLineEdit != nil && ModifierWatch.shared.command
         #else
-        let cmdDown = false
+            let cmdDown = false
         #endif
         let (managedRaw, userText) = ManagedNote.splitNote(text)
         VStack(alignment: .leading, spacing: 8) {
@@ -103,25 +103,25 @@ public struct MarkdownBlocksView: View {
             }
             ForEach(managedRaw.isEmpty ? blocks()
                 : blocks(of: userText, startLine: userStartLine(userText))) { b in
-                if let onLineEdit {
-                    // Edit-here capture: while ⌘ is HELD, a full-width transparent layer sits
-                    // over the whole row and takes the click — anywhere on the line, any block
-                    // kind (paragraphs, headers, todos, code). A tap gesture on the text alone
-                    // loses to text-selection handling and only covers the glyph width; the
-                    // conditional overlay wins the hit-test outright and vanishes when ⌘ lifts,
-                    // so plain clicks (selection, checkboxes, links) are untouched.
-                    blockView(b)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .overlay {
-                            if cmdDown {
-                                Rectangle().fill(Color.black.opacity(0.0001))
-                                    .onTapGesture { onLineEdit(b.id) }
+                    if let onLineEdit {
+                        // Edit-here capture: while ⌘ is HELD, a full-width transparent layer sits
+                        // over the whole row and takes the click — anywhere on the line, any block
+                        // kind (paragraphs, headers, todos, code). A tap gesture on the text alone
+                        // loses to text-selection handling and only covers the glyph width; the
+                        // conditional overlay wins the hit-test outright and vanishes when ⌘ lifts,
+                        // so plain clicks (selection, checkboxes, links) are untouched.
+                        blockView(b)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .overlay {
+                                if cmdDown {
+                                    Rectangle().fill(Color.black.opacity(0.0001))
+                                        .onTapGesture { onLineEdit(b.id) }
+                                }
                             }
-                        }
-                } else {
-                    blockView(b)
+                    } else {
+                        blockView(b)
+                    }
                 }
-            }
         }
         .textSelection(.enabled)
     }
@@ -144,13 +144,19 @@ public struct MarkdownBlocksView: View {
         let text: String
     }
 
-    private func blocks() -> [Block] { blocks(of: text, startLine: 1) }
+    private func blocks() -> [Block] {
+        blocks(of: text, startLine: 1)
+    }
 
     /// The 1-based line where the user postfix begins in the STORED note — keeps checkbox
     /// toggles and ⌘-click line ids true to the underlying string when a managed block leads.
     private func userStartLine(_ user: String) -> Int {
         guard !user.isEmpty, let r = text.range(of: user, options: .backwards) else { return 1 }
-        return text[..<r.lowerBound].reduce(into: 1) { if $1 == "\n" { $0 += 1 } }
+        return text[..<r.lowerBound].reduce(into: 1) {
+            if $1 == "\n" {
+                $0 += 1
+            }
+        }
     }
 
     /// An imported event's managed block: the web's read-only key/value table (provenance,
@@ -204,8 +210,12 @@ public struct MarkdownBlocksView: View {
                 }
                 continue
             }
-            if codeLines != nil { codeLines!.append(raw); continue }
-            if line.isEmpty { continue }
+            if codeLines != nil {
+                codeLines!.append(raw); continue
+            }
+            if line.isEmpty {
+                continue
+            }
             let indent = min(6, raw.prefix(while: { $0 == " " || $0 == "\t" })
                 .reduce(0) { $0 + ($1 == "\t" ? 4 : 1) } / 2)
             if let (done, rest) = todoLine(line) {

@@ -34,7 +34,7 @@ struct NativeNoteEditor: NSViewRepresentable {
     /// hand focus back (parity with noteEditor.ts's Mod-s / Escape keymap).
     var onSave: () -> Void = {}
     var onExit: () -> Void = {}
-    var session: NoteEditSession? = nil // host-side session-ender (mode-toggle stamping)
+    var session: NoteEditSession? // host-side session-ender (mode-toggle stamping)
     /// Live entity index for @project:/@person:/bare-@/#tag completions (the web's
     /// completionIndex). nil → entity completion off; DATE completion always works.
     var completionIndex: (() -> (projects: [String], people: [String], tags: [String]))?
@@ -43,7 +43,7 @@ struct NativeNoteEditor: NSViewRepresentable {
     var dueAnchor: (() -> (label: String, value: String)?)?
     /// ⌘-click line focus: when set, the editor selects this 1-based line, scrolls it visible
     /// and takes focus (once per value; the host clears it via onFocusLineHandled).
-    var focusLine: Int? = nil
+    var focusLine: Int?
     var onFocusLineHandled: () -> Void = {}
     /// Bump → take keyboard focus (the drawer's notes ring / ⌘E entry), caret left in place.
     var focusPulse: Int = 0
@@ -83,8 +83,8 @@ struct NativeNoteEditor: NSViewRepresentable {
             }
         }
 
-        // ── Active line: a slight full-width wash behind the caret's line (the ruler bolds
-        // its number to match). Selection changes trigger redraw via the coordinator.
+        /// ── Active line: a slight full-width wash behind the caret's line (the ruler bolds
+        /// its number to match). Selection changes trigger redraw via the coordinator.
         override func drawBackground(in rect: NSRect) {
             super.drawBackground(in: rect)
             guard let lm = layoutManager, let tc = textContainer else { return }
@@ -94,7 +94,9 @@ struct NativeNoteEditor: NSViewRepresentable {
             let sel = min(selectedRange().location, ns.length)
             if ns.length == 0 || (sel >= ns.length && ns.hasSuffix("\n")) {
                 frag = lm.extraLineFragmentRect
-                if frag.height <= 0 { return }
+                if frag.height <= 0 {
+                    return
+                }
             } else {
                 var line = ns.lineRange(for: NSRange(location: sel, length: 0))
                 // Exclude the trailing newline: its glyph maps into the NEXT fragment's
@@ -121,7 +123,7 @@ struct NativeNoteEditor: NSViewRepresentable {
             NativeNoteEditor.washPath(r, radius: 6, roundLeft: false, roundRight: true).fill()
         }
 
-        // ── Placeholder (CodeMirror's cmPlaceholder): grey hint while the note is empty ──
+        /// ── Placeholder (CodeMirror's cmPlaceholder): grey hint while the note is empty ──
         override func draw(_ dirtyRect: NSRect) {
             super.draw(dirtyRect)
             guard string.isEmpty, !placeholderText.isEmpty else { return }
@@ -134,7 +136,8 @@ struct NativeNoteEditor: NSViewRepresentable {
                 at: NSPoint(x: textContainerInset.width + 3,
                             y: textContainerInset.height
                                 + (NativeNoteEditor.lineHeight - size.height) / 2),
-                withAttributes: attrs)
+                withAttributes: attrs
+            )
         }
 
         override func didChangeText() {
@@ -142,13 +145,17 @@ struct NativeNoteEditor: NSViewRepresentable {
             needsDisplay = true // placeholder appears/disappears with emptiness
         }
 
-        // ── ⌥↑ / ⌥↓ line rearrangement (defaultKeymap's moveLineUp/Down) ──
+        /// ── ⌥↑ / ⌥↓ line rearrangement (defaultKeymap's moveLineUp/Down) ──
         override func keyDown(with event: NSEvent) {
             // Arrow keys carry hidden .function/.numericPad flags — intersect with just the
             // four real modifiers or "⌥ alone" never matches (⌥↑/⌥↓ silently did nothing).
             let mods = event.modifierFlags.intersection([.option, .command, .shift, .control])
-            if mods == .option, event.keyCode == 126 { moveLines(up: true); return }
-            if mods == .option, event.keyCode == 125 { moveLines(up: false); return }
+            if mods == .option, event.keyCode == 126 {
+                moveLines(up: true); return
+            }
+            if mods == .option, event.keyCode == 125 {
+                moveLines(up: false); return
+            }
             super.keyDown(with: event)
         }
 
@@ -201,7 +208,7 @@ struct NativeNoteEditor: NSViewRepresentable {
         var completionVisible: (() -> Bool)?
         var completionCancel: (() -> Void)?
 
-        // ── ⌘-click a markdown/bare link opens it (the web's openLinks handler) ──
+        /// ── ⌘-click a markdown/bare link opens it (the web's openLinks handler) ──
         override func mouseDown(with event: NSEvent) {
             if event.modifierFlags.contains(.command) {
                 let pt = convert(event.locationInWindow, from: nil)
@@ -308,15 +315,24 @@ struct NativeNoteEditor: NSViewRepresentable {
             let full = m.range
             let partialLoc = line.location + full.location + sigilLen
             let partial = (prefix as NSString).substring(
-                from: full.location + sigilLen)
+                from: full.location + sigilLen
+            )
             return Trigger(kind: kind(partial),
                            partialRange: NSRange(location: partialLoc, length: caret - partialLoc),
                            partial: partial)
         }
-        if let t = match(#"@project:[\w-]*$"#, { _ in .project }, sigilLen: 9) { return t }
-        if let t = match(#"@person:[\w-]*$"#, { _ in .person }, sigilLen: 8) { return t }
-        if let t = match(#"@[\w-]*$"#, { _ in .bareAt }, sigilLen: 1) { return t }
-        if let t = match(#"#[\w-]*$"#, { _ in .tag }, sigilLen: 1) { return t }
+        if let t = match(#"@project:[\w-]*$"#, { _ in .project }, sigilLen: 9) {
+            return t
+        }
+        if let t = match(#"@person:[\w-]*$"#, { _ in .person }, sigilLen: 8) {
+            return t
+        }
+        if let t = match(#"@[\w-]*$"#, { _ in .bareAt }, sigilLen: 1) {
+            return t
+        }
+        if let t = match(#"#[\w-]*$"#, { _ in .tag }, sigilLen: 1) {
+            return t
+        }
         if let re = try? NSRegularExpression(pattern: #"(due|start|created|done|followup):[\w/-]*$"#),
            let m = re.firstMatch(in: prefix,
                                  range: NSRange(location: 0, length: (prefix as NSString).length)) {
@@ -368,7 +384,9 @@ struct NativeNoteEditor: NSViewRepresentable {
             return wantTime ? day + String(format: "T%02d:%02d", c.hour!, c.minute!) : day
         }
         var opts: [String] = []
-        func push(_ label: String, _ d: Date) { opts.append("\(label) → \(iso(d))") }
+        func push(_ label: String, _ d: Date) {
+            opts.append("\(label) → \(iso(d))")
+        }
         let p = partial.lowercased()
         if let d = parseLooseDate(p, now: now, future: future), !p.isEmpty {
             push(partial, d) // the typed freeform, concretized, on top
@@ -416,7 +434,7 @@ struct NativeNoteEditor: NSViewRepresentable {
             let year = cal.component(.year, from: now)
             var c = DateComponents(year: year, month: month, day: day)
             guard var d = cal.date(from: c) else { return nil }
-            if future, d.timeIntervalSince(now) < -86_400 {
+            if future, d.timeIntervalSince(now) < -86400 {
                 c.year = year + 1
                 d = cal.date(from: c) ?? d
             }
@@ -440,7 +458,8 @@ struct NativeNoteEditor: NSViewRepresentable {
         let lineText = ns.substring(with: line)
         let rel = index - line.location
         let re = try? NSRegularExpression(
-            pattern: #"\[[^\]]*\]\(([^)\s]+)\)|(?:https?://|www\.)[^\s)]+"#)
+            pattern: #"\[[^\]]*\]\(([^)\s]+)\)|(?:https?://|www\.)[^\s)]+"#
+        )
         guard let re else { return nil }
         let lineNS = lineText as NSString
         for m in re.matches(in: lineText, range: NSRange(location: 0, length: lineNS.length)) {
@@ -448,7 +467,9 @@ struct NativeNoteEditor: NSViewRepresentable {
             var raw = m.range(at: 1).location != NSNotFound
                 ? lineNS.substring(with: m.range(at: 1))
                 : lineNS.substring(with: m.range)
-            if !raw.contains("://") { raw = "https://" + raw }
+            if !raw.contains("://") {
+                raw = "https://" + raw
+            }
             return URL(string: raw)
         }
         return nil
@@ -469,23 +490,31 @@ struct NativeNoteEditor: NSViewRepresentable {
             ruleThickness = 34
             NotificationCenter.default.addObserver(
                 self, selector: #selector(invalidate),
-                name: NSText.didChangeNotification, object: textView)
+                name: NSText.didChangeNotification, object: textView
+            )
             NotificationCenter.default.addObserver(
                 self, selector: #selector(invalidate),
-                name: NSTextView.didChangeSelectionNotification, object: textView)
+                name: NSTextView.didChangeSelectionNotification, object: textView
+            )
         }
 
-        @available(*, unavailable) required init(coder: NSCoder) { fatalError() }
+        @available(*, unavailable) required init(coder: NSCoder) {
+            fatalError()
+        }
 
-        @objc private func invalidate() { needsDisplay = true }
+        @objc private func invalidate() {
+            needsDisplay = true
+        }
 
-        // No super.draw: NSRulerView's default chrome paints a full-height background +
-        // separator; we own the drawing entirely.
+        /// No super.draw: NSRulerView's default chrome paints a full-height background +
+        /// separator; we own the drawing entirely.
         override func draw(_ dirtyRect: NSRect) {
             drawHashMarksAndLabels(in: dirtyRect)
         }
 
-        override var isFlipped: Bool { true }
+        override var isFlipped: Bool {
+            true
+        }
 
         override func drawHashMarksAndLabels(in rect: NSRect) {
             guard let tv, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
@@ -502,13 +531,23 @@ struct NativeNoteEditor: NSViewRepresentable {
             let selEnd = min(NSMaxRange(sel), ns.length)
             var firstLine = 1
             if ns.length > 0 {
-                ns.substring(to: selStart).unicodeScalars.forEach { if $0 == "\n" { firstLine += 1 } }
+                for unicodeScalar in ns.substring(to: selStart).unicodeScalars {
+                    if unicodeScalar == "\n" {
+                        firstLine += 1
+                    }
+                }
             }
             var lastLine = firstLine
             if selEnd > selStart {
                 ns.substring(with: NSRange(location: selStart, length: selEnd - selStart))
-                    .unicodeScalars.forEach { if $0 == "\n" { lastLine += 1 } }
-                if selEnd > 0, ns.character(at: selEnd - 1) == 0x0A { lastLine -= 1 }
+                    .unicodeScalars.forEach {
+                        if $0 == "\n" {
+                            lastLine += 1
+                        }
+                    }
+                if selEnd > 0, ns.character(at: selEnd - 1) == 0x0A {
+                    lastLine -= 1
+                }
             }
 
             // A fragment's y in RULER coordinates, via convert() — NO assumptions about how
@@ -519,7 +558,7 @@ struct NativeNoteEditor: NSViewRepresentable {
                 convert(NSPoint(x: 0, y: fragRect.minY + inset), from: tv).y
             }
 
-            // The caret line's wash continues INTO the gutter (one band across ruler + text).
+            /// The caret line's wash continues INTO the gutter (one band across ruler + text).
             func washIfCurrent(_ n: Int, top: CGFloat, height: CGFloat) {
                 guard n == firstLine, sel.length == 0 else { return } // matches the text view's wash
                 base.withAlphaComponent(0.05).setFill()
@@ -552,9 +591,14 @@ struct NativeNoteEditor: NSViewRepresentable {
             if ns.length > 0, glyphs.length > 0 {
                 let charRange = lm.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
                 var charIdx = ns.lineRange(
-                    for: NSRange(location: min(charRange.location, ns.length - 1), length: 0)).location
+                    for: NSRange(location: min(charRange.location, ns.length - 1), length: 0)
+                ).location
                 var lineNo = 1
-                ns.substring(to: charIdx).unicodeScalars.forEach { if $0 == "\n" { lineNo += 1 } }
+                for unicodeScalar in ns.substring(to: charIdx).unicodeScalars {
+                    if unicodeScalar == "\n" {
+                        lineNo += 1
+                    }
+                }
                 let stop = min(ns.length, NSMaxRange(charRange))
                 while charIdx < stop {
                     let lineRange = ns.lineRange(for: NSRange(location: charIdx, length: 0))
@@ -576,7 +620,9 @@ struct NativeNoteEditor: NSViewRepresentable {
                             lm.enumerateLineFragments(forGlyphRange: g) { f, _, _, _, _ in
                                 u = u.union(f)
                             }
-                            if !u.isNull { union = u }
+                            if !u.isNull {
+                                union = u
+                            }
                         }
                         washIfCurrent(lineNo, top: rulerY(union), height: union.height)
                     }
@@ -667,9 +713,12 @@ struct NativeNoteEditor: NSViewRepresentable {
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
-            queue: .main) { [weak co = context.coordinator] _ in
+            queue: .main
+        ) { [weak co = context.coordinator] _ in
             MainActor.assumeIsolated {
-                if co?.popup.active == true { co?.refreshCompletions() }
+                if co?.popup.active == true {
+                    co?.refreshCompletions()
+                }
             }
         }
         return scroll
@@ -704,7 +753,9 @@ struct NativeNoteEditor: NSViewRepresentable {
         if focusPulse != co.lastFocusPulse {
             co.lastFocusPulse = focusPulse
             DispatchQueue.main.async { [weak tv] in
-                if let tv { tv.window?.makeFirstResponder(tv) }
+                if let tv {
+                    tv.window?.makeFirstResponder(tv)
+                }
             }
         }
         // ⌘-click "edit here": select the requested line, reveal it, take focus. Off the
@@ -720,8 +771,12 @@ struct NativeNoteEditor: NSViewRepresentable {
                 while true {
                     let lineEnd = ns.range(of: "\n", range: NSRange(location: loc, length: ns.length - loc))
                     let end = lineEnd.location == NSNotFound ? ns.length : lineEnd.location
-                    if n == line { range = NSRange(location: loc, length: end - loc); break }
-                    if lineEnd.location == NSNotFound { range = NSRange(location: end, length: 0); break }
+                    if n == line {
+                        range = NSRange(location: loc, length: end - loc); break
+                    }
+                    if lineEnd.location == NSNotFound {
+                        range = NSRange(location: end, length: 0); break
+                    }
                     loc = lineEnd.location + 1
                     n += 1
                 }
@@ -779,17 +834,21 @@ struct NativeNoteEditor: NSViewRepresentable {
         }
 
         private static let markerRe = try! NSRegularExpression(
-            pattern: #"^(\s*)(?:([-*+])\s+\[[ xX]\]\s*|([-*+])\s+|(\d+)([.)])\s+|(>)\s*)(.*)$"#)
+            pattern: #"^(\s*)(?:([-*+])\s+\[[ xX]\]\s*|([-*+])\s+|(\d+)([.)])\s+|(>)\s*)(.*)$"#
+        )
 
         private func continueMarkup(_ tv: NSTextView) -> Bool {
             let ns = tv.string as NSString
             let sel = tv.selectedRange()
             let line = ns.lineRange(for: NSRange(location: sel.location, length: 0))
             var lineText = ns.substring(with: line)
-            if lineText.hasSuffix("\n") { lineText.removeLast() }
+            if lineText.hasSuffix("\n") {
+                lineText.removeLast()
+            }
             let lineNS = lineText as NSString
             guard let m = Self.markerRe.firstMatch(
-                in: lineText, range: NSRange(location: 0, length: lineNS.length))
+                in: lineText, range: NSRange(location: 0, length: lineNS.length)
+            )
             else { return false } // plain line → default newline
             let rest = lineNS.substring(with: m.range(at: 7))
             let indent = lineNS.substring(with: m.range(at: 1))
@@ -833,18 +892,24 @@ struct NativeNoteEditor: NSViewRepresentable {
             let text = ns.substring(with: block)
             var lines = text.components(separatedBy: "\n")
             let trailing = lines.last == "" // block ends with \n → empty tail element
-            if trailing { lines.removeLast() }
+            if trailing {
+                lines.removeLast()
+            }
             var firstDelta = 0
             var total = 0
             for i in lines.indices {
                 if out {
                     let drop = min(2, lines[i].prefix(2).prefix(while: { $0 == " " }).count)
                     lines[i] = String(lines[i].dropFirst(drop))
-                    if i == 0 { firstDelta = -drop }
+                    if i == 0 {
+                        firstDelta = -drop
+                    }
                     total -= drop
                 } else {
                     lines[i] = "  " + lines[i]
-                    if i == 0 { firstDelta = 2 }
+                    if i == 0 {
+                        firstDelta = 2
+                    }
                     total += 2
                 }
             }
@@ -883,11 +948,13 @@ struct NativeNoteEditor: NSViewRepresentable {
                   let t = NativeNoteEditor.completionTrigger(in: tv)
             else { popup.close(); return }
             let options = NativeNoteEditor.completionOptions(
-                for: t, index: parent.completionIndex?(), dueAnchor: parent.dueAnchor?() ?? nil)
+                for: t, index: parent.completionIndex?(), dueAnchor: parent.dueAnchor?() ?? nil
+            )
             guard !options.isEmpty else { popup.close(); return }
             let anchor = tv.firstRect(
                 forCharacterRange: NSRange(location: t.partialRange.location, length: 0),
-                actualRange: nil)
+                actualRange: nil
+            )
             popup.onPick = { [weak self] row in self?.acceptCompletion(row) }
             popup.update(items: options, accent: NSColor(Theme.accent), anchor: anchor, host: win)
         }
@@ -910,7 +977,9 @@ struct NativeNoteEditor: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             textView?.needsDisplay = true // active-line wash follows the caret
-            if popup.active { refreshCompletions() } // caret out of the trigger → closes
+            if popup.active {
+                refreshCompletions()
+            } // caret out of the trigger → closes
         }
 
         func textDidEndEditing(_ notification: Notification) {
@@ -936,7 +1005,9 @@ struct NativeNoteEditor: NSViewRepresentable {
             var rows = body.components(separatedBy: "\n")
             for n in lines where n >= 1 && n <= rows.count { // 1-based line numbers
                 var line = rows[n - 1]
-                while line.hasSuffix(" ") || line.hasSuffix("\t") { line.removeLast() }
+                while line.hasSuffix(" ") || line.hasSuffix("\t") {
+                    line.removeLast()
+                }
                 rows[n - 1] = line + stamp
             }
             let next = rows.joined(separator: "\n")
@@ -959,7 +1030,8 @@ struct NativeNoteEditor: NSViewRepresentable {
         private static let taskRe = Re2(#"^\s*(?:[-*+]|\d+[.)])\s+\[([ xX])\]"#)
         private static let doneLineRe = Re2(#"^\s*(?:[-*+]|\d+[.)])\s+\[[xX]\].*$"#)
         private static let tokenRe = Re2(
-            #"(^|\s)(due:\S+|start:\S+|tz:\S+|color:\S+|done:\S+|created:\S+|followup:\S+|p:!{1,5}|#[A-Za-z0-9_][\w-]*|@[A-Za-z0-9_][\w:-]*|project:[A-Za-z0-9_-]+)(?=\s|$)"#)
+            #"(^|\s)(due:\S+|start:\S+|tz:\S+|color:\S+|done:\S+|created:\S+|followup:\S+|p:!{1,5}|#[A-Za-z0-9_][\w-]*|@[A-Za-z0-9_][\w:-]*|project:[A-Za-z0-9_-]+)(?=\s|$)"#
+        )
         private static let linkRe = Re2(#"\[[^\]]*\]\([^)\s]+\)"#)
         private static let boldRe = Re2(#"\*\*[^*\n]+\*\*|__[^_\n]+__"#)
         private static let emRe = Re2(#"(?<![*_\w])(\*|_)(?![*_\s])[^*_\n]+\1(?![*_\w])"#)
@@ -1051,9 +1123,14 @@ struct NativeNoteEditor: NSViewRepresentable {
         set { list.onPick = newValue }
     }
 
-    var active: Bool { panel != nil }
+    var active: Bool {
+        panel != nil
+    }
+
     var items: [String] = []
-    var selected: Int { list.selected }
+    var selected: Int {
+        list.selected
+    }
 
     func update(items newItems: [String], accent: NSColor, anchor: NSRect, host hostWin: NSWindow) {
         let changed = newItems != items
@@ -1063,7 +1140,9 @@ struct NativeNoteEditor: NSViewRepresentable {
                 (String(item[..<$0.lowerBound]), String(item[$0.upperBound...]))
             } ?? (item, nil)
         }
-        if changed { list.selected = 0; list.offset = 0 }
+        if changed {
+            list.selected = 0; list.offset = 0
+        }
         list.accent = accent
         let size = list.idealSize()
         let p = panel ?? Self.makePanel(content: list)
@@ -1099,7 +1178,9 @@ struct NativeNoteEditor: NSViewRepresentable {
     func move(_ delta: Int) {
         guard !items.isEmpty else { return }
         list.selected = max(0, min(items.count - 1, list.selected + delta))
-        if list.selected < list.offset { list.offset = list.selected }
+        if list.selected < list.offset {
+            list.offset = list.selected
+        }
         if list.selected >= list.offset + ListView.maxVisible {
             list.offset = list.selected - ListView.maxVisible + 1
         }
@@ -1141,7 +1222,9 @@ struct NativeNoteEditor: NSViewRepresentable {
         var accent: NSColor = .systemRed
         var onPick: ((Int) -> Void)?
 
-        override var isFlipped: Bool { true }
+        override var isFlipped: Bool {
+            true
+        }
 
         private static let labelFont = NativeNoteEditor.monoFont() // Menlo, the editor face
         private static let detailFont = NSFont(name: "Menlo", size: 10.5)
@@ -1178,7 +1261,8 @@ struct NativeNoteEditor: NSViewRepresentable {
                 let ls = (r.label as NSString).size(withAttributes: labelAttrs)
                 (r.label as NSString).draw(
                     at: NSPoint(x: 10, y: y + (Self.rowH - ls.height) / 2),
-                    withAttributes: labelAttrs)
+                    withAttributes: labelAttrs
+                )
                 if let d = r.detail {
                     let detailAttrs: [NSAttributedString.Key: Any] = [
                         .font: Self.detailFont,
@@ -1187,7 +1271,8 @@ struct NativeNoteEditor: NSViewRepresentable {
                     let ds = ("→ " + d as NSString).size(withAttributes: detailAttrs)
                     ("→ " + d as NSString).draw(
                         at: NSPoint(x: 10 + ls.width + 10, y: y + (Self.rowH - ds.height) / 2),
-                        withAttributes: detailAttrs)
+                        withAttributes: detailAttrs
+                    )
                 }
             }
         }

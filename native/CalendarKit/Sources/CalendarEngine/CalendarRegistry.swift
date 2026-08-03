@@ -27,18 +27,21 @@ struct CalendarRegistry {
         bootstrap()
     }
 
-    // ── calendars.json ────────────────────────────────────────────────────────────────────────────
+    /// ── calendars.json ────────────────────────────────────────────────────────────────────────────
     private func load() -> [CalendarMeta] {
         guard let data = try? Data(contentsOf: registryURL),
               let list = try? JSONDecoder().decode([CalendarMeta].self, from: data) else { return [] }
         return list.sorted { $0.order < $1.order }
     }
+
     private func save(_ list: [CalendarMeta]) {
         try? FileManager.default.createDirectory(at: calendarKitBaseDir(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(list) { try? data.write(to: registryURL, options: .atomic) }
+        if let data = try? JSONEncoder().encode(list) {
+            try? data.write(to: registryURL, options: .atomic)
+        }
     }
 
-    // ── Bootstrap / one-time migration ──────────────────────────────────────────────────────────────
+    /// ── Bootstrap / one-time migration ──────────────────────────────────────────────────────────────
     /// Guarantee at least one calendar ("Main") and a valid active id. Idempotent.
     private func bootstrap() {
         var list = load()
@@ -86,17 +89,33 @@ struct CalendarRegistry {
         }
     }
 
-    private func newId() -> String { "cal-" + UUID().uuidString.prefix(8).lowercased() }
+    private func newId() -> String {
+        "cal-" + UUID().uuidString.prefix(8).lowercased()
+    }
 
-    // ── Queries ─────────────────────────────────────────────────────────────────────────────────────
-    var all: [CalendarMeta] { load() }
-    func meta(_ id: String) -> CalendarMeta? { load().first { $0.id == id } }
-    private var rawActiveId: String? { defaults.string(forKey: PrefKeys.calActiveId) }
+    /// ── Queries ─────────────────────────────────────────────────────────────────────────────────────
+    var all: [CalendarMeta] {
+        load()
+    }
+
+    func meta(_ id: String) -> CalendarMeta? {
+        load().first { $0.id == id }
+    }
+
+    private var rawActiveId: String? {
+        defaults.string(forKey: PrefKeys.calActiveId)
+    }
+
     /// The active calendar id (always valid after bootstrap).
-    var activeId: String { rawActiveId ?? load().first?.id ?? "" }
-    func setActive(_ id: String) { defaults.set(id, forKey: PrefKeys.calActiveId); touchRecent(id) }
+    var activeId: String {
+        rawActiveId ?? load().first?.id ?? ""
+    }
 
-    // ── Mutations ─────────────────────────────────────────────────────────────────────────────────
+    func setActive(_ id: String) {
+        defaults.set(id, forKey: PrefKeys.calActiveId); touchRecent(id)
+    }
+
+    /// ── Mutations ─────────────────────────────────────────────────────────────────────────────────
     func create(name: String) -> CalendarMeta {
         var list = load()
         let order = (list.map(\.order).max() ?? -1) + 1
@@ -104,17 +123,26 @@ struct CalendarRegistry {
         list.append(m); save(list)
         return m
     }
+
     func rename(_ id: String, to name: String) {
         var list = load()
-        if let i = list.firstIndex(where: { $0.id == id }) { list[i].name = name; save(list) }
+        if let i = list.firstIndex(where: { $0.id == id }) {
+            list[i].name = name; save(list)
+        }
     }
+
     /// Insert-or-update a calendar entry from a remote (synced) source — last-writer-wins on name/order.
     /// Does NOT touch on-disk data (that syncs via the calendar's own zone when opened).
     func upsertRemote(_ meta: CalendarMeta) {
         var list = load()
-        if let i = list.firstIndex(where: { $0.id == meta.id }) { list[i] = meta } else { list.append(meta) }
+        if let i = list.firstIndex(where: { $0.id == meta.id }) {
+            list[i] = meta
+        } else {
+            list.append(meta)
+        }
         save(list)
     }
+
     /// Remove a calendar from the registry AND delete its on-disk data. Caller must have switched away
     /// first (never remove the active calendar's dir out from under a live engine).
     func remove(_ id: String) {
@@ -123,12 +151,19 @@ struct CalendarRegistry {
         setRecents(recentIds.filter { $0 != id })
     }
 
-    // ── Recently opened (per device) ────────────────────────────────────────────────────────────────
-    private var recentIds: [String] { defaults.stringArray(forKey: PrefKeys.calRecents) ?? [] }
-    private func setRecents(_ ids: [String]) { defaults.set(ids, forKey: PrefKeys.calRecents) }
+    /// ── Recently opened (per device) ────────────────────────────────────────────────────────────────
+    private var recentIds: [String] {
+        defaults.stringArray(forKey: PrefKeys.calRecents) ?? []
+    }
+
+    private func setRecents(_ ids: [String]) {
+        defaults.set(ids, forKey: PrefKeys.calRecents)
+    }
+
     func touchRecent(_ id: String) {
         setRecents(Array(([id] + recentIds.filter { $0 != id }).prefix(12)))
     }
+
     /// Recently-opened calendars OTHER than `active`, most-recent-first, existing only.
     func recents(excluding active: String, limit: Int = 10) -> [CalendarMeta] {
         let byId = Dictionary(load().map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })

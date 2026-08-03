@@ -78,21 +78,23 @@ struct NativeProjPanel: View {
     private func frozenOrder(_ projects: [Project], today: String) -> [(key: String, ranked: [String])] {
         let basis = "\(scope)|\(key)"
         let stamp = engine.todoDataStamp
-        if let f = frozen, f.basis == basis, f.stamp == stamp { return f.order }
-        return NativeDash.diagTime("projFrozenOrder(\(scope)|\(key))") {
-        // Scores are computed ONCE per task, then sorted — a score inside the comparator ran
-        // O(n log n) times and made this the single hottest block on tab open (~90ms release,
-        // several× that in debug, on a 500-task year).
-        let order = projects.map { p in
-            (key: p.key,
-             ranked: p.tasks
-                 .map { (score: ProjIndex.taskScore($0, today: today), anchor: NativeDashPanel.anchor($0.todo)) }
-                 .sorted { $0.score > $1.score }
-                 .map(\.anchor))
+        if let f = frozen, f.basis == basis, f.stamp == stamp {
+            return f.order
         }
-        let f = Frozen(basis: basis, stamp: stamp, order: order)
-        DispatchQueue.main.async { frozen = f }
-        return order
+        return NativeDash.diagTime("projFrozenOrder(\(scope)|\(key))") {
+            // Scores are computed ONCE per task, then sorted — a score inside the comparator ran
+            // O(n log n) times and made this the single hottest block on tab open (~90ms release,
+            // several× that in debug, on a 500-task year).
+            let order = projects.map { p in
+                (key: p.key,
+                 ranked: p.tasks
+                     .map { (score: ProjIndex.taskScore($0, today: today), anchor: NativeDashPanel.anchor($0.todo)) }
+                     .sorted { $0.score > $1.score }
+                     .map(\.anchor))
+            }
+            let f = Frozen(basis: basis, stamp: stamp, order: order)
+            DispatchQueue.main.async { frozen = f }
+            return order
         }
     }
 
@@ -134,8 +136,12 @@ struct NativeProjPanel: View {
                       },
                       onOpen: { id in onOpen(id) },
                       onOpenTodo: { t in
-                          if t.source == "event" { onOpen(t.eventId) } // event drawer
-                          else if let key = t.dailyDate { onJump(key, t.line) } // fly to the note
+                          if t.source == "event" {
+                              onOpen(t.eventId)
+                          } // event drawer
+                          else if let key = t.dailyDate {
+                              onJump(key, t.line)
+                          } // fly to the note
                       })
         }
     }
@@ -157,7 +163,10 @@ private struct ProjChart: View {
 
     @State private var frontLabel: String? // hovered deadline/event label: raised above the rest
 
-    private var headroom: CGFloat { project.deadlines.isEmpty && project.events.isEmpty ? 18 : 36 }
+    private var headroom: CGFloat {
+        project.deadlines.isEmpty && project.events.isEmpty ? 18 : 36
+    }
+
     private var chartHeight: CGFloat {
         headroom + CGFloat(tasks.count) * NativeProjPanel.rowH + 36 // + the two axis rows
     }
@@ -227,21 +236,20 @@ private struct ProjChart: View {
                 .frame(width: 1.5, height: marksH)
                 .offset(x: l, y: rowTop)
         } else {
-        // .cc-proj-viewband: neutral GREY (the accent red is reserved for the now line) —
-        // grey wash + solid accent-grey edges, spanning the track rows only.
-        Rectangle().fill(Color.gray.opacity(0.14))
-            .frame(width: max(1, r - l), height: marksH)
-            .offset(x: l, y: rowTop)
-        Rectangle().fill(theme.accentGrey).frame(width: 1.5, height: marksH).offset(x: l, y: rowTop)
-        Rectangle().fill(theme.accentGrey).frame(width: 1.5, height: marksH).offset(x: r - 1.5, y: rowTop)
-        Text(scope == "week" ? "This Week" : "This Month")
-            .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(theme.accentGrey)
-            .position(x: (l + r) / 2, y: headroom - 9)
+            // .cc-proj-viewband: neutral GREY (the accent red is reserved for the now line) —
+            // grey wash + solid accent-grey edges, spanning the track rows only.
+            Rectangle().fill(Color.gray.opacity(0.14))
+                .frame(width: max(1, r - l), height: marksH)
+                .offset(x: l, y: rowTop)
+            Rectangle().fill(theme.accentGrey).frame(width: 1.5, height: marksH).offset(x: l, y: rowTop)
+            Rectangle().fill(theme.accentGrey).frame(width: 1.5, height: marksH).offset(x: r - 1.5, y: rowTop)
+            Text(scope == "week" ? "This Week" : "This Month")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(theme.accentGrey)
+                .position(x: (l + r) / 2, y: headroom - 9)
         }
     }
 
-    @ViewBuilder
     private func deadlineRules(_ s: ChartScale, w: CGFloat, rowTop: CGFloat, marksH: CGFloat) -> some View {
         ForEach(project.deadlines, id: \.id) { d in
             let iso = String(format: "%04d-%02d-%02d", d.year, d.month + 1, d.day)
@@ -344,7 +352,6 @@ private struct ProjChart: View {
             .offset(x: l)
     }
 
-    @ViewBuilder
     private func eventBoxes(_ s: ChartScale, w: CGFloat, rowsH: CGFloat) -> some View {
         ForEach(project.events.indices, id: \.self) { i in
             let ev = project.events[i]
@@ -424,20 +431,28 @@ private struct ProjChart: View {
             var iso = TodoIndex.addDuration(s.lo, (7 - dow) % 7, "d")
             while iso <= s.hi, out.count < 16 {
                 let q = iso.split(separator: "-").compactMap { Int($0) }
-                if q.count == 3 { out.append((iso, "\(mo[q[1] - 1]) \(q[2])")) }
+                if q.count == 3 {
+                    out.append((iso, "\(mo[q[1] - 1]) \(q[2])"))
+                }
                 iso = TodoIndex.addDuration(iso, 7, "d")
             }
         } else { // month firsts, year-stamped at January
             var p = s.lo.split(separator: "-").compactMap { Int($0) }
             guard p.count >= 2 else { return out }
             p[1] += 1
-            if p[1] > 12 { p[1] = 1; p[0] += 1 }
+            if p[1] > 12 {
+                p[1] = 1; p[0] += 1
+            }
             while out.count < 16 {
                 let iso = String(format: "%04d-%02d-01", p[0], p[1])
-                if iso > s.hi { break }
+                if iso > s.hi {
+                    break
+                }
                 out.append((iso, "\(mo[p[1] - 1])\(p[1] == 1 ? " ’\(String(format: "%02d", p[0] % 100))" : "")"))
                 p[1] += 1
-                if p[1] > 12 { p[1] = 1; p[0] += 1 }
+                if p[1] > 12 {
+                    p[1] = 1; p[0] += 1
+                }
             }
         }
         return out
@@ -495,7 +510,9 @@ private extension ProjTask {
     /// Stable row identity across expand/collapse re-sorts — the TODO panel's anchor
     /// (source scope key + line number). Index identity made SwiftUI read a mid-list
     /// insertion as "every row after it changed content, new rows appended at the end".
-    var rowId: String { NativeDashPanel.anchor(todo) }
+    var rowId: String {
+        NativeDashPanel.anchor(todo)
+    }
 }
 
 /// Expand/collapse row reveal — the web's unmasking clip: the row's SLOT animates
@@ -557,23 +574,43 @@ private struct ChartScale {
     init(project: Project, tasks: [ProjTask], today: String, rs: String, re: String) {
         var rlo = today, rhi = today
         for t in tasks {
-            if t.start < rlo { rlo = t.start }
-            if t.start > rhi { rhi = t.start }
+            if t.start < rlo {
+                rlo = t.start
+            }
+            if t.start > rhi {
+                rhi = t.start
+            }
             let e = t.end ?? today
-            if e > rhi { rhi = e }
-            if let due = t.due, due > rhi { rhi = due }
+            if e > rhi {
+                rhi = e
+            }
+            if let due = t.due, due > rhi {
+                rhi = due
+            }
         }
         for d in project.deadlines {
             let iso = String(format: "%04d-%02d-%02d", d.year, d.month + 1, d.day)
-            if iso < rlo { rlo = iso }
-            if iso > rhi { rhi = iso }
+            if iso < rlo {
+                rlo = iso
+            }
+            if iso > rhi {
+                rhi = iso
+            }
         }
         for ev in project.events {
-            if ev.start < rlo { rlo = ev.start }
-            if ev.end > rhi { rhi = ev.end }
+            if ev.start < rlo {
+                rlo = ev.start
+            }
+            if ev.end > rhi {
+                rhi = ev.end
+            }
         }
-        if rs < rlo { rlo = rs }
-        if re > rhi { rhi = re }
+        if rs < rlo {
+            rlo = rs
+        }
+        if re > rhi {
+            rhi = re
+        }
         lo = TodoIndex.addDuration(rlo, -1, "d")
         hi = TodoIndex.addDuration(rhi, 3, "d")
         span = max(1, ProjIndex.daysBetween(lo, hi))

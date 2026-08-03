@@ -168,13 +168,12 @@ public enum NotifyPlanner {
                              todoItemId: String? = nil) {
         let moment = hour.flatMap { instant(day, $0, tz) } // nil for day-granular items (bands, date-only todos)
         for off in ctx.prefs.offsets[kind] ?? [] {
-            var fire: Date?
-            switch off {
-            case .atTime: fire = moment ?? morning(day, 0, ctx)
-            case .m15: fire = (moment ?? morning(day, 0, ctx))?.addingTimeInterval(-15 * 60)
-            case .h1: fire = (moment ?? morning(day, 0, ctx))?.addingTimeInterval(-3600)
-            case .dayOf: fire = morning(day, 0, ctx)
-            case .dayBefore: fire = morning(day, -1, ctx)
+            var fire: Date? = switch off {
+            case .atTime: moment ?? morning(day, 0, ctx)
+            case .m15: (moment ?? morning(day, 0, ctx))?.addingTimeInterval(-15 * 60)
+            case .h1: (moment ?? morning(day, 0, ctx))?.addingTimeInterval(-3600)
+            case .dayOf: morning(day, 0, ctx)
+            case .dayBefore: morning(day, -1, ctx)
             }
             guard let fire, fire > ctx.now, fire <= ctx.windowEnd else { continue }
             // The title rides in the id (hashed): a rename must mint a new id, or the reconcile
@@ -207,7 +206,7 @@ public enum NotifyPlanner {
         }
     }
 
-    /// ── Occurrence + date helpers ───────────────────────────────────────────────────────────
+    // ── Occurrence + date helpers ───────────────────────────────────────────────────────────
 
     /// Base date (unless hidden) + expanded recurrence, over every year the window touches.
     private static func occurrences(_ base: YMD, _ rf: RichFields?, _ ctx: Ctx) -> [YMD] {

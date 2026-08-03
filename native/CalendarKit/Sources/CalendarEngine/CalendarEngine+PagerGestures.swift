@@ -14,7 +14,9 @@ extension CalendarEngine {
     /// No snap anim.tween / recentre here — SwiftUI owns the physics; this is a pure projection.
     /// A month-view scroll gesture or page-turn is in progress (fingers down OR the turn/settle
     /// animating). The events overlay pre-mounts the neighbor months' stickers while this is true.
-    public var monthGestureActive: Bool { isMonthLevel && (scroll.liveMonthScrolling || anim.monthAnim != nil) }
+    public var monthGestureActive: Bool {
+        isMonthLevel && (scroll.liveMonthScrolling || anim.monthAnim != nil)
+    }
 
     public var isMonthLevel: Bool {
         level(z) == 1
@@ -217,7 +219,10 @@ extension CalendarEngine {
         // finger-down phase — direct AND webview-forwarded — and clears it on `.ended` (which also
         // schedules this settle), so this gate cleanly separates "paused mid-scroll" from "done".
         guard isDayLevel, !isDayFlipping, anim.dayTween == nil, !scroll.liveDayScrolling else {
-            DashDiag.log("settleDay BLOCKED: flip=\(isDayFlipping) tween=\(anim.dayTween != nil) live=\(scroll.liveDayScrolling)")
+            DashDiag
+                .log(
+                    "settleDay BLOCKED: flip=\(isDayFlipping) tween=\(anim.dayTween != nil) live=\(scroll.liveDayScrolling)"
+                )
             return
         }
         guard let a = daily.anim else { return } // already settled → nothing to do
@@ -726,7 +731,9 @@ extension CalendarEngine {
             // the pinch point — unless the pinch started over the dashboard PANEL, whose x maps
             // to a virtual column (today's week / cursor's week / first week instead).
             if fromPanel {
-                if !carryMonthCenterIntoWeek() { week = panelPinchWeekInMonth() }
+                if !carryMonthCenterIntoWeek() {
+                    week = panelPinchWeekInMonth()
+                }
             } else if !carryMonthCenterIntoWeek(), let w = weekAtPointInMonth(p.x, g) {
                 week = CGFloat(w)
             }

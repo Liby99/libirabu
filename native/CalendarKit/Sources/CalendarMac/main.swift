@@ -3,9 +3,9 @@
 // host CalendarView in an NSWindow via NSHostingView.
 
 import AppKit
-import SwiftUI
-import CalendarUI
 import CalendarEngine
+import CalendarUI
+import SwiftUI
 
 // Note: the unhandled-key "funk" beep is silenced inside CalendarView (WindowBeepSilencerView), so
 // it's handled for both this shell and the SwiftUI CalendarApp shell without per-window subclassing.
@@ -14,8 +14,8 @@ import CalendarEngine
     var window: NSWindow!
     var settingsWindow: NSWindow?
     var helpWindow: NSWindow?
-    // The menu bar is built from the shared AppMenu spec (CalendarUI), so this dev shell and the Xcode
-    // .app can't drift. The coordinator owns all the menu wiring; we only supply the window/About hosts.
+    /// The menu bar is built from the shared AppMenu spec (CalendarUI), so this dev shell and the Xcode
+    /// .app can't drift. The coordinator owns all the menu wiring; we only supply the window/About hosts.
     var menuCoordinator: AppMenuCoordinator!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -37,7 +37,9 @@ import CalendarEngine
         var size = NSSize(width: 1440, height: 840)
         if let ws = ProcessInfo.processInfo.environment["CC_WINDOW"] {
             let p = ws.lowercased().split(separator: "x")
-            if p.count == 2, let w = Double(p[0]), let h = Double(p[1]) { size = NSSize(width: w, height: h) }
+            if p.count == 2, let w = Double(p[0]), let h = Double(p[1]) {
+                size = NSSize(width: w, height: h)
+            }
         }
         window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
@@ -90,17 +92,25 @@ import CalendarEngine
             window.titleVisibility = .hidden
             window.toolbar = tb
         }
-        if demo { exportContentRect() }
+        if demo {
+            exportContentRect()
+        }
         // Dev/screenshot affordance: open the Help window on launch (used to capture Help GIFs/screens).
         if ProcessInfo.processInfo.environment["CC_OPEN_HELP"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.showHelp(nil) }
         }
         if ProcessInfo.processInfo.environment["CC_OPEN_TUTORIAL"] != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { NotificationCenter.default.post(name: .showTutorial, object: nil) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { NotificationCenter.default.post(
+                name: .showTutorial,
+                object: nil
+            ) }
         }
         // Dev: fire File ▸ Print… a few seconds in (pair with CC_PRINT_PDF to verify the pipeline headless).
         if ProcessInfo.processInfo.environment["CC_PRINT_ON_LAUNCH"] != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { NotificationCenter.default.post(name: .requestPrint, object: nil) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { NotificationCenter.default.post(
+                name: .requestPrint,
+                object: nil
+            ) }
         }
     }
 
@@ -109,23 +119,27 @@ import CalendarEngine
     private func exportContentRect() {
         guard let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty,
               let screen = window.screen ?? NSScreen.main else { return }
-        let c = window.contentRect(forFrameRect: window.frame)          // bottom-left origin, points
-        let topLeftY = screen.frame.height - c.maxY                      // flip to top-left origin
+        let c = window.contentRect(forFrameRect: window.frame) // bottom-left origin, points
+        let topLeftY = screen.frame.height - c.maxY // flip to top-left origin
         let line = "\(Int(c.origin.x.rounded())) \(Int(topLeftY.rounded())) \(Int(c.width.rounded())) \(Int(c.height.rounded()))\n"
         try? line.write(toFile: (dir as NSString).appendingPathComponent("rect.txt"), atomically: true, encoding: .utf8)
     }
 
-    // Cmd-W closes the window but leaves the app running (Cmd-Q quits).
-    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
+    /// Cmd-W closes the window but leaves the app running (Cmd-Q quits).
+    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool {
+        false
+    }
 
-    // Reopen the window when the Dock icon is clicked and nothing is visible.
+    /// Reopen the window when the Dock icon is clicked and nothing is visible.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { window.makeKeyAndOrderFront(nil) }
+        if !flag {
+            window.makeKeyAndOrderFront(nil)
+        }
         return true
     }
 
-    // Settings/Preferences (⌘,). Lazily create a single window hosting SettingsView; reuse it on
-    // subsequent invocations so ⌘, just brings the existing window forward (no duplicates).
+    /// Settings/Preferences (⌘,). Lazily create a single window hosting SettingsView; reuse it on
+    /// subsequent invocations so ⌘, just brings the existing window forward (no duplicates).
     @objc func showSettings(_ sender: Any?) {
         if settingsWindow == nil {
             let w = NSWindow(
@@ -144,18 +158,18 @@ import CalendarEngine
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    // Build the menu bar from the shared AppMenu spec. The coordinator (CalendarUI) does all the wiring;
-    // we inject only the host-specific bits: how to reach the engine, how to open the Settings/Help
-    // windows, and the custom About panel. `hasAssistant: false` → no AI item / Assistant menu here (the
-    // dev shell has no assistant session).
+    /// Build the menu bar from the shared AppMenu spec. The coordinator (CalendarUI) does all the wiring;
+    /// we inject only the host-specific bits: how to reach the engine, how to open the Settings/Help
+    /// windows, and the custom About panel. `hasAssistant: false` → no AI item / Assistant menu here (the
+    /// dev shell has no assistant session).
     private func installMenu() {
         let ctx = MenuContext(
             engine: { CalendarEngine.mainInstance },
             open: { [weak self] target in
                 switch target {
-                case .help:      self?.showHelp(nil)
-                case .settings:  self?.showSettings(nil)
-                case .assistant: break   // no assistant window in the dev shell
+                case .help: self?.showHelp(nil)
+                case .settings: self?.showSettings(nil)
+                case .assistant: break // no assistant window in the dev shell
                 }
             },
             showAbout: { [weak self] in self?.showAbout(nil) }
@@ -188,7 +202,8 @@ import CalendarEngine
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let credits = NSAttributedString(
             string: "A zoomable calendar that keeps your schedule, notes, and to-dos together — with a built-in AI assistant.",
-            attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+            attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
+        )
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationName: "MagiCal",
             .applicationVersion: version,
@@ -204,8 +219,14 @@ import CalendarEngine
 final class BenchToolbarDelegate: NSObject, NSToolbarDelegate {
     static let shared = BenchToolbarDelegate()
     private let ids: [NSToolbarItem.Identifier] = [.init("cc-bench-item"), .flexibleSpace]
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { ids }
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { ids }
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        ids
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        ids
+    }
+
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         let item = NSToolbarItem(itemIdentifier: id)
@@ -217,8 +238,8 @@ final class BenchToolbarDelegate: NSObject, NSToolbarDelegate {
 }
 
 let app = NSApplication.shared
-// AppDelegate is @MainActor (its menu code touches main-actor engine state); top-level main.swift code
-// is nonisolated, so construct it on the main actor explicitly. We're literally on the main thread here.
+/// AppDelegate is @MainActor (its menu code touches main-actor engine state); top-level main.swift code
+/// is nonisolated, so construct it on the main actor explicitly. We're literally on the main thread here.
 let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate
 app.setActivationPolicy(.regular)

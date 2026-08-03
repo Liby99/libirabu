@@ -82,7 +82,9 @@ public final class DemoController {
         NSApp.windows.first?.makeKeyAndOrderFront(nil)
         // The manual-benchmark scene ("idle") drives NOTHING — the human scrolls the real pointer — so it
         // must NOT install the synthetic click-through cursor panel that scripted scenes use.
-        if !Self.isIdleScene { installCursorPanel() }
+        if !Self.isIdleScene {
+            installCursorPanel()
+        }
         Task { await run(CalendarEngine.demoScene) }
     }
 
@@ -91,7 +93,9 @@ public final class DemoController {
     /// store is the throwaway CC_DEMO_DATADIR — identical to the CalendarMac bench — but no scene scripts
     /// input. Point CC_DEMO_DATADIR at a dir holding a data.json copy of bench/year-display-2026.json and
     /// turn on CC_FPS_HUD=1 to A/B the Xcode CalendarApp against the CalendarMac harness by hand.
-    static var isIdleScene: Bool { CalendarEngine.demoScene == "idle" || CalendarEngine.demoScene == "bench-idle" }
+    static var isIdleScene: Bool {
+        CalendarEngine.demoScene == "idle" || CalendarEngine.demoScene == "bench-idle"
+    }
 
     private func run(_ scene: String) async {
         switch scene {
@@ -469,7 +473,7 @@ public final class DemoController {
         }
     }
 
-    // ── Help-GIF scenes (docs/help-gif-suggestions.md) ──────────────────────────────────────────
+    /// ── Help-GIF scenes (docs/help-gif-suggestions.md) ──────────────────────────────────────────
     /// MOVE then RESIZE a timed event in week view: drag its body to a later slot, then drag its bottom
     /// edge to lengthen it — both through the real pointer paths, so previews track live. The target is
     /// aimed by its LIVE on-screen rect (the week's scroll follows the clock, so fixed fractions break).
@@ -485,7 +489,7 @@ public final class DemoController {
         engine.cmdZoomOut()
         try? await pause(1.6)
         engine.demoSelect(target)
-        engine.demoRevealSelected()            // scroll the timeline so the target is comfortably visible
+        engine.demoRevealSelected() // scroll the timeline so the target is comfortably visible
         try? await pause(0.9)
         signalReady()
         await waitForGo()
@@ -493,7 +497,7 @@ public final class DemoController {
 
         // MOVE: grab the event's centre and drag it ~2 hours later.
         guard let r0 = engine.demoEventRectView(target) else { return }
-        let perHour = r0.height / 1.5                       // the event spans 1.5h → px per hour
+        let perHour = r0.height / 1.5 // the event spans 1.5h → px per hour
         let grab = CGPoint(x: r0.midX, y: r0.midY)
         cursor = CGPoint(x: grab.x - 60, y: grab.y - 46)
         await move(to: grab, over: 0.7)
@@ -549,16 +553,18 @@ public final class DemoController {
         // the drawer's layout: card right margin 10 + width 410 → content left = W−420+18; 17pt circles at
         // 8pt spacing → center x = left + 8.5 + i·25 (EVENT_COLORS order; orange = 7). Row y ≈ 142/840.
         let rowY = size.height * 0.169
-        func swatchX(_ i: Int) -> CGFloat { size.width - 420 + 18 + 8.5 + CGFloat(i) * 25 }
+        func swatchX(_ i: Int) -> CGFloat {
+            size.width - 420 + 18 + 8.5 + CGFloat(i) * 25
+        }
         await move(to: CGPoint(x: swatchX(4), y: rowY), over: 0.8)
-        engine.setColorPreview(id, "green")           // the drawer's real hover preview
+        engine.setColorPreview(id, "green") // the drawer's real hover preview
         try? await pause(0.55)
         await move(to: CGPoint(x: swatchX(7), y: rowY), over: 0.5)
         engine.setColorPreview(id, "orange")
         try? await pause(0.55)
         pressed = true
         engine.clearColorPreview()
-        engine.update(id) { $0.color = "orange" }     // commit (what the swatch tap does)
+        engine.update(id) { $0.color = "orange" } // commit (what the swatch tap does)
         try? await pause(0.18)
         pressed = false
         try? await pause(2.0)
@@ -588,7 +594,9 @@ public final class DemoController {
         sweep: for dx in stride(from: -34.0, through: 44.0, by: 3.0) {
             for dy in stride(from: -24.0, through: 24.0, by: 6.0) {
                 engine.demoHover(atView: CGPoint(x: target.x + dx, y: target.y + dy))
-                if let s = engine.demoDeadlineSpotView() { plus = s; break sweep }
+                if let s = engine.demoDeadlineSpotView() {
+                    plus = s; break sweep
+                }
             }
         }
         guard let plus else { return }
@@ -597,7 +605,7 @@ public final class DemoController {
         // Still well inside the click's 12px tolerance.
         let press = CGPoint(x: plus.x + 5, y: plus.y)
         await move(to: press, over: 0.6)
-        engine.demoHover(atView: press)    // over the "+" → it brightens
+        engine.demoHover(atView: press) // over the "+" → it brightens
         try? await pause(0.6)
         pressed = true
         engine.demoPointerDown(atView: press)
@@ -614,7 +622,7 @@ public final class DemoController {
         guard let engine else { return }
         engine.demoClearEvents()
         seedYear()
-        engine.demoGoToYear(centerMonth: 6)   // July centered
+        engine.demoGoToYear(centerMonth: 6) // July centered
         try? await pause(0.5)
         signalReady()
         await waitForGo()
@@ -679,7 +687,7 @@ public final class DemoController {
 
         // Type the query (drives the bound SearchState; the async matcher fills the dropdown).
         let query = "coffee wed"
-        for i in 1...query.count {
+        for i in 1 ... query.count {
             search.query = String(query.prefix(i))
             try? await pause(0.07)
         }
@@ -706,7 +714,7 @@ public final class DemoController {
         try? await pause(2.2)
         engine.cmdZoomOut()
         try? await pause(1.6)
-        engine.demoScrollTimelineToHour(10)   // bring the 7:59 deadline on screen (scroll pins to 16:00)
+        engine.demoScrollTimelineToHour(10) // bring the 7:59 deadline on screen (scroll pins to 16:00)
         try? await pause(0.8)
         signalReady()
         await waitForGo()
@@ -721,7 +729,7 @@ public final class DemoController {
         try? await pause(1.1)
 
         // Glide down the menu to "Promote" and click it → ghost bar appears on the TOP free lane (T1).
-        await move(to: CGPoint(x: pt.x + 180, y: pt.y + 40), over: 0.9)   // the callout's Promote row
+        await move(to: CGPoint(x: pt.x + 180, y: pt.y + 40), over: 0.9) // the callout's Promote row
         pressed = true; try? await pause(0.15); pressed = false
         closeEventMenuHook?()
         engine.togglePromote(did)
@@ -758,7 +766,9 @@ public final class DemoController {
         try? await pause(0.6)
         signalReady()
         await waitForGo()
-        while true { engine.wake(); try? await pause(0.5) }   // recorder kills the app when done
+        while true {
+            engine.wake(); try? await pause(0.5)
+        } // recorder kills the app when done
     }
 
     /// DAILY DASHBOARD: day view's TODO list — varied items (priorities, due dates, tags, people,
@@ -825,7 +835,10 @@ public final class DemoController {
     /// Live FPS HUD toggle (works in ANY run: Xcode-attached, standalone, the signed app). Enable with the
     /// env var CC_FPS_HUD=1 (add it to the Xcode scheme) or `defaults write … cc.fpsHUD -bool YES`.
     private static let envHUD = ProcessInfo.processInfo.environment["CC_FPS_HUD"] != nil
-    public static var hudEnabled: Bool { envHUD || UserDefaults.standard.bool(forKey: "cc.fpsHUD") }
+    public static var hudEnabled: Bool {
+        envHUD || UserDefaults.standard.bool(forKey: "cc.fpsHUD")
+    }
+
     @ObservationIgnored private var hudRing: [Double] = [] // recent frame timestamps (HUD window)
 
     /// Per-frame hook from the render TimelineView (one evaluation = one rendered frame). A cheap no-op
@@ -978,12 +991,14 @@ public final class DemoController {
         for (from, to) in pairs {
             engine.beginMonthGesture()
             if dwell { // A/B: let the neighbor pre-mount land on STATIC frames before moving
-                for _ in 0 ..< 30 { engine.wake(); try? await pause(0.016) }
+                for _ in 0 ..< 30 {
+                    engine.wake(); try? await pause(0.016)
+                }
             }
             moveStart = Date.timeIntervalSinceReferenceDate
             for i in 0 ... steps {
                 let t = easeOutQuad(CGFloat(i) / CGFloat(steps))
-                let y = (CGFloat(from) + (CGFloat(to - from)) * t) * pageH
+                let y = (CGFloat(from) + CGFloat(to - from) * t) * pageH
                 engine.setMonthProgress(y, pageH: pageH)
                 engine.wake()
                 try? await pause(0.008)
@@ -997,7 +1012,9 @@ public final class DemoController {
         writeBenchResults()
     }
 
-    private func easeOutQuad(_ t: CGFloat) -> CGFloat { 1 - (1 - t) * (1 - t) }
+    private func easeOutQuad(_ t: CGFloat) -> CGFloat {
+        1 - (1 - t) * (1 - t)
+    }
 
     /// Week-view page turns inside ONE month: drives the week pager mirror (`setWeekProgress`, the
     /// same call the WeekPager's scroll observation makes) through full swipe ramps, so the 7-day
@@ -1013,7 +1030,9 @@ public final class DemoController {
         let env = ProcessInfo.processInfo.environment
         let month = max(0, min(11, env["CC_BENCH_WEEK_MONTH"].flatMap { Int($0) } ?? 0))
         var weeks = env["CC_BENCH_WEEKS"].map { $0.split(separator: ",").compactMap { Int($0) } } ?? [2, 3]
-        if weeks.count < 2 { weeks = [2, 3] }
+        if weeks.count < 2 {
+            weeks = [2, 3]
+        }
         engine.demoGoToWeek(month: month, week: CGFloat(weeks[0]))
         try? await pause(0.8)
         // CC_BENCH_DASH=1 → run the same swipes with the ⌘B side panel PINNED OPEN (the reported
@@ -1070,7 +1089,9 @@ public final class DemoController {
         // Deterministic start: panel retracted (dashPinned persists in UserDefaults across runs).
         if engine.dashPinned {
             engine.toggleDashPin()
-            for _ in 0 ..< 40 { engine.wake(); try? await pause(0.016) }
+            for _ in 0 ..< 40 {
+                engine.wake(); try? await pause(0.016)
+            }
         }
         benchFrames.removeAll()
         RenderProf.reset()
@@ -1086,10 +1107,14 @@ public final class DemoController {
             for _ in 0 ..< toggles {
                 engine.toggleDashPin()
                 let steps = max(1, Int(period / 0.016))
-                for _ in 0 ..< steps { engine.wake(); try? await pause(0.016) }
+                for _ in 0 ..< steps {
+                    engine.wake(); try? await pause(0.016)
+                }
             }
             // Ride out the last tween so its tail frames stay inside the moving window.
-            for _ in 0 ..< 28 { engine.wake(); try? await pause(0.016) }
+            for _ in 0 ..< 28 {
+                engine.wake(); try? await pause(0.016)
+            }
             benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
         } else {
             for _ in 0 ..< 6 { // 3 full open/close cycles
@@ -1099,7 +1124,9 @@ public final class DemoController {
                 // is what a real ⌘B gets from the tween's own animation pump). The MOVING window
                 // records only the tween itself — deferred content that fills in on the settled
                 // frames right after is by design (invisible), not jank.
-                for _ in 0 ..< 28 { engine.wake(); try? await pause(0.016) }
+                for _ in 0 ..< 28 {
+                    engine.wake(); try? await pause(0.016)
+                }
                 benchMoves.append((moveStart, moveStart + 0.32))
                 try? await pause(0.25)
             }
@@ -1129,7 +1156,9 @@ public final class DemoController {
         if !engine.dashPinned {
             engine.toggleDashPin()
         }
-        for _ in 0 ..< 60 { engine.wake(); try? await pause(0.016) } // panel out + first render settled
+        for _ in 0 ..< 60 {
+            engine.wake(); try? await pause(0.016)
+        } // panel out + first render settled
         benchFrames.removeAll()
         RenderProf.reset()
         benchActive = true
@@ -1143,7 +1172,9 @@ public final class DemoController {
         for i in 0 ..< 40 {
             text += String(UnicodeScalar(97 + i % 26)!)
             engine.setDailyNote(iso, text)
-            for _ in 0 ..< 4 { engine.wake(); try? await pause(0.0175) }
+            for _ in 0 ..< 4 {
+                engine.wake(); try? await pause(0.0175)
+            }
         }
         benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
         RenderProf.mark("benchEnd")
@@ -1169,7 +1200,9 @@ public final class DemoController {
         RenderProf.mark("benchBegin")
         moveStart = Date.timeIntervalSinceReferenceDate
         engine.setView(zoom: "month", focusedMonth: 6) // the animated year→month zoom
-        for _ in 0 ..< 70 { engine.wake(); try? await pause(0.016) }
+        for _ in 0 ..< 70 {
+            engine.wake(); try? await pause(0.016)
+        }
         benchMoves.append((moveStart, moveStart + 0.7))
         RenderProf.mark("benchEnd")
         benchActive = false
@@ -1196,14 +1229,18 @@ public final class DemoController {
         let env = ProcessInfo.processInfo.environment
         if env["CC_BENCH_DASH"] != nil, !engine.dashPinned {
             engine.pinDashboard()
-            for _ in 0 ..< 40 { engine.wake(); try? await pause(0.016) }
+            for _ in 0 ..< 40 {
+                engine.wake(); try? await pause(0.016)
+            }
         }
         switch env["CC_BENCH_DASH_TAB"] {
         case "proj": NotificationCenter.default.post(name: .focusDashProj, object: nil)
         case "note": NotificationCenter.default.post(name: .focusDashNote, object: nil)
         default: return
         }
-        for _ in 0 ..< 40 { engine.wake(); try? await pause(0.016) } // tab carousel + mount
+        for _ in 0 ..< 40 {
+            engine.wake(); try? await pause(0.016)
+        } // tab carousel + mount
     }
 
     /// DAY-view horizontal paging: adjacent day↔day swipes through the REAL gesture path
@@ -1261,7 +1298,9 @@ public final class DemoController {
         try? await pause(1.0)
         if engine.dashPinned { // deterministic start: retracted
             engine.toggleDashPin()
-            for _ in 0 ..< 40 { engine.wake(); try? await pause(0.016) }
+            for _ in 0 ..< 40 {
+                engine.wake(); try? await pause(0.016)
+            }
         }
         let name: Notification.Name = switch env["CC_BENCH_HOTKEY"] {
         case "note": .focusDashNote
@@ -1278,9 +1317,13 @@ public final class DemoController {
         for _ in 0 ..< toggles {
             NotificationCenter.default.post(name: name, object: nil)
             let steps = max(1, Int(period / 0.016))
-            for _ in 0 ..< steps { engine.wake(); try? await pause(0.016) }
+            for _ in 0 ..< steps {
+                engine.wake(); try? await pause(0.016)
+            }
         }
-        for _ in 0 ..< 28 { engine.wake(); try? await pause(0.016) }
+        for _ in 0 ..< 28 {
+            engine.wake(); try? await pause(0.016)
+        }
         benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
         RenderProf.mark("benchEnd")
         benchActive = false
@@ -1293,7 +1336,9 @@ public final class DemoController {
         guard let engine else { return }
         try? await pause(1.2)
         engine.demoGoToWeek(month: 6, week: 2)
-        if !engine.dashPinned { engine.pinDashboard() }
+        if !engine.dashPinned {
+            engine.pinDashboard()
+        }
         try? await pause(1.0)
         benchFrames.removeAll()
         RenderProf.reset()
@@ -1302,11 +1347,15 @@ public final class DemoController {
         for _ in 0 ..< 3 {
             moveStart = Date.timeIntervalSinceReferenceDate
             engine.jumpToDay(engine.year, 6, 15) // week → day
-            for _ in 0 ..< 55 { engine.wake(); try? await pause(0.016) }
+            for _ in 0 ..< 55 {
+                engine.wake(); try? await pause(0.016)
+            }
             benchMoves.append((moveStart, moveStart + 0.8))
             moveStart = Date.timeIntervalSinceReferenceDate
             engine.setView(zoom: "week") // day → week
-            for _ in 0 ..< 55 { engine.wake(); try? await pause(0.016) }
+            for _ in 0 ..< 55 {
+                engine.wake(); try? await pause(0.016)
+            }
             benchMoves.append((moveStart, moveStart + 0.8))
         }
         RenderProf.mark("benchEnd")
@@ -1342,7 +1391,9 @@ public final class DemoController {
         snap("pulled")
         let flipped = engine.endDayGesture()
         snap("gesture-ended flipStarted=\(flipped)")
-        for _ in 0 ..< 80 { engine.wake(); try? await pause(0.016) } // ride the 0.42s flip
+        for _ in 0 ..< 80 {
+            engine.wake(); try? await pause(0.016)
+        } // ride the 0.42s flip
         snap("after-1.3s")
         // A normal right swipe back toward Aug: does the engine still respond?
         let domBefore = engine.daily.dom
@@ -1353,7 +1404,9 @@ public final class DemoController {
             try? await pause(0.008)
         }
         _ = engine.endDayGesture()
-        for _ in 0 ..< 40 { engine.wake(); try? await pause(0.016) }
+        for _ in 0 ..< 40 {
+            engine.wake(); try? await pause(0.016)
+        }
         snap("after-right-swipe domBefore=\(domBefore)")
         benchActive = false
         try? log.joined(separator: "\n").appending("\n")
@@ -1367,7 +1420,9 @@ public final class DemoController {
         guard let engine else { return }
         try? await pause(1.4)
         engine.demoGoToYear(centerMonth: 7) // August centered
-        if !engine.dashPinned { engine.pinDashboard() }
+        if !engine.dashPinned {
+            engine.pinDashboard()
+        }
         try? await pause(0.9)
         benchFrames.removeAll()
         RenderProf.reset()
@@ -1376,7 +1431,9 @@ public final class DemoController {
         // Descent: year → Aug 1.
         moveStart = Date.timeIntervalSinceReferenceDate
         engine.jumpToDay(engine.year, 7, 1)
-        for _ in 0 ..< 100 { engine.wake(); try? await pause(0.016) }
+        for _ in 0 ..< 100 {
+            engine.wake(); try? await pause(0.016)
+        }
         benchMoves.append((moveStart, moveStart + 1.5))
         // Day swipes: Aug 1 → Aug 15, adjacent gestures.
         for d in 1 ..< 15 {
@@ -1396,7 +1453,9 @@ public final class DemoController {
         // Zoom out: day → year.
         moveStart = Date.timeIntervalSinceReferenceDate
         engine.setView(zoom: "year")
-        for _ in 0 ..< 90 { engine.wake(); try? await pause(0.016) }
+        for _ in 0 ..< 90 {
+            engine.wake(); try? await pause(0.016)
+        }
         benchMoves.append((moveStart, moveStart + 1.4))
         RenderProf.mark("benchEnd")
         benchActive = false
@@ -1422,7 +1481,9 @@ public final class DemoController {
         RenderProf.mark("benchBegin")
         moveStart = Date.timeIntervalSinceReferenceDate
         engine.jumpToDay(engine.year, month, c.day ?? 15)
-        for _ in 0 ..< 110 { engine.wake(); try? await pause(0.016) } // the whole descent
+        for _ in 0 ..< 110 {
+            engine.wake(); try? await pause(0.016)
+        } // the whole descent
         benchMoves.append((moveStart, moveStart + 1.6))
         RenderProf.mark("benchEnd")
         benchActive = false
@@ -1486,7 +1547,6 @@ public final class DemoController {
         }
     }
 
-
     /// Frame-time stats over the recorded ticks → $CC_DEMO_DATADIR/bench.json.
     private func writeBenchResults() {
         CCTrace.dumpNow("bench-scene-end")
@@ -1524,10 +1584,14 @@ public final class DemoController {
             var worst = Double.infinity
             var lo = 0
             for hi in 1 ..< benchFrames.count {
-                while benchFrames[hi] - benchFrames[lo] > 1.0 { lo += 1 }
+                while benchFrames[hi] - benchFrames[lo] > 1.0 {
+                    lo += 1
+                }
                 let span = benchFrames[hi] - benchFrames[lo]
                 let n = hi - lo
-                if span >= 0.5, n >= 3 { worst = min(worst, Double(n) / span) } // need a near-full window
+                if span >= 0.5, n >= 3 {
+                    worst = min(worst, Double(n) / span)
+                } // need a near-full window
             }
             return worst.isFinite ? r2(worst) : r2(Double(deltas.count) / seconds)
         }

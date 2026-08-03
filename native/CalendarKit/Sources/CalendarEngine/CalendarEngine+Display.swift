@@ -10,7 +10,9 @@ import Foundation
 extension CalendarEngine {
     /// The display-invalidation generation (bumped on every data edit) — lets the UI key its own
     /// derived caches (e.g. the events overlay's per-month packing) without observing internals.
-    public var displayGen: UInt64 { UInt64(caches.editGen) }
+    public var displayGen: UInt64 {
+        UInt64(caches.editGen)
+    }
 
     /// ── Derived bands for the year / band view ──────────────────────────────────────────
     /// What the band lane actually draws, expanded from the lean data + rich fields:
@@ -125,13 +127,13 @@ extension CalendarEngine {
 
     /// A full per-occurrence imported id → its series key; any other id unchanged.
     static func appleSeriesKey(_ id: String) -> String {
-        guard Self.hasImportedPrefix(id), let r = applePerOccurrenceSuffix(id) else { return id }
+        guard hasImportedPrefix(id), let r = applePerOccurrenceSuffix(id) else { return id }
         return String(id[..<r.lowerBound])
     }
 
     /// True for an imported SERIES key (`apple-<uid>`, no datestamp) — the id user overlays sync under.
     static func isAppleSeriesKey(_ id: String) -> Bool {
-        Self.hasImportedPrefix(id) && applePerOccurrenceSuffix(id) == nil
+        hasImportedPrefix(id) && applePerOccurrenceSuffix(id) == nil
     }
 
     /// True for an imported PER-OCCURRENCE key (`apple-<uid>-<datestamp>`) — the local-only `hidden` flag.
@@ -188,7 +190,9 @@ extension CalendarEngine {
     public func tagUniverse() -> (rows: [(key: String, label: String, count: Int)], untagged: Int) {
         // Served from the cache until the next edit (editGen bump) invalidates it — so opening the filter,
         // typing in its search field, and re-rendering never re-scan every event.
-        if let c = caches.tag, c.gen == caches.editGen { return (c.rows, c.untagged) }
+        if let c = caches.tag, c.gen == caches.editGen {
+            return (c.rows, c.untagged)
+        }
         var counts: [String: (label: String, count: Int)] = [:]
         var untagged = 0
         func tally(_ id: String) {

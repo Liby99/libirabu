@@ -49,7 +49,7 @@ public enum BandStyle {
 
     // Title. Size is write-once-at-launch (like Layout.labelW): desktop keeps 12; the
     // phone bumps it — its year cells are few on screen at a time, so titles read larger.
-    public static nonisolated(unsafe) var titleSize: CGFloat = 12
+    public nonisolated(unsafe) static var titleSize: CGFloat = 12
     public static let barTextGap: CGFloat = 5 // fixed gap between the accent bar and the title/markers
     public static let titleTrailing: CGFloat = 6
 

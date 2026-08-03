@@ -1,6 +1,6 @@
-import XCTest
 @testable import CalendarEngine
 import CalendarGeometry
+import XCTest
 
 @MainActor
 final class ICSFeedTests: XCTestCase {

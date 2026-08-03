@@ -28,14 +28,17 @@ public struct CalendarView: View {
     @State private var search = SearchState() // toolbar event search (⌘F / magnifyingglass)
     @State private var searchAnchor: CGPoint = .zero // content stack's window-space origin (for dropdown alignment)
     @State private var searchCloseWork: DispatchWorkItem? // pending "unmount the bar after it collapses"
-    @State private var showTagFilter = false               // View ▸ Filter by Tags popover (toolbar-anchored)
+    @State private var showTagFilter = false // View ▸ Filter by Tags popover (toolbar-anchored)
     /// Global Performance Mode: render events as flat tinted fills instead of Liquid Glass
     /// (glass is one GPU pass per sticker). Persisted; defaults on for now.
     @AppStorage("cc.performanceMode") private var perfMode = true
     // Bench override: CC_PERF_OFF=1 forces the Liquid-Glass path on (Performance Mode OFF) so the
     // profiler can measure the GPU-heavy path the throwaway store's default (perfMode on) never hits.
     private static let forcePerfOff = ProcessInfo.processInfo.environment["CC_PERF_OFF"] != nil
-    private var effPerfMode: Bool { perfMode && !Self.forcePerfOff }
+    private var effPerfMode: Bool {
+        perfMode && !Self.forcePerfOff
+    }
+
     // The View-menu prefs (show-hidden, current/alt timezone) → repaint observers live in ViewPrefObservers
     // (bundled into one modifier to keep the body's modifier chain within the Swift type-checker's budget).
     @AppStorage("cc.tutorial.seen") private var tutorialSeen = false // auto-show the onboarding carousel once
@@ -245,11 +248,13 @@ public struct CalendarView: View {
             }
         }
         if CalendarEngine.isDemoMode {
-            demo.openSearchHook = { openSearch() }   // search-demo scene drives the real toolbar search
+            demo.openSearchHook = { openSearch() } // search-demo scene drives the real toolbar search
             demo.eventMenuHook = { id, r in ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: r) }
             demo.dashTodoFocusHook = { [dashNav] in dashTab = .todo; dashNav.focus() }
             demo.dashTodoToggleHook = { [dashNav, engine] in
-                if let t = dashNav.currentRow { NativeDashPanel.toggleTodo(engine, t) }
+                if let t = dashNav.currentRow {
+                    NativeDashPanel.toggleTodo(engine, t)
+                }
             }
             demo.closeEventMenuHook = { ui.eventMenu = nil }
             demo.searchState = search
@@ -302,12 +307,19 @@ public struct CalendarView: View {
             guard (1 ... 3).contains(engine.chrome.level) else { return }
             switch cmd {
             case let .focus(stop):
-                if stop == .todo { tabBinding.wrappedValue = .todo; dashNav.focus() }
-                else { dashNav.blur(); if stop == .note { tabBinding.wrappedValue = .note } }
+                if stop == .todo {
+                    tabBinding.wrappedValue = .todo; dashNav.focus()
+                } else {
+                    dashNav.blur(); if stop == .note {
+                        tabBinding.wrappedValue = .note
+                    }
+                }
             case let .move(d):
                 dashNav.move(d)
             case .activate:
-                if let t = dashNav.currentRow { NativeDashPanel.toggleTodo(engine, t) }
+                if let t = dashNav.currentRow {
+                    NativeDashPanel.toggleTodo(engine, t)
+                }
             case .open:
                 if let t = dashNav.currentRow {
                     if t.source == "event" {
@@ -321,8 +333,11 @@ public struct CalendarView: View {
             case let .fold(open):
                 if let t = dashNav.currentRow {
                     let a = NativeDashPanel.anchor(t)
-                    if open { dashNav.collapsedSubs.remove(a) }
-                    else { dashNav.collapsedSubs.insert(a) }
+                    if open {
+                        dashNav.collapsedSubs.remove(a)
+                    } else {
+                        dashNav.collapsedSubs.insert(a)
+                    }
                     engine.wake()
                 }
             case .editNote:
@@ -479,7 +494,8 @@ public struct CalendarView: View {
                     c.translateBy(x: sceneDX, y: 0)
                     RenderProf.measure("drawAbove", "5_drawAbove") {
                         SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames,
-                                                hideTrack: ui.editingTrack.map { ($0.month, $0.track) }, in: &c, theme: theme)
+                                                hideTrack: ui.editingTrack.map { ($0.month, $0.track) }, in: &c,
+                                                theme: theme)
                     }
                 }
             }
@@ -580,7 +596,9 @@ public struct CalendarView: View {
     private func jumpToNoteKey(_ date: String, line: Int? = nil) {
         let land = { [dashNav] in
             dashTab = .note
-            if let line { dashNav.requestNoteJump(key: date, line: line) }
+            if let line {
+                dashNav.requestNoteJump(key: date, line: line)
+            }
         }
         if date.hasPrefix("week:") {
             let c = date.dropFirst(5).split(separator: "-").compactMap { Int($0) }
@@ -681,7 +699,8 @@ public struct CalendarView: View {
                         // actually materializes during the warm — offscreen x parked the
                         // panel where LazyVStack builds nothing.
                         NativeDash.parkPanels([DashBodyPanel(
-                            scope: scope, key: key, x: 0, w: w, dx: 0, dy: 0, op: 0)])
+                            scope: scope, key: key, x: 0, w: w, dx: 0, dy: 0, op: 0
+                        )])
                     }
                 }
             }
@@ -893,7 +912,7 @@ public struct CalendarView: View {
                                                   containerWidth: geo.size.width, height: geo.size.height, theme: theme)
                         }
                     }
-                    // TODO layering cog (bottom-right on the TODO tab) → the native callout menu.
+                    // TODO: layering cog (bottom-right on the TODO tab) → the native callout menu.
                     .overlay {
                         if ui.openEventId == nil {
                             TodoCogOverlay(engine: engine, anim: dashAnim, tab: dashTab, controller: todoMenu,
@@ -1045,7 +1064,9 @@ public struct CalendarView: View {
                         }
                     }
                     .overlay {
-                        if !demo.cursorPanelUp { DemoCursorOverlay(demo: demo) }
+                        if !demo.cursorPanelUp {
+                            DemoCursorOverlay(demo: demo)
+                        }
                     } // synthetic pointer during a GIF recording (panel-hosted when possible; no-op otherwise)
                     // Live frame-rate HUD (Settings ▸ Developer, or CC_FPS_HUD=1) — measures THIS run,
                     // whatever it is: Xcode-attached, standalone, or the signed app. Reads the render
@@ -1231,23 +1252,23 @@ private struct ViewPrefObservers: ViewModifier {
     @AppStorage(PrefKeys.altTz) private var altTz = "none"
     func body(content: Content) -> some View {
         content
-            .onChange(of: showHidden) { _, _ in engine.viewPrefsChanged() }   // Show Hidden Imported Events
-            .onChange(of: mainTz) { _, _ in engine.viewPrefsChanged() }        // Current Timezone picker
-            .onChange(of: altTz) { _, _ in engine.viewPrefsChanged() }         // Alternative Timezone picker
+            .onChange(of: showHidden) { _, _ in engine.viewPrefsChanged() } // Show Hidden Imported Events
+            .onChange(of: mainTz) { _, _ in engine.viewPrefsChanged() } // Current Timezone picker
+            .onChange(of: altTz) { _, _ in engine.viewPrefsChanged() } // Alternative Timezone picker
             .onReceive(NotificationCenter.default.publisher(for: .calendarViewPrefsChanged)) { _ in
                 engine.viewPrefsChanged()
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleTagFilter)) { _ in
-                showTagFilter.toggle()   // View ▸ Filter by Tags (menu item, either shell)
+                showTagFilter.toggle() // View ▸ Filter by Tags (menu item, either shell)
             }
             .onReceive(NotificationCenter.default.publisher(for: .focusDashTodo)) { _ in
-                dashHotkey(.todo)        // View ▸ TODO List (⌘B)
+                dashHotkey(.todo) // View ▸ TODO List (⌘B)
             }
             .onReceive(NotificationCenter.default.publisher(for: .focusDashNote)) { _ in
-                dashHotkey(.note)        // View ▸ Note Editor (⌘E)
+                dashHotkey(.note) // View ▸ Note Editor (⌘E)
             }
             .onReceive(NotificationCenter.default.publisher(for: .focusDashProj)) { _ in
-                dashHotkey(.proj)        // View ▸ Projects (⌘J)
+                dashHotkey(.proj) // View ▸ Projects (⌘J)
             }
     }
 
@@ -1273,11 +1294,15 @@ private struct ViewPrefObservers: ViewModifier {
                 engine.toggleDashPin()
                 dashTab = stop
                 focusWeekMonthTab(stop)
-                if stop == .todo { engine.dashFocusEntry(.todo) }
+                if stop == .todo {
+                    engine.dashFocusEntry(.todo)
+                }
             } else if dashTab != stop {
                 dashTab = stop
                 focusWeekMonthTab(stop)
-                if stop == .todo { engine.dashFocusEntry(.todo) }
+                if stop == .todo {
+                    engine.dashFocusEntry(.todo)
+                }
                 engine.wake()
             } else {
                 engine.toggleDashPin() // already on that tab → retract
