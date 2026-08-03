@@ -359,7 +359,6 @@ final class CatcherView: NSView, NSMenuItemValidation {
 
     override func scrollWheel(with e: NSEvent) {
         if modalActive {
-            dlog("scroll DROPPED: modalActive")
             return
         } // blocking modal up → no canvas scrolling
         // Year view: hand the event to the NSScrollView driver so AppKit does the elastic
@@ -399,11 +398,9 @@ final class CatcherView: NSView, NSMenuItemValidation {
                 return
             }
         }
-        if engine.isFlipping || engine.isMonthFlipping || engine.isWeekFlipping || engine.isDayFlipping || engine
-            .trackEditing || engine.bandEditing || engine.timedEditing {
-            dlog(
-                "scroll DROPPED: flip=\(engine.isDayFlipping ? "day" : "other")/\(engine.isFlipping)|\(engine.isMonthFlipping)|\(engine.isWeekFlipping) edit=\(engine.trackEditing)|\(engine.bandEditing)|\(engine.timedEditing)"
-            )
+        if engine.isFlipping || engine.isMonthFlipping || engine.isWeekFlipping
+            || engine.isDayFlipping || engine.trackEditing || engine.bandEditing
+            || engine.timedEditing {
             return
         } // don't fight flip / inline edit
         noteScroll() // suppress hover while this scroll (and its momentum) is live
@@ -510,7 +507,6 @@ final class CatcherView: NSView, NSMenuItemValidation {
             if fingersDown,
                !dayGestureActive {
                 dayGestureActive = true; dayAxis = .undecided; engine.beginDayGesture()
-                dlog("day gesture OPEN", always: true)
             }
             if dayAxis == .undecided {
                 let dx = abs(e.scrollingDeltaX), dy = abs(e.scrollingDeltaY)
@@ -536,7 +532,6 @@ final class CatcherView: NSView, NSMenuItemValidation {
                 if flipped {
                     swallowDayMomentum = true
                 } // armed pull → flip; eat the fling tail
-                dlog("day gesture CLOSE flip=\(flipped)", always: true)
             }
         } else {
             engine.onWheel(dx: e.scrollingDeltaX, dy: e.scrollingDeltaY)
@@ -777,8 +772,6 @@ final class CatcherView: NSView, NSMenuItemValidation {
     /// settleDay BLOCKED: live=true). The webview's PassThroughWebView enforced exactly this
     /// whole-gesture-single-target rule from the other side.
     var catcherOwnsGesture = false // internal: read by CatcherView+ScrollWheel.swift
-
-    var lastDiag = Date.distantPast // internal: read by CatcherView+ScrollWheel.swift
 
     var heldOrder: [UInt16] =
         [] // keyCodes, ordered by press (last = most recent); internal: read by CatcherView+Keyboard.swift

@@ -36,7 +36,7 @@ public enum ICloudStatus: Sendable {
 /// from the display clock — so observation isn't needed and can't cause update loops.
 @MainActor
 public final class CalendarEngine {
-    // Render loop: the calendar's TimelineView pauses when `renderClock.awake` is false (idle).
+    /// Render loop: the calendar's TimelineView pauses when `renderClock.awake` is false (idle).
     public let renderClock = RenderClock()
     /// Observable note-edit generation — see NoteEditGen. Bumped by setDailyNote.
     public let noteEdits = NoteEditGen()
@@ -56,18 +56,12 @@ public final class CalendarEngine {
                 }
                 sleepBegan = nil
             }
-            if CalendarEngine.diagClock {
-                print("[dash-diag] renderClock → AWAKE")
-            }
             if CalendarEngine.traceOn {
                 NotificationCenter.default.post(name: .ccTraceClock, object: true)
             }
         }
         armSleep()
     }
-
-    /// CC_DASH_DIAG: log clock transitions (the no-animation hunt).
-    static let diagClock = ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil
 
     /// Recent render-clock sleep spans (start, end), newest last — the HUD subtracts these so
     /// its fps reflects ANIMATED cadence, not wall time diluted by legitimate idle sleeps.
@@ -100,9 +94,6 @@ public final class CalendarEngine {
             } else {
                 self.renderClock.awake = false
                 self.sleepBegan = Date.timeIntervalSinceReferenceDate
-                if CalendarEngine.diagClock {
-                    print("[dash-diag] renderClock → ASLEEP")
-                }
                 if CalendarEngine.traceOn {
                     NotificationCenter.default.post(name: .ccTraceClock, object: false)
                 }
@@ -938,7 +929,11 @@ public final class CalendarEngine {
             // once, now that the content width is known; the user can still drag the split. A
             // client with NO dashboard (iPhone) instead pins the split to 1: full-width day column.
             daily.frac = hasDailyDashboard
-                ? clamp(daily.frac - 180 / max(1, viewport.w - Layout.labelW), Layout.dayFracDefaultMin, Layout.dayFracMax)
+                ? clamp(
+                    daily.frac - 180 / max(1, viewport.w - Layout.labelW),
+                    Layout.dayFracDefaultMin,
+                    Layout.dayFracMax
+                )
                 : 1
             // The driver is synced by CatcherView.layout after it sizes the document view.
         } else {

@@ -96,17 +96,6 @@ extension CalendarEngine {
         weekDashCruise = nil
     }
 
-    /// CC_DASH_DIAG=1 → engine-side day-swipe tracing (throttled), pairs with the catcher's.
-    @MainActor enum DashDiag {
-        static let on = ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil
-        static var last = Date.distantPast
-        static func log(_ msg: @autoclosure () -> String) {
-            guard on, Date().timeIntervalSince(last) > 0.2 else { return }
-            last = Date()
-            print("[dash-diag] \(msg())")
-        }
-    }
-
     public func beginDayGesture() {
         wake(); cancelTween(); scroll.liveDayScrolling = true
     }
@@ -130,10 +119,7 @@ extension CalendarEngine {
     /// (AppKit-rubber-banded) offset runs negative / beyond max; there we PREVIEW the neighbor month's
     /// first/last day sliding in (via the spillover day-page: day 0 / day dim+1) and arm a flip.
     public func setDayProgress(_ offsetX: CGFloat) {
-        guard isDayLevel, !isDayFlipping else {
-            DashDiag.log("setDayProgress DROPPED: level=\(chrome.level) dayFlip=\(isDayFlipping)")
-            return
-        }
+        guard isDayLevel, !isDayFlipping else { return }
         wake()
         let dayW = daily.frac * (viewport.w - Layout.labelW)
         guard dayW > 0 else { return }
@@ -204,13 +190,8 @@ extension CalendarEngine {
         // on the trackpad (a mid-scroll pause). The catcher now marks `scroll.liveDayScrolling` for the whole
         // finger-down phase — direct AND webview-forwarded — and clears it on `.ended` (which also
         // schedules this settle), so this gate cleanly separates "paused mid-scroll" from "done".
-        guard isDayLevel, !isDayFlipping, anim.dayTween == nil, !scroll.liveDayScrolling else {
-            DashDiag
-                .log(
-                    "settleDay BLOCKED: flip=\(isDayFlipping) tween=\(anim.dayTween != nil) live=\(scroll.liveDayScrolling)"
-                )
-            return
-        }
+        guard isDayLevel, !isDayFlipping, anim.dayTween == nil, !scroll.liveDayScrolling
+        else { return }
         guard let a = daily.anim else { return } // already settled → nothing to do
         let dim = daysInMonth(year, focus)
         if a.p > 0.5 { // past halfway → adopt the neighbour day
@@ -531,7 +512,13 @@ extension CalendarEngine {
         }
         weekDashHold = hold
         weekDashCruise = nil
-        weekDashSettle = Tween(from: hold.q, to: target, start: Date(), duration: Motion.weekDashSettleDur, ease: easeInOut)
+        weekDashSettle = Tween(
+            from: hold.q,
+            to: target,
+            start: Date(),
+            duration: Motion.weekDashSettleDur,
+            ease: easeInOut
+        )
     }
 
     /// Per-frame week-flip. The anchor already swapped to the destination month on release; here the

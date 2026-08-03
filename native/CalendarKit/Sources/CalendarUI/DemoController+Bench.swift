@@ -32,26 +32,10 @@ extension DemoController {
         }
     }
 
-    /// Stats over the last second of rendered frames (nil while idle/paused — no frames to
-    /// judge). SLEEP-AWARE: the render clock legitimately sleeps between animations, and raw
-    /// wall-time deltas diluted the fps readout to "30-50" during toggle sessions even when
-    /// every animated frame hit cadence. The engine's recorded sleep spans are subtracted from
-    /// each delta and from the window, so the HUD reads the ANIMATED frame rate — while real
-    /// main-thread blocks (which are not sleeps) still count as jank.
+    /// Stats over the last second of rendered frames (nil while idle/paused). The sleep-aware
+    /// math lives in CalendarRender/BenchStats (shared with the iPhone bench runner).
     public func hudStats() -> (fps: Double, p95ms: Double, maxms: Double)? {
-        let now = Date().timeIntervalSinceReferenceDate
-        let recent = hudRing.filter { $0 > now - 1.0 }
-        guard recent.count >= 5 else { return nil }
-        let deltas = zip(recent.dropFirst(), recent).map { b, a in
-            max(0.0001, (b - a) - (engine?.sleepOverlap(a, b) ?? 0))
-        }
-        guard !deltas.isEmpty else { return nil }
-        let sorted = deltas.sorted()
-        let p95 = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
-        let span = (recent.last! - recent.first!)
-            - (engine?.sleepOverlap(recent.first!, recent.last!) ?? 0)
-        guard span > 0.001 else { return nil }
-        return (Double(deltas.count) / span, p95 * 1000, sorted.last! * 1000)
+        BenchStats.hudStats(ring: hudRing) { a, b in engine?.sleepOverlap(a, b) ?? 0 }
     }
 
     /// YEAR-view scroll benchmark. The payload (bench/year-bands-2026.json — a real year of bands) is
@@ -722,80 +706,18 @@ extension DemoController {
         }
     }
 
-    /// Frame-time stats over the recorded ticks → $CC_DEMO_DATADIR/bench.json.
+    /// Frame-time stats over the recorded ticks → $CC_DEMO_DATADIR/bench.json. The stats math
+    /// lives in CalendarRender/BenchStats (shared with the iPhone bench runner; golden-tested).
     private func writeBenchResults() {
         CCTrace.dumpNow("bench-scene-end")
         guard let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty,
-              benchFrames.count > 2 else { return }
-        let deltas = zip(benchFrames.dropFirst(), benchFrames).map { $0 - $1 }.filter { $0 > 0 }
-        guard !deltas.isEmpty else { return }
-        // Moving-phase-only stats (frames inside recorded gesture windows): the number that
-        // matches what the EYE sees — a slow frame on a static screen is invisible.
-        var movingDeltas: [Double] = []
-        var hitchOffsets: [Double] = [] // hitch position within its turn window (0 = turn start), seconds
-        if !benchMoves.isEmpty {
-            for (t2, t1) in zip(benchFrames.dropFirst(), benchFrames) {
-                if let win = benchMoves.first(where: { t2 > $0.0 && t2 <= $0.1 + 0.02 }) {
-                    movingDeltas.append(t2 - t1)
-                    if t2 - t1 > 1.0 / 30.0 {
-                        hitchOffsets.append(((t2 - win.0) * 1000).rounded() / 1000)
-                    }
-                }
-            }
-        }
-        let sorted = deltas.sorted()
-        func pctMs(_ p: Double) -> Double {
-            sorted[min(sorted.count - 1, Int(Double(sorted.count) * p))] * 1000
-        }
-        func r2(_ x: Double) -> Double {
-            (x * 100).rounded() / 100
-        }
-        let seconds = benchFrames.last! - benchFrames.first!
-        // The WORST 1-second rolling window's fps — exactly what the on-screen HUD shows as "lowest
-        // framerate," which the avg/p95 summary hides (a cluster of hitches inside one second reads far
-        // lower than p95). For each frame, count frames in the trailing 1s and take the min fps over the run.
-        func hudMinFps() -> Double {
-            guard benchFrames.count > 5 else { return r2(Double(deltas.count) / seconds) }
-            var worst = Double.infinity
-            var lo = 0
-            for hi in 1 ..< benchFrames.count {
-                while benchFrames[hi] - benchFrames[lo] > 1.0 {
-                    lo += 1
-                }
-                let span = benchFrames[hi] - benchFrames[lo]
-                let n = hi - lo
-                if span >= 0.5, n >= 3 {
-                    worst = min(worst, Double(n) / span)
-                } // need a near-full window
-            }
-            return worst.isFinite ? r2(worst) : r2(Double(deltas.count) / seconds)
-        }
-        let base: [String: Any] = [
-            "frames": deltas.count + 1,
-            "seconds": r2(seconds),
-            "avg_fps": r2(Double(deltas.count) / seconds),
-            "hud_min_fps": hudMinFps(),
-            "frame_ms_p50": r2(pctMs(0.50)),
-            "frame_ms_p95": r2(pctMs(0.95)),
-            "frame_ms_max": r2(sorted.last! * 1000),
-            "hitches_over_33ms": deltas.filter { $0 > 1.0 / 30.0 }.count,
-        ]
-        var out2 = base
-        if !movingDeltas.isEmpty {
-            let ms = movingDeltas.sorted()
-            out2["moving_avg_fps"] = r2(Double(movingDeltas.count) / movingDeltas.reduce(0, +))
-            out2["moving_p95_ms"] = r2(ms[min(ms.count - 1, Int(Double(ms.count) * 0.95))] * 1000)
-            out2["moving_max_ms"] = r2(ms.last! * 1000)
-            out2["moving_hitches"] = movingDeltas.filter { $0 > 1.0 / 30.0 }.count
-            out2["hitch_offsets_s"] = hitchOffsets
-        }
+              var out = BenchStats.results(frames: benchFrames, moves: benchMoves) else { return }
         // Per-layer CPU attribution (CC_PROF=1): each draw layer's [samples, avg-ms, total-ms, peak-ms].
         // NB: main-thread CPU only — glass GPU compositing is invisible here (see RenderProfiler).
         let layers = RenderProf.summary()
         if !layers.isEmpty {
-            out2["layers_ms"] = layers
+            out["layers_ms"] = layers
         }
-        let out = out2
         if let data = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: dir).appendingPathComponent("bench.json"))
         }

@@ -21,18 +21,6 @@ extension CatcherView {
     // horizontal ones are re-dispatched to the catcher (native day/week paging + momentum),
     // vertical ones stay with the panel's own scroller. Phaseless legacy wheels are never
     // intercepted.
-    /// CC_DASH_DIAG=1 → trace the day-swipe event path (routing decisions, gesture opens/closes,
-    /// early-return reasons) to the console, throttled. For hunting the "stuck day swipe".
-    static let diag = ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil
-    func dlog(_ msg: @autoclosure () -> String, always: Bool = false) {
-        guard Self.diag else { return }
-        if !always, Date().timeIntervalSince(lastDiag) < 0.2 {
-            return
-        }
-        lastDiag = Date()
-        print("[dash-diag] \(msg())")
-    }
-
     func installPanelScrollMonitor() {
         guard panelScrollMonitor == nil else { return }
         panelScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
@@ -51,10 +39,6 @@ extension CatcherView {
                     || (engine.dashPinned && (1 ... 2).contains(engine.chrome.level))
                 self.panelGestureCaptured = !self.catcherOwnsGesture && levelOK
                     && !engine.drawerOpen && engine.inDayDashboard(self.point(e))
-                self.dlog(
-                    "monitor: gesture began, owns=\(self.catcherOwnsGesture) captured=\(self.panelGestureCaptured)",
-                    always: true
-                )
             }
             if self.catcherOwnsGesture {
                 // Deliver directly (and consume) so pointer drift can't re-route the tail.
@@ -69,10 +53,6 @@ extension CatcherView {
                 }
             }
             guard self.panelAxis == .horizontal else { return e } // vertical: the panel scrolls
-            self
-                .dlog(
-                    "monitor: → catcher (horizontal over panel) phase=\(e.phase.rawValue) mom=\(e.momentumPhase.rawValue)"
-                )
             self.scrollWheel(with: e) // day/week paging with native momentum, like the webview
             return nil
         }

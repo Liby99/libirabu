@@ -51,4 +51,3 @@ private struct PressScaleStyle: ButtonStyle {
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
-

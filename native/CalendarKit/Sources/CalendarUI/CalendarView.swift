@@ -639,7 +639,6 @@ public struct CalendarView: View {
     @ViewBuilder
     private func nativeDashOverlay(theme: Theme) -> some View {
         let input = engine.snapshotInput()
-        let _ = NativeDash.diagFrame(engine: engine) // CC_DASH_DIAG pin-tween forensics
         let bodyPanels = dashBodyPanels(input)
         let c = engine.dashboardCarousel()
         let sg = dashScopePanels(input)
@@ -749,9 +748,6 @@ public struct CalendarView: View {
                                             CalendarUIState.OpenNoteTarget(line: $0,
                                                                            occurrenceKey: occKey)
                                         }
-                                        if NativeDash.diag {
-                                            print("[dash-diag] row open id=\(id) line=\(line.map(String.init) ?? "nil") occ=\(occKey ?? "nil")")
-                                        }
                                         ui.openEventId = sourceId(of: id)
                                     },
                                     onJump: { key, line in
@@ -819,7 +815,6 @@ public struct CalendarView: View {
             // One evaluation = one rendered frame → the benchmark's frame counter (no-op outside CC_DEMO
             // bench scenes; reads only @ObservationIgnored state, so it can't invalidate the view).
             let _ = demo.benchTick(tl.date)
-            let _ = NativeDash.diagSceneFrame() // CC_DASH_DIAG scene heartbeat
             let _ = CCTrace.frame(engine) // CC_TRACE interaction profiler
             calendarScene(engine.sceneInput(at: tl.date, viewport: vp), vp: vp, theme: theme)
         }
@@ -1291,7 +1286,6 @@ private struct ViewPrefObservers: ViewModifier {
     /// already open on that tab → retract the panel. No-op at year or under the drawer.
     private func dashHotkey(_ stop: DashTab) {
         guard ui.openEventId == nil else { return }
-        NativeDash.diagPress("⌘\(stop == .todo ? "B" : stop == .note ? "E" : "J")", engine: engine)
         CCTrace.event("hotkey ⌘\(stop == .todo ? "B" : stop == .note ? "E" : "J")")
         switch engine.chrome.level {
         case 3:

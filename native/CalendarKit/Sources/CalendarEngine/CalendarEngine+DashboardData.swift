@@ -216,6 +216,7 @@ extension CalendarEngine {
         noteEdits.gen &+= 1
         schedulePersist()
     }
+
     /// ── Scoped delete for recurring events (matches the web: this / this+future / all) ─────────
     /// Remove just the focused occurrence — punch a hole by adding its date to the repeat exdates.
     public func deleteOccurrence(_ id: String, _ occKey: String) {

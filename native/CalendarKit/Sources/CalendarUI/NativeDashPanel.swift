@@ -64,32 +64,8 @@ enum NativeDash {
     /// regression (mounts landing inside the next gesture).
     @MainActor static var settledSince: (id: String, at: Date)?
 
-    // ── CC_DASH_DIAG=1: pin-toggle tween forensics (the "no animation, just a pop" hunt) ──
-    // dashHotkey stamps the press; the overlay's per-frame eval then reports, for 2.5s: any
-    // frame GAP > 50ms (who blocked the tween), any todoDataStamp change (sync/import churn
-    // refreezing panels mid-slide), and whether the target panel was parked/warm at press.
+    /// CC_DASH_DIAG=1: keep the >50ms main-thread tripwires (diagTime) armed.
     static let diag = ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil
-    @MainActor static var diagPressAt: Date?
-    @MainActor static var diagLastEval: Date?
-    @MainActor static var diagLastStamp = ""
-
-    @MainActor static var diagFirstFramePending = false
-    @MainActor static var diagFirstScenePending = false
-
-    @MainActor static func diagPress(_ label: String, engine: CalendarEngine) {
-        guard diag else { return }
-        DashWatchdog.shared.openWindow(seconds: 2.5)
-        diagPressAt = Date()
-        diagLastEval = nil
-        diagLastScene = nil
-        diagFirstFramePending = true
-        diagFirstScenePending = true
-        diagLastStamp = engine.todoDataStamp
-        let parked = parkedPanels.map(\.panelId).joined(separator: ",")
-        print(
-            "[dash-diag] \(label) pressed | awake=\(engine.renderClock.awake) pinned=\(engine.dashPinned) level=\(engine.chrome.level) parked=[\(parked)] warm=[\(warmIds.joined(separator: ","))]"
-        )
-    }
 
     /// Time a suspect on the main thread; prints only when it exceeds 50ms (diag builds).
     static func diagTime<T>(_ label: String, _ work: () -> T) -> T {
@@ -101,67 +77,6 @@ enum NativeDash {
             print(String(format: "[dash-diag] %@ took %.0fms", label, ms))
         }
         return out
-    }
-
-    /// SCENE-side heartbeat (the main canvas TimelineView): if SCENE gaps mirror the overlay
-    /// gaps, the render clock/schedule is stalling globally; if the scene ticks while the
-    /// overlay starves, the overlay's timeline has a dependency problem.
-    @MainActor static var diagLastScene: Date?
-    @MainActor static func diagSceneFrame() {
-        guard diag, let press = diagPressAt else { diagLastScene = nil; return }
-        let now = Date()
-        if diagFirstScenePending {
-            diagFirstScenePending = false
-            let ms = now.timeIntervalSince(press) * 1000
-            if ms > 40 {
-                print(String(
-                    format: "[dash-diag] FIRST SCENE frame %.0fms after press (the tween ran blind until here)",
-                    ms
-                ))
-            }
-        }
-        if let last = diagLastScene {
-            let gap = now.timeIntervalSince(last)
-            if gap > 0.05 {
-                print(String(format: "[dash-diag] SCENE GAP %.0fms at +%.2fs after press",
-                             gap * 1000, now.timeIntervalSince(press)))
-            }
-        }
-        diagLastScene = now
-    }
-
-    @MainActor static func diagFrame(engine: CalendarEngine) {
-        guard diag else { return }
-        DashWatchdog.shared.noteEval()
-        guard let press = diagPressAt else { return }
-        let now = Date()
-        let sincePress = now.timeIntervalSince(press)
-        if sincePress > 2.5 {
-            diagPressAt = nil
-            print("[dash-diag] tween window closed")
-            return
-        }
-        if diagFirstFramePending {
-            diagFirstFramePending = false
-            let ms = sincePress * 1000
-            if ms > 40 {
-                print(String(format: "[dash-diag] FIRST OVERLAY frame %.0fms after press", ms))
-            }
-        }
-        if let last = diagLastEval {
-            let gap = now.timeIntervalSince(last)
-            if gap > 0.05 {
-                print(String(format: "[dash-diag] FRAME GAP %.0fms at +%.2fs after press",
-                             gap * 1000, sincePress))
-            }
-        }
-        diagLastEval = now
-        let stamp = engine.todoDataStamp
-        if stamp != diagLastStamp {
-            print(String(format: "[dash-diag] dataStamp CHANGED at +%.2fs (sync/import churn → panel refreeze) %@ → %@",
-                         sincePress, diagLastStamp, stamp))
-            diagLastStamp = stamp
-        }
     }
 
     @MainActor static func parkPanels(_ live: [DashBodyPanel]) {

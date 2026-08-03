@@ -359,7 +359,8 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         let colW = f.dayW
         let bandTop = f.bandY
         let bandBottom = f.bandY + 4 * f.trackH
-        let colBottom = g.z >= Layout.detailZ ? Layout.tlBottomY(g.vp.h) : bandBottom // day column runs through the timeline
+        let colBottom = g.z >= Layout.detailZ ? Layout
+            .tlBottomY(g.vp.h) : bandBottom // day column runs through the timeline
         // Track lane row (hovering a track name OR a band cell) — gutter + content.
         if active, let tr = h.track {
             let ly = bandTop + CGFloat(tr) * f.trackH

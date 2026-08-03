@@ -690,7 +690,10 @@ import SwiftUI
             // band in month view; internal dividers otherwise. Matches the grid msep.
             let quarterBottom = m % 3 == 2
             let isFocus = m == input.focus || (input.monthAnim != nil && m == input.focus + input.monthAnim!.dir)
-            let edge = max(quarterBottom ? 1 : 0, isFocus ? clamp((input.z - Layout.detailZ) / Layout.detailRamp, 0, 1) : 0)
+            let edge = max(
+                quarterBottom ? 1 : 0,
+                isFocus ? clamp((input.z - Layout.detailZ) / Layout.detailRamp, 0, 1) : 0
+            )
             var bottom = Path()
             let by = f.bandY + 4 * f.trackH
             bottom.move(to: CGPoint(x: 0, y: by)); bottom.addLine(to: CGPoint(

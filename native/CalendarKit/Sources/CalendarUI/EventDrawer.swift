@@ -1743,9 +1743,6 @@ struct EventDrawer: View {
         // EDITOR at the row's source line, in the note that actually holds it — the occurrence
         // ("This Event") note when the todo came from one. Consumed once; the scope-change
         // default (onChange(of: noteScope)) yields while noteEditLine is pending.
-        if NativeDash.diag {
-            print("[dash-diag] drawer load id=\(id) target=\(ui.openNoteTarget.map { "\($0.line)" } ?? "nil") recurring=\(recurring)")
-        }
         if let target = ui.openNoteTarget {
             ui.openNoteTarget = nil
             if recurring, let ok = target.occurrenceKey {

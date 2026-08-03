@@ -132,15 +132,6 @@ extension CalendarEngine {
 
     @discardableResult
     private func buildTodoFeed(today: String) -> [ParsedTodo] {
-        let _diagT0 = Date()
-        defer {
-            if ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil {
-                let ms = -_diagT0.timeIntervalSinceNow * 1000
-                if ms > 50 {
-                    print(String(format: "[dash-diag] buildTodoFeed took %.0fms", ms))
-                }
-            }
-        }
         let todos = Self.buildFeedPure(sources: todoSources(), dailyNotes: items.dailyNotes,
                                        today: today)
         todoFeedCache = (caches.editGen, caches.noteGen, today, todos)
@@ -180,7 +171,7 @@ extension CalendarEngine {
     /// stays the storage key (toggling rewrites the right note), and undated items default their
     /// due to the range END ("finish within the week/month"). Mirrors dashboard.ts scopeNoteTodos.
     private nonisolated static func scopeNoteTodos(key: String, anchor: String, end: String, title: String,
-                                       text: String, today: String) -> [ParsedTodo] {
+                                                   text: String, today: String) -> [ParsedTodo] {
         TodoIndex.parseDailyNoteTodos(date: anchor, notes: text, today: today).map { t in
             var t = t
             t.dailyDate = key
