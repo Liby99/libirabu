@@ -323,6 +323,10 @@ public struct CalendarView: View {
             case .open:
                 if let t = dashNav.currentRow {
                     if t.source == "event" {
+                        // Enter on an event row: drawer, note editor at the row's line
+                        // (occurrence note when the todo lives there) — same as a click.
+                        ui.openNoteTarget = CalendarUIState
+                            .OpenNoteTarget(line: t.line, occurrenceKey: t.occurrenceKey)
                         ui.openEventId = sourceId(of: t.eventId)
                     } else if let key = t.dailyDate {
                         // Enter on a note row: fly to its note, landing in the EDITOR
@@ -736,10 +740,15 @@ public struct CalendarView: View {
                                     dataStamp: engine.todoDataStamp,
                                     settings: todoSettings,
                                     nav: dashNav, noteMode: $noteMode,
-                                    // Event rows open the DRAWER (the web's data-open path);
+                                    // Event rows open the DRAWER (the web's data-open path) —
+                                    // landing in the note editor at the row's source line;
                                     // note rows fly to their note, landing on the NOTE tab.
-                                    onOpen: { id in
+                                    onOpen: { id, line, occKey in
                                         guard !NativeDash.tapsSuppressed else { return }
+                                        ui.openNoteTarget = line.map {
+                                            CalendarUIState.OpenNoteTarget(line: $0,
+                                                                           occurrenceKey: occKey)
+                                        }
                                         ui.openEventId = sourceId(of: id)
                                     },
                                     onJump: { key, line in

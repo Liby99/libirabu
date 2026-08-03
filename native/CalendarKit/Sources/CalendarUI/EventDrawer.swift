@@ -12,6 +12,15 @@ import SwiftUI
 @Observable
 public final class CalendarUIState {
     public var openEventId: String?
+    /// Set (before openEventId) when a TODO row opens the drawer: land the notes area in the
+    /// EDITOR at the row's source line — in the occurrence ("This Event") note's scope when
+    /// the todo lives there. Consumed once by the drawer's load(); canvas opens leave it nil.
+    public struct OpenNoteTarget {
+        public var line: Int
+        public var occurrenceKey: String?
+    }
+
+    public var openNoteTarget: OpenNoteTarget?
     public var editingTrack: TrackEdit? // inline track-name editor target
     public var editingBand: BandEdit? // inline band-title editor target
     public var editingTimed: TimedEdit? // inline timed-event-title editor target
@@ -107,6 +116,7 @@ public final class CalendarUIState {
         pd.focus = (base + d + n) % n
         pendingDelete = pd
     }
+
     /// Post a keyboard action into the open drawer (see `drawerPulse`).
     public func postDrawer(_ kind: DrawerActionKind) {
         drawerActionKind = kind; drawerPulse += 1
@@ -144,6 +154,7 @@ public enum DeleteChoice: Equatable {
         case .unhide: "Unhide"
         }
     }
+
     /// Red (destructive) styling: the item disappears from the calendar. Lane removal and unhide
     /// leave it visible, so they render as plain actions.
     public var isDestructive: Bool {
@@ -520,6 +531,9 @@ struct EventDrawer: View {
                                      commit: { r in engine.setRepeat(id, r.kind == "none" ? nil : r) }))
             .onChange(of: occNote) { _, v in engine.setOccNote(id, occKey, v) }
             .onChange(of: noteScope) { _, s in // open each note in the sensible view
+                // …unless a todo-row line focus is pending: load() just switched the scope
+                // programmatically and the editor must open AT the line, not the content default.
+                guard noteEditLine == nil else { return }
                 let c = s == .occurrence ? occNote : notes
                 notesMode = c.isEmpty ? .edit : .preview
             }
@@ -1725,6 +1739,20 @@ struct EventDrawer: View {
         occNote = engine.occNote(id, occKey)
         noteScope = .series
         notesMode = notes.isEmpty ? .edit : .preview // land on preview when there's something to show
+        // A TODO row opened this drawer (panel click / Enter): land the notes area in the
+        // EDITOR at the row's source line, in the note that actually holds it — the occurrence
+        // ("This Event") note when the todo came from one. Consumed once; the scope-change
+        // default (onChange(of: noteScope)) yields while noteEditLine is pending.
+        if let target = ui.openNoteTarget {
+            ui.openNoteTarget = nil
+            if recurring, let ok = target.occurrenceKey {
+                occKey = ok
+                occNote = engine.occNote(id, ok)
+                noteScope = .occurrence
+            }
+            notesMode = .edit
+            noteEditLine = target.line
+        }
         publishFieldOrder()
     }
 

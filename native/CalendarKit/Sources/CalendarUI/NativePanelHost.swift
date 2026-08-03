@@ -20,7 +20,7 @@ struct NativePanelHost: View, Equatable {
     var settings: DashTodoSettings?
     var nav: NativeDashNavModel?
     @Binding var noteMode: NotesMode
-    var onOpen: (String) -> Void
+    var onOpen: (String, Int?, String?) -> Void
     var onJump: (String, Int?) -> Void = { _, _ in }
 
     /// The per-frame TimelineView re-creates this view every frame; the closures make SwiftUI

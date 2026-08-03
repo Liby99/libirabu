@@ -17,7 +17,7 @@ struct NativeProjPanel: View {
     let scope: String // "week" | "month"
     let key: String
     let theme: Theme
-    var onOpen: (String) -> Void
+    var onOpen: (String, Int?, String?) -> Void
     var onJump: (String, Int?) -> Void = { _, _ in }
 
     @State private var expanded: String? // accordion: at most one project shows ALL rows
@@ -134,10 +134,10 @@ struct NativeProjPanel: View {
                           // render clock wouldn't until the next mouse move woke it.
                           frozen?.stamp = engine.todoDataStamp
                       },
-                      onOpen: { id in onOpen(id) },
+                      onOpen: onOpen,
                       onOpenTodo: { t in
                           if t.source == "event" {
-                              onOpen(t.eventId)
+                              onOpen(t.eventId, t.line, t.occurrenceKey)
                           } // event drawer
                           else if let key = t.dailyDate {
                               onJump(key, t.line)
@@ -158,7 +158,7 @@ private struct ProjChart: View {
     let scope: String
     let theme: Theme
     var onToggle: (ProjTask) -> Void
-    var onOpen: (String) -> Void
+    var onOpen: (String, Int?, String?) -> Void
     var onOpenTodo: (ParsedTodo) -> Void
 
     @State private var frontLabel: String? // hovered deadline/event label: raised above the rest
@@ -264,7 +264,7 @@ private struct ProjChart: View {
             .stroke(color.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
             .frame(width: 1, height: rowTop + marksH - lineTop)
             .offset(x: px, y: lineTop)
-            Button { onOpen(d.id) } label: {
+            Button { onOpen(d.id, nil, nil) } label: {
                 Text(d.title.isEmpty ? "(deadline)" : d.title)
                     .font(.system(size: 10.5, weight: .medium))
                     .kerning(0.3)
@@ -367,7 +367,7 @@ private struct ProjChart: View {
             // The name rides centered on the box: SAME placement chain as the box itself
             // (a box-width positioning frame + the identical offset), so the two centers
             // coincide by construction — the chip just overhangs symmetrically if wider.
-            Button { onOpen(ev.id) } label: {
+            Button { onOpen(ev.id, nil, nil) } label: {
                 Text(ev.title)
                     .font(.system(size: 10.5, weight: .bold))
                     .foregroundStyle(color)

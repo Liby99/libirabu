@@ -215,7 +215,7 @@ struct NativeDashPanel: View {
     let theme: Theme
     var settings: DashTodoSettings? // layering prefs (⚙) — nil falls back to scope defaults
     var nav: NativeDashNavModel? // keyboard row cursor (⌘B focus / arrows / Space / Enter)
-    var onOpen: (String) -> Void // event todo row → open that event (the drawer)
+    var onOpen: (String, Int?, String?) -> Void // event row → drawer (id, note line, occurrence key)
     var onJump: (String, Int?) -> Void = { _, _ in } // note todo row → fly to its note (storage key)
 
     @State private var doneOpen: Set<String> = [] // per-view completed expansion (session-scoped)
@@ -614,7 +614,9 @@ struct NativeDashPanel: View {
     private func openRow(_ t: ParsedTodo) {
         guard !NativeDash.tapsSuppressed else { return } // pinch lift-off, not a real click
         if t.source == "event" {
-            onOpen(t.eventId) // opens the event drawer, like the web's data-open
+            // Opens the event drawer landing in the note editor AT this row's source line —
+            // in the occurrence note when the todo lives there (the web's data-open flow).
+            onOpen(t.eventId, t.line, t.occurrenceKey)
         } else if let key = t.dailyDate {
             onJump(key, t.line) // fly to the note, landing in the editor at this line
         }
