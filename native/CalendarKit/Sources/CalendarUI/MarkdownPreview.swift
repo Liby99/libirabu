@@ -91,6 +91,7 @@ struct MarkdownPreview: NSViewRepresentable {
             tv.codeBG = base.withAlphaComponent(0.055)
             tv.quoteBG = base.withAlphaComponent(0.035)
             tv.quoteBar = NSColor(Theme.accent).withAlphaComponent(0.55)
+            tv.managedBar = NSColor(Theme.accent).withAlphaComponent(0.55)
             tv.onCmdClickLine = parent.onLineEdit
             tv.textStorage?.setAttributedString(doc.string)
             tv.needsDisplay = true
@@ -255,6 +256,7 @@ final class PreviewTextView: NSTextView {
     var codeBG: NSColor = .black.withAlphaComponent(0.055)
     var quoteBG: NSColor = .black.withAlphaComponent(0.035)
     var quoteBar: NSColor = .systemRed
+    var managedBar: NSColor = .systemRed // imported managed-block left border (accent 55%)
 
     override func draw(_ dirtyRect: NSRect) {
         if let lm = layoutManager, textContainer != nil {
@@ -281,6 +283,14 @@ final class PreviewTextView: NSTextView {
                     rightRounded(r, radius: 7).fill()
                     quoteBar.setFill()
                     NSRect(x: r.minX, y: r.minY, width: 3, height: r.height).fill()
+                case .managed:
+                    // Imported "managed block" (the web drawer's .cc-dw-mi): a 2px accent bar
+                    // down the region's left edge — content is indented past it by the
+                    // renderer (indentManaged / the field table's cell padding).
+                    managedBar.setFill()
+                    NSBezierPath(roundedRect: NSRect(x: 1, y: r.minY - 2, width: 2,
+                                                     height: r.height + 6),
+                                 xRadius: 1, yRadius: 1).fill()
                 }
             }
         }
@@ -318,7 +328,7 @@ final class PreviewTextView: NSTextView {
 // ── The document builder ─────────────────────────────────────────────────────────────────────
 
 enum MarkdownDoc {
-    enum DecorKind { case code, quote }
+    enum DecorKind { case code, quote, managed }
 
     struct Rendered {
         let string: NSAttributedString
@@ -353,8 +363,17 @@ enum MarkdownDoc {
 
         let (managedRaw, userText) = ManagedNote.splitNote(text)
         if !managedRaw.isEmpty {
+            // The whole managed region — key:value fields AND the imported description — draws
+            // behind a 2px accent left border (the web drawer's .cc-dw-mi treatment), content
+            // indented past the bar.
+            let managedStart = out.length
             appendManaged(managedRaw, to: &out, decor: &decor, base: base, accent: accent,
                           theme: theme)
+            let managedRange = NSRange(location: managedStart, length: out.length - managedStart)
+            if managedRange.length > 0 {
+                indentManaged(&out, in: managedRange)
+                decor.append((managedRange, .managed))
+            }
         }
         let startLine = managedRaw.isEmpty ? 1 : userStartLine(userText, in: text)
         appendBlocks(userText, startLine: startLine, to: &out, lineMap: &lineMap, decor: &decor,
@@ -722,7 +741,7 @@ enum MarkdownDoc {
                 for c in 0 ... 1 {
                     let cell = NSTextTableBlock(table: table, startingRow: r, rowSpan: 1,
                                                 startingColumn: c, columnSpan: 1)
-                    cell.setWidth(c == 0 ? 0 : 6, type: .absoluteValueType, for: .padding, edge: .minX)
+                    cell.setWidth(c == 0 ? 12 : 6, type: .absoluteValueType, for: .padding, edge: .minX)
                     cell.setWidth(2.5, type: .absoluteValueType, for: .padding, edge: .minY)
                     cell.setWidth(2.5, type: .absoluteValueType, for: .padding, edge: .maxY)
                     if c == 0 {
@@ -758,6 +777,20 @@ enum MarkdownDoc {
             appendBlocks(parsed.description, startLine: -100_000, to: &out,
                          lineMap: &lineMapScratch, decor: &decor, base: base, accent: accent,
                          theme: theme, interactive: false) // vendor text: no line actions
+        }
+    }
+
+    /// Shift every paragraph of the managed region right by the border inset (12px), so the
+    /// 2px accent bar sits left of ALL of it — including description blocks that carry their
+    /// own indents (additive). Table cells indent via their own block padding instead.
+    private static func indentManaged(_ out: inout NSMutableAttributedString, in range: NSRange) {
+        out.enumerateAttribute(.paragraphStyle, in: range) { value, r, _ in
+            guard let p = value as? NSParagraphStyle,
+                  let m = p.mutableCopy() as? NSMutableParagraphStyle else { return }
+            guard m.textBlocks.isEmpty else { return } // table cells: block padding handles it
+            m.firstLineHeadIndent += 12
+            m.headIndent += 12
+            out.addAttribute(.paragraphStyle, value: m, range: r)
         }
     }
 
