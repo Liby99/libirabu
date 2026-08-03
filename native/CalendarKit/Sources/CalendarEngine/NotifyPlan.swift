@@ -168,7 +168,7 @@ public enum NotifyPlanner {
                              todoItemId: String? = nil) {
         let moment = hour.flatMap { instant(day, $0, tz) } // nil for day-granular items (bands, date-only todos)
         for off in ctx.prefs.offsets[kind] ?? [] {
-            var fire: Date? = switch off {
+            let fire: Date? = switch off {
             case .atTime: moment ?? morning(day, 0, ctx)
             case .m15: (moment ?? morning(day, 0, ctx))?.addingTimeInterval(-15 * 60)
             case .h1: (moment ?? morning(day, 0, ctx))?.addingTimeInterval(-3600)

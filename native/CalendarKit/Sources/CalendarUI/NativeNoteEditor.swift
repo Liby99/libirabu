@@ -482,6 +482,8 @@ struct NativeNoteEditor: NSViewRepresentable {
     /// the numbered region, not the whole panel.
     final class LineNumberRuler: NSRulerView {
         weak var tv: NSTextView?
+        /// Gutter separator line opacity — trial-hidden at 0 (was 0.12); see draw(_:).
+        var sepAlpha: CGFloat = 0
 
         init(textView: NSTextView, scroll: NSScrollView) {
             tv = textView
@@ -648,8 +650,8 @@ struct NativeNoteEditor: NSViewRepresentable {
             }
 
             // Separator TRIAL-HIDDEN (sepAlpha 0 — user prefers the bare gutter); geometry via
-            // the same converted coords if ever restored.
-            let sepAlpha: CGFloat = 0 // was 0.12
+            // the same converted coords if ever restored. (A stored property, not a local `let`,
+            // so the compiler doesn't constant-fold the branch away and warn.)
             if sepAlpha > 0 {
                 let extra = lm.extraLineFragmentRect
                 let usedMax = max(lm.usedRect(for: tc).maxY, extra.height > 0 ? extra.maxY : 0)

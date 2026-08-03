@@ -336,7 +336,7 @@ struct NativeDashPanel: View {
     private func foldAndCenter(_ t: ParsedTodo, proxy: ScrollViewProxy?) {
         guard let nav else { return }
         let a = Self.anchor(t)
-        withAnimation(.easeInOut(duration: 0.2)) { nav.collapsedSubs.insert(a) }
+        withAnimation(.easeInOut(duration: 0.2)) { _ = nav.collapsedSubs.insert(a) }
         engine.wake()
         withAnimation(.easeInOut(duration: 0.3)) { proxy?.scrollTo(a, anchor: .center) }
     }
@@ -1005,7 +1005,8 @@ private struct TodoRow: View {
         guard todo.parentLine == nil, !todo.eventTitle.isEmpty, !ownNote else {
             return content
         }
-        return Text("\(todo.eventTitle) · ").foregroundStyle(theme.accentGrey) + content
+        let prefix = Text("\(todo.eventTitle) · ").foregroundStyle(theme.accentGrey)
+        return Text("\(prefix)\(content)")
     }
 
     private var metaRow: some View {

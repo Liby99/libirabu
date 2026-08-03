@@ -108,7 +108,7 @@ final class PreviewTextView: NSTextView {
     var quoteBar: NSColor = .systemRed
 
     override func draw(_ dirtyRect: NSRect) {
-        if let lm = layoutManager, let tc = textContainer {
+        if let lm = layoutManager, textContainer != nil {
             let origin = textContainerOrigin
             for d in decor {
                 let gr = lm.glyphRange(forCharacterRange: d.range, actualCharacterRange: nil)

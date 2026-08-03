@@ -149,8 +149,10 @@ extension CalendarEngine {
 
     /// The pure full-feed build (event todos + every daily/weekly/monthly note's todos) — a
     /// static over value snapshots, so the background rebuild can run it off the engine.
-    static func buildFeedPure(sources: [TodoSource], dailyNotes: [String: String],
-                              today: String) -> [ParsedTodo] {
+    /// `nonisolated`: the engine class is @MainActor, but this touches no engine state and runs
+    /// on feedBuildQ (the isolation warning was a future Swift-6 error).
+    nonisolated static func buildFeedPure(sources: [TodoSource], dailyNotes: [String: String],
+                                          today: String) -> [ParsedTodo] {
         var todos = TodoIndex.indexTodos(sources, today: today)
         for (key, text) in dailyNotes.sorted(by: { $0.key < $1.key }) {
             if key.hasPrefix("week:") {
@@ -177,7 +179,7 @@ extension CalendarEngine {
     /// START (relative `due:` tokens resolve inside the range) then re-anchored: the soft-link key
     /// stays the storage key (toggling rewrites the right note), and undated items default their
     /// due to the range END ("finish within the week/month"). Mirrors dashboard.ts scopeNoteTodos.
-    private static func scopeNoteTodos(key: String, anchor: String, end: String, title: String,
+    private nonisolated static func scopeNoteTodos(key: String, anchor: String, end: String, title: String,
                                        text: String, today: String) -> [ParsedTodo] {
         TodoIndex.parseDailyNoteTodos(date: anchor, notes: text, today: today).map { t in
             var t = t
@@ -191,7 +193,7 @@ extension CalendarEngine {
     }
 
     /// "YYYY-MM" → its last day's ISO date.
-    public static func monthEndIso(_ ym: String) -> String {
+    public nonisolated static func monthEndIso(_ ym: String) -> String {
         let p = ym.split(separator: "-").compactMap { Int($0) }
         guard p.count == 2 else { return ym }
         return String(format: "%04d-%02d-%02d", p[0], p[1], daysInMonth(p[0], p[1] - 1))

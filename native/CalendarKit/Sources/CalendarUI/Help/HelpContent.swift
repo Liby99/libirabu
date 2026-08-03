@@ -224,7 +224,7 @@ public enum HelpContent {
                            "notepad", "weekly note", "monthly note"],
                 blocks: [
                     .paragraph(
-                        "In Day view, the panel beside the timeline is the day's dashboard; week and month views have their own (deadlines, to-dos, and a note scoped to that week or month). It has two tabs:"
+                        "In Day view, the panel beside the timeline is the day's dashboard; week and month views have their own (deadlines, to-dos, and a note scoped to that week or month). It has three tabs:"
                     ),
                     .bullets([
                         "To-Do — every checkbox from the range's notes and its events, gathered in one list.",
@@ -283,6 +283,33 @@ public enum HelpContent {
                 ],
                 shortcuts: [.init("⌘S", "Editor → preview"), .init("Tab", "Accept completion / indent"),
                             .init("Esc", "Close dropdown, then exit editor")]
+            ),
+            HelpTopic(
+                id: "note-editor", title: "The note editor & preview",
+                summary: "Writing notes: line numbers, list continuation, line moves, and the rendered preview.",
+                keywords: ["editor", "preview", "markdown", "line numbers", "monospace", "checkbox",
+                           "indent", "swap lines", "option arrow", "save", "escape", "table", "code"],
+                blocks: [
+                    .paragraph(
+                        "Every note — the dashboard's daily/weekly/monthly notes and an event's drawer note — opens in the same editor: monospaced, line-numbered, with the active line highlighted. Arriving at a note picks the mode by content: an empty note opens in the editor (there is nothing to preview), a written one opens in the preview. The pencil/eye toggle at the panel's bottom right switches at any time."
+                    ),
+                    .bullets([
+                        "Enter on a list line continues it — \"- [ ] \" carries to the next line so a checklist types itself; Enter on an empty item ends the list.",
+                        "Tab / ⇧Tab indent and un-indent the current line (nesting sub-tasks).",
+                        "⌥↑ / ⌥↓ move the current line up or down a row.",
+                        "⌘S stamps the editing session (created: on new items) and flips to the preview.",
+                        "Esc closes an open completion dropdown first; pressed again it leaves the editor (previewing if the note has content).",
+                    ]),
+                    .paragraph(
+                        "The preview renders the full Markdown: headings, tables (⌘-selectable like any text), fenced code with syntax highlighting for the mainstream languages, quote blocks, links, and every token as its badge — priorities, due/done dates, #tags, @people, and @project chips inline in the prose."
+                    ),
+                    .bullets([
+                        "Click a checkbox in the preview to toggle it — the source line is rewritten in place (and done: stamped), no need to enter the editor.",
+                        "⌘-click anywhere on a rendered line to jump into the editor at that exact line.",
+                    ]),
+                ],
+                shortcuts: [.init("⌥↑ / ⌥↓", "Move line up / down"), .init("Tab / ⇧Tab", "Indent / un-indent"),
+                            .init("⌘S", "Stamp + preview"), .init("⌘-click", "Edit at that line (in preview)")]
             ),
         ]
     )
