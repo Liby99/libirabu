@@ -59,18 +59,6 @@
             ReferencedContainer = "container:CalendarApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "CC_FPS_HUD"
-            value = "1"
-            isEnabled = "NO">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "CC_TRACE"
-            value = "1"
-            isEnabled = "NO">
-         </EnvironmentVariable>
-      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Debug"
