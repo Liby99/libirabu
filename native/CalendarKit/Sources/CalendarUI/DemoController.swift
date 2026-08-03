@@ -67,6 +67,9 @@ public final class DemoController {
     @ObservationIgnored private var moveStart: Double = 0
     @ObservationIgnored private var benchFrames: [Double] = []
 
+    /// One 60Hz frame — the scenes' unit pause between scripted steps.
+    private static let frameStep = 0.016
+
     public init() {}
 
     /// Kick off the scene named by CC_DEMO once the view has a real size. Safe to call repeatedly.
@@ -905,7 +908,7 @@ public final class DemoController {
                     let x = size.width * (0.25 + 0.5 * abs(sin(Double(hoverStep) * 0.11)))
                     engine.demoHover(atView: CGPoint(x: x, y: size.height * 0.5))
                 }
-                try? await pause(0.016) // ~per-frame, like a trackpad's move events
+                try? await pause(Self.frameStep) // ~per-frame, like a trackpad's move events
             }
             try? await pause(0.25)
         }
@@ -992,7 +995,7 @@ public final class DemoController {
             engine.beginMonthGesture()
             if dwell { // A/B: let the neighbor pre-mount land on STATIC frames before moving
                 for _ in 0 ..< 30 {
-                    engine.wake(); try? await pause(0.016)
+                    engine.wake(); try? await pause(Self.frameStep)
                 }
             }
             moveStart = Date.timeIntervalSinceReferenceDate
@@ -1090,7 +1093,7 @@ public final class DemoController {
         if engine.dashPinned {
             engine.toggleDashPin()
             for _ in 0 ..< 40 {
-                engine.wake(); try? await pause(0.016)
+                engine.wake(); try? await pause(Self.frameStep)
             }
         }
         benchFrames.removeAll()
@@ -1106,14 +1109,14 @@ public final class DemoController {
             moveStart = Date.timeIntervalSinceReferenceDate
             for _ in 0 ..< toggles {
                 engine.toggleDashPin()
-                let steps = max(1, Int(period / 0.016))
+                let steps = max(1, Int(period / Self.frameStep))
                 for _ in 0 ..< steps {
-                    engine.wake(); try? await pause(0.016)
+                    engine.wake(); try? await pause(Self.frameStep)
                 }
             }
             // Ride out the last tween so its tail frames stay inside the moving window.
             for _ in 0 ..< 28 {
-                engine.wake(); try? await pause(0.016)
+                engine.wake(); try? await pause(Self.frameStep)
             }
             benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
         } else {
@@ -1125,7 +1128,7 @@ public final class DemoController {
                 // records only the tween itself — deferred content that fills in on the settled
                 // frames right after is by design (invisible), not jank.
                 for _ in 0 ..< 28 {
-                    engine.wake(); try? await pause(0.016)
+                    engine.wake(); try? await pause(Self.frameStep)
                 }
                 benchMoves.append((moveStart, moveStart + 0.32))
                 try? await pause(0.25)
@@ -1157,7 +1160,7 @@ public final class DemoController {
             engine.toggleDashPin()
         }
         for _ in 0 ..< 60 {
-            engine.wake(); try? await pause(0.016)
+            engine.wake(); try? await pause(Self.frameStep)
         } // panel out + first render settled
         benchFrames.removeAll()
         RenderProf.reset()
@@ -1201,7 +1204,7 @@ public final class DemoController {
         moveStart = Date.timeIntervalSinceReferenceDate
         engine.setView(zoom: "month", focusedMonth: 6) // the animated year→month zoom
         for _ in 0 ..< 70 {
-            engine.wake(); try? await pause(0.016)
+            engine.wake(); try? await pause(Self.frameStep)
         }
         benchMoves.append((moveStart, moveStart + 0.7))
         RenderProf.mark("benchEnd")
@@ -1230,7 +1233,7 @@ public final class DemoController {
         if env["CC_BENCH_DASH"] != nil, !engine.dashPinned {
             engine.pinDashboard()
             for _ in 0 ..< 40 {
-                engine.wake(); try? await pause(0.016)
+                engine.wake(); try? await pause(Self.frameStep)
             }
         }
         switch env["CC_BENCH_DASH_TAB"] {
@@ -1239,7 +1242,7 @@ public final class DemoController {
         default: return
         }
         for _ in 0 ..< 40 {
-            engine.wake(); try? await pause(0.016)
+            engine.wake(); try? await pause(Self.frameStep)
         } // tab carousel + mount
     }
 
@@ -1299,7 +1302,7 @@ public final class DemoController {
         if engine.dashPinned { // deterministic start: retracted
             engine.toggleDashPin()
             for _ in 0 ..< 40 {
-                engine.wake(); try? await pause(0.016)
+                engine.wake(); try? await pause(Self.frameStep)
             }
         }
         let name: Notification.Name = switch env["CC_BENCH_HOTKEY"] {
@@ -1316,13 +1319,13 @@ public final class DemoController {
         moveStart = Date.timeIntervalSinceReferenceDate
         for _ in 0 ..< toggles {
             NotificationCenter.default.post(name: name, object: nil)
-            let steps = max(1, Int(period / 0.016))
+            let steps = max(1, Int(period / Self.frameStep))
             for _ in 0 ..< steps {
-                engine.wake(); try? await pause(0.016)
+                engine.wake(); try? await pause(Self.frameStep)
             }
         }
         for _ in 0 ..< 28 {
-            engine.wake(); try? await pause(0.016)
+            engine.wake(); try? await pause(Self.frameStep)
         }
         benchMoves.append((moveStart, Date.timeIntervalSinceReferenceDate))
         RenderProf.mark("benchEnd")
@@ -1348,13 +1351,13 @@ public final class DemoController {
             moveStart = Date.timeIntervalSinceReferenceDate
             engine.jumpToDay(engine.year, 6, 15) // week → day
             for _ in 0 ..< 55 {
-                engine.wake(); try? await pause(0.016)
+                engine.wake(); try? await pause(Self.frameStep)
             }
             benchMoves.append((moveStart, moveStart + 0.8))
             moveStart = Date.timeIntervalSinceReferenceDate
             engine.setView(zoom: "week") // day → week
             for _ in 0 ..< 55 {
-                engine.wake(); try? await pause(0.016)
+                engine.wake(); try? await pause(Self.frameStep)
             }
             benchMoves.append((moveStart, moveStart + 0.8))
         }
@@ -1392,7 +1395,7 @@ public final class DemoController {
         let flipped = engine.endDayGesture()
         snap("gesture-ended flipStarted=\(flipped)")
         for _ in 0 ..< 80 {
-            engine.wake(); try? await pause(0.016)
+            engine.wake(); try? await pause(Self.frameStep)
         } // ride the 0.42s flip
         snap("after-1.3s")
         // A normal right swipe back toward Aug: does the engine still respond?
@@ -1405,7 +1408,7 @@ public final class DemoController {
         }
         _ = engine.endDayGesture()
         for _ in 0 ..< 40 {
-            engine.wake(); try? await pause(0.016)
+            engine.wake(); try? await pause(Self.frameStep)
         }
         snap("after-right-swipe domBefore=\(domBefore)")
         benchActive = false
@@ -1432,7 +1435,7 @@ public final class DemoController {
         moveStart = Date.timeIntervalSinceReferenceDate
         engine.jumpToDay(engine.year, 7, 1)
         for _ in 0 ..< 100 {
-            engine.wake(); try? await pause(0.016)
+            engine.wake(); try? await pause(Self.frameStep)
         }
         benchMoves.append((moveStart, moveStart + 1.5))
         // Day swipes: Aug 1 → Aug 15, adjacent gestures.
@@ -1454,7 +1457,7 @@ public final class DemoController {
         moveStart = Date.timeIntervalSinceReferenceDate
         engine.setView(zoom: "year")
         for _ in 0 ..< 90 {
-            engine.wake(); try? await pause(0.016)
+            engine.wake(); try? await pause(Self.frameStep)
         }
         benchMoves.append((moveStart, moveStart + 1.4))
         RenderProf.mark("benchEnd")
@@ -1482,7 +1485,7 @@ public final class DemoController {
         moveStart = Date.timeIntervalSinceReferenceDate
         engine.jumpToDay(engine.year, month, c.day ?? 15)
         for _ in 0 ..< 110 {
-            engine.wake(); try? await pause(0.016)
+            engine.wake(); try? await pause(Self.frameStep)
         } // the whole descent
         benchMoves.append((moveStart, moveStart + 1.6))
         RenderProf.mark("benchEnd")

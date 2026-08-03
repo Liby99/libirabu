@@ -70,7 +70,7 @@ public func timelineInfo(_ g: SceneInput, focus: Int? = nil, anim: PageAnim? = n
     let tlTop = f.bandY + 4 * f.trackH + 18
     let tlBottom = Layout.tlBottomY(g.vp.h)
     let m = hourMetrics(tlTop, tlBottom, g.z, g.tlScroll, g.weekHourH)
-    let reveal = (g.z < 0.82 ? 0 : min(1, max(0, (g.z - 0.82) / 0.18))) * detailMul
+    let reveal = (g.z < Layout.detailZ ? 0 : min(1, max(0, (g.z - Layout.detailZ) / Layout.detailRamp))) * detailMul
     return TimelineInfo(x0: f.x0, colW: f.dayW, tlTop: tlTop, tlBottom: tlBottom, viewH: m.viewH,
                         hourH: m.hourH, scroll: m.scroll, maxScroll: m.maxScroll, zoomable: m.zoomable,
                         reveal: reveal, wide: f.dayW > 60)

@@ -264,7 +264,7 @@ extension CalendarEngine {
         dashPinned.toggle()
         UserDefaults.standard.set(dashPinned, forKey: PrefKeys.dashPinned)
         anim.dashPinTween = Tween(from: dashPin, to: dashPinned ? 1 : 0,
-                                  start: Date(), duration: 0.3, ease: easeInOut)
+                                  start: Date(), duration: Motion.dashPinDur, ease: easeInOut)
         chrome.dashPinned = dashPinned
         if dashPinned {
             chrome.dashPresented = true // pin ON: present immediately (retract clears on tween end)
@@ -278,7 +278,8 @@ extension CalendarEngine {
         guard !dashPinned else { return }
         dashPinned = true
         UserDefaults.standard.set(true, forKey: PrefKeys.dashPinned)
-        anim.dashPinTween = Tween(from: dashPin, to: 1, start: Date(), duration: 0.3, ease: easeInOut)
+        anim.dashPinTween = Tween(from: dashPin, to: 1, start: Date(), duration: Motion.dashPinDur,
+                                  ease: easeInOut)
         chrome.dashPinned = true
         chrome.dashPresented = true
         wake()

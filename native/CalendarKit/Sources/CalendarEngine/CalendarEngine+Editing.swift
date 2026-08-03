@@ -514,7 +514,7 @@ extension CalendarEngine {
         if abs(s - tlScroll) < 0.5 {
             return
         }
-        anim.tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: 0.25, ease: easeInOut)
+        anim.tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: Motion.tlScrollDur, ease: easeInOut)
     }
 
     /// Glide the timeline scroll so the block cursor's hour cell is fully on screen (week/day view).
@@ -535,7 +535,7 @@ extension CalendarEngine {
         if abs(s - tlScroll) < 0.5 {
             return
         }
-        anim.tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: 0.25, ease: easeInOut)
+        anim.tlScrollTween = Tween(from: tlScroll, to: s, start: Date(), duration: Motion.tlScrollDur, ease: easeInOut)
     }
 
     /// ── Clipboard: copy / cut / paste ──────────────────────────────────────────────

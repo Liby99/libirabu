@@ -36,7 +36,7 @@ private struct TruncKey: Hashable {
     if let hit = truncCache[key] {
         return hit
     }
-    if truncCache.count > 4096 {
+    if truncCache.count > Layout.measureCacheCap {
         truncCache.removeAll(keepingCapacity: true)
     }
     let out: String

@@ -925,7 +925,7 @@ public final class CalendarEngine {
             // once, now that the content width is known; the user can still drag the split. A
             // client with NO dashboard (iPhone) instead pins the split to 1: full-width day column.
             daily.frac = hasDailyDashboard
-                ? clamp(daily.frac - 180 / max(1, viewport.w - Layout.labelW), 0.28, 0.82)
+                ? clamp(daily.frac - 180 / max(1, viewport.w - Layout.labelW), Layout.dayFracDefaultMin, Layout.dayFracMax)
                 : 1
             // The driver is synced by CatcherView.layout after it sizes the document view.
         } else {

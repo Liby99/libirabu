@@ -664,7 +664,7 @@ struct NativeDashPanel: View {
         }
         guard let da = date(a), let db = date(b) else { return 0 }
         let d = utcCalendar.dateComponents([.day], from: da, to: db).day ?? 0
-        if daysCache.count > 4096 {
+        if daysCache.count > Layout.measureCacheCap {
             daysCache.removeAll()
         }
         daysCache[key] = d

@@ -43,7 +43,7 @@ extension CalendarEngine {
     /// dashboard). Driven by the drag handle on the timeline↔dashboard boundary; clamped so neither
     /// side collapses.
     public func setDailyFrac(_ f: CGFloat) {
-        wake(); daily.frac = clamp(f, 0.22, 0.82); chrome.dailyResync &+= 1
+        wake(); daily.frac = clamp(f, Layout.dayFracMin, Layout.dayFracMax); chrome.dailyResync &+= 1
     }
 
     /// Split-handle drag at a PINNED month/week: adjusts (and persists) that scope's panel width.
@@ -531,7 +531,7 @@ extension CalendarEngine {
         }
         weekDashHold = hold
         weekDashCruise = nil
-        weekDashSettle = Tween(from: hold.q, to: target, start: Date(), duration: 0.28, ease: easeInOut)
+        weekDashSettle = Tween(from: hold.q, to: target, start: Date(), duration: Motion.weekDashSettleDur, ease: easeInOut)
     }
 
     /// Per-frame week-flip. The anchor already swapped to the destination month on release; here the

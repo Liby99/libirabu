@@ -1,6 +1,7 @@
 // Grouped engine constants, Layout/Theme-style — tuning values in one place instead of
 // scattered instance `let`s on the engine.
 
+import CalendarGeometry
 import CoreGraphics
 import Foundation
 
@@ -12,6 +13,9 @@ enum Motion {
 
     // ── Zoom / pinch ──
     static let zoomDur: TimeInterval = 0.52 // default z-level tween
+    static let tlScrollDur: TimeInterval = 0.25 // timeline scroll-to (keyboard nav / editing reveal)
+    static let dashPinDur: TimeInterval = 0.3 // ⌘B/⌘E/⌘J dashboard pin slide
+    static let weekDashSettleDur: TimeInterval = 0.28 // weekly-dashboard carousel settle
     static let pinchSens: CGFloat = 1.6 // trackpad magnification → z units
 
     // ── jumpToDay choreography (fly out → travel → fly in) ──
@@ -59,7 +63,8 @@ enum Motion {
 enum ViewConst {
     /// Deadlines/timed events are hittable once the day-detail timeline is revealed (month-detail
     /// and deeper), not just week/day — so a deadline can be interacted with in the monthly view too.
-    static let detailZ: CGFloat = 0.82
+    /// (The geometry layer owns the value — see Layout.detailZ.)
+    static let detailZ: CGFloat = Layout.detailZ
     /// How close (px, either side of the timeline's left border) the cursor must be to reveal
     /// the scale bar.
     static let tlEdgeRevealDist: CGFloat = 80

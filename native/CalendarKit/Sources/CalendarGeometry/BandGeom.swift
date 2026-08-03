@@ -196,7 +196,7 @@ private func ctTextWidth(_ s: String, _ font: CTFont) -> CGFloat {
     let attr = NSAttributedString(string: s, attributes: [NSAttributedString.Key(kCTFontAttributeName as String): font])
     let line = CTLineCreateWithAttributedString(attr as CFAttributedString)
     let w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-    if ctWidthCache.count > 4096 {
+    if ctWidthCache.count > Layout.measureCacheCap {
         ctWidthCache.removeAll(keepingCapacity: true)
     }
     ctWidthCache[key] = w

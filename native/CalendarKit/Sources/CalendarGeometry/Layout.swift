@@ -85,6 +85,27 @@ public enum Layout {
     /// Minimum pinned MONTHLY dashboard width (px) — the panel never squeezes below this, no
     /// matter the persisted fraction or window size.
     public static let dashMonthMinW: CGFloat = 300
+
+    /// The zoom `z` where the day-detail timeline starts revealing (hour grid, timed-event
+    /// hit-testing, sub-labels). Below it the month grid is flat; the reveal ramps over
+    /// `detailRamp` and completes at z = detailZ + detailRamp = 1 (month level).
+    public static let detailZ: CGFloat = 0.82
+    /// Width of the detail reveal ramp in z units (1 − detailZ); the divisor in every
+    /// `(z − detailZ) / detailRamp` reveal fraction.
+    public static let detailRamp: CGFloat = 0.18
+
+    /// Eviction threshold shared by the string-measurement caches (band label widths, sticker
+    /// truncation, renderer text, panel day strings): drop the whole cache past this many
+    /// entries. (The chip IMAGE cache uses a smaller deliberate cap — images cost more.)
+    public static let measureCacheCap = 4096
+
+    /// Day-view split fraction (timeline width ÷ content width) drag bounds: neither the
+    /// timeline nor the dashboard may collapse.
+    public static let dayFracMin: CGFloat = 0.22
+    public static let dayFracMax: CGFloat = 0.82
+    /// First-layout default clamp floor — roomier than the drag floor so the initial
+    /// auto-narrowed split never starts at the extreme (the user can still drag to dayFracMin).
+    public static let dayFracDefaultMin: CGFloat = 0.28
 }
 
 @inlinable public func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat {

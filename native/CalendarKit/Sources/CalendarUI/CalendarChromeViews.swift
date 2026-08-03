@@ -44,7 +44,7 @@ struct DashboardSplitHandle: View {
     @State private var dragFrac: CGFloat?
     @State private var startFrac: CGFloat = 0.45
 
-    private let minFrac: CGFloat = 0.22, maxFrac: CGFloat = 0.82 // must match engine.setDailyFrac
+    private let minFrac = Layout.dayFracMin, maxFrac = Layout.dayFracMax // same clamp as engine.setDailyFrac
     /// The dashboard content is inset ~25px from the boundary (see drawDashboardChrome's barX); the
     /// capsule sits centered in that empty gap, which is also the zone that reveals it on hover.
     private let gapInset: CGFloat = 25

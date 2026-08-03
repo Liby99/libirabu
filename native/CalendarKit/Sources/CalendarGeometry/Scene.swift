@@ -231,7 +231,7 @@ private func buildToday(_ g: SceneInput, _ clock: Clock, mul: CGFloat = 1, fo: I
         let colW = f.dayW
         let tlTop = f.bandY + 4 * f.trackH + 18
         let tlBottom = Layout.tlBottomY(g.vp.h)
-        let detail = g.z >= 0.82
+        let detail = g.z >= Layout.detailZ
         let x = f.x0 + (CGFloat(tDom) - 1) * colW
         items.append(Item(
             key: "td-m",
@@ -359,7 +359,7 @@ private func buildHover(_ g: SceneInput) -> [Item] {
         let colW = f.dayW
         let bandTop = f.bandY
         let bandBottom = f.bandY + 4 * f.trackH
-        let colBottom = g.z >= 0.82 ? Layout.tlBottomY(g.vp.h) : bandBottom // day column runs through the timeline
+        let colBottom = g.z >= Layout.detailZ ? Layout.tlBottomY(g.vp.h) : bandBottom // day column runs through the timeline
         // Track lane row (hovering a track name OR a band cell) — gutter + content.
         if active, let tr = h.track {
             let ly = bandTop + CGFloat(tr) * f.trackH
@@ -550,7 +550,7 @@ private func buildQuarterHeaders(_ g: SceneInput, _ clock: Clock) -> [Item] {
 private func buildMonthBands(_ g: SceneInput) -> [Item] {
     var items: [Item] = []
     let dimFade = 1 - clamp(g.z - 1, 0, 1)
-    let detailReveal = clamp((g.z - 0.82) / 0.18, 0, 1)
+    let detailReveal = clamp((g.z - Layout.detailZ) / Layout.detailRamp, 0, 1)
     for m in 0 ..< 12 {
         let f = frameFor(m, g, anim: g.monthAnim)
         if f.opacity < 0.02 || !onScreen(f, g.vp) {
@@ -678,7 +678,7 @@ private func fmt12Hour(_ hr: Int) -> String {
 /// ── Focused month's headers + timeline + week boundaries + spillover ─────────────
 private func buildDetail(_ g: SceneInput, _ clock: Clock, focus: Int, detailMul: CGFloat = 1,
                          keyTag: String = "") -> [Item] {
-    let reveal = (g.z < 0.82 ? 0 : clamp((g.z - 0.82) / 0.18, 0, 1)) * detailMul
+    let reveal = (g.z < Layout.detailZ ? 0 : clamp((g.z - Layout.detailZ) / Layout.detailRamp, 0, 1)) * detailMul
     if reveal <= 0.02 {
         return []
     }
