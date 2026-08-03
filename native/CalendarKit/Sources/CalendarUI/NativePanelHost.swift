@@ -67,7 +67,7 @@ struct NativePanelHost: View, Equatable {
             }
             if tab == .note || mountedTabs.contains(.note) {
                 NativeNotePanel(engine: engine, scope: scope, key: key, theme: theme,
-                                noteMode: $noteMode, nav: nav)
+                                dataStamp: dataStamp, noteMode: $noteMode, nav: nav)
                     .opacity(tab == .note ? 1 : 0)
                     .allowsHitTesting(tab == .note)
             }

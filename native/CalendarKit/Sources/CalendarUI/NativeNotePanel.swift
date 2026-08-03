@@ -13,6 +13,14 @@ struct NativeNotePanel: View {
     let scope: String // "day" | "week" | "month"
     let key: String
     let theme: Theme
+    /// Never read — but it MUST be an input: the engine is not @Observable, so SwiftUI diffs
+    /// this view purely by its fields, and every other field is reference-identical across a
+    /// note edit. Without the stamp, a checkbox toggle in the preview re-evaluated the HOST
+    /// (whose == keys on the stamp) but PRUNED this child as unchanged — the body's fresh
+    /// engine.dailyNote() read never happened until a gesture forced a full pass (the
+    /// "preview doesn't repaint until I slide days" bug, diag-confirmed: noteToggle logged,
+    /// zero preview re-renders in the awake window).
+    let dataStamp: String
     @Binding var noteMode: NotesMode
     var nav: NativeDashNavModel? // note-jump line landings + ⌘E focus requests
 
