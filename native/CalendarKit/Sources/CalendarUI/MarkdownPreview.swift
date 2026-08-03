@@ -57,6 +57,7 @@ struct MarkdownPreview: NSViewRepresentable {
         var parent: MarkdownPreview
         weak var textView: PreviewTextView?
         private var renderedKey = "\u{0}"
+        private var sweep: TodoSweep? // in-flight strikethrough sweep (one at a time)
 
         init(_ parent: MarkdownPreview) {
             self.parent = parent
@@ -74,13 +75,26 @@ struct MarkdownPreview: NSViewRepresentable {
             let doc = NativeDash.diagTime("MarkdownDoc.render(\(p.text.count)ch)") {
                 MarkdownDoc.render(p.text, theme: p.theme, interactive: p.onToggle != nil)
             }
+            // A checkbox toggle's own re-render arrives WHILE its strike sweep animates: stash
+            // it and let the sweep finish over the old content — the panels' two-copy mask
+            // trick, phrased as "animate the old presentation, land the new one at the end".
+            // Anything else mid-sweep (day switch, external edit) also just lands 0.26s late.
+            if let sweep, sweep.active {
+                sweep.pendingApply = { [weak self] in self?.apply(doc) }
+                return
+            }
+            apply(doc)
+        }
+
+        private func apply(_ doc: MarkdownDoc.Rendered) {
+            guard let tv = textView else { return }
             tv.lineMap = doc.lineMap
             tv.decor = doc.decor
-            let base = NSColor(p.theme.text)
+            let base = NSColor(parent.theme.text)
             tv.codeBG = base.withAlphaComponent(0.055)
             tv.quoteBG = base.withAlphaComponent(0.035)
             tv.quoteBar = NSColor(Theme.accent).withAlphaComponent(0.55)
-            tv.onCmdClickLine = p.onLineEdit
+            tv.onCmdClickLine = parent.onLineEdit
             tv.textStorage?.setAttributedString(doc.string)
             tv.needsDisplay = true
         }
@@ -89,11 +103,146 @@ struct MarkdownPreview: NSViewRepresentable {
             let url = link as? URL ?? (link as? String).flatMap(URL.init(string:))
             guard let url else { return false }
             if url.scheme == "cc-todo", let line = Int(url.host ?? "") {
+                startSweep(line: line, clickIndex: charIndex)
                 parent.onToggle?(line)
                 return true
             }
             return false // real links → AppKit opens them
         }
+
+        /// The panels' 0.26s check/uncheck sweep (NativeDashPanel.animatedTitle), phrased for a
+        /// single NSTextView document: the checkbox attachment flips INSTANTLY (DashCheckbox
+        /// animates instantly too), then a character front sweeps the struck+dimmed
+        /// presentation across the line — left→right on check, retreating right→left on
+        /// uncheck — and the toggle's real re-render (done: pill etc.) lands when the front
+        /// settles. Attribute-only per frame: characters, selection, and layout are untouched.
+        private func startSweep(line: Int, clickIndex: Int) {
+            guard let tv = textView, let storage = tv.textStorage else { return }
+            if let old = sweep {
+                old.finishNow()
+            } // a second click mid-sweep: land the first
+            // Direction from the SOURCE line (1-based): "[x]" → currently done → unchecking.
+            let src = parent.text.components(separatedBy: "\n")
+            guard line >= 1, line <= src.count else { return }
+            let checking = !(src[line - 1].contains("[x]") || src[line - 1].contains("[X]"))
+            guard let range = tv.lineMap.first(where: { $0.line == line
+                    && NSLocationInRange(clickIndex, $0.range)
+            })?.range
+                ?? tv.lineMap.first(where: { $0.line == line })?.range,
+                NSMaxRange(range) <= storage.length else { return }
+            // Flip the checkbox image in place (the attachment character survives the sweep).
+            let base = NSColor(parent.theme.text)
+            let accent = NSColor(Theme.accent)
+            storage.enumerateAttribute(.attachment, in: range) { value, r, _ in
+                guard let att = value as? NSTextAttachment,
+                      let link = storage.attribute(.link, at: r.location, effectiveRange: nil)
+                      as? URL, link.scheme == "cc-todo" else { return }
+                att.image = MarkdownDoc.checkboxImage(checked: checking, accent: accent,
+                                                      grey: base.withAlphaComponent(0.45))
+                tv.layoutManager?.invalidateDisplay(forCharacterRange: r)
+            }
+            sweep = TodoSweep(storage: storage, range: range, checking: checking) {
+                [weak self] in self?.sweep = nil
+            }
+        }
+    }
+}
+
+/// One in-flight checkbox strike sweep over a preview line: drives a character front at 60Hz
+/// for 0.26s (the panels' easeInOut), applying/removing the struck+dimmed attributes derived
+/// fresh from a base snapshot each tick (no cumulative dimming). Attachment runs (the checkbox,
+/// token pills) are skipped — images can't strike; the final re-render restyles them.
+@MainActor private final class TodoSweep {
+    private let storage: NSTextStorage
+    private let range: NSRange
+    private let checking: Bool
+    private let baseLine: NSAttributedString // pre-sweep attributes, ground truth per tick
+    private let start = Date()
+    private var timer: Timer?
+    private let onDone: () -> Void
+    var pendingApply: (() -> Void)?
+    var active: Bool {
+        timer != nil
+    }
+
+    private static let duration = 0.26 // NativeDashPanel's sweep duration
+
+    init(storage: NSTextStorage, range: NSRange, checking: Bool,
+         onDone: @escaping () -> Void) {
+        self.storage = storage
+        self.range = range
+        self.checking = checking
+        baseLine = storage.attributedSubstring(from: range)
+        self.onDone = onDone
+        let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    private func tick() {
+        let p = min(1, Date().timeIntervalSince(start) / Self.duration)
+        let e = p < 0.5 ? 2 * p * p : 1 - pow(-2 * p + 2, 2) / 2 // easeInOut
+        // The struck region is the LEADING `strike` fraction (mask semantics of the panels):
+        // checking grows it 0→1 (front moves right); unchecking shrinks it 1→0 (front retreats).
+        let strike = checking ? e : 1 - e
+        applyFront(struckChars: Int((Double(range.length) * strike).rounded()))
+        if p >= 1 {
+            finishNow()
+        }
+    }
+
+    /// Land the end state immediately: stop the timer and apply the stashed re-render (or the
+    /// final frame's attributes when no re-render arrived).
+    func finishNow() {
+        guard timer != nil else { return }
+        timer?.invalidate()
+        timer = nil
+        if let apply = pendingApply {
+            apply()
+        } else {
+            applyFront(struckChars: checking ? range.length : 0)
+        }
+        onDone()
+    }
+
+    private func applyFront(struckChars: Int) {
+        guard NSMaxRange(range) <= storage.length else { finishNow(); return }
+        let split = range.location + max(0, min(range.length, struckChars))
+        storage.beginEditing()
+        baseLine.enumerateAttributes(in: NSRange(location: 0, length: baseLine.length)) {
+            attrs, r, _ in
+            let abs = NSRange(location: range.location + r.location, length: r.length)
+            if attrs[.attachment] != nil { // checkbox/pills: images don't strike or dim here
+                storage.setAttributes(attrs, range: abs)
+                return
+            }
+            // Both presentations derive from the base run, so the sweep is symmetric: behind
+            // the front the run is struck + dimmed; ahead of it, un-struck at full strength.
+            // (For a CHECK the base is already plain; for an UNCHECK it's already struck — the
+            // transforms are absolute, not deltas, so either base lands on the same two looks.)
+            var struck = attrs
+            if let c = struck[.foregroundColor] as? NSColor {
+                struck[.foregroundColor] = c.withAlphaComponent(0.45)
+            }
+            struck[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            var plain = attrs
+            if let c = plain[.foregroundColor] as? NSColor {
+                plain[.foregroundColor] = c.withAlphaComponent(1)
+            }
+            plain[.strikethroughStyle] = nil
+            let struckLen = max(0, min(abs.length, split - abs.location))
+            if struckLen > 0 {
+                storage.setAttributes(struck, range: NSRange(location: abs.location,
+                                                             length: struckLen))
+            }
+            if struckLen < abs.length {
+                storage.setAttributes(plain, range: NSRange(location: abs.location + struckLen,
+                                                            length: abs.length - struckLen))
+            }
+        }
+        storage.endEditing()
     }
 }
 
@@ -883,7 +1032,7 @@ enum MarkdownDoc {
 
     // ── Checkbox images (the house DashCheckbox look, as attachments) ──
     private static var checkboxCache: [String: NSImage] = [:]
-    private static func checkboxImage(checked: Bool, accent: NSColor, grey: NSColor) -> NSImage {
+    fileprivate static func checkboxImage(checked: Bool, accent: NSColor, grey: NSColor) -> NSImage {
         let key = "\(checked)|\(accent.description)|\(grey.description)"
         if let hit = checkboxCache[key] {
             return hit
