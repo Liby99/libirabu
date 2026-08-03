@@ -85,6 +85,12 @@ struct NativeNotePanel: View {
                                     if let next = TodoIndex.toggleTodoLine(
                                         text, line: line, stamp: stamp), next != text {
                                         engine.setDailyNote(storageKey, next)
+                                        // The engine is NOT @Observable — panels refresh only
+                                        // when the render loop ticks and the new noteGen flows
+                                        // into the host's dataStamp. A checkbox click at rest
+                                        // (clock asleep) otherwise shows nothing until the
+                                        // next slide/zoom wakes the loop.
+                                        engine.wake()
                                     }
                                 },
                                 onLineEdit: { line in
