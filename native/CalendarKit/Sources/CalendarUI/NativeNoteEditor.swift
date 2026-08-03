@@ -386,6 +386,9 @@ struct NativeNoteEditor: NSViewRepresentable {
         // update pass (window/first-responder work), deduped per request.
         if let line = focusLine, co.handledFocusLine != line {
             co.handledFocusLine = line
+            if NativeDash.diag {
+                print("[dash-diag] editor focusLine \(line) (key=\(storageKey))")
+            }
             let handled = onFocusLineHandled
             DispatchQueue.main.async { [weak tv, weak co] in
                 guard let tv else { return }

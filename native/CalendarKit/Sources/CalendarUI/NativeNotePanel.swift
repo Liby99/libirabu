@@ -129,9 +129,14 @@ struct NativeNotePanel: View {
         }
         // A todo-row note jump landed here (Enter or click on a note-sourced row): flip to
         // edit with the source line selected + focused — the web's onJumpDay line flow.
+        // ALSO mark the arrival default as applied: warm panels consume the jump the moment
+        // it's requested (long before the fly animation lands), and the arrival rule's
+        // "pending jump" guard then saw nothing pending and clobbered edit→preview at landing
+        // (the "stops at the preview, not the editor" bug).
         .onChange(of: nav?.noteJump, initial: true) { _, jump in
             guard let jump, jump.key == storageKey else { return }
             nav?.noteJump = nil
+            appliedDefaultKey = storageKey // the jump IS this note's arrival decision
             noteMode = .edit
             pendingEditLine = jump.line
             editorFocusSeq += 1

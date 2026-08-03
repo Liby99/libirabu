@@ -749,6 +749,9 @@ public struct CalendarView: View {
                                             CalendarUIState.OpenNoteTarget(line: $0,
                                                                            occurrenceKey: occKey)
                                         }
+                                        if NativeDash.diag {
+                                            print("[dash-diag] row open id=\(id) line=\(line.map(String.init) ?? "nil") occ=\(occKey ?? "nil")")
+                                        }
                                         ui.openEventId = sourceId(of: id)
                                     },
                                     onJump: { key, line in
