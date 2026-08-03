@@ -1,8 +1,6 @@
-// The NATIVE dashboard TODO panel (webview retirement phase 1b) — SwiftUI rendering of the
-// TodoFeed sections, behind the cc.nativeDash flag (or CC_NATIVE_DASH=1). V1 scope, deliberately:
-// the pinned ⌘B week/month panel's TODO tab only — deadlines-in-range, open todos with subtrees,
-// the top-10 completed cap with a PROJ-style chevron. NOTE/PROJ tabs and the day view stay on the
-// webview; week-turn cross-fades swap content at the midpoint instead of blending (flag phase).
+// The NATIVE dashboard TODO panel — SwiftUI rendering of the TodoFeed sections at every scope
+// (day/week/month): deadlines-in-range, open todos with subtrees, the top-10 completed cap
+// with a PROJ-style chevron. THE dashboard since phase 4a retired the webview to legacy/.
 //
 // The panel is mounted inside the calendar's per-frame TimelineView and positioned by the SAME
 // dashScopePanels geometry the Canvas header draws with, so it rides the pin slide and the zoom

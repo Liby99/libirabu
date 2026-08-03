@@ -18,7 +18,7 @@ public struct CalendarView: View {
     @State private var weekBridge = WeekPagerBridge()
     @State private var dayBridge = DayPagerBridge()
     @State private var dashAnim = DashCarouselAnim() // per-frame carousel state for the native tabs
-    @State private var gestureForwarder = GestureForwarder() // dashboard → catcher (horiz scroll + pinch)
+    @State private var catcherHandle = CatcherHandle() // menu/toolbar → catcher clipboard routing
     @State private var dashFrac: CGFloat = 0.45 // mirrors engine.daily.frac; updated live on resize
     @State private var dashTab: DashTab = .todo // dashboard TODO/NOTE tab
     @State private var demo = DemoController() // scripted GIF-recording cursor + scenes (CC_DEMO mode)
@@ -76,10 +76,10 @@ public struct CalendarView: View {
     /// After an inline editor (title / track name) commits, its text field was first responder; return
     /// first-responder to the calendar canvas so keyboard shortcuts keep working (e.g. Enter → edit
     /// title → Enter → back to selected → Enter → edit again). Deferred so it runs after the field is
-    /// torn down. `gestureForwarder.catcher` is the live CatcherView (set by the InputCatcher).
+    /// torn down. `catcherHandle.catcher` is the live CatcherView (set by the InputCatcher).
     private func refocusCatcher() {
         DispatchQueue.main.async {
-            if let c = gestureForwarder.catcher {
+            if let c = catcherHandle.catcher {
                 c.window?.makeFirstResponder(c)
             }
         }
@@ -103,10 +103,10 @@ public struct CalendarView: View {
         ModalOverlays(ui: ui, engine: engine, theme: theme,
                       onDelete: { performDelete($0) },
                       onRename: { renameInline($0) },
-                      onCopy: { (gestureForwarder.catcher as? CatcherView)?.copySelection() },
-                      onCut: { (gestureForwarder.catcher as? CatcherView)?.cutSelection() },
-                      onPaste: { (gestureForwarder.catcher as? CatcherView)?.performPaste() },
-                      readClip: { (gestureForwarder.catcher as? CatcherView)?.readClip() })
+                      onCopy: { (catcherHandle.catcher as? CatcherView)?.copySelection() },
+                      onCut: { (catcherHandle.catcher as? CatcherView)?.cutSelection() },
+                      onPaste: { (catcherHandle.catcher as? CatcherView)?.performPaste() },
+                      readClip: { (catcherHandle.catcher as? CatcherView)?.readClip() })
     }
 
     /// The AppKit input bridge, built OUTSIDE the body chain and assignment-style: the chain is
@@ -116,7 +116,7 @@ public struct CalendarView: View {
     private func inputCatcher() -> InputCatcher {
         var ic = InputCatcher(engine: engine, monthBridge: monthBridge,
                               weekBridge: weekBridge, dayBridge: dayBridge)
-        ic.forwarder = gestureForwarder
+        ic.forwarder = catcherHandle
         ic.onOpenEvent = { ui.openEventId = $0 }
         ic.onEventMenu = { (id: String, anchor: CGRect) in
             ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: anchor)

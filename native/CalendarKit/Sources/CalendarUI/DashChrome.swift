@@ -1,6 +1,6 @@
 // The native dashboard CHROME: the tab rows, note edit/preview toggle, todo cog, the
 // per-frame carousel state for those overlays (DashCarouselAnim), the CarouselDriver that
-// feeds it every frame, and the GestureForwarder handle. Split out of the retired dashboard
+// feeds it every frame, and the CatcherHandle. Split out of the retired dashboard
 // webview stack (phase 4a, 2026-08-02) — the WKWebView fallback now lives in legacy/.
 
 import AppKit
@@ -9,10 +9,11 @@ import CalendarGeometry
 import CalendarRender
 import SwiftUI
 
-/// Shared handle to the calendar's input catcher, so panel-level views can forward the gestures
-/// they shouldn't own (horizontal day-paging scroll + pinch-zoom) back to the calendar. Set by the
-/// InputCatcher when its NSView is created.
-@MainActor final class GestureForwarder { weak var catcher: NSView? }
+/// Shared handle to the calendar's input catcher (the CatcherView NSView, set when the
+/// InputCatcher creates it). Menu commands and toolbar actions reach the catcher's clipboard
+/// operations (copy/cut/paste/read) through this. Named GestureForwarder pre-4a, when the
+/// dashboard webview also used it to hand gestures back to the calendar.
+@MainActor final class CatcherHandle { weak var catcher: NSView? }
 
 /// The dashboard's tabs: the TODO list (default), a per-scope markdown NOTE, and the PROJ gantt.
 public enum DashTab: Hashable { case todo, note, proj }

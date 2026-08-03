@@ -87,12 +87,6 @@ extension JSONValue {
         }; return nil
     }
 
-    var doubleValue: Double? {
-        if case let .number(n) = self {
-            return n
-        }; return nil
-    }
-
     var intValue: Int? {
         if case let .number(n) = self {
             return Int(n)

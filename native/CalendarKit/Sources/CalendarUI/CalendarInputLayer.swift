@@ -15,7 +15,7 @@ struct InputCatcher: NSViewRepresentable {
     let monthBridge: MonthPagerBridge
     let weekBridge: WeekPagerBridge
     let dayBridge: DayPagerBridge
-    var forwarder: GestureForwarder?
+    var forwarder: CatcherHandle?
     var onOpenEvent: (String) -> Void = { _ in }
     var onEventMenu: (String, CGRect) -> Void = { _, _ in } // right-click event → context callout
     var onSpaceMenu: (CalendarEngine.EmptySpot, CGRect) -> Void = { _, _ in
@@ -56,7 +56,7 @@ struct InputCatcher: NSViewRepresentable {
         v.isBatchRenaming = isBatchRenaming
         v.onBatchRenameCancel = onBatchRenameCancel
         v.onBatchRenameCommit = onBatchRenameCommit
-        forwarder?.catcher = v // let the dashboard web view forward horizontal scroll + pinch here
+        forwarder?.catcher = v // publish the catcher for menu/toolbar clipboard routing
         v.installYearScrollDriver()
         v.installTimelineScrollDriver()
         v.installKeyMonitor()

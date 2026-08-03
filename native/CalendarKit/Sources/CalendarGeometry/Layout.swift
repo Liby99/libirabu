@@ -30,7 +30,6 @@ public enum Layout {
     public static let hlSoft: CGFloat = 0.03 // coarse: month-band row / week span
     public static let hlStrong: CGFloat = 0.08 // fine: hovered day / hour cell
     public static let weekendWashOpacity: CGFloat = 0.03 // toned down to match the hover feel
-    public static let barH: CGFloat = 32 // top nav bar height
     // Breathing room below year content. Write-once-at-launch like labelW: desktop keeps 28;
     // the phone raises it so the last quarter can scroll clear of the floating glass toolbar.
     public nonisolated(unsafe) static var bottomPad: CGFloat = 28
@@ -74,7 +73,6 @@ public enum Layout {
     public static let monthH: CGFloat = trackH * 4 // a month band = 4 lanes
     public static let qHeaderH: CGFloat = 24 // day-number header row per quarter
     public static let qGap: CGFloat = 32 // separation between quarters
-    public static let pastDim: CGFloat = 0.4 // "dim past events" opacity multiplier
 
     // Global insets for the whole calendar. The geometry works in a viewport shrunk
     // by padLeft+padRight; the render is translated right by padLeft (so x=0 in

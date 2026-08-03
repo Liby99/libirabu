@@ -1,9 +1,8 @@
-// The NATIVE NOTE tab for the pinned week/month panel (webview retirement phase 3, behind
-// cc.nativeDash): the scope note (week:<sunday> / month:<YYYY-MM> storage keys) as either the
-// LIVE NSTextView editor (NativeNoteEditor) or the rendered preview (MarkdownBlocksView, with
-// working line-keyed todo checkboxes). Honors the same NotesMode binding the native
-// Editor/Preview toggle drives; an EMPTY note opens in edit (the content-based default the
-// webview used), applied whenever the panel re-keys to a different note.
+// The NATIVE NOTE tab for the dashboard panels (day/week/month): the scope note (bare ISO /
+// week:<sunday> / month:<YYYY-MM> storage keys) as either the LIVE NSTextView editor
+// (NativeNoteEditor) or the rendered preview (MarkdownPreview, with working line-keyed todo
+// checkboxes). Honors the same NotesMode binding the Editor/Preview toggle drives; an EMPTY
+// note opens in edit (the content-based default), applied whenever the panel re-keys.
 
 import CalendarEngine
 import CalendarRender

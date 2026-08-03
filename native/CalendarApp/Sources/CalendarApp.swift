@@ -8,8 +8,6 @@ import SwiftUI
 
 @main
 struct CalendarApp: App {
-    /// The persisted conversation list, shared by BOTH assistant sessions below.
-    @State private var chatStore: ConversationStore
     /// The standalone chat window's session. Lives at app level (not in a window) so it persists
     /// while the window is closed and while only the menu bar is present.
     @State private var assistant: AssistantState
@@ -25,8 +23,8 @@ struct CalendarApp: App {
     @State private var fileMenuCloseRelocator = FileMenuCloseRelocator()
 
     init() {
+        // The conversation store is shared by (and retained through) both sessions below.
         let store = ConversationStore()
-        _chatStore = State(initialValue: store)
         _assistant = State(initialValue: AssistantState(store: store))
         _quickAssistant = State(initialValue: AssistantState(store: store))
         // Reconcile preferences with iCloud at launch (KVS/UserDefaults only — no NSApp access,

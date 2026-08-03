@@ -33,11 +33,6 @@ extension CalendarEngine {
     public func appleCalendars() -> [AppleCalendarInfo] {
         appleImporter.calendars()
     }
-
-    public func requestAppleAccess() async -> Bool {
-        await appleImporter.requestAccess()
-    }
-
     /// Re-fetch the enabled Apple calendars for the visible year ±1 and merge them in as read-only
     /// events (full-window re-fetch; Apple has no incremental cursor). Disabled/unauthorized → clears
     /// any previously-imported set. Cheap to call on launch, foreground, and settings change.

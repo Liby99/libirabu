@@ -107,11 +107,6 @@ public final class CalendarUIState {
         pd.focus = (base + d + n) % n
         pendingDelete = pd
     }
-
-    public func cancelDelete() {
-        pendingDelete = nil
-    }
-
     /// Post a keyboard action into the open drawer (see `drawerPulse`).
     public func postDrawer(_ kind: DrawerActionKind) {
         drawerActionKind = kind; drawerPulse += 1
@@ -149,11 +144,6 @@ public enum DeleteChoice: Equatable {
         case .unhide: "Unhide"
         }
     }
-
-    public var isCancel: Bool {
-        self == .cancel
-    }
-
     /// Red (destructive) styling: the item disappears from the calendar. Lane removal and unhide
     /// leave it visible, so they render as plain actions.
     public var isDestructive: Bool {

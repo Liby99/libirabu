@@ -22,11 +22,6 @@ extension CalendarEngine {
         level(z) == 1
     }
 
-    /// The offset the pager should sit at to show the current focus month (`focus` whole pages in).
-    public func monthPagerOffset(pageH: CGFloat) -> CGFloat {
-        CGFloat(focus) * pageH
-    }
-
     /// A scroll gesture starts — kill any zoom anim.tween so they don't fight.
     public func beginMonthGesture() {
         wake(); cancelTween(); scroll.liveMonthScrolling = true
@@ -74,15 +69,6 @@ extension CalendarEngine {
     /// the catcher can withhold `.ended` from the pager (preventing a stale snap animation).
     public var weekFlipArmed: Bool {
         isWeekLevel && (scroll.weekPull?.armed ?? false)
-    }
-
-    public var monthFlipArmed: Bool {
-        isMonthLevel && (scroll.monthPull?.armed ?? false)
-    }
-
-    /// The pager offset that shows the current `week` (fractional weeks × the 7-day grid width).
-    public func weekPagerOffset(dayW: CGFloat) -> CGFloat {
-        week * 7 * dayW
     }
 
     /// The week window's travel bounds for the focus month, in week units. A FULL-week window

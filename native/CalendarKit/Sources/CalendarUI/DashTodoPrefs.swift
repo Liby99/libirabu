@@ -92,22 +92,6 @@ enum DashTodoCatalog {
             }
         }
     }
-
-    /// The WebView payload: `{"day":{deadlines,sections,sources}, "week":…, "month":…}` with
-    /// sorted arrays/keys so equal prefs always serialize identically (the push is diffed).
-    public var jsJSON: String {
-        struct JS: Encodable { let deadlines: Bool; let sections: [String]; let sources: [String] }
-        var out: [String: JS] = [:]
-        for scope in DashTodoScope.allCases {
-            let p = self[scope]
-            out[scope.rawValue] = JS(deadlines: p.deadlines,
-                                     sections: p.sections.sorted(), sources: p.sources.sorted())
-        }
-        let enc = JSONEncoder()
-        enc.outputFormatting = .sortedKeys
-        guard let data = try? enc.encode(out), let s = String(data: data, encoding: .utf8) else { return "{}" }
-        return s
-    }
 }
 
 /// Builds + owns the native callout menu. Long-lived (NSMenuItem.target is weak — a throwaway

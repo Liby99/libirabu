@@ -4,7 +4,7 @@
 // (NSTextTable), and syntax-highlighted code fences for the house languages (c, c++, rust, py,
 // js, ts, ocaml, lean, haskell, java, julia). Interactivity is preserved: todo checkboxes are
 // tappable attachments (cc-todo:// links), and ⌘-click anywhere jumps to the source line.
-// UTF-8 is native throughout (NSAttributedString). MarkdownBlocksView stays for the phone.
+// UTF-8 is native throughout (NSAttributedString).
 
 import AppKit
 import CalendarEngine
