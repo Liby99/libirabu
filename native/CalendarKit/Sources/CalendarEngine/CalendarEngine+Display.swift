@@ -650,23 +650,27 @@ extension CalendarEngine {
     /// label's base side; the runtime hover-flip can still override one on top.
     public func deadlineSides() -> [String: Bool] {
         let detail = z >= ViewConst.detailZ
-        // Day view forces every label to the left (one wide column); week/month minimises overlap. Both
-        // have detail==true, so the day-view state must be its own cache key or the week assignment
-        // would stay cached into day view (labels stuck on the right).
-        let dayView = z > 2
+        // Solve at the level's RESTING z (1 month / 2 week / 3 day), never the mid-tween z:
+        // a zoom-in from year crossed detailZ MID-ANIMATION, computed the assignment on
+        // in-between geometry (day widths still interpolating), and CACHED it for the whole
+        // stay — labels only got their proper sides after a month slide re-solved at rest
+        // (the "directionality only triggers while sliding between months" bug). The resting
+        // level is also the cache key, so EVERY arrival at a month/week/day solves once, at
+        // that level's rest layout, and stays cached until the month or deadline set changes.
+        let zRest = CGFloat(max(1, min(3, Int(z.rounded()))))
         // During a month page-turn, `focus` is the anchor and `focus+dir` is the incoming month —
         // known the moment scrolling starts. Solve for BOTH so the incoming labels are already
         // assigned when the turn settles (no post-scroll flip). incoming = -1 when not turning.
         let incoming = anim.monthAnim
             .flatMap { a -> Int? in let m = focus + a.dir; return (0 ... 11).contains(m) ? m : nil } ?? -1
         if let k = caches.ddlSidesKey, k.focus == focus, k.incoming == incoming, k.year == year,
-           k.gen == caches.deadlineGen, k.detail == detail, k.dayView == dayView {
+           k.gen == caches.deadlineGen, k.detail == detail, k.zRest == zRest {
             return caches.ddlSides
         }
         if detail {
-            var s = deadlineSidesForMonth(focus)
+            var s = deadlineSidesForMonth(focus, atZ: zRest)
             if incoming >= 0 {
-                for (id, v) in deadlineSidesForMonth(incoming) where s[id] == nil {
+                for (id, v) in deadlineSidesForMonth(incoming, atZ: zRest) where s[id] == nil {
                     s[id] = v
                 }
             }
@@ -674,13 +678,13 @@ extension CalendarEngine {
         } else {
             caches.ddlSides = [:]
         }
-        caches.ddlSidesKey = (focus, incoming, year, caches.deadlineGen, detail, dayView)
+        caches.ddlSidesKey = (focus, incoming, year, caches.deadlineGen, detail, zRest)
         return caches.ddlSides
     }
 
     /// Overlap-minimising side assignment for ONE month's deadlines, at that month's resting layout.
-    private func deadlineSidesForMonth(_ month: Int) -> [String: Bool] {
-        var g = snapshot(); g.focus = month; g.monthAnim = nil
+    private func deadlineSidesForMonth(_ month: Int, atZ zRest: CGFloat) -> [String: Bool] {
+        var g = snapshot(); g.focus = month; g.monthAnim = nil; g.z = zRest
         return deadlineSideAssignment(displayDeadlines(for: year), g)
     }
 

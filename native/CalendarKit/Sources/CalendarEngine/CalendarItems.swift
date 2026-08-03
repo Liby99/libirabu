@@ -42,7 +42,7 @@ struct DisplayCaches {
     var event: [Int: (gen: Int, events: [TimedEvent], badges: [String: EventBadges], byDay: [Int: [TimedEvent]])] = [:]
     var ddl: [Int: (gen: Int, deadlines: [Deadline])] = [:]
     var ddlSides: [String: Bool] = [:]
-    var ddlSidesKey: (focus: Int, incoming: Int, year: Int, gen: Int, detail: Bool, dayView: Bool)?
+    var ddlSidesKey: (focus: Int, incoming: Int, year: Int, gen: Int, detail: Bool, zRest: CGFloat)?
     var search: (gen: Int, docs: [CalendarEngine.SearchDoc])?
     /// The tag universe (View ▸ Filter by Tags), indexed once per edit generation. Rebuilt lazily on the
     /// next read after any mutation (editGen bump), then reused across every popover render / search keystroke.
