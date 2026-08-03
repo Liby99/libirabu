@@ -572,7 +572,12 @@ extension CalendarEngine {
         return CGFloat(log(Double(ratio))) / (CGFloat(log(Double(spreadPerLevel))) * Motion.pinchSens)
     }
 
-    public func onMagnify(delta: CGFloat, at p: CGPoint, began: Bool, ended: Bool) {
+    /// `fromPanel`: the pinch started over the pinned DASHBOARD PANEL (CalendarView's overlay
+    /// gesture), so the pointer's x/y map to a virtual day OUTSIDE the visible window — the
+    /// day/week focus capture uses a deliberate target instead (today / block cursor / window
+    /// start; see panelPinchRelDom).
+    public func onMagnify(delta: CGFloat, at p: CGPoint, began: Bool, ended: Bool,
+                          fromPanel: Bool = false) {
         wake()
         if began {
             cancelTween() // clears any held anchor; recapture fresh for this gesture
@@ -588,8 +593,8 @@ extension CalendarEngine {
             }
             magStartZ = z
             magAccum = 0
-            captureFocus(at: p)
-            captureZoomAnchor(pointerY: p.y)
+            captureFocus(at: p, fromPanel: fromPanel)
+            captureZoomAnchor(pointerY: fromPanel ? nil : p.y)
         } else if ended {
             tweenZ(to: z.rounded()) // keeps the pinch's anchor through the settle
         } else {
@@ -671,7 +676,37 @@ extension CalendarEngine {
         return CGFloat(c.hour ?? 0) + CGFloat(c.minute ?? 0) / 60
     }
 
-    func captureFocus(at p: CGPoint) {
+    /// The relative day-of-month a dashboard-panel pinch zooms toward, replacing the pointer's
+    /// virtual (out-of-window) column. Preference: today when the visible week window shows
+    /// it; else the keyboard block cursor's day when IT is visible; else the window's first
+    /// day. (The caller clamps: leading spillover days can't be zoomed into.)
+    private func panelPinchRelDom() -> Int {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: now)
+        if let cm = c.month, let cd = c.day, c.year == year, weekContains(cm - 1, cd),
+           let rd = relDomOf(year, focus, year, cm - 1, cd) {
+            return rd
+        }
+        if cursor.keyboardActive, weekContains(cursor.blockMonth, cursor.blockDay),
+           let rd = relDomOf(year, focus, year, cursor.blockMonth, cursor.blockDay) {
+            return rd
+        }
+        return Int((1 - CGFloat(firstDOW(year, focus)) + week * 7).rounded()) // window start
+    }
+
+    /// Same preference at MONTH level, as a week index: today's week when the shown month
+    /// contains today; else the block cursor's week; else the month's first week window.
+    private func panelPinchWeekInMonth() -> CGFloat {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: now)
+        if let cm = c.month, let cd = c.day, c.year == year, cm - 1 == focus {
+            return weekFor(dom: cd)
+        }
+        if cursor.keyboardActive, cursor.blockMonth == focus {
+            return weekFor(dom: cursor.blockDay)
+        }
+        return 0
+    }
+
+    func captureFocus(at p: CGPoint, fromPanel: Bool = false) {
         let g = snapshot()
         switch level(z) {
         case 0:
@@ -688,8 +723,11 @@ extension CalendarEngine {
         case 1:
             // Zoom-IN capture: an overflowing month grid (phone) centers the week window on the
             // viewport's visible center day; a fitted grid (desktop) zooms into the week under
-            // the pinch point.
-            if !carryMonthCenterIntoWeek(), let w = weekAtPointInMonth(p.x, g) {
+            // the pinch point — unless the pinch started over the dashboard PANEL, whose x maps
+            // to a virtual column (today's week / cursor's week / first week instead).
+            if fromPanel {
+                if !carryMonthCenterIntoWeek() { week = panelPinchWeekInMonth() }
+            } else if !carryMonthCenterIntoWeek(), let w = weekAtPointInMonth(p.x, g) {
                 week = CGFloat(w)
             }
             // Zoom-OUT carry (invisible unless the pinch actually leaves month level): land the
@@ -703,7 +741,11 @@ extension CalendarEngine {
             // its integer — that would jump a non-aligned 7-day window to the nearest week the moment
             // you start zooming OUT. The fractional window position is preserved through the zoom.
             // A spillover day can't be zoomed into: clamp to the nearest focus-month day, keep focus.
-            if let d = dayAtPointInWeek(p.x, g) {
+            // Over the dashboard PANEL, the pointer's x maps to a virtual day PAST the window
+            // (the "zoom lands on an arbitrary next-week day" bug) → deliberate target instead.
+            if fromPanel {
+                daily.dom = min(daysInMonth(year, focus), max(1, panelPinchRelDom()))
+            } else if let d = dayAtPointInWeek(p.x, g) {
                 let rd = relDomOf(year, focus, d.year, d.month, d.day) ?? d.day
                 daily.dom = min(daysInMonth(year, focus), max(1, rd))
             }

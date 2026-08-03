@@ -858,7 +858,8 @@ public struct CalendarView: View {
                                     )
                                     let delta = v.magnification - (dashPinchMag ?? 1)
                                     engine.onMagnify(delta: delta, at: pt,
-                                                     began: dashPinchMag == nil, ended: false)
+                                                     began: dashPinchMag == nil, ended: false,
+                                                     fromPanel: true)
                                     dashPinchMag = v.magnification
                                     NativeDash.lastPinch = Date() // suppress row taps
                                 }
@@ -868,7 +869,8 @@ public struct CalendarView: View {
                                             + engine.drawerShift + engine.gutterShift,
                                         y: v.startLocation.y
                                     )
-                                    engine.onMagnify(delta: 0, at: pt, began: false, ended: true)
+                                    engine.onMagnify(delta: 0, at: pt, began: false, ended: true,
+                                                     fromPanel: true)
                                     dashPinchMag = nil
                                     NativeDash.lastPinch = Date() // lift-off click grace
                                 }
