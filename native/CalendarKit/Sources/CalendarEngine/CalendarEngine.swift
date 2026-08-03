@@ -12,6 +12,17 @@ public enum ICloudStatus: Sendable {
     case localOnly, available, noAccount, restricted, unavailable, unknown
 }
 
+/// The note-content edit generation, as an OBSERVABLE object on the otherwise non-observable
+/// engine (the RenderClock pattern). Views that display note content at REST (the dashboard
+/// NOTE preview) read `gen` in their body: a checkbox toggle on a static screen then repaints
+/// through Observation immediately — the render loop's TimelineView can't be relied on for
+/// this, because ProMotion idles a static display and the 0.4s idle-sleep can pause the
+/// timeline before a single tick delivers the new state (the "preview repaints only on the
+/// next mouse move" bug).
+@MainActor @Observable public final class NoteEditGen {
+    public internal(set) var gen = 0
+}
+
 /// Drives whether the calendar's per-frame `TimelineView` renders. The engine is a plain (non-
 /// @Observable) type redrawn every frame; without this, `TimelineView(.animation)` burns a full-scene
 /// render at display rate even when nothing changes. `awake` is the ONE observable bit the view reads:
@@ -27,6 +38,8 @@ public enum ICloudStatus: Sendable {
 public final class CalendarEngine {
     // Render loop: the calendar's TimelineView pauses when `renderClock.awake` is false (idle).
     public let renderClock = RenderClock()
+    /// Observable note-edit generation — see NoteEditGen. Bumped by setDailyNote.
+    public let noteEdits = NoteEditGen()
     private var sleepWork: DispatchWorkItem?
 
     /// Kick the render loop — call at every input / animation-start / edit entry point. Cheap +

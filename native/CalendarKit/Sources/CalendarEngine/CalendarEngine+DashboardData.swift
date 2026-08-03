@@ -209,9 +209,11 @@ extension CalendarEngine {
         } else {
             items.dailyNotes[iso] = v
         }
-        // Daily notes feed the dashboard payload — noteGen (NOT editGen: a notepad keystroke
-        // must not invalidate the event/band display caches) keeps dashJSONCache honest.
+        // noteGen (NOT editGen: a notepad keystroke must not invalidate the event/band display
+        // caches) keys the todo-feed cache; the OBSERVABLE generation repaints at-rest note
+        // views (the dashboard preview) immediately, without waiting for a render-loop tick.
         caches.noteGen &+= 1
+        noteEdits.gen &+= 1
         schedulePersist()
     }
     /// ── Scoped delete for recurring events (matches the web: this / this+future / all) ─────────

@@ -43,6 +43,10 @@ struct NativeNotePanel: View {
     @State private var appliedDefaultKey = "" // arrival default applied for this note already
 
     var body: some View {
+        // OBSERVABLE dependency on note content (NoteEditGen): a checkbox toggle at REST must
+        // repaint through Observation — the render loop can't be relied on for it (ProMotion
+        // idles a static display; the idle-sleep can pause the timeline before one tick runs).
+        let _ = engine.noteEdits.gen
         let storageKey = scope == "day" ? key
             : scope == "week" ? "week:\(key)" : "month:\(key)"
         let text = engine.dailyNote(storageKey)
