@@ -20,6 +20,12 @@ extension NativeNoteEditor {
             super.init(scrollView: scroll, orientation: .verticalRuler)
             clientView = textView
             ruleThickness = 34
+            // NSView.clipsToBounds defaults to FALSE since macOS 14: when the fragment walk
+            // overshoots the visible range mid-scroll, a number drawn just past the ruler's
+            // top/bottom edge lands OUTSIDE the view — in a region no view ever repaints — and
+            // the stale digits float there forever (the "ghost line numbers above/below the
+            // gutter" bug: a 62-line note showing an inert 14 above and 51 below).
+            clipsToBounds = true
             NotificationCenter.default.addObserver(
                 self, selector: #selector(invalidate),
                 name: NSText.didChangeNotification, object: textView
