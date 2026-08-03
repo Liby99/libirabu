@@ -372,6 +372,7 @@ enum MarkdownDoc {
             let managedRange = NSRange(location: managedStart, length: out.length - managedStart)
             if managedRange.length > 0 {
                 indentManaged(&out, in: managedRange)
+                linkifyEmails(&out, in: managedRange, accent: accent)
                 decor.append((managedRange, .managed))
             }
         }
@@ -777,6 +778,26 @@ enum MarkdownDoc {
             appendBlocks(parsed.description, startLine: -100_000, to: &out,
                          lineMap: &lineMapScratch, decor: &decor, base: base, accent: accent,
                          theme: theme, interactive: false) // vendor text: no line actions
+        }
+    }
+
+    /// Vendor text is full of bare addresses (organizer, attendees, "reply to x@y.z"): any
+    /// email in the managed region becomes a tappable mailto: link — unless the run already
+    /// carries a link (a field href, a markdown link in the description).
+    private static let emailRe = try! NSRegularExpression(
+        pattern: "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
+    )
+
+    private static func linkifyEmails(_ out: inout NSMutableAttributedString, in range: NSRange,
+                                      accent: NSColor) {
+        let text = out.string as NSString
+        for m in emailRe.matches(in: out.string, range: range).reversed() {
+            guard out.attribute(.link, at: m.range.location, effectiveRange: nil) == nil,
+                  let url = URL(string: "mailto:" + text.substring(with: m.range)) else { continue }
+            out.addAttributes([
+                .link: url, .cursor: NSCursor.pointingHand,
+                .foregroundColor: accent, .underlineStyle: NSUnderlineStyle.single.rawValue,
+            ], range: m.range)
         }
     }
 
