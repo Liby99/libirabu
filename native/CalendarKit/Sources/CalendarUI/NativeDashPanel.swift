@@ -30,12 +30,9 @@ extension View {
 }
 
 enum NativeDash {
-    /// The native dashboard is the DEFAULT now (proven ≥ webview on the real store). Kill
-    /// switches for the webview fallback: `defaults write … cc.nativeDashOff -bool YES` or env
-    /// CC_NATIVE_DASH_OFF=1. The old opt-in keys (cc.nativeDash / CC_NATIVE_DASH) are accepted
-    /// and ignored. Resolved once per launch.
-    static let enabled: Bool = !(UserDefaults.standard.bool(forKey: "cc.nativeDashOff")
-        || ProcessInfo.processInfo.environment["CC_NATIVE_DASH_OFF"] != nil)
+    // The native dashboard is THE dashboard: the WKWebView fallback (and its
+    // cc.nativeDashOff / CC_NATIVE_DASH_OFF kill switches) was retired to legacy/ in
+    // phase 4a, 2026-08-02.
 
     /// Trackpad-pinch tap suppression: the panel overlay's MagnifyGesture is SIMULTANEOUS with
     /// the row buttons' click recognizers, and lifting off a pinch (notably with tap-to-click)

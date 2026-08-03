@@ -156,29 +156,12 @@ public final class CalendarEngine {
     var entityIdxCache: (gen: Int, json: String)?
     var entityIdxWork: DispatchWorkItem? // coalesced async refresh (never scans on a keystroke)
 
-    /// Dashboard WebView payload JSON, cached per (editGen, noteGen, viewed day, real today). The
-    /// dashboard overlay's body re-evaluates EVERY FRAME while anything animates (⌘B pin slide,
-    /// week swipes, zoom) and used to rebuild the whole payload each time — ~30% of the frame
-    /// budget went to String(format:) date strings + JSONEncoder over every item (the "⌘B tanks
-    /// the framerate" bug). The payload only actually changes on edits (editGen/noteGen) and
-    /// navigation (viewIso/today), so cache on those. Gen-only staleness (an edit burst — e.g.
-    /// notepad typing) serves the STALE payload and refreshes COALESCED (dashJSONWork), so a
-    /// keystroke costs zero rebuilds on the frame path; see dashboardDataJSON.
-    var dashJSONCache: (gen: Int, noteGen: Int, viewIso: String, today: String, json: String)?
-    var dashJSONWork: DispatchWorkItem? // coalesced burst refresh (never rebuilds on a keystroke)
-
-    /// The native TODO feed (webview retirement): the fully-parsed index over the whole store,
-    /// cached per (editGen, noteGen, today) — see CalendarEngine+TodoFeed.
+    /// The native TODO feed: the fully-parsed index over the whole store, cached per
+    /// (editGen, noteGen, today) — see CalendarEngine+TodoFeed.
     var todoFeedCache: (gen: Int, noteGen: Int, today: String, todos: [ParsedTodo])?
     /// The native PROJECTS index, same cadence — see ProjIndex.
     var projFeedCache: (gen: Int, noteGen: Int, today: String, projects: [Project])?
     var todoFeedWork: DispatchWorkItem? // coalesced burst refresh (never rebuilds on the frame path)
-    /// Ordering handshake with the dashboard note editor: the editor numbers every noteChange post
-    /// and the host records the latest here BEFORE applying it; buildDashboardDataJSON stamps the
-    /// payload with the value it incorporated. The editor then ignores payloads older than its own
-    /// counter — the cached/coalesced JSON can lag a typing burst by a few keystrokes, and adopting
-    /// such an echo would wipe the newest characters.
-    public var dashNoteSeq = 0
     // Land callbacks fire when the jump's final tween completes — which happens INSIDE sceneInput,
     // i.e. mid-render. The callbacks write SwiftUI state (the dashboard tab), so defer them off the
     // render pass; the hop also sequences them AFTER any chrome.level onChange work already queued

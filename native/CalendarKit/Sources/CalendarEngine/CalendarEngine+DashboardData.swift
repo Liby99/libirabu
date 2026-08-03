@@ -1,163 +1,20 @@
-// The daily dashboard's data feed (TODO index + deadline list for the WebView bridge), the
-// per-day markdown daily note, scoped deletes for recurring events (this / this+future / all,
-// matching the web), and band occurrence dates for the recurring-band drawer.
-// Split from CalendarEngine.swift (the god-file diet).
+// Dashboard-adjacent engine data: the day carousel state, per-scope markdown notes, the
+// entity index (autocomplete), scoped deletes for recurring events (this / this+future / all),
+// and band occurrence dates for the recurring-band drawer.
+// Split from CalendarEngine.swift (the god-file diet). The webview JSON payload machinery
+// (dashboardDataJSON/TodoContext/DashPayload) was retired with the dashboard webview
+// (phase 4a — see legacy/).
 
 import CalendarGeometry
 import CoreGraphics
 import Foundation
 
 extension CalendarEngine {
-    /// ── Daily dashboard data (feeds the WebView TODO index + deadline list) ────────────────────
-    /// Mirrors the web's TodoEventContext[] so the bundled `todos.ts` tokenizer + sectioning render
-    /// identically. Wall-clock strings ("YYYY-MM-DD[THH:MM:SS]"); a timed event carries its year here.
-    private struct TodoContext: Codable { var id, kind, title, color: String; var tags: [String]; var start,
-                                                                                                      end: String; var originTz: String?; var notes: String?; var occurrenceNotes: [
-                                                                                                          String: String
-                                                                                                      ]?
-    }
-
-    private struct DashDeadline: Codable { var id: String; var year, month, day: Int; var hour: Double; var title,
-                                                                                                            color: String
-    }
-
-    private struct DashPayload: Codable { var events: [TodoContext]; var deadlines: [DashDeadline]; var viewIso,
-                                                                                                        today: String; var dailyNotes: [
-                                                                                                            String: String
-                                                                                                        ]
-        // The last editor-post sequence number this payload has INCORPORATED (see dashNoteSeq).
-        // The JSON cache + coalesced rebuild mean a push can lag the live note editor by a few
-        // keystrokes; the editor compares this against its own counter and refuses to adopt a
-        // payload older than its latest post (which would wipe the newest characters).
-        var noteSeq: Int
-    }
-
     private func wall(_ y: Int, _ m0: Int, _ d: Int, _ hour: CGFloat? = nil) -> String {
         let base = String(format: "%04d-%02d-%02d", y, m0 + 1, d)
         guard let hour else { return base }
         let t = Int((hour * 60).rounded())
         return base + String(format: "T%02d:%02d:00", (t / 60) % 24, t % 60)
-    }
-
-    private func todoContexts() -> [TodoContext] {
-        func ctx(
-            _ id: String,
-            _ kind: String,
-            _ title: String,
-            _ color: String,
-            _ start: String,
-            _ end: String,
-            _ tz: String? = nil
-        ) -> TodoContext {
-            let rf = items.richById[id]
-            return TodoContext(id: id, kind: kind, title: title, color: color, tags: rf?.tags ?? [],
-                               start: start, end: end, originTz: tz, notes: rf?.notes,
-                               occurrenceNotes: rf?.occurrenceNotes)
-        }
-        var out: [TodoContext] = []
-        // Timed events + deadlines are converted anchor→view tz (like the timeline) so the dashboard's
-        // schedule matches what's drawn. Bands are all-day → no conversion.
-        for e0 in items.events {
-            let e = displayEvent(e0); out.append(ctx(
-                e0.id,
-                "timed",
-                e.title,
-                e.color,
-                wall(e.year, e.month, e.day, e.startHour),
-                wall(e.year, e.month, e.day, min(e.endHour, 24))
-            ))
-        }
-        for b in items.bands {
-            out.append(ctx(
-                b.id,
-                "band",
-                b.title,
-                b.color,
-                wall(b.year, b.month, b.startDay),
-                wall(b.year, b.month, b.endDay)
-            ))
-        }
-        for d0 in items
-            .deadlines {
-            let d = displayDeadline(d0); let w = wall(d.year, d.month, d.day, d.hour); out.append(ctx(
-                d0.id,
-                "deadline",
-                d.title,
-                d.color,
-                w,
-                w
-            ))
-        }
-        return out
-    }
-
-    /// The JSON the dashboard WebView consumes: contexts + deadlines + the viewed day + real today.
-    /// Cached per (editGen, noteGen, viewIso, today) — see dashJSONCache. This is on the overlay's
-    /// per-frame body path, so a cache miss must stay the EXCEPTION, never the rule:
-    ///   • fresh cache → return it (the every-animated-frame case);
-    ///   • gens stale, same view (an edit burst — notepad typing, checkbox toggles): return the
-    ///     STALE payload now and rebuild ONCE, coalesced 0.3s past the burst (the editing webview
-    ///     already applied its own change locally, so nobody needs this mid-burst);
-    ///   • no cache / view changed (navigation): rebuild inline — the panel must not show
-    ///     another day's content.
-    public func dashboardDataJSON() -> String {
-        let c = Calendar.current.dateComponents([.year, .month, .day], from: Date())
-        let today = String(format: "%04d-%02d-%02d", c.year ?? year, c.month ?? 1, c.day ?? 1)
-        let r = resolveDate(year, focus, daily.dom)
-        let viewIso = r.map { wall($0.year, $0.month, $0.day) } ?? wall(year, focus, daily.dom)
-        // Kill-switch (A/B): CC_DASHJSON_OFF=1 rebuilds every call, the pre-cache behavior.
-        if let cached = dashJSONCache, cached.viewIso == viewIso, cached.today == today,
-           !Self.dashJSONCacheOff {
-            if cached.gen == caches.editGen, cached.noteGen == caches.noteGen {
-                return cached.json
-            }
-            scheduleDashJSONRefresh(viewIso: viewIso, today: today)
-            return cached.json
-        }
-        dashJSONWork?.cancel(); dashJSONWork = nil
-        let json = buildDashboardDataJSON(viewIso: viewIso, today: today)
-        dashJSONCache = (caches.editGen, caches.noteGen, viewIso, today, json)
-        return json
-    }
-
-    /// One rebuild, 0.3s after the last edit of a burst (matches the undo/entity-index coalescers).
-    /// wake() so the settled frame re-runs the overlay body, which then reads the fresh cache.
-    private func scheduleDashJSONRefresh(viewIso: String, today: String) {
-        guard dashJSONWork == nil else { return } // already scheduled — later edits ride the same window
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.dashJSONWork = nil
-            let json = self.buildDashboardDataJSON(viewIso: viewIso, today: today)
-            self.dashJSONCache = (self.caches.editGen, self.caches.noteGen, viewIso, today, json)
-            self.wake()
-        }
-        dashJSONWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
-    }
-
-    static let dashJSONCacheOff = ProcessInfo.processInfo.environment["CC_DASHJSON_OFF"] != nil
-
-    private func buildDashboardDataJSON(viewIso: String, today: String) -> String {
-        let dls = items.deadlines.map { d0 -> DashDeadline in let d = displayDeadline(d0)
-            return DashDeadline(
-                id: d0.id,
-                year: d.year,
-                month: d.month,
-                day: d.day,
-                hour: Double(d.hour),
-                title: d.title,
-                color: d.color
-            )
-        }
-        let payload = DashPayload(
-            events: todoContexts(),
-            deadlines: dls,
-            viewIso: viewIso,
-            today: today,
-            dailyNotes: items.dailyNotes,
-            noteSeq: dashNoteSeq
-        )
-        return (try? JSONEncoder().encode(payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 
     /// Wall-clock date ("YYYY-MM-DD") for a focus-relative day-of-month, resolving month rollover.

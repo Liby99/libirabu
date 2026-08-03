@@ -1,8 +1,7 @@
 // The native dashboard CHROME: the tab rows, note edit/preview toggle, todo cog, the
 // per-frame carousel state for those overlays (DashCarouselAnim), the CarouselDriver that
-// feeds it every frame, and the GestureForwarder handle. Split out of
-// DailyDashboardWebView.swift (phase 4a): everything here is PERMANENT native UI; that file
-// now holds only the webview fallback (cc.nativeDashOff) slated for legacy/ retirement.
+// feeds it every frame, and the GestureForwarder handle. Split out of the retired dashboard
+// webview stack (phase 4a, 2026-08-02) — the WKWebView fallback now lives in legacy/.
 
 import AppKit
 import CalendarEngine
@@ -10,10 +9,13 @@ import CalendarGeometry
 import CalendarRender
 import SwiftUI
 
-/// Shared handle to the calendar's input catcher, so the dashboard web view can forward the gestures
-/// it shouldn't own (horizontal day-paging scroll + pinch-zoom) back to the calendar. Set by the
+/// Shared handle to the calendar's input catcher, so panel-level views can forward the gestures
+/// they shouldn't own (horizontal day-paging scroll + pinch-zoom) back to the calendar. Set by the
 /// InputCatcher when its NSView is created.
 @MainActor final class GestureForwarder { weak var catcher: NSView? }
+
+/// The dashboard's tabs: the TODO list (default), a per-scope markdown NOTE, and the PROJ gantt.
+public enum DashTab: Hashable { case todo, note, proj }
 
 /// Per-frame carousel state for the NATIVE SwiftUI tabs, so they slide + fade in lockstep with the
 /// Canvas title and the WebView content when paging days. Written by the driver (inside TimelineView),
@@ -22,7 +24,6 @@ import SwiftUI
     var dir = 0
     var p = 0.0
     var reveal = 1.0
-    var slide = 0.0
     var gutterShift = 0.0 // engine.gutterShift mirrored per frame (gutter hide slide)
     var headerTopY = Double(Layout.topPad) // the focused band's ANIMATED top (accordion / page-turn)
     var headerTopY2 = Double(Layout.topPad) // the INCOMING month band's top during a page-turn
@@ -41,7 +42,7 @@ import SwiftUI
     var bX = 0.0
     var bW = 0.0
     var bOp = 0.0
-    func set(dir: Int, p: Double, reveal: Double, slide: Double,
+    func set(dir: Int, p: Double, reveal: Double,
              headerTopY: Double, headerTopY2: Double, panelLeft: Double,
              monthP: Double, monthDir: Int, scopeT: Double, weekP: Double,
              aName: String, aX: Double, aW: Double, aOp: Double,
@@ -58,9 +59,6 @@ import SwiftUI
         }
         if self.reveal != reveal {
             self.reveal = reveal
-        }
-        if self.slide != slide {
-            self.slide = slide
         }
         if self.headerTopY != headerTopY {
             self.headerTopY = headerTopY
@@ -110,57 +108,29 @@ import SwiftUI
     }
 }
 
-/// Invisible per-frame driver — lives INSIDE the TimelineView so `updateNSView` runs every frame with
-/// fresh carousel values, forwarding them to the shared conduit (WebView) + anim state (SwiftUI tabs).
+/// Invisible per-frame driver — lives INSIDE the TimelineView so `updateNSView` runs every frame
+/// with fresh carousel values, forwarding them to the anim state the native tab/chrome overlays
+/// read. (Until phase 4a this also ticked the dashboard WKWebView's CSS conduit — see legacy/.)
 struct CarouselDriver: NSViewRepresentable {
-    let carousel: DashboardCarousel
     let anim: DashCarouselAnim
-    let from: String, to: String
-    let dir: Int, p: Double, reveal: Double, slide: Double
-    var scopeA: String = "day", scopeB: String = "day" // zoom-scope carousel (month/week/day)
-    var scopeT: Double = 1 // eased fraction between scopeA (lower) and scopeB (upper)
+    let dir: Int, p: Double, reveal: Double
+    var scopeT: Double = 1 // eased fraction between the lower and upper zoom scopes
     var headerTopY: Double = Double(Layout.topPad) // focused band's animated top (canvas-anchored)
     var headerTopY2: Double = Double(Layout.topPad) // incoming month band's top (page-turns)
     var panelLeft: Double = 0 // dashboardLeftAnimated (for the native tab overlay)
-    var webDy: Double = 0 // vertical shift of the webview CONTENT (accordion; excludes page-turns)
-    var mFrom: String = "", mTo: String = "" // month page-turn labels (webview vertical carousel)
     var mDir: Int = 0
-    var mP: Double = 0
-    var mDy0: Double = 0, mDy1: Double = 0 // month-turn PIXEL offsets (band-frame deltas; see caller)
-    var mKeyA: String = "", mKeyB: String = "" // month machine keys "YYYY-MM" (notes + filters)
-    var wFrom: String = "", wTo: String = "" // week-turn labels (weekly-dashboard carousel)
+    var mP: Double = 0 // month page-turn progress
     var wP: Double = 0 // week-turn progress (0 = base week at rest … 1 = next week at rest)
-    var wKeyA: String = "", wKeyB: String = "" // week machine keys: the Sunday, "YYYY-MM-DD"
     // Per-panel scope geometry from dashScopePanels, frame-local px (frame left = labelW):
-    var maskX: Double = 0, maskW: Double = 0 // the clip region (dashboardLeftAnimated → right edge)
     var aName: String = "", aX: Double = 0, aW: Double = 0, aOp: Double = 0 // current/outgoing panel
     var bName: String = "", bX: Double = 0, bW: Double = 0, bOp: Double = 0 // incoming (transitions)
-    var shiftX: Double = 0 // drawer canvas-shift (engine.drawerShift): content rides the canvas slide
     var gutterShiftX: Double = 0 // gutter hide (engine.gutterShift): body-level frame/offset rides it
-    var keepLive: Bool = false // ⌘B panel presented → alpha-floor the webview (see setPanelAlpha)
-    // Native dashboard active (cc.nativeDash, week/month tabs): blank the WEBVIEW only — alpha 0
-    // via reveal, hit gate pushed off via maskX — while `anim` (the native tabs/chrome state)
-    // keeps the REAL values. Zeroing reveal for both hid the native tab rows entirely.
-    var webBlank: Bool = false
     func makeNSView(context: Context) -> NSView {
         NSView()
     }
 
     func updateNSView(_ v: NSView, context: Context) {
-        carousel.tick(from: from, to: to, dir: dir, p: p,
-                      reveal: webBlank ? 0 : reveal, slide: slide,
-                      scopeA: scopeA, scopeB: scopeB, scopeT: scopeT,
-                      dy: webDy, mFrom: mFrom, mTo: mTo, mDy0: mDy0, mDy1: mDy1, mP: mP,
-                      mKeyA: mKeyA, mKeyB: mKeyB,
-                      wFrom: wFrom, wTo: wTo, wP: wP, wKeyA: wKeyA, wKeyB: wKeyB,
-                      maskX: webBlank ? 1e9 : maskX, maskW: maskW,
-                      // Blanked: zero the panel ops too — the page's renderGate then SKIPS the
-                      // content renders entirely (it was invisibly building the full panel DOM
-                      // at first present, stacking on the native mount inside the zoom tween).
-                      aName: aName, aX: aX, aW: aW, aOp: webBlank ? 0 : aOp,
-                      bName: bName, bX: bX, bW: bW, bOp: webBlank ? 0 : bOp,
-                      shiftX: shiftX, keepLive: keepLive)
-        anim.set(dir: dir, p: p, reveal: reveal, slide: slide,
+        anim.set(dir: dir, p: p, reveal: reveal,
                  headerTopY: headerTopY, headerTopY2: headerTopY2, panelLeft: panelLeft,
                  monthP: mP, monthDir: mDir, scopeT: scopeT, weekP: wP,
                  aName: aName, aX: aX, aW: aW, aOp: aOp,

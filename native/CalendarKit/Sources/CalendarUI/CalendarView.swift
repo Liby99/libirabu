@@ -17,7 +17,6 @@ public struct CalendarView: View {
     @State private var monthBridge = MonthPagerBridge()
     @State private var weekBridge = WeekPagerBridge()
     @State private var dayBridge = DayPagerBridge()
-    @State private var dashCarousel = DashboardCarousel()
     @State private var dashAnim = DashCarouselAnim() // per-frame carousel state for the native tabs
     @State private var gestureForwarder = GestureForwarder() // dashboard → catcher (horiz scroll + pinch)
     @State private var dashFrac: CGFloat = 0.45 // mirrors engine.daily.frac; updated live on resize
@@ -37,9 +36,6 @@ public struct CalendarView: View {
     // profiler can measure the GPU-heavy path the throwaway store's default (perfMode on) never hits.
     private static let forcePerfOff = ProcessInfo.processInfo.environment["CC_PERF_OFF"] != nil
     private var effPerfMode: Bool { perfMode && !Self.forcePerfOff }
-    // CC_DASH_UNMOUNT=1 → the OLD lazy dashboard mount (WebView created at each month→week crossing),
-    // for same-binary A/B against the persistent mount (see the dashboard overlay below).
-    private static let dashUnmountKill = ProcessInfo.processInfo.environment["CC_DASH_UNMOUNT"] != nil
     // The View-menu prefs (show-hidden, current/alt timezone) → repaint observers live in ViewPrefObservers
     // (bundled into one modifier to keep the body's modifier chain within the Swift type-checker's budget).
     @AppStorage("cc.tutorial.seen") private var tutorialSeen = false // auto-show the onboarding carousel once
@@ -233,7 +229,7 @@ public struct CalendarView: View {
             .flatMap { $0 as? Date }
         print("[build] \(exe)")
         print("[build] built \(mtime.map { ISO8601DateFormatter().string(from: $0) } ?? "?") | "
-            + "dashboard=\(NativeDash.enabled ? "NATIVE" : "WEBVIEW") | "
+            + "dashboard=NATIVE | "
             + "trace=\(CCTrace.on) diag=\(NativeDash.diag) hud=\(DemoController.hudEnabled) "
             + "demo=\(CalendarEngine.isDemoMode)")
         WindowBeepSilencer.installOnce() // stop the window beeping on keys the calendar leaves unhandled
@@ -251,9 +247,10 @@ public struct CalendarView: View {
         if CalendarEngine.isDemoMode {
             demo.openSearchHook = { openSearch() }   // search-demo scene drives the real toolbar search
             demo.eventMenuHook = { id, r in ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: r) }
-            demo.dashTodoFocusHook = { dashCarousel.navFocus(.todo) }
-            demo.dashTodoToggleHook = { dashCarousel.navActivate() }
-            demo.dashWebCarousel = dashCarousel
+            demo.dashTodoFocusHook = { [dashNav] in dashTab = .todo; dashNav.focus() }
+            demo.dashTodoToggleHook = { [dashNav, engine] in
+                if let t = dashNav.currentRow { NativeDashPanel.toggleTodo(engine, t) }
+            }
             demo.closeEventMenuHook = { ui.eventMenu = nil }
             demo.searchState = search
             demo.startIfDemo(engine: engine, size: size)
@@ -265,7 +262,7 @@ public struct CalendarView: View {
         // this used to sit inside the demo branch, so real launches paid the cold full-database
         // parse inline on first panel open, inside its zoom tween). The build itself runs on the
         // background feed queue; +0.4s keeps the snapshot off the launch render burst.
-        if NativeDash.enabled {
+        do {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 engine.prewarmFeeds(today: NativeDashPanel.todayIso())
             }
@@ -299,68 +296,37 @@ public struct CalendarView: View {
                 ui.editingBand = nil; engine.bandEditing = false
             }
         }
-        // Day-view dashboard Tab stops (TODO / NOTE): the engine's keyboard system drives the WebView's row
-        // cursor + note-editor focus through this bridge, and switches the native TODO/NOTE tab to match.
-        engine.onDashCommand = { [carousel = dashCarousel, tabBinding = $dashTab, engine,
-                                  dashNav, ui] cmd in
-            // Native panels (cc.nativeDash, all scopes incl. DAY): the row cursor lives in
-            // the native nav model — same key system, no webview bridge.
-            if NativeDash.enabled, (1 ... 3).contains(engine.chrome.level) {
-                switch cmd {
-                case let .focus(stop):
-                    if stop == .todo { tabBinding.wrappedValue = .todo; dashNav.focus() }
-                    else { dashNav.blur(); if stop == .note { tabBinding.wrappedValue = .note } }
-                case let .move(d):
-                    dashNav.move(d)
-                case .activate:
-                    if let t = dashNav.currentRow { NativeDashPanel.toggleTodo(engine, t) }
-                case .open:
-                    if let t = dashNav.currentRow {
-                        if t.source == "event" {
-                            ui.openEventId = sourceId(of: t.eventId)
-                        } else if let key = t.dailyDate {
-                            // Enter on a note row: fly to its note, landing in the EDITOR
-                            // focused with the row's source line selected.
-                            jumpToNoteKey(key, line: t.line)
-                        }
-                    }
-                case let .fold(open):
-                    if let t = dashNav.currentRow {
-                        let a = NativeDashPanel.anchor(t)
-                        if open { dashNav.collapsedSubs.remove(a) }
-                        else { dashNav.collapsedSubs.insert(a) }
-                        engine.wake()
-                    }
-                case .editNote:
-                    dashNav.noteFocusSeq += 1 // the active panel's editor takes the keyboard
-                }
-                engine.wake()
-                return
-            }
+        // Dashboard Tab stops (TODO / NOTE): the engine's keyboard system drives the native
+        // panels' row cursor + note-editor focus, and switches the TODO/NOTE tab to match.
+        engine.onDashCommand = { [tabBinding = $dashTab, engine, dashNav, ui] cmd in
+            guard (1 ... 3).contains(engine.chrome.level) else { return }
             switch cmd {
             case let .focus(stop):
-                if stop == .todo {
-                    tabBinding.wrappedValue = .todo
-                } else if stop == .note {
-                    tabBinding.wrappedValue = .note
+                if stop == .todo { tabBinding.wrappedValue = .todo; dashNav.focus() }
+                else { dashNav.blur(); if stop == .note { tabBinding.wrappedValue = .note } }
+            case let .move(d):
+                dashNav.move(d)
+            case .activate:
+                if let t = dashNav.currentRow { NativeDashPanel.toggleTodo(engine, t) }
+            case .open:
+                if let t = dashNav.currentRow {
+                    if t.source == "event" {
+                        ui.openEventId = sourceId(of: t.eventId)
+                    } else if let key = t.dailyDate {
+                        // Enter on a note row: fly to its note, landing in the EDITOR
+                        // focused with the row's source line selected.
+                        jumpToNoteKey(key, line: t.line)
+                    }
                 }
-                // TODO focus (or focus leaving the dashboard): the arrows/keys belong to the
-                // CALENDAR's key system — if the web view holds first responder (e.g. the note
-                // editor was just being edited when ⌘B fired), keys would never reach it.
-                if stop != .note {
-                    carousel.regateWebFocus()
+            case let .fold(open):
+                if let t = dashNav.currentRow {
+                    let a = NativeDashPanel.anchor(t)
+                    if open { dashNav.collapsedSubs.remove(a) }
+                    else { dashNav.collapsedSubs.insert(a) }
+                    engine.wake()
                 }
-                carousel.navFocus(stop)
-            case let .move(d): carousel.navMove(d)
-            case .activate: // Space/Enter: note → focus the editor; todo → toggle the row
-                if engine.cursor.dashStop == .note {
-                    carousel.focusNoteEditor()
-                } else {
-                    carousel.navActivate()
-                }
-            case .open: carousel.navOpen()
-            case let .fold(open): carousel.navFold(open)
-            case let .editNote(ring): carousel.focusNoteEditor(ring: ring)
+            case .editNote:
+                dashNav.noteFocusSeq += 1 // the active panel's editor takes the keyboard
             }
             engine.wake()
         }
@@ -560,94 +526,37 @@ public struct CalendarView: View {
                     .position(x: spot.x, y: spot.y)
                     .offset(x: sceneDX)
             }
-            // Per-frame day-carousel driver for the dashboard WebView (invisible). Carries {from,to,dir,p}
-            // for day paging and `reveal` for the panel's slide-in-from-right + fade. Week level up.
+            // Per-frame carousel driver for the native dashboard chrome (invisible). Carries
+            // {dir,p} for day paging and `reveal` for the panel's slide-in-from-right + fade.
             if input.z > 1.5 || input.dashPin > 0.01 {
                 let c = engine.dashboardCarousel()
-                // The webview frame sits at the DAY split in day view, at the narrower PINNED edge
-                // at month/week — normalize the CSS slide against whichever frame is in use.
-                // Gutter hide: geometry below must match the SceneInput's (possibly inflated) width.
-                let vpw = input.vp.w
-                let dayLOpen = Layout.labelW + dashFrac * max(1, vpw - Layout.labelW)
-                let pinLOpen = engine.chrome.level <= 1
-                    ? vpw - dashMonthPanelW(Viewport(w: vpw - engine.gutterShift, h: input.vp.h),
-                                            frac: engine.chrome.dashMonthFrac)
-                    : vpw - engine.chrome.dashWeekFrac * (vpw - engine.gutterShift - Layout.labelW)
-                // dashPresented (not dashPinned): stays true through the ⌘B retract tween, so the
-                // slide normalizes against the PINNED edge while the content rides off with it.
-                let lOpen = (engine.chrome.level < 3 && engine.chrome.dashPresented) ? pinLOpen : dayLOpen
-                let wvW = max(1, vpw - lOpen)
-                let slide = min(1, max(0, Double((dashboardLeftAnimated(input) - lOpen) / wvW)))
                 // Zoom-scope carousel: pure function of z (mirrors SceneRenderer's scopePair) —
                 // the finer scope enters from the LEFT zooming in, returns from the RIGHT out.
-                let (sA, sB, sT): (String, String, Double) = input.z >= 2
-                    ? ("week", "day", Double(easeInOut(clamp(input.z - 2, 0, 1))))
-                    : (input.z >= 1
-                        ? ("month", "week", Double(easeInOut(clamp(input.z - 1, 0, 1))))
-                        : ("month", "month", 0))
+                let sT: Double = input.z >= 2
+                    ? Double(easeInOut(clamp(input.z - 2, 0, 1)))
+                    : (input.z >= 1 ? Double(easeInOut(clamp(input.z - 1, 0, 1))) : 0)
                 // Header anchor: the focused band's animated frame (accordion + page-turns) keeps
-                // the Canvas header, native tabs, and webview content vertically in lock-step.
+                // the Canvas header and the native tabs vertically in lock-step.
                 let fHeader = frameFor(input.focus, input, anim: input.monthAnim)
                 // The INCOMING month's band frame during a page-turn (tabs ride both headers).
                 let fHeader2 = input.monthAnim.map { a in
                     frameFor(input.focus + a.dir, input, anim: input.monthAnim)
                 } ?? fHeader
-                // The webview's own vertical shift excludes page-turns (its month LAYER carousels
-                // those internally) — so compute the accordion-only frame.
-                let fRest = frameFor(input.focus, input)
-                let (mFrom, mTo, mDir, mP): (String, String, Int, Double) = {
-                    guard let a = input.monthAnim else { return (MONTH_LONG[input.focus], "", 0, 0) }
-                    let toM = input.focus + a.dir
-                    return (MONTH_LONG[input.focus],
-                            (0 ... 11).contains(toM) ? MONTH_LONG[toM] : "",
-                            a.dir, Double(a.p))
-                }()
-                // Machine keys for the monthly-note store + content filters ("YYYY-MM").
-                let mKeyA = String(format: "%04d-%02d", input.year, input.focus + 1)
-                let mKeyB: String = {
-                    guard let a = input.monthAnim, (0 ... 11).contains(input.focus + a.dir)
-                    else { return "" }
-                    return String(format: "%04d-%02d", input.year, input.focus + a.dir + 1)
-                }()
+                let (mDir, mP): (Int, Double) = input.monthAnim.map { ($0.dir, Double($0.p)) } ?? (0, 0)
                 // Week-to-week carousel (weekly dashboard): driven by the continuous week
                 // scroll — the SAME function the Canvas week header draws with.
                 let wt = weekDashTurn(input)
                 // Per-panel geometry from the SAME function the Canvas header draws with
-                // (dashScopePanels) — mask + each panel's own (left, width, opacity), converted to
-                // the webview's frame-local coordinates (the frame spans the full content region,
-                // left edge at labelW, and never moves — no level-boundary snap).
+                // (dashScopePanels) — each panel's own (left, width, opacity), frame-local px.
                 let scopeGeom = dashScopePanels(input)
-                // Native dashboard (webview retirement, cc.nativeDash): ALL tabs of the pinned
-                // week/month panel render NATIVELY as REAL carousel members — the flat sub-panel
-                // list (dashBodyPanels: scope cross-fades × week-turn slides × month band rides)
-                // comes from the geometry layer, the SAME brain the Canvas header draws from, and
-                // is applied here as plain frame/offset/opacity. No motion is derived in the view
-                // layer, so header and body cannot drift. A DAY panel in the transition pair
-                // (week↔day zoom) falls back to the webview wholesale: the day dashboard isn't
-                // native yet, and a half-native cross-fade would double-render one side.
-                // Native dashboard (cc.nativeDash): the BODY lives in its own hit-testable
-                // overlay above the input catcher (nativeDashOverlay — the whole scene here is
-                // allowsHitTesting(false)); this scope only decides the webview blanking below.
-                let nativeTodo = NativeDash.enabled && scopeGeom != nil
-                CarouselDriver(carousel: dashCarousel, anim: dashAnim, from: c.from, to: c.to,
-                               dir: c.dir, p: c.p, reveal: c.reveal, slide: slide,
-                               scopeA: sA, scopeB: sB, scopeT: sT,
+                CarouselDriver(anim: dashAnim,
+                               dir: c.dir, p: c.p, reveal: c.reveal,
+                               scopeT: sT,
                                headerTopY: Double(fHeader.bandY),
                                headerTopY2: Double(fHeader2.bandY),
                                panelLeft: Double(dashboardLeftAnimated(input) - engine.gutterShift),
-                               webDy: Double(fRest.bandY - Layout.topPad),
-                               mFrom: mFrom, mTo: mTo, mDir: mDir, mP: mP,
-                               // Month-turn PIXEL offsets for the webview sub-panels, relative to the
-                               // resting frame (the root already carries the accordion dy): each
-                               // sub-panel rides its band's frame EXACTLY — same staggered easing,
-                               // same asymmetric travel as the Canvas header. Native is the standard.
-                               mDy0: Double(fHeader.bandY - fRest.bandY),
-                               mDy1: Double(fHeader2.bandY - fRest.bandY),
-                               mKeyA: mKeyA, mKeyB: mKeyB,
-                               wFrom: wt.from, wTo: wt.to, wP: Double(wt.p),
-                               wKeyA: wt.fromKey, wKeyB: wt.toKey,
-                               maskX: Double((scopeGeom?.mask ?? vpw) - Layout.labelW - engine.gutterShift),
-                               maskW: Double(vpw - (scopeGeom?.mask ?? vpw)),
+                               mDir: mDir, mP: mP,
+                               wP: Double(wt.p),
                                aName: scopeGeom?.a.name ?? "",
                                aX: Double((scopeGeom?.a.x ?? 0) - Layout.labelW - engine.gutterShift),
                                aW: Double(scopeGeom?.a.w ?? 0),
@@ -656,22 +565,7 @@ public struct CalendarView: View {
                                bX: Double((scopeGeom?.b?.x ?? 0) - Layout.labelW - engine.gutterShift),
                                bW: Double(scopeGeom?.b?.w ?? 0),
                                bOp: Double(scopeGeom?.b?.op ?? 0),
-                               // Drawer canvas-shift (week/month; 0 at day): the webview content rides
-                               // the same slide the scene gets via .offset(-drawerShift), so the pinned
-                               // panel moves WITH the canvas instead of sitting still under the drawer.
-                               shiftX: Double(engine.drawerShift),
-                               gutterShiftX: Double(engine.gutterShift),
-                               // Month/week level (where ⌘B can present) or presented → keep the
-                               // webview technically visible EVEN RETRACTED, so the pin slide
-                               // never pays WebKit's unhide full-document repaint mid-animation
-                               // (measured 26-35ms web frames at slide start on a todo-heavy
-                               // month). Year keeps true hidden (the hover-flicker case); the
-                               // hit gate (interactiveLeftX) still keeps clicks off the webview.
-                               keepLive: engine.chrome.dashPresented
-                                   || engine.chrome.level == 1 || engine.chrome.level == 2,
-                               // Blank the WEBVIEW ONLY while the native panels own these tabs;
-                               // the native tabs/chrome keep reading the real values via `anim`.
-                               webBlank: nativeTodo)
+                               gutterShiftX: Double(engine.gutterShift))
                     .frame(width: 0, height: 0)
             }
         }
@@ -932,103 +826,59 @@ public struct CalendarView: View {
                     .background { WeekPager(engine: engine, bridge: weekBridge) }
                     .background { DayPager(engine: engine, bridge: dayBridge) }
                     .overlay(inputCatcher())
-                    // Day-view daily dashboard: the TODO list + upcoming deadlines, in a transparent
-                    // WebView (reuses the web's tokenizer + sectioning). Sits in the dashboard content
-                    // region; shown at day level with the drawer closed (it snaps in — WKWebView doesn't
-                    // animate with SwiftUI transitions — so it's gated on level like the split handle).
-                    // ALWAYS MOUNTED: the level-≥2 mount gate made every month↔week zoom crossing create
-                    // (and destroy) the WKWebView — the pinch-zoom trace attributed ~55ms of each ~90ms
-                    // mid-gesture hitch to WebPageProxy creation, right as the week arrival storm lands.
-                    // Persistent, the WebView is created ONCE at launch (off any gesture) and just stays
-                    // slid out + faded below week level (its CSS slide is already 1 when the driver stops
-                    // ticking at z≤1.5, so nothing shows). Hit-testing was already day-level-only.
-                    // CC_DASH_UNMOUNT=1 restores the old lazy mount for same-binary A/B benchmarking.
-                    // It stays mounted while the drawer is open too — instead of popping out, it fades
-                    // aside in CSS (the driver keeps ticking `drawer`). Interactive only at day level
-                    // with the drawer closed.
-                    .overlay {
-                        // Phase 4a step 1: under the native dashboard (the default), the
-                        // webview overlay is NOT MOUNTED AT ALL — no web process, no per-frame
-                        // CK.tick IPC, no dashboardDataJSON evaluation. The whole branch
-                        // survives only for the cc.nativeDashOff fallback.
-                        if !NativeDash.enabled, !Self.dashUnmountKill || engine.chrome.level >= 2 {
-                            DailyDashboardOverlay(engine: engine, carousel: dashCarousel,
-                                                  forwarder: gestureForwarder,
-                                                  tab: $dashTab, noteMode: $noteMode,
-                                                  // Drawer open → in-page scrim (SwiftUI blur can't reach the
-                                                  // WKWebView layer): day view AND the pinned week/month panels.
-                                                  inactive: ui.openEventId != nil && (engine.chrome.level == 3
-                                                      || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level))),
-                                                  frac: dashFrac, vp: vp,
-                                                  containerWidth: geo.size.width, height: geo.size.height, theme: theme,
-                                                  onOpen: { ui.openEventId = sourceId(of: $0) },
-                                                  onCloseDrawer: { ui.openEventId = nil },
-                                                  onNoteExit: { engine.dashNoteExit() },
-                                                  onNavTab: { fwd in engine.tabCursor(fwd) },
-                                                  todoSettings: todoSettings,
-                                                  todoMenu: todoMenu)
-                                // Stay hit-testable while the drawer is open so the in-page scrim can intercept +
-                                // close (the WKWebView layer ignores the SwiftUI scrim/allowsHitTesting anyway).
-                                .allowsHitTesting(engine.chrome.level == 3
-                                    || (engine.chrome.dashPinned && (1 ... 2).contains(engine.chrome.level)))
-                        }
-                    }
-                    // Native dashboard BODY (cc.nativeDash): its own overlay ABOVE the input
-                    // catcher so scroll/click interactions are real (the scene subtree is
+                    // Native dashboard BODY: its own overlay ABOVE the input catcher so
+                    // scroll/click interactions are real (the scene subtree is
                     // allowsHitTesting(false) wholesale). A second TimelineView on the same
                     // clock reading snapshotInput() — the frame the main loop already computed —
                     // so tweens never double-advance and the body stays in per-frame lockstep
-                    // with the Canvas header.
+                    // with the Canvas header. (The WKWebView dashboard this replaced is in
+                    // legacy/ — retired phase 4a, 2026-08-02.)
                     .overlay {
-                        if NativeDash.enabled {
-                            TimelineView(.animation(minimumInterval: nil,
-                                                    paused: !engine.renderClock.awake)) { _ in
-                                nativeDashOverlay(theme: theme)
-                                    // Drawer open: the panels are part of the calendar surface —
-                                    // they ride the SAME slide + soft-blur the scene gets (the
-                                    // webview rode along via shiftX). INSIDE the per-frame pass:
-                                    // drawerShift is an engine tween, so reading it out here
-                                    // would sample once per body eval and TELEPORT into place.
-                                    .blur(radius: ui.openEventId != nil ? 5 : 0)
-                                    .offset(x: -engine.drawerShift)
-                            }
-                            // Pinch over the native panels must still zoom the CALENDAR (the
-                            // webview forwarded magnify to the input catcher; a hit-testable
-                            // SwiftUI overlay would swallow it). Feed the exact same engine
-                            // call, with the same geometry-space conversion point(e) does.
-                            .simultaneousGesture(
-                                MagnifyGesture()
-                                    .onChanged { v in
-                                        let pt = CGPoint(
-                                            x: v.startLocation.x - Layout.padLeft
-                                                + engine.drawerShift + engine.gutterShift,
-                                            y: v.startLocation.y
-                                        )
-                                        let delta = v.magnification - (dashPinchMag ?? 1)
-                                        engine.onMagnify(delta: delta, at: pt,
-                                                         began: dashPinchMag == nil, ended: false)
-                                        dashPinchMag = v.magnification
-                                        NativeDash.lastPinch = Date() // suppress row taps
-                                    }
-                                    .onEnded { v in
-                                        let pt = CGPoint(
-                                            x: v.startLocation.x - Layout.padLeft
-                                                + engine.drawerShift + engine.gutterShift,
-                                            y: v.startLocation.y
-                                        )
-                                        engine.onMagnify(delta: 0, at: pt, began: false, ended: true)
-                                        dashPinchMag = nil
-                                        NativeDash.lastPinch = Date() // lift-off click grace
-                                    }
-                            )
-                            .allowsHitTesting(ui.openEventId == nil
-                                && (engine.chrome.level == 3
-                                    || (engine.chrome.dashPinned
-                                        && (1 ... 2).contains(engine.chrome.level))))
+                        TimelineView(.animation(minimumInterval: nil,
+                                                paused: !engine.renderClock.awake)) { _ in
+                            nativeDashOverlay(theme: theme)
+                                // Drawer open: the panels are part of the calendar surface —
+                                // they ride the SAME slide + soft-blur the scene gets. INSIDE
+                                // the per-frame pass: drawerShift is an engine tween, so
+                                // reading it out here would sample once per body eval and
+                                // TELEPORT into place.
+                                .blur(radius: ui.openEventId != nil ? 5 : 0)
+                                .offset(x: -engine.drawerShift)
                         }
+                        // Pinch over the native panels must still zoom the CALENDAR (a
+                        // hit-testable SwiftUI overlay would swallow it). Feed the exact same
+                        // engine call, with the same geometry-space conversion point(e) does.
+                        .simultaneousGesture(
+                            MagnifyGesture()
+                                .onChanged { v in
+                                    let pt = CGPoint(
+                                        x: v.startLocation.x - Layout.padLeft
+                                            + engine.drawerShift + engine.gutterShift,
+                                        y: v.startLocation.y
+                                    )
+                                    let delta = v.magnification - (dashPinchMag ?? 1)
+                                    engine.onMagnify(delta: delta, at: pt,
+                                                     began: dashPinchMag == nil, ended: false)
+                                    dashPinchMag = v.magnification
+                                    NativeDash.lastPinch = Date() // suppress row taps
+                                }
+                                .onEnded { v in
+                                    let pt = CGPoint(
+                                        x: v.startLocation.x - Layout.padLeft
+                                            + engine.drawerShift + engine.gutterShift,
+                                        y: v.startLocation.y
+                                    )
+                                    engine.onMagnify(delta: 0, at: pt, began: false, ended: true)
+                                    dashPinchMag = nil
+                                    NativeDash.lastPinch = Date() // lift-off click grace
+                                }
+                        )
+                        .allowsHitTesting(ui.openEventId == nil
+                            && (engine.chrome.level == 3
+                                || (engine.chrome.dashPinned
+                                    && (1 ... 2).contains(engine.chrome.level))))
                     }
-                    // TODO/NOTE tabs + note edit/preview toggle — SEPARATE overlays ABOVE the WebView so the
-                    // hosted WKWebView NSView can't hit-test over the native controls. Tabs carousel via dashAnim.
+                    // TODO/NOTE tabs + note edit/preview toggle — separate overlays; carousel via dashAnim.
                     .overlay {
                         if ui.openEventId == nil {
                             DashTabsOverlay(engine: engine, anim: dashAnim, tab: $dashTab, frac: dashFrac, vp: vp,
@@ -1233,16 +1083,6 @@ public struct CalendarView: View {
                             engine.updateDrawerShift(id: id, drawerWidth: w)
                         }
                     }
-                    // WEBVIEW FALLBACK only: leaving day view snapped the dashboard back to the
-                    // TODO tab (the zoom-out reveal was driven by the TODO WebView). Native
-                    // panels keep the active tab CONSISTENT across level changes — week PROJ
-                    // zooms out to month PROJ, and so on for every tab/zoom/slide; note-jumps
-                    // still flip to NOTE via their onLand, after the navigation animation.
-                    .onChange(of: engine.chrome.level) {
-                        _, lvl in if lvl != 3, !NativeDash.enabled {
-                            dashTab = .todo
-                        }
-                    }
                     // The dashboard tab/mode toggles are SwiftUI overlays (not routed through the engine), and
                     // their transition animates via the timeline's CarouselDriver — so wake the render loop when
                     // they change, else the switch would freeze while the calendar is idle.
@@ -1271,8 +1111,7 @@ public struct CalendarView: View {
                     // View-menu prefs (show-hidden / timezone pickers), the prefs-changed notification, and
                     // the tag-filter toggle — bundled into one modifier (see the type-check note above).
                     .modifier(ViewPrefObservers(engine: engine, showTagFilter: $showTagFilter,
-                                                ui: ui, dashTab: $dashTab, carousel: dashCarousel,
-                                                dashNav: dashNav))
+                                                ui: ui, dashTab: $dashTab, dashNav: dashNav))
             }
             .ignoresSafeArea()
             // Search overlays — siblings inside the ZStack, so they respect the toolbar safe-area inset
@@ -1384,7 +1223,6 @@ private struct ViewPrefObservers: ViewModifier {
     @Binding var showTagFilter: Bool
     var ui: CalendarUIState
     @Binding var dashTab: DashTab
-    var carousel: DashboardCarousel
     var dashNav: NativeDashNavModel
     @AppStorage(PrefKeys.showHiddenImported) private var showHidden = false
     @AppStorage(PrefKeys.mainTz) private var mainTz = "auto"
@@ -1426,43 +1264,32 @@ private struct ViewPrefObservers: ViewModifier {
             switch stop {
             case .todo: engine.dashFocusEntry(.todo)
             case .note: engine.dashFocusEntry(.note)
-            case .proj:
-                engine.dashExitFocus()
-                carousel.regateWebFocus()
+            case .proj: engine.dashExitFocus()
             }
         case 1, 2:
             if !engine.dashPinned {
                 engine.toggleDashPin()
                 dashTab = stop
                 focusWeekMonthTab(stop)
-                if stop == .todo, NativeDash.enabled { engine.dashFocusEntry(.todo) }
+                if stop == .todo { engine.dashFocusEntry(.todo) }
             } else if dashTab != stop {
                 dashTab = stop
                 focusWeekMonthTab(stop)
-                if stop == .todo, NativeDash.enabled { engine.dashFocusEntry(.todo) }
+                if stop == .todo { engine.dashFocusEntry(.todo) }
                 engine.wake()
             } else {
                 engine.toggleDashPin() // already on that tab → retract
-                if NativeDash.enabled { engine.dashExitFocus() }
-                carousel.regateWebFocus()
+                engine.dashExitFocus()
             }
         default:
             break
         }
     }
 
-    /// Week/month landing focus: ⌘E puts the caret in the live note editor (CK.noteEdit retries
-    /// until the overlay is revealed, so this works through the opening tween); ⌘B hands key
-    /// focus back to the calendar (the web view must not keep eating keys).
+    /// Week/month landing focus: ⌘E puts the caret in the live note editor.
     private func focusWeekMonthTab(_ stop: DashTab) {
         if stop == .note {
-            if NativeDash.enabled {
-                dashNav.noteFocusSeq += 1 // native editor takes the keyboard
-            } else {
-                carousel.focusNoteEditor()
-            }
-        } else {
-            carousel.regateWebFocus()
+            dashNav.noteFocusSeq += 1 // native editor takes the keyboard
         }
     }
 }

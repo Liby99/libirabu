@@ -6,17 +6,16 @@ set -e
 cd "$(dirname "$0")"
 OUT=../Sources/CalendarUI/Resources/editor
 
-echo "› bundling editor.js + dashboard.js …"
-for entry in editor dashboard; do
-  npx --yes esbuild "$entry.ts" \
-    --bundle --format=iife --platform=browser --target=safari17 \
-    --loader:.ts=ts \
-    --outfile="$OUT/$entry.js" \
-    --log-level=warning
-done
+# (dashboard.ts was retired to legacy/webeditor in phase 4a — the dashboard is native Swift now.)
+echo "› bundling editor.js …"
+npx --yes esbuild editor.ts \
+  --bundle --format=iife --platform=browser --target=safari17 \
+  --loader:.ts=ts \
+  --outfile="$OUT/editor.js" \
+  --log-level=warning
 
 echo "› copying html/css + KaTeX assets …"
-cp editor.html editor.css dashboard.html dashboard.css "$OUT/"
+cp editor.html editor.css "$OUT/"
 # KaTeX stylesheet + its fonts (css references ./fonts/*)
 cp ../../../node_modules/katex/dist/katex.min.css "$OUT/"
 rm -rf "$OUT/fonts" && cp -R ../../../node_modules/katex/dist/fonts "$OUT/fonts"

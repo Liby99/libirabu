@@ -42,9 +42,6 @@ struct MarkdownWebEditor: NSViewRepresentable {
     @Binding var mode: NotesMode
     var placeholder = "Something to note about this event?" // scope-aware empty-note hint
     var theme: Theme
-    /// When set (daily-note tab), horizontal scroll + pinch forward to the calendar instead of being
-    /// eaten by the editor; vertical scroll stays here. Unset in the drawer (no calendar underneath).
-    var forwarder: GestureForwarder?
     // Keyboard integration (drawer): bump `focusPulse` to grab keyboard focus (switch to edit + focus
     // CodeMirror). `onExit` fires on Escape in the editor; `onSavePreview` on ⌘S — both let the host
     // return focus to the drawer's field ring.
@@ -64,14 +61,9 @@ struct MarkdownWebEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let cfg = WKWebViewConfiguration()
         cfg.userContentController.add(context.coordinator, name: "ck")
-        // Same 60fps-cap lift as the dashboard panel (typing/scroll feel on 120Hz displays).
-        DailyDashboardWebView.liftWeb60Cap(cfg.preferences)
-        let web: WKWebView
-        if let forwarder {
-            let pt = PassThroughWebView(frame: .zero, configuration: cfg); pt.forwarder = forwarder; web = pt
-        } else {
-            web = FocusGatedWebView(frame: .zero, configuration: cfg) // don't steal focus when the drawer opens
-        }
+        // Lift WebKit's 60fps rendering cap (typing/scroll feel on 120Hz displays).
+        Self.liftWeb60Cap(cfg.preferences)
+        let web: WKWebView = FocusGatedWebView(frame: .zero, configuration: cfg) // don't steal focus when the drawer opens
         web.setValue(false, forKey: "drawsBackground") // transparent → glass shows through
         web.navigationDelegate = context.coordinator // open link clicks in the system browser
         context.coordinator.web = web
@@ -236,5 +228,24 @@ struct MarkdownWebEditor: NSViewRepresentable {
         private func jsString(_ s: String) -> String {
             (try? String(data: JSONEncoder().encode(s), encoding: .utf8) ?? "\"\"") ?? "\"\""
         }
+    }
+
+    /// WebKit caps page rendering near 60fps by default; flip the private feature flag so typing
+    /// and scrolling track 120Hz displays. (Moved from the retired dashboard webview, phase 4a.)
+    static func liftWeb60Cap(_ prefs: WKPreferences) {
+        guard ProcessInfo.processInfo.environment["CC_WEB120_OFF"] == nil else { return }
+        let listSel = NSSelectorFromString("_features")
+        let setSel = NSSelectorFromString("_setEnabled:forFeature:")
+        guard let cls = WKPreferences.self as AnyObject as? NSObject.Type,
+              cls.responds(to: listSel), prefs.responds(to: setSel),
+              let features = cls.perform(listSel)?.takeUnretainedValue() as? [NSObject],
+              let flag = features.first(where: {
+                  ($0.value(forKey: "key") as? String) == "PreferPageRenderingUpdatesNear60FPSEnabled"
+              })
+        else { return }
+        // _setEnabled: takes a BOOL — perform(_:with:) would box it as an object, so go
+        // through the raw IMP with the proper C signature.
+        typealias SetEnabled = @convention(c) (NSObject, Selector, Bool, NSObject) -> Void
+        unsafeBitCast(prefs.method(for: setSel), to: SetEnabled.self)(prefs, setSel, false, flag)
     }
 }

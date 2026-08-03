@@ -675,10 +675,10 @@ final class CatcherView: NSView, NSMenuItemValidation {
             engine?.onHoverExit(); return
         }
 
-        // The NATIVE pinned panel (cc.nativeDash, week/month) owns its own pointer: its rows set
-        // the hand via .pointerStyle, which per-move applyCursor here would stomp. Settle to the
-        // arrow ONCE on entry (so a grab hand can't linger in), then leave the cursor alone.
-        if let engine, NativeDash.enabled,
+        // The NATIVE pinned panel (week/month) owns its own pointer: its rows set the hand via
+        // .pointerStyle, which per-move applyCursor here would stomp. Settle to the arrow ONCE
+        // on entry (so a grab hand can't linger in), then leave the cursor alone.
+        if let engine,
            engine.chrome.level == 3 || (engine.dashPinned && (1 ... 2).contains(engine.chrome.level)),
            engine.inDayDashboard(p) {
             if appliedCursor != .arrow { setCursor(.arrow) }
@@ -785,7 +785,7 @@ final class CatcherView: NSView, NSMenuItemValidation {
     func installPanelScrollMonitor() {
         guard panelScrollMonitor == nil else { return }
         panelScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
-            guard let self, let engine = self.engine, NativeDash.enabled,
+            guard let self, let engine = self.engine,
                   e.window === self.window else { return e }
             if e.phase.isEmpty, e.momentumPhase.isEmpty { return e } // legacy wheel: hands off
             if e.phase.contains(.began) || e.phase.contains(.mayBegin) {
