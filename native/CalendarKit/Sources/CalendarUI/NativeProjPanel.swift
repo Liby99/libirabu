@@ -111,6 +111,7 @@ struct NativeProjPanel: View {
         var a = ProjRowMenuActions()
         a.setColor = { t, c in rewrite(t.todo, adopt: true) { TodoIndex.setColorToken($0, line: $1, color: c) } }
         a.pin = { t in rewrite(t.todo, adopt: true) { TodoIndex.addTag($0, line: $1, tag: "proj-pinned") } }
+        a.unpin = { t in rewrite(t.todo, adopt: true) { TodoIndex.removeTag($0, line: $1, tag: "proj-pinned") } }
         a.setPriority = { t, n in rewrite(t.todo, adopt: true) { TodoIndex.setPriority($0, line: $1, level: n) } }
         a.hide = { t in rewrite(t.todo, adopt: false) { TodoIndex.addTag($0, line: $1, tag: "proj-hide") } }
         a.delete = { t in // window-level confirm dialog first; the closure is the yes-path
@@ -680,6 +681,7 @@ private struct ProjChart: View {
 struct ProjRowMenuActions {
     var setColor: (ProjTask, String) -> Void = { _, _ in }
     var pin: (ProjTask) -> Void = { _ in }
+    var unpin: (ProjTask) -> Void = { _ in }
     var setPriority: (ProjTask, Int) -> Void = { _, _ in }
     var hide: (ProjTask) -> Void = { _ in }
     var delete: (ProjTask) -> Void = { _ in }
@@ -839,7 +841,11 @@ private struct ProjTodoCallout: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(task.todo.text, forType: .string)
             }
-            row("Pin", icon: "pin", disabled: pinned) { actions.pin(task) }
+            if pinned {
+                row("Unpin", icon: "pin.slash") { actions.unpin(task) }
+            } else {
+                row("Pin", icon: "pin") { actions.pin(task) }
+            }
             priorityRow
             row("Hide from Project Panel", icon: "eye.slash") { actions.hide(task) }
             Divider().padding(.vertical, 3)

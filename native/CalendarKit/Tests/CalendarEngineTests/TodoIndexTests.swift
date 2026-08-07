@@ -258,6 +258,21 @@ final class TodoIndexTests: XCTestCase {
         XCTAssertNil(TodoIndex.addTag(note, line: 5, tag: "proj-hide")) // stale anchor
     }
 
+    func testRemoveTagRemovesAndNoOps() {
+        let note = "- [ ] ship it #proj-pinned due:2026-08-09\n- [ ] other"
+        // Removes the tag (mid-line: the doubled space collapses with it).
+        XCTAssertEqual(TodoIndex.removeTag(note, line: 1, tag: "proj-pinned"),
+                       "- [ ] ship it due:2026-08-09\n- [ ] other")
+        // Case-insensitive.
+        XCTAssertEqual(TodoIndex.removeTag("- [ ] x #Proj-Pinned", line: 1, tag: "proj-pinned"),
+                       "- [ ] x")
+        // Absent tag → unchanged note (rewrite contract: same text returns the note as-is).
+        XCTAssertEqual(TodoIndex.removeTag(note, line: 2, tag: "proj-pinned"), note)
+        // Prefix tags survive (#proj-pinned-extra is a DIFFERENT tag; \\b guards the boundary).
+        XCTAssertEqual(TodoIndex.removeTag("- [ ] x #proj-pinned-extra", line: 1, tag: "proj-pinned"),
+                       "- [ ] x #proj-pinned-extra")
+    }
+
     func testRemoveTodoLineKeepsChildren() throws {
         let note = "# proj\n- [ ] parent @project:p\n  - [ ] child stays\n- [ ] last"
         let removed = try XCTUnwrap(TodoIndex.removeTodoLine(note, line: 2))

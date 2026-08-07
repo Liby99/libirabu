@@ -549,6 +549,23 @@ public enum TodoIndex {
         }
     }
 
+    /// Remove ` #<tag>` from the row (case-insensitive; no-op when absent) — addTag's inverse,
+    /// the row menu's Unpin. Collapses the doubled space a mid-line removal leaves behind.
+    public static func removeTag(_ noteText: String, line: Int, tag name: String) -> String? {
+        rewriteTaskLine(noteText, line: line) { row in
+            // (?![\w-]) — NOT \b: the tag charset includes '-', and a word boundary between
+            // "pinned" and "-" let "#proj-pinned" match INSIDE "#proj-pinned-extra".
+            guard let re = try? NSRegularExpression(
+                pattern: "\\s?#\(NSRegularExpression.escapedPattern(for: name))(?![\\w-])",
+                options: [.caseInsensitive]
+            ) else { return row }
+            let ns = row as NSString
+            guard let m = re.firstMatch(in: row, range: NSRange(location: 0, length: ns.length))
+            else { return row }
+            return ns.replacingCharacters(in: m.range, with: "")
+        }
+    }
+
     /// Remove the task line entirely — children/sub-items keep their own lines; only this one
     /// goes. Returns the new note, or nil on a stale anchor (line gone / not a task line).
     public static func removeTodoLine(_ noteText: String, line: Int) -> String? {
