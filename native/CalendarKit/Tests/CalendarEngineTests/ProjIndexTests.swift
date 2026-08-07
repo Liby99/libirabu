@@ -52,6 +52,22 @@ final class ProjIndexTests: XCTestCase {
         XCTAssertEqual(p.deadlines.map(\.id), ["dl1"])
     }
 
+    func testProjHideExcludesTaskFromFeed() {
+        let src = [TodoSource(id: "e1", kind: "timed", title: "T", color: "blue", tags: [],
+                              start: "2026-07-10T09:00:00", end: "2026-07-10T10:00:00",
+                              notes: """
+                              - [ ] visible @project:alpha
+                              - [ ] hidden #proj-hide @project:alpha
+                              - [ ] only-hidden #proj-hide @project:beta
+                              """)]
+        let todos = TodoIndex.indexTodos(src, today: today)
+        XCTAssertEqual(todos.count, 3) // the TODO tab still carries all three rows
+        let projects = ProjIndex.build(todos: todos, sources: src, deadlines: [], today: today)
+        // The hidden row is excluded from rows/counts; a project with ONLY hidden rows vanishes.
+        XCTAssertEqual(projects.map(\.key), ["alpha"])
+        XCTAssertEqual(projects[0].tasks.map(\.todo.text), ["visible"])
+    }
+
     func testShownFiltersByRangeActivity() {
         let src = [TodoSource(id: "e", kind: "timed", title: "T", color: "red", tags: [],
                               start: "2026-07-01T09:00:00", end: "2026-07-01T10:00:00",

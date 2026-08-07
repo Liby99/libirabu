@@ -499,20 +499,29 @@ struct NativeDashPanel: View {
         guard !NativeDash.tapsSuppressed else { return } // pinch lift-off, not a real click
 
         let stamp = todayIso() + "T" + clockNow()
+        rewriteTodoLine(engine, t) { TodoIndex.toggleTodoLine($0, line: $1, stamp: stamp) }
+    }
+
+    /// Route ANY one-line note rewrite through the same source switching as toggleTodo (daily /
+    /// occurrence / event note). `transform` is one of TodoIndex's pure line rewrites, called
+    /// with (current note, the todo's 1-based line) → new note (nil = stale anchor, same note =
+    /// no-op). Shared by the checkbox toggle and the PROJ row menu's token writes.
+    static func rewriteTodoLine(_ engine: CalendarEngine, _ t: ParsedTodo,
+                                _ transform: (String, Int) -> String?) {
         if t.source == "daily" {
             let key = t.dailyDate ?? ""
             let cur = engine.dailyNote(key)
-            if let next = TodoIndex.toggleTodoLine(cur, line: t.line, stamp: stamp), next != cur {
+            if let next = transform(cur, t.line), next != cur {
                 engine.setDailyNote(key, next)
             }
         } else {
             let cur: String = t.occurrenceKey.map { engine.occNote(t.eventId, $0) }
                 ?? engine.notes(t.eventId)
-            if let next = TodoIndex.toggleTodoLine(cur, line: t.line, stamp: stamp), next != cur {
+            if let next = transform(cur, t.line), next != cur {
                 engine.applyTodoNote(eventId: t.eventId, occKey: t.occurrenceKey, value: next)
             }
         }
-        // Self-edit: rebuild the feed NOW (the serve-stale path would leave this row's checkbox
+        // Self-edit: rebuild the feed NOW (the serve-stale path would leave this row's state
         // visually stale for the coalescing window otherwise).
         engine.todoFeedRefreshNow(today: todayIso())
     }

@@ -337,7 +337,7 @@ struct SpaceContextCallout: View {
     }
 }
 
-private struct MenuRow: View {
+struct MenuRow: View { // internal (was private): reused by the PROJ row callout (NativeProjPanel)
     let label: String
     let icon: String
     let key: String?

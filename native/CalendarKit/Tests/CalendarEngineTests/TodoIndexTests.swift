@@ -223,6 +223,49 @@ final class TodoIndexTests: XCTestCase {
 
     // ── Ordering ───────────────────────────────────────────────────────────────────────────────
 
+    // ── One-line token rewrites (the PROJ row menu's pure parts) ───────────────────────────────
+
+    func testSetColorTokenReplacesAndAppends() throws {
+        let note = "- [ ] paint color:blue due:2026-08-01\n- [ ] plain"
+        let replaced = try XCTUnwrap(TodoIndex.setColorToken(note, line: 1, color: "red"))
+        XCTAssertEqual(replaced, "- [ ] paint color:red due:2026-08-01\n- [ ] plain")
+        let appended = try XCTUnwrap(TodoIndex.setColorToken(note, line: 2, color: "green"))
+        XCTAssertEqual(appended, "- [ ] paint color:blue due:2026-08-01\n- [ ] plain color:green")
+        XCTAssertNil(TodoIndex.setColorToken("plain text", line: 1, color: "red")) // stale anchor
+        // Same color again → the SAME note back (a no-op, not a new write).
+        XCTAssertEqual(TodoIndex.setColorToken(note, line: 1, color: "blue"), note)
+    }
+
+    func testSetPriorityReplacesAndAppends() throws {
+        let note = "- [ ] urgent p:!! #x\n- [ ] calm"
+        let replaced = try XCTUnwrap(TodoIndex.setPriority(note, line: 1, level: 4))
+        XCTAssertEqual(replaced, "- [ ] urgent p:!!!! #x\n- [ ] calm")
+        let appended = try XCTUnwrap(TodoIndex.setPriority(note, line: 2, level: 1))
+        XCTAssertEqual(appended, "- [ ] urgent p:!! #x\n- [ ] calm p:!")
+        // Clamped to maxPriority, and a stale anchor is nil.
+        XCTAssertEqual(TodoIndex.setPriority(note, line: 2, level: 9),
+                       "- [ ] urgent p:!! #x\n- [ ] calm p:!!!!!")
+        XCTAssertNil(TodoIndex.setPriority(note, line: 3, level: 1))
+    }
+
+    func testAddTagAppendsAndDedupes() throws {
+        let note = "- [ ] item #proj-pinned\n- [ ] other"
+        // Dedupe: already tagged → the SAME note back (case-insensitive), not a double tag.
+        XCTAssertEqual(TodoIndex.addTag(note, line: 1, tag: "proj-pinned"), note)
+        XCTAssertEqual(TodoIndex.addTag(note, line: 1, tag: "PROJ-PINNED"), note)
+        let tagged = try XCTUnwrap(TodoIndex.addTag(note, line: 2, tag: "proj-hide"))
+        XCTAssertEqual(tagged, "- [ ] item #proj-pinned\n- [ ] other #proj-hide")
+        XCTAssertNil(TodoIndex.addTag(note, line: 5, tag: "proj-hide")) // stale anchor
+    }
+
+    func testRemoveTodoLineKeepsChildren() throws {
+        let note = "# proj\n- [ ] parent @project:p\n  - [ ] child stays\n- [ ] last"
+        let removed = try XCTUnwrap(TodoIndex.removeTodoLine(note, line: 2))
+        XCTAssertEqual(removed, "# proj\n  - [ ] child stays\n- [ ] last")
+        XCTAssertNil(TodoIndex.removeTodoLine(note, line: 1)) // not a task line
+        XCTAssertNil(TodoIndex.removeTodoLine(note, line: 9)) // line gone
+    }
+
     func testFeedOrdering() {
         func todo(_ text: String, due: String? = nil, pri: Int? = nil,
                   done: Bool = false, active: Bool = true) -> ParsedTodo {

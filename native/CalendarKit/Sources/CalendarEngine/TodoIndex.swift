@@ -486,6 +486,80 @@ public enum TodoIndex {
         return rows.joined(separator: "\n")
     }
 
+    // ── One-line token rewrites (the PROJ row menu's pure parts) ───────────────────────────────
+
+    /// Shared guard for the one-line rewrites below: verify `line` (1-based) is a task line,
+    /// run `transform` on that raw line, and rejoin. toggleTodoLine's return contract: the new
+    /// note, the SAME note on a no-op, or nil on a stale anchor (line gone / not a task line).
+    static func rewriteTaskLine(_ noteText: String, line: Int,
+                                _ transform: (String) -> String) -> String? {
+        var lines = noteText.components(separatedBy: "\n")
+        guard line >= 1, line <= lines.count, taskLine.first(lines[line - 1]) != nil else {
+            return nil
+        }
+        let next = transform(lines[line - 1])
+        if next == lines[line - 1] {
+            return noteText
+        }
+        lines[line - 1] = next
+        return lines.joined(separator: "\n")
+    }
+
+    /// Trailing spaces/tabs stripped so appended tokens always join with exactly one space.
+    private static func trimmedTail(_ row: String) -> String {
+        var r = row
+        while r.hasSuffix(" ") || r.hasSuffix("\t") {
+            r.removeLast()
+        }
+        return r
+    }
+
+    /// Set the row's `color:` token: replace an existing `color:<x>` in place or append
+    /// ` color:<name>`. rewriteTaskLine's return contract.
+    public static func setColorToken(_ noteText: String, line: Int, color value: String) -> String? {
+        rewriteTaskLine(noteText, line: line) { row in
+            if Self.color.first(row) != nil {
+                return Self.color.replaceFirst(row) { g in "\(g[1])color:\(value)" }
+            }
+            return trimmedTail(row) + " color:\(value)"
+        }
+    }
+
+    /// Set the row's priority: replace an existing `p:!…` token in place or append ` p:` +
+    /// `level` bangs (clamped to 1…maxPriority). rewriteTaskLine's return contract.
+    public static func setPriority(_ noteText: String, line: Int, level: Int) -> String? {
+        let bangs = String(repeating: "!", count: max(1, min(maxPriority, level)))
+        return rewriteTaskLine(noteText, line: line) { row in
+            if Self.priority.first(row) != nil {
+                return Self.priority.replaceFirst(row) { g in "\(g[1])p:\(bangs)" }
+            }
+            return trimmedTail(row) + " p:\(bangs)"
+        }
+    }
+
+    /// Append ` #<tag>` to the row unless it's already tagged (case-insensitive dedupe against
+    /// the line's parsed tags, so URLs can't false-match). rewriteTaskLine's return contract.
+    public static func addTag(_ noteText: String, line: Int, tag name: String) -> String? {
+        rewriteTaskLine(noteText, line: line) { row in
+            guard let m = taskLine.first(row) else { return row }
+            if tokenizeLine(m[3]).tags.contains(where: { $0.lowercased() == name.lowercased() }) {
+                return row
+            }
+            return trimmedTail(row) + " #\(name)"
+        }
+    }
+
+    /// Remove the task line entirely — children/sub-items keep their own lines; only this one
+    /// goes. Returns the new note, or nil on a stale anchor (line gone / not a task line).
+    public static func removeTodoLine(_ noteText: String, line: Int) -> String? {
+        var lines = noteText.components(separatedBy: "\n")
+        guard line >= 1, line <= lines.count, taskLine.first(lines[line - 1]) != nil else {
+            return nil
+        }
+        lines.remove(at: line - 1)
+        return lines.joined(separator: "\n")
+    }
+
     /// "Start time marking": the 1-based lines of every TOP-LEVEL task line without a `created:`
     /// token yet — the editor stamps exactly these when an editing session ends.
     public static func linesNeedingCreated(_ noteText: String) -> [Int] {

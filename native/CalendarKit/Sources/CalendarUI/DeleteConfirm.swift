@@ -55,7 +55,7 @@ struct DeleteConfirmDialog: View {
             // Content-hugging (fixedSize) → the card grows with a longer note or more buttons.
             // Squat proportions: tighter vertically, roomier horizontally.
             .padding(.horizontal, 52).padding(.vertical, 18)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            .glassEffectCompat(.regular, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
             .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
             .fixedSize()
@@ -87,7 +87,38 @@ struct BatchDeleteDialog: View {
             // `.fixedSize()` here would force the ideal width too, measuring the note as one long line.)
             .frame(width: 340)
             .padding(.horizontal, 40).padding(.vertical, 26)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            .glassEffectCompat(.regular, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
+            .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
+        }
+    }
+}
+
+/// Delete confirm for a PROJ-panel todo row: "Delete this to-do?" + the item's own text +
+/// Cancel / Delete — BatchDeleteDialog's exact card recipe (scrim, glass card, capsule buttons).
+struct TodoDeleteDialog: View {
+    let text: String
+    let theme: Theme
+    var onDelete: () -> Void
+    var onCancel: () -> Void
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.1).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { onCancel() }
+            VStack(spacing: 14) {
+                Text("Delete this to-do?").font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.text)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                Text(text).font(.system(size: 12)).foregroundStyle(theme.textMuted)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
+                    DeleteDialogButton(label: "Cancel", destructive: false, focused: false, theme: theme) { onCancel() }
+                    DeleteDialogButton(label: "Delete", destructive: true, focused: true, theme: theme) { onDelete() }
+                }
+            }
+            // Fixed CONTENT width, intrinsic height — the todo text wraps at this width and the
+            // card grows downward (BatchDeleteDialog's measurement fix, same reasoning).
+            .frame(width: 340)
+            .padding(.horizontal, 40).padding(.vertical, 26)
+            .glassEffectCompat(.regular, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
             .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
         }
@@ -147,7 +178,7 @@ struct BatchRenameField: View {
                 }
             }
             .padding(.horizontal, 24).padding(.vertical, 16)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
+            .glassEffectCompat(.regular, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
             .shadow(color: .black.opacity(0.3), radius: 20, y: 6)
         }
@@ -187,7 +218,7 @@ struct CalendarNameDialog: View {
             }
             .frame(width: 300)
             .padding(.horizontal, 32).padding(.vertical, 22)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            .glassEffectCompat(.regular, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
             .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
         }
@@ -240,7 +271,7 @@ struct CalendarRemoveDialog: View {
             }
             .frame(width: 340)
             .padding(.horizontal, 32).padding(.vertical, 22)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            .glassEffectCompat(.regular, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
             .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
         }
@@ -431,7 +462,7 @@ struct NoticeDialog: View {
             // Content-hugging (fixedSize) → the card grows with a longer note or more buttons.
             // Squat proportions: tighter vertically, roomier horizontally.
             .padding(.horizontal, 52).padding(.vertical, 18)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            .glassEffectCompat(.regular, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
             .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
             .fixedSize()

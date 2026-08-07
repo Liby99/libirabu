@@ -7,6 +7,7 @@
 // now pill, the This Week/Month band, and two axis rows. Sized for readability: 26pt row pitch,
 // 13pt labels (the TODO list's size), 10pt+ chrome text.
 
+import AppKit
 import CalendarEngine
 import CalendarGeometry
 import CalendarRender
@@ -35,6 +36,8 @@ struct NativeProjPanel: View {
     }
 
     @State private var frozen: Frozen?
+    @State private var quickAddHovering = false // pointer over ANY chart's quick-add row
+    @State private var pendingDelete: ProjTask? // row-menu Delete awaiting its confirm dialog
 
     static let rowH: CGFloat = 26 // row pitch (label row == track row)
     static let trackH: CGFloat = 20 // the grey track's height within the row
@@ -72,6 +75,54 @@ struct NativeProjPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.hidden)
+        // Click-away unfocus: a click anywhere in the panel OUTSIDE the quick-add row drops the
+        // field's focus. Simultaneous → row/checkbox/title clicks keep working untouched; the
+        // row's own tap re-sets focus and its hover guard keeps this no-op there.
+        .simultaneousGesture(TapGesture().onEnded {
+            if !quickAddHovering {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
+        })
+        // Row-menu Delete: confirm first (the delete dialogs' glass card), then remove the line.
+        .overlay {
+            if let t = pendingDelete {
+                TodoDeleteDialog(text: t.todo.text, theme: theme,
+                                 onDelete: { confirmDelete(t) },
+                                 onCancel: { pendingDelete = nil })
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: pendingDelete == nil)
+    }
+
+    // ── Row-menu writes (the right-click callout's actions) ──────────────────────────────────
+
+    /// One-line token rewrite through toggleTodo's exact source routing + the serve-stale
+    /// refresh. `adopt` = the onToggle pattern (our own write keeps the frozen order — no
+    /// reshuffle); structural writes (hide/delete) pass false so the refreeze drops the row.
+    private func rewrite(_ t: ParsedTodo, adopt: Bool, _ transform: (String, Int) -> String?) {
+        NativeDashPanel.rewriteTodoLine(engine, t, transform)
+        engine.wake() // repaint now — the paused render clock won't (see quickAdd)
+        if adopt {
+            frozen?.stamp = engine.todoDataStamp
+        }
+    }
+
+    /// The row callout's write actions — assignment-style construction (EventMenuActions'
+    /// pattern; never grow a many-argument call here).
+    private func rowMenuActions() -> ProjRowMenuActions {
+        var a = ProjRowMenuActions()
+        a.setColor = { t, c in rewrite(t.todo, adopt: true) { TodoIndex.setColorToken($0, line: $1, color: c) } }
+        a.pin = { t in rewrite(t.todo, adopt: true) { TodoIndex.addTag($0, line: $1, tag: "proj-pinned") } }
+        a.setPriority = { t, n in rewrite(t.todo, adopt: true) { TodoIndex.setPriority($0, line: $1, level: n) } }
+        a.hide = { t in rewrite(t.todo, adopt: false) { TodoIndex.addTag($0, line: $1, tag: "proj-hide") } }
+        a.delete = { t in pendingDelete = t } // confirm dialog first — see the overlay
+        return a
+    }
+
+    private func confirmDelete(_ t: ProjTask) {
+        rewrite(t.todo, adopt: false) { TodoIndex.removeTodoLine($0, line: $1) }
+        pendingDelete = nil
     }
 
     /// See Frozen. Rebuilt only when basis/stamp move; @State writes hop off the render pass.
@@ -149,7 +200,9 @@ struct NativeProjPanel: View {
                               onJump(key, t.line)
                           } // fly to the note
                       },
-                      onQuickAdd: { quickAdd(p.key, $0) })
+                      onQuickAdd: { quickAdd(p.key, $0) },
+                      onQuickAddHover: { quickAddHovering = $0 },
+                      menuActions: rowMenuActions())
         }
     }
 
@@ -186,14 +239,25 @@ private struct ProjChart: View {
     var onOpen: (String, Int?, String?) -> Void
     var onOpenTodo: (ParsedTodo) -> Void
     var onQuickAdd: (String) -> Void
+    var onQuickAddHover: (Bool) -> Void = { _ in } // reports up: the panel's click-away guard
+    var menuActions: ProjRowMenuActions = .init()
 
     @State private var frontLabel: String? // hovered deadline/event label: raised above the rest
     @State private var draft = "" // the quick-add field's in-progress text
     @State private var quickAddHover = false // one hover state for the whole row, "+" included
+    @State private var hoveredRow: String? // the ONE hovered gantt row (rowId); others' bars dim
+    @State private var rowMenu: RowMenu? // the right-click callout's row + anchor rect
     @FocusState private var draftFocused: Bool
 
+    private struct RowMenu {
+        var task: ProjTask
+        var anchor: CGRect // in chart space (the popover's attachment rect)
+    }
+
     private var headroom: CGFloat {
-        project.deadlines.isEmpty && project.events.isEmpty ? 18 : 36
+        // 1-row case: 24 (was 18) so the quick-add row keeps breathing room under the project
+        // header; the deadline/event-label case stays 36.
+        project.deadlines.isEmpty && project.events.isEmpty ? 24 : 36
     }
 
     private var chartHeight: CGFloat {
@@ -205,22 +269,76 @@ private struct ProjChart: View {
         GeometryReader { geo in
             let labelW = max(120, geo.size.width * 0.32)
             let plotW = max(40, geo.size.width - labelW - 10)
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 0) {
-                    // The quick-add row rides INSIDE the existing headroom strip (bottom-
-                    // aligned, right above the top row) — no extra chart height.
-                    Color.clear.frame(height: headroom)
-                        .overlay(alignment: .bottomLeading) { quickAddRow }
-                    ForEach(tasks, id: \.rowId) { t in
-                        labelRow(t).transition(.rowReveal)
+            ZStack(alignment: .topLeading) {
+                // BEHIND the columns: full-width hover strips (wash + hover tracking + the
+                // right-click catcher) spanning label column AND plot, one per row.
+                rowStrips(fullW: geo.size.width)
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // The quick-add row rides INSIDE the existing headroom strip (bottom-
+                        // aligned, right above the top row) — no extra chart height.
+                        Color.clear.frame(height: headroom)
+                            .overlay(alignment: .bottomLeading) { quickAddRow }
+                        ForEach(tasks, id: \.rowId) { t in
+                            labelRow(t).transition(.rowReveal)
+                        }
                     }
+                    .frame(width: labelW, alignment: .leading)
+                    plot(scale, w: plotW)
+                        .frame(width: plotW, alignment: .topLeading)
                 }
-                .frame(width: labelW, alignment: .leading)
-                plot(scale, w: plotW)
-                    .frame(width: plotW, alignment: .topLeading)
+            }
+            .popover(isPresented: menuShown,
+                     attachmentAnchor: .rect(.rect(rowMenu?.anchor ?? .zero)),
+                     arrowEdge: .trailing) {
+                if let m = rowMenu {
+                    ProjTodoCallout(task: m.task, theme: theme, actions: menuActions,
+                                    onToggle: onToggle, onOpenTodo: onOpenTodo,
+                                    onClose: { rowMenu = nil })
+                }
             }
         }
         .frame(height: chartHeight)
+    }
+
+    private var menuShown: Binding<Bool> {
+        Binding(get: { rowMenu != nil }, set: { v in
+            if !v {
+                rowMenu = nil
+            }
+        })
+    }
+
+    /// The full-width row layer: per row, ONE strip aligned to y = headroom + index·rowH that
+    /// (a) paints the quick-add row's exact hover wash across label column + plot, (b) tracks
+    /// the single hovered row (other rows' bars dim off it), and (c) carries the right-click
+    /// catcher. It sits BEHIND the row content and owns no left-click gesture, so checkbox
+    /// toggles and title clicks land exactly as before.
+    private func rowStrips(fullW: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(tasks.enumerated()), id: \.element.rowId) { i, t in
+                rowStrip(t, index: i, fullW: fullW).transition(.rowReveal)
+            }
+        }
+        .padding(.top, headroom)
+        .animation(.easeOut(duration: 0.12), value: hoveredRow)
+    }
+
+    private func rowStrip(_ t: ProjTask, index: Int, fullW: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 6) // = the quick-add wash (same fill, all corners round)
+            .fill(theme.text.opacity(hoveredRow == t.rowId ? 0.05 : 0))
+            .frame(width: fullW, height: NativeProjPanel.rowH)
+            .background(RightClickCatcher { p in
+                let y = headroom + CGFloat(index) * NativeProjPanel.rowH + p.y
+                rowMenu = RowMenu(task: t, anchor: CGRect(x: p.x, y: y, width: 1, height: 1))
+            })
+            .onHover { over in
+                if over {
+                    hoveredRow = t.rowId
+                } else if hoveredRow == t.rowId {
+                    hoveredRow = nil
+                }
+            }
     }
 
     /// The compact quick-add input: a "+" in the checkbox column (15pt + the row's 8pt gap),
@@ -254,9 +372,12 @@ private struct ProjChart: View {
         .background(
             RoundedRectangle(cornerRadius: 6)
                 .fill(theme.text.opacity(quickAddHover ? 0.05 : 0))
-                .padding(.horizontal, -4)
+                // Trailing only: a -4 leading poked past the column's x=0 clip, which squared
+                // the wash's LEFT corners; at 0 all four corners render rounded and the "+" /
+                // text alignment with the checkbox/title columns is untouched.
+                .padding(.trailing, -4)
         )
-        .onHover { quickAddHover = $0 }
+        .onHover { quickAddHover = $0; onQuickAddHover($0) }
         .onTapGesture { draftFocused = true } // clicking the "+" region focuses the field
         .animation(.easeOut(duration: 0.12), value: quickAddHover)
     }
@@ -376,12 +497,16 @@ private struct ProjChart: View {
             }
         }
         .padding(.top, headroom)
+        .animation(.easeOut(duration: 0.12), value: hoveredRow) // hover dim fade
     }
 
     @ViewBuilder
     private func trackRow(_ t: ProjTask, _ s: ChartScale, w: CGFloat) -> some View {
         let color = theme.eventBorder(t.color)
         let end = t.end ?? today
+        // Row hover: every OTHER row's bar segments (and due ticks) fade back; the hovered
+        // row's stay at barOpacity. Grey tracks and axes are untouched.
+        let dim = hoveredRow != nil && hoveredRow != t.rowId
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 4)
                 .fill(Color.gray.opacity(0.12)) // the missing grey track
@@ -390,16 +515,16 @@ private struct ProjChart: View {
             // an uncrossed future due renders as a tick in the row's color.
             if let due = t.due, end > due {
                 if t.start < due {
-                    bar(s, w, t.start, due, color, over: false)
-                    bar(s, w, due, end, color, over: true)
+                    bar(s, w, t.start, due, color, over: false, dim: dim)
+                    bar(s, w, due, end, color, over: true, dim: dim)
                 } else {
-                    bar(s, w, t.start, end, color, over: true)
+                    bar(s, w, t.start, end, color, over: true, dim: dim)
                 }
             } else {
-                bar(s, w, t.start, end, color, over: false)
+                bar(s, w, t.start, end, color, over: false, dim: dim)
                 if let due = t.due, due > end {
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(color.opacity(0.8))
+                        .fill(color.opacity(0.8 * (dim ? 0.35 : 1)))
                         .frame(width: 2, height: NativeProjPanel.trackH)
                         .offset(x: s.x(due) * w - 1)
                 }
@@ -409,11 +534,11 @@ private struct ProjChart: View {
     }
 
     private func bar(_ s: ChartScale, _ w: CGFloat, _ a: String, _ b: String, _ color: Color,
-                     over: Bool) -> some View {
+                     over: Bool, dim: Bool) -> some View {
         let l = s.x(a) * w
         let width = max(5, s.x(b) * w - l)
         return RoundedRectangle(cornerRadius: 3)
-            .fill(color.opacity(NativeProjPanel.barOpacity)) // open and done alike (see constant)
+            .fill(color.opacity(NativeProjPanel.barOpacity * (dim ? 0.35 : 1))) // open and done alike
             .overlay {
                 if over { // past-due portion: the web's 45° hatch
                     Hatch().stroke(Color.black.opacity(0.3), lineWidth: 2.2)
@@ -528,6 +653,197 @@ private struct ProjChart: View {
             }
         }
         return out
+    }
+}
+
+/// Every WRITE the PROJ row callout can trigger — assignment-style construction only, the
+/// EventMenuActions pattern (a many-argument call here is a type-checker cliff). Read-only
+/// actions (Copy) and existing row actions (Check/Uncheck via onToggle, Go to Definition via
+/// onOpenTodo) stay on ProjChart's own closures.
+struct ProjRowMenuActions {
+    var setColor: (ProjTask, String) -> Void = { _, _ in }
+    var pin: (ProjTask) -> Void = { _ in }
+    var setPriority: (ProjTask, Int) -> Void = { _, _ in }
+    var hide: (ProjTask) -> Void = { _ in }
+    var delete: (ProjTask) -> Void = { _ in }
+}
+
+/// An AppKit right-click catcher riding as a row strip's BACKGROUND: SwiftUI controls ignore
+/// rightMouseDown, so this NSView hit-tests ONLY right-button events — left clicks (and the
+/// panel's tap gesture) fall through to the SwiftUI content above untouched. Reports the click
+/// point in the view's own top-left-origin space (the strip is flipped to match SwiftUI).
+private struct RightClickCatcher: NSViewRepresentable {
+    var onRightClick: (CGPoint) -> Void
+
+    func makeNSView(context _: Context) -> Catcher {
+        let v = Catcher()
+        v.onRightClick = onRightClick
+        return v
+    }
+
+    func updateNSView(_ v: Catcher, context _: Context) {
+        v.onRightClick = onRightClick
+    }
+
+    final class Catcher: NSView {
+        var onRightClick: ((CGPoint) -> Void)?
+
+        override var isFlipped: Bool {
+            true
+        } // local points arrive in SwiftUI's space
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            // Right-button events only; everything else passes through to SwiftUI.
+            switch NSApp.currentEvent?.type {
+            case .rightMouseDown, .rightMouseUp, .rightMouseDragged:
+                super.hitTest(point)
+            default:
+                nil
+            }
+        }
+
+        override func rightMouseDown(with event: NSEvent) {
+            onRightClick?(convert(event.locationInWindow, from: nil))
+        }
+    }
+}
+
+/// The gantt row's right-click callout — the event callout's exact chrome (same popover card
+/// width/padding, MenuRow rows, MENU_COLORS circle row) acting on the todo's SOURCE LINE via
+/// TodoIndex token rewrites.
+private struct ProjTodoCallout: View {
+    let task: ProjTask
+    let theme: Theme
+    let actions: ProjRowMenuActions
+    var onToggle: (ProjTask) -> Void
+    var onOpenTodo: (ParsedTodo) -> Void
+    var onClose: () -> Void
+
+    @State private var priorityOpen = false // the Priority row's inline 1–5 expansion
+
+    private var done: Bool {
+        task.end != nil
+    }
+
+    private var pinned: Bool {
+        task.todo.tags.contains("proj-pinned")
+    }
+
+    /// Ring only an EXPLICIT line `color:` token — an event-inherited color isn't the line's.
+    private var lineColor: String? {
+        task.todo.colorSource == "line" ? task.todo.color : nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            colorRow.padding(.horizontal, 6).padding(.top, 2).padding(.bottom, 6)
+            Divider().padding(.bottom, 3)
+            row("Check", icon: "checkmark.square", disabled: done) { onToggle(task) }
+            row("Uncheck", icon: "square", disabled: !done) { onToggle(task) }
+            row("Copy", icon: "doc.on.doc") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(task.todo.text, forType: .string)
+            }
+            row("Pin", icon: "pin", disabled: pinned) { actions.pin(task) }
+            priorityRow
+            row("Hide from Project Panel", icon: "eye.slash") { actions.hide(task) }
+            Divider().padding(.vertical, 3)
+            row("Go to Definition", icon: "arrow.uturn.backward.circle") { onOpenTodo(task.todo) }
+            Divider().padding(.vertical, 3)
+            row("Delete", icon: "trash", destructive: true) { actions.delete(task) }
+        }
+        .padding(6)
+        .frame(width: 208)
+    }
+
+    /// The event callout's quick-color row, wired to the line's `color:` token.
+    private var colorRow: some View {
+        HStack(spacing: 7) {
+            ForEach(MENU_COLORS, id: \.self) { key in
+                ProjColorDot(key: key, current: lineColor == key, theme: theme) {
+                    actions.setColor(task, key)
+                    onClose()
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// "Priority": a MenuRow that expands five inline "!"…"!!!!!" pills — compact and in the
+    /// callout's own chrome (no submenu popover).
+    private var priorityRow: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            MenuRow(label: "Priority", icon: "exclamationmark.circle",
+                    key: priorityOpen ? "▴" : "▾", destructive: false, theme: theme) {
+                withAnimation(.easeOut(duration: 0.12)) { priorityOpen.toggle() }
+            }
+            if priorityOpen {
+                HStack(spacing: 4) {
+                    ForEach(1 ... TodoIndex.maxPriority, id: \.self) { n in
+                        ProjPriorityPill(bangs: String(repeating: "!", count: n),
+                                         current: task.todo.priority == n, theme: theme) {
+                            actions.setPriority(task, n)
+                            onClose()
+                        }
+                    }
+                }
+                .padding(.leading, 29).padding(.bottom, 3) // under the label, past the icon column
+            }
+        }
+    }
+
+    private func row(_ label: String, icon: String, destructive: Bool = false,
+                     disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        MenuRow(label: label, icon: icon, key: nil, destructive: destructive, disabled: disabled,
+                theme: theme) {
+            action()
+            onClose()
+        }
+    }
+}
+
+/// One MENU_COLORS circle (the event callout's 18pt dot): current-color ring, hover ring, .help.
+/// No engine color-preview here — the write is a line-token rewrite, not an event color.
+private struct ProjColorDot: View {
+    let key: String
+    let current: Bool
+    let theme: Theme
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Circle()
+            .fill(theme.eventBorder(key))
+            .frame(width: 18, height: 18)
+            .overlay(Circle().strokeBorder(theme.text, lineWidth: current ? 2 : hovering ? 1 : 0))
+            .contentShape(Circle())
+            .onHover { hovering = $0 }
+            .onTapGesture { action() }
+            .help(key)
+    }
+}
+
+/// One inline priority option ("!" … "!!!!!") in the Priority row's expansion.
+private struct ProjPriorityPill: View {
+    let bangs: String
+    let current: Bool
+    let theme: Theme
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(bangs)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.text.opacity(current ? 1 : 0.7))
+                .frame(minWidth: 22)
+                .padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 5)
+                    .fill(theme.text.opacity(hovering ? 0.14 : current ? 0.09 : 0.05)))
+                .contentShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

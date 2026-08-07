@@ -95,9 +95,11 @@ public enum ProjIndex {
             mutate(&map[k]!)
         }
         // Rows: every TOP-LEVEL todo tagged @project:<key>, from any note source. created: absent
-        // → the source item's own day; `start:` SHADOWS created: as the bar origin.
+        // → the source item's own day; `start:` SHADOWS created: as the bar origin. #proj-hide
+        // rows (the row menu's "Hide from Project Panel") are excluded HERE, before scoring, so
+        // they never count toward scores/counts/rows — they remain in the TODO tab untouched.
         let srcById = Dictionary(sources.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        for t in todos where t.indent == 0 && !t.projects.isEmpty {
+        for t in todos where t.indent == 0 && !t.projects.isEmpty && !t.tags.contains("proj-hide") {
             var fallback = today, color = "blue"
             if t.source == "event" {
                 if let ev = srcById[t.eventId] {
