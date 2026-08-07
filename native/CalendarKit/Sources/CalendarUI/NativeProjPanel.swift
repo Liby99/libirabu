@@ -189,6 +189,7 @@ private struct ProjChart: View {
 
     @State private var frontLabel: String? // hovered deadline/event label: raised above the rest
     @State private var draft = "" // the quick-add field's in-progress text
+    @State private var quickAddHover = false // one hover state for the whole row, "+" included
     @FocusState private var draftFocused: Bool
 
     private var headroom: CGFloat {
@@ -224,17 +225,20 @@ private struct ProjChart: View {
 
     /// The compact quick-add input: a "+" in the checkbox column (15pt + the row's 8pt gap),
     /// then a borderless field aligned with the todo titles. Enter submits into the panel's
-    /// scope note, clears, and KEEPS focus so several items can be typed in a row.
+    /// scope note, clears, and KEEPS focus so several items can be typed in a row. The whole
+    /// row (including the "+") hovers as one and a click anywhere on it focuses the field.
     private var quickAddRow: some View {
         HStack(spacing: 8) {
             Text("+")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(theme.text.opacity(0.35))
+                .foregroundStyle(theme.text.opacity(quickAddHover ? 0.5 : 0.3))
                 .frame(width: 15) // = DashCheckbox(size: 15)'s column
-            TextField("New TODO Item...", text: $draft)
+            TextField("", text: $draft,
+                      prompt: Text("New TODO Item...")
+                          .foregroundStyle(theme.text.opacity(quickAddHover ? 0.45 : 0.28)))
                 .textFieldStyle(.plain)
                 .font(.system(size: 13)) // the row-title size
-                .foregroundStyle(theme.text.opacity(0.65))
+                .foregroundStyle(theme.text.opacity(0.55))
                 .focused($draftFocused)
                 .onSubmit {
                     onQuickAdd(draft)
@@ -242,7 +246,19 @@ private struct ProjChart: View {
                     draftFocused = true
                 }
         }
-        .frame(height: 18, alignment: .center) // fits the 18pt no-label headroom untouched
+        // Row pitch = the TODO rows' (26pt), bottom-aligned in the headroom — the content
+        // sits a touch higher than the old 18pt strip and the spacing above the first row
+        // matches the list's own rhythm.
+        .frame(height: NativeProjPanel.rowH, alignment: .center)
+        .contentShape(Rectangle()) // the "+" and the blank tail are clickable too
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(theme.text.opacity(quickAddHover ? 0.05 : 0))
+                .padding(.horizontal, -4)
+        )
+        .onHover { quickAddHover = $0 }
+        .onTapGesture { draftFocused = true } // clicking the "+" region focuses the field
+        .animation(.easeOut(duration: 0.12), value: quickAddHover)
     }
 
     private func labelRow(_ t: ProjTask) -> some View {
