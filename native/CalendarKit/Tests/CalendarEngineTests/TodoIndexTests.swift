@@ -120,6 +120,107 @@ final class TodoIndexTests: XCTestCase {
         XCTAssertEqual(TodoIndex.linesNeedingCreated(note), [1, 4])
     }
 
+    // ── PROJ quick-add (appendProjectTodo) ─────────────────────────────────────────────────────
+
+    private let quickAddLine =
+        "- [ ] new item @project:alpha created:2026-07-30T09:15 #proj-pinned"
+
+    private func quickAdd(_ note: String, project: String = "alpha") -> String {
+        TodoIndex.appendProjectTodo(note: note, project: project, todo: "new item",
+                                    stamp: "2026-07-30T09:15")
+    }
+
+    func testAppendProjectTodoSectionWithList() {
+        let note = """
+        # alpha
+        intro prose
+        - [ ] one
+        - [x] two done:2026-07-01
+        tail prose
+        """
+        XCTAssertEqual(quickAdd(note), """
+        # alpha
+        intro prose
+        - [ ] one
+        - [x] two done:2026-07-01
+        \(quickAddLine)
+        tail prose
+        """)
+    }
+
+    func testAppendProjectTodoSectionWithoutList() {
+        let note = """
+        # alpha
+        just prose here
+
+        # beta
+        - [ ] beta item
+        """
+        XCTAssertEqual(quickAdd(note), """
+        # alpha
+        just prose here
+        \(quickAddLine)
+
+        # beta
+        - [ ] beta item
+        """)
+    }
+
+    func testAppendProjectTodoMissingSection() {
+        XCTAssertEqual(quickAdd("# beta\n- [ ] b\n"),
+                       "# beta\n- [ ] b\n\n# alpha\n\(quickAddLine)")
+        XCTAssertEqual(quickAdd(""), "# alpha\n\(quickAddLine)") // empty note: no leading blank
+        // `## alpha` is NOT a top-level section; case-insensitive fallback DOES match.
+        XCTAssertEqual(quickAdd("## alpha\n- [ ] deep\n"),
+                       "## alpha\n- [ ] deep\n\n# alpha\n\(quickAddLine)")
+        XCTAssertEqual(quickAdd("# ALPHA\n- [ ] a"), "# ALPHA\n- [ ] a\n\(quickAddLine)")
+        // Whitespace-only input is a no-op.
+        XCTAssertEqual(TodoIndex.appendProjectTodo(note: "# alpha", project: "alpha",
+                                                   todo: "   ", stamp: "s"), "# alpha")
+    }
+
+    func testAppendProjectTodoPicksLastList() {
+        let note = """
+        # alpha
+        - [ ] first run
+
+        notes between
+
+        - [ ] second run
+          - [x] nested done:2026-07-02
+        trailing prose
+        """
+        XCTAssertEqual(quickAdd(note), """
+        # alpha
+        - [ ] first run
+
+        notes between
+
+        - [ ] second run
+          - [x] nested done:2026-07-02
+        \(quickAddLine)
+        trailing prose
+        """)
+    }
+
+    func testAppendProjectTodoSectionNotLast() {
+        let note = """
+        # alpha
+        - [ ] a1
+
+        # beta
+        - [ ] b1
+        """
+        XCTAssertEqual(quickAdd(note), """
+        # alpha
+        - [ ] a1
+        \(quickAddLine)
+
+        # beta
+        - [ ] b1
+        """)
+    }
+
     // ── Ordering ───────────────────────────────────────────────────────────────────────────────
 
     func testFeedOrdering() {

@@ -218,6 +218,17 @@ public enum ProjIndex {
         return s
     }
 
+    /// Gantt display order (the chart's row sequence): #proj-pinned rows float ABOVE the rest,
+    /// newest `created:` first (ISO stamps compare as strings; a missing created: sinks last
+    /// among the pinned); unpinned rows keep the chronological start order.
+    public static func chartRows(_ tasks: [ProjTask]) -> [ProjTask] {
+        let pinned = tasks.filter { $0.todo.tags.contains("proj-pinned") }
+            .sorted { ($0.todo.created ?? "") > ($1.todo.created ?? "") }
+        let rest = tasks.filter { !$0.todo.tags.contains("proj-pinned") }
+            .sorted { $0.start < $1.start }
+        return pinned + rest
+    }
+
     /// Projects ACTIVE during [rs, re]: some task overlapping the range, or an event bar in it.
     public static func shown(_ projects: [Project], rs: String, re: String) -> [Project] {
         projects.filter { p in

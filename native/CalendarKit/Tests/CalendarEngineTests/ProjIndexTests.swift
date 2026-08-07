@@ -63,6 +63,24 @@ final class ProjIndexTests: XCTestCase {
         XCTAssertEqual(ProjIndex.shown(projects, rs: "2026-07-20", re: "2026-07-27").count, 0)
     }
 
+    func testChartRowsPinnedFloatAboveByCreatedDesc() {
+        let src = [TodoSource(id: "e", kind: "timed", title: "T", color: "red", tags: [],
+                              start: "2026-07-01T09:00:00", end: "2026-07-01T10:00:00",
+                              notes: """
+                              - [ ] old created:2026-07-02 @project:p
+                              - [ ] older-pin #proj-pinned created:2026-07-05 @project:p
+                              - [ ] newer-pin #proj-pinned created:2026-07-20 @project:p
+                              - [ ] stampless-pin #proj-pinned @project:p
+                              - [ ] recent created:2026-07-10 @project:p
+                              """)]
+        let todos = TodoIndex.indexTodos(src, today: today)
+        let p = ProjIndex.build(todos: todos, sources: src, deadlines: [], today: today)[0]
+        // Pinned first (newest created: on top, stampless last among them), then the
+        // unpinned rows in their unchanged chronological start order.
+        XCTAssertEqual(ProjIndex.chartRows(p.tasks).map(\.todo.text),
+                       ["newer-pin", "older-pin", "stampless-pin", "old", "recent"])
+    }
+
     /// Golden: the pure-integer daysBetween must agree with Foundation's Calendar everywhere —
     /// leap years, century rules, month/year boundaries, negatives, and THH:MM suffixes.
     func testDaysBetweenMatchesCalendar() {

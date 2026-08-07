@@ -113,8 +113,14 @@ struct NativeProjPanel: View {
         // FROZEN membership/rank, LIVE rows: each anchor renders the current parse of its line
         // in its frozen slot (checked state updates in place, no reshuffle).
         let byScore = ranked.compactMap { liveTask[$0] }
-        let visible = (showAll ? byScore : Array(byScore.prefix(ProjIndex.maxRows)))
-            .sorted { $0.start < $1.start } // chart order: chronological
+        // Chart order: pinned rows on top (newest first), the rest chronological. Pinned rows
+        // are ALWAYS members — the quick-add's "appears on top" guarantee must survive the
+        // collapsed view's score clamp, so #proj-pinned rows join the visible set even when
+        // their score ranks below the top maxRows.
+        let clamped = showAll ? byScore : Array(byScore.prefix(ProjIndex.maxRows))
+        let clampedOut = showAll ? [] : byScore.dropFirst(ProjIndex.maxRows)
+            .filter { $0.todo.tags.contains("proj-pinned") }
+        let visible = ProjIndex.chartRows(clamped + clampedOut)
         let foldable = byScore.count > ProjIndex.maxRows
         VStack(alignment: .leading, spacing: 6) {
             SectionHeader(title: p.key, count: byScore.count,
@@ -142,8 +148,27 @@ struct NativeProjPanel: View {
                           else if let key = t.dailyDate {
                               onJump(key, t.line)
                           } // fly to the note
-                      })
+                      },
+                      onQuickAdd: { quickAdd(p.key, $0) })
         }
+    }
+
+    /// The quick-add submit: append the typed todo into THIS panel's scope note (the same
+    /// storage key the NOTE tab edits — see NativeNotePanel), @project-tagged + pinned +
+    /// created-stamped, then land the coalesced feed refresh NOW so the chart gains its row
+    /// immediately. No navigation — the field stays put for the next item.
+    private func quickAdd(_ project: String, _ text: String) {
+        let todo = text.trimmingCharacters(in: .whitespaces)
+        guard !todo.isEmpty else { return }
+        let storageKey = scope == "day" ? key
+            : scope == "week" ? "week:\(key)" : "month:\(key)"
+        // The note editor's stampCreated() format: minute precision, YYYY-MM-DDTHH:mm.
+        let stamp = NativeDashPanel.todayIso() + "T" + String(NativeDashPanel.clockNow().prefix(5))
+        let next = TodoIndex.appendProjectTodo(note: engine.dailyNote(storageKey),
+                                               project: project, todo: todo, stamp: stamp)
+        engine.setDailyNote(storageKey, next)
+        engine.todoFeedRefreshNow(today: NativeDashPanel.todayIso())
+        engine.wake() // repaint now — the paused render clock won't (see NativeNotePanel)
     }
 }
 
@@ -160,8 +185,11 @@ private struct ProjChart: View {
     var onToggle: (ProjTask) -> Void
     var onOpen: (String, Int?, String?) -> Void
     var onOpenTodo: (ParsedTodo) -> Void
+    var onQuickAdd: (String) -> Void
 
     @State private var frontLabel: String? // hovered deadline/event label: raised above the rest
+    @State private var draft = "" // the quick-add field's in-progress text
+    @FocusState private var draftFocused: Bool
 
     private var headroom: CGFloat {
         project.deadlines.isEmpty && project.events.isEmpty ? 18 : 36
@@ -178,7 +206,10 @@ private struct ProjChart: View {
             let plotW = max(40, geo.size.width - labelW - 10)
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 0) {
+                    // The quick-add row rides INSIDE the existing headroom strip (bottom-
+                    // aligned, right above the top row) — no extra chart height.
                     Color.clear.frame(height: headroom)
+                        .overlay(alignment: .bottomLeading) { quickAddRow }
                     ForEach(tasks, id: \.rowId) { t in
                         labelRow(t).transition(.rowReveal)
                     }
@@ -191,13 +222,38 @@ private struct ProjChart: View {
         .frame(height: chartHeight)
     }
 
+    /// The compact quick-add input: a "+" in the checkbox column (15pt + the row's 8pt gap),
+    /// then a borderless field aligned with the todo titles. Enter submits into the panel's
+    /// scope note, clears, and KEEPS focus so several items can be typed in a row.
+    private var quickAddRow: some View {
+        HStack(spacing: 8) {
+            Text("+")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(theme.text.opacity(0.35))
+                .frame(width: 15) // = DashCheckbox(size: 15)'s column
+            TextField("New TODO Item...", text: $draft)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13)) // the row-title size
+                .foregroundStyle(theme.text.opacity(0.65))
+                .focused($draftFocused)
+                .onSubmit {
+                    onQuickAdd(draft)
+                    draft = ""
+                    draftFocused = true
+                }
+        }
+        .frame(height: 18, alignment: .center) // fits the 18pt no-label headroom untouched
+    }
+
     private func labelRow(_ t: ProjTask) -> some View {
         let done = t.end != nil
         return HStack(spacing: 8) {
             DashCheckbox(checked: done, size: 15) { onToggle(t) }
                 .handCursor()
             Button { onOpenTodo(t.todo) } label: {
-                ProjLabelTitle(text: t.todo.text, done: done, theme: theme)
+                // Pinned rows (#proj-pinned, the quick-add's tag) carry a 📌 in the gantt.
+                ProjLabelTitle(text: (t.todo.tags.contains("proj-pinned") ? "📌 " : "") + t.todo.text,
+                               done: done, theme: theme)
             }
             .buttonStyle(.plain)
             .handCursor()

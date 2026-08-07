@@ -450,6 +450,42 @@ public enum TodoIndex {
         return lines.joined(separator: "\n")
     }
 
+    /// The PROJ quick-add write: append `- [ ] <todo> @project:<project> created:<stamp>
+    /// #proj-pinned` into `note` under the top-level `# <project>` heading (case-sensitive
+    /// match first, case-insensitive fallback) — after the last line of the section's LAST
+    /// todo-list run, after its last content line when it has no list, or into a fresh
+    /// blank-line-separated section at the end when the heading doesn't exist. Pure
+    /// string → string; the panel wires it to setDailyNote.
+    public static func appendProjectTodo(note: String, project: String, todo: String,
+                                         stamp: String) -> String {
+        let item = todo.trimmingCharacters(in: .whitespaces)
+        guard !item.isEmpty else { return note }
+        let newLine = "- [ ] \(item) @project:\(project) created:\(stamp) #proj-pinned"
+        var rows = note.components(separatedBy: "\n")
+        func title(_ row: String) -> String? {
+            row.hasPrefix("# ") ? String(row.dropFirst(2)).trimmingCharacters(in: .whitespaces) : nil
+        }
+        let head = rows.firstIndex(where: { title($0) == project })
+            ?? rows.firstIndex(where: { title($0)?.lowercased() == project.lowercased() })
+        guard let head else {
+            while let last = rows.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
+                rows.removeLast()
+            }
+            rows += rows.isEmpty ? ["# \(project)", newLine] : ["", "# \(project)", newLine]
+            return rows.joined(separator: "\n")
+        }
+        // The section runs to the next top-level heading (or the end of the note).
+        let end = (head + 1 ..< rows.count).first { rows[$0].hasPrefix("# ") } ?? rows.count
+        // The last todo line in the section IS the last line of its last todo-list run; a
+        // list-less section takes the line after its last non-blank content instead.
+        let lastTodo = (head + 1 ..< end).last { taskLine.first(rows[$0]) != nil }
+        let lastContent = (head ..< end).last {
+            !rows[$0].trimmingCharacters(in: .whitespaces).isEmpty
+        } ?? head
+        rows.insert(newLine, at: (lastTodo ?? lastContent) + 1)
+        return rows.joined(separator: "\n")
+    }
+
     /// "Start time marking": the 1-based lines of every TOP-LEVEL task line without a `created:`
     /// token yet — the editor stamps exactly these when an editing session ends.
     public static func linesNeedingCreated(_ noteText: String) -> [Int] {
