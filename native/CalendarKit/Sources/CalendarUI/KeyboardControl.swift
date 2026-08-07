@@ -538,7 +538,7 @@ struct KeyGuideOverlay: View {
             }
         }
         .padding(24)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16)) // frosted glass, like the events
+        .glassEffectCompat(.regular, in: RoundedRectangle(cornerRadius: 16)) // frosted glass, like the events
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
         .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
         .fixedSize() // hug the content (don't stretch to the overlay); the overlay centers it

@@ -21,6 +21,9 @@ struct NativeNotePanel: View {
     /// "preview doesn't repaint until I slide days" bug, diag-confirmed: noteToggle logged,
     /// zero preview re-renders in the awake window).
     let dataStamp: String
+    /// False while this panel is a PARKED tab — forwarded to the hosted AppKit views, whose
+    /// cursor rects otherwise stay live at SwiftUI-opacity 0 (the phantom I-beam).
+    var active = true
     @Binding var noteMode: NotesMode
     var nav: NativeDashNavModel? // note-jump line landings + ⌘E focus requests
 
@@ -55,6 +58,7 @@ struct NativeNotePanel: View {
                 NativeNoteEditor(
                     storageKey: storageKey,
                     text: text,
+                    active: active,
                     theme: theme,
                     placeholder: scope == "day" ? "Daily Note (Markdown)…"
                         : scope == "week" ? "Weekly Note (Markdown)…" : "Monthly Note (Markdown)…",
@@ -88,7 +92,7 @@ struct NativeNotePanel: View {
                 // The refined preview engine: one selectable NSTextView document (tables,
                 // code highlighting, token pills; whole-content copy). ⌘-click → edit at line;
                 // checkbox taps flip the source line in place.
-                MarkdownPreview(text: text, theme: theme,
+                MarkdownPreview(text: text, theme: theme, active: active,
                                 onToggle: { line in
                                     if NSEvent.modifierFlags.contains(.command) {
                                         pendingEditLine = line

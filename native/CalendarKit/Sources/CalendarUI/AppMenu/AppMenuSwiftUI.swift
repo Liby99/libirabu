@@ -70,16 +70,23 @@ public struct MenuActionButton: View {
 /// dialog; the recents switch directly. Mirrors AppMenu.sections(...)'s File `currentCalendar`/`recentCalendars`.
 public struct CalendarMenuContent: View {
     let engine: CalendarEngine
+    /// The re-render trigger. macOS SwiftUI Commands do NOT reliably re-evaluate when @Observable
+    /// state changes (the menu kept showing the OLD calendar after a switch) — but an @AppStorage
+    /// key change always invalidates them. The engine bumps this key in pushCalendarChrome()
+    /// whenever the active calendar, a name, or the list changes; the row VALUES come from the
+    /// chrome mirrors pushed in the same call.
+    @AppStorage(PrefKeys.calMenuGen) private var calMenuGen = 0
     public init(engine: CalendarEngine) {
         self.engine = engine
     }
 
     public var body: some View {
-        Text("Calendar: \(engine.activeCalendarName)") // disabled info row (plain Text isn't actionable)
+        let _ = calMenuGen // the @AppStorage dependency that makes the menu re-render (see above)
+        Text("Calendar: \(engine.chrome.activeCalendarName)") // disabled info row (plain Text isn't actionable)
         MenuActionButton(.newCalendar, engine: engine)
-        MenuActionButton(.removeCalendar, engine: engine).disabled(!engine.canRemoveCalendar)
+        MenuActionButton(.removeCalendar, engine: engine).disabled(engine.chrome.recentCalendars.isEmpty)
         Menu {
-            let recents = engine.recentCalendars
+            let recents = engine.chrome.recentCalendars
             if recents.isEmpty {
                 Text("No other calendars")
             } else {

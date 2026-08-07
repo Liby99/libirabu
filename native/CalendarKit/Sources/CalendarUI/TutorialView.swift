@@ -106,7 +106,7 @@ struct TutorialView: View {
                 .frame(width: Self.stageW)
             }
             .padding(28)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18))
+            .glassEffectCompat(.regular, in: RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(theme.sep.opacity(0.5), lineWidth: 1))
             .shadow(color: .black.opacity(0.3), radius: 28, y: 10)
             .fixedSize()

@@ -27,6 +27,10 @@ import SwiftUI
 struct NativeNoteEditor: NSViewRepresentable {
     let storageKey: String // the note's key: "YYYY-MM-DD" / "week:…" / "month:…"
     let text: String // the engine's current note body
+    /// False while this editor is a PARKED tab (mounted for warmth, SwiftUI-opacity 0):
+    /// maps to NSView.isHidden — alpha-zero alone leaves the NSTextView's I-beam cursor
+    /// rects live over whichever tab IS showing.
+    var active = true
     let theme: Theme
     var placeholder: String
     var onText: (String) -> Void // every change → engine.setDailyNote (engine coalesces persist)
@@ -349,6 +353,7 @@ struct NativeNoteEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        scroll.isHidden = !active // parked tab: dormant cursor rects (see `active`)
         let co = context.coordinator
         session?.end = { [weak co] in co?.stampCreatedIfDirty() } // keep the handle fresh
         // Re-key = the previous note's editing session ENDS: stamp it through the OLD parent's

@@ -14,6 +14,8 @@ import SwiftUI
 struct MarkdownPreview: NSViewRepresentable {
     let text: String
     let theme: Theme
+    /// See NativeNoteEditor.active — parked tabs must HIDE the AppKit view (cursor rects).
+    var active = true
     var onToggle: ((Int) -> Void)? // 1-based source line of a tapped todo checkbox
     var onLineEdit: ((Int) -> Void)? // ⌘-click → edit at this source line
 
@@ -50,6 +52,7 @@ struct MarkdownPreview: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        scroll.isHidden = !active // parked tab: dormant cursor rects (see `active`)
         context.coordinator.rebuild(self)
     }
 

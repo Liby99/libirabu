@@ -212,7 +212,7 @@ public struct AssistantWindowView: View {
         ToolbarItem(placement: .primaryAction) {
             // Same as the calendar toolbar's AI button — a clean glass circle, just a different icon.
             Button { state.newChat() } label: { Image(systemName: "square.and.pencil") }
-                .buttonStyle(.glass).buttonBorderShape(.circle)
+                .glassButtonStyleCompat().buttonBorderShape(.circle)
                 // Window-scoped ⌘N: fires only while the chat window is key, so the calendar's
                 // own ⌘N (new event at the block cursor) is untouched.
                 .keyboardShortcut("n", modifiers: .command)

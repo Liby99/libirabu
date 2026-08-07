@@ -397,14 +397,21 @@ private struct ProjChart: View {
             DashCheckbox(checked: done, size: 15) { onToggle(t) }
                 .handCursor()
             Button { onOpenTodo(t.todo) } label: {
-                // Pinned rows (#proj-pinned, the quick-add's tag) carry a 📌 in the gantt.
-                // The title is render-only (allowsHitTesting false): Text otherwise claims the
-                // pointer and shows the I-BEAM over a clickable row — the label's contentShape
-                // carries the clicks, handCursor the pointing hand.
-                ProjLabelTitle(text: (t.todo.tags.contains("proj-pinned") ? "📌 " : "") + t.todo.text,
-                               done: done, theme: theme)
-                    .allowsHitTesting(false)
-                    .contentShape(Rectangle())
+                HStack(spacing: 4) {
+                    // Pinned rows (#proj-pinned, the quick-add's tag): a quiet monotone pin —
+                    // the emoji popped too hard against the 13pt grey-scale labels.
+                    if t.todo.tags.contains("proj-pinned") {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(theme.text.opacity(0.45))
+                    }
+                    // The title is render-only (allowsHitTesting false): Text otherwise claims
+                    // the pointer over a clickable row — the label's contentShape carries the
+                    // clicks, handCursor the pointing hand.
+                    ProjLabelTitle(text: t.todo.text, done: done, theme: theme)
+                }
+                .allowsHitTesting(false)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .handCursor()
@@ -494,7 +501,7 @@ private struct ProjChart: View {
         let accent = theme.eventBorder("red")
         Rectangle().fill(accent.opacity(0.95)).frame(width: 1.5, height: marksH)
             .offset(x: px, y: rowTop)
-        Text("now")
+        Text("today")
             .font(.system(size: 10.5, weight: .bold))
             .foregroundStyle(.white)
             .padding(.horizontal, 6).padding(.vertical, 1.5)
@@ -613,7 +620,7 @@ private struct ProjChart: View {
         ForEach(Array(stride(from: firstK, through: firstK + 12 * step, by: step)), id: \.self) { k in
             let iso = TodoIndex.addDuration(today, k, "d")
             if iso >= s.lo, iso <= s.hi {
-                Text(k == 0 ? "now" : k < 0 ? "\(-k)d ago" : "in \(k)d")
+                Text(k == 0 ? "today" : k < 0 ? "\(-k)d ago" : "in \(k)d")
                     .font(.system(size: 10))
                     .foregroundStyle(axisColor)
                     .position(x: s.x(iso) * w, y: plotH + 9)
