@@ -106,23 +106,38 @@ struct NativeProjPanel: View {
     }
 
     /// The row callout's write actions — assignment-style construction (EventMenuActions'
-    /// pattern; never grow a many-argument call here).
-    private func rowMenuActions() -> ProjRowMenuActions {
-        var a = ProjRowMenuActions()
-        a.setColor = { t, c in rewrite(t.todo, adopt: true) { TodoIndex.setColorToken($0, line: $1, color: c) } }
-        a.pin = { t in rewrite(t.todo, adopt: true) { TodoIndex.addTag($0, line: $1, tag: "proj-pinned") } }
-        a.unpin = { t in rewrite(t.todo, adopt: true) { TodoIndex.removeTag($0, line: $1, tag: "proj-pinned") } }
-        a.setPriority = { t, n in rewrite(t.todo, adopt: true) { TodoIndex.setPriority($0, line: $1, level: n) } }
-        a.clearPriority = { t in rewrite(t.todo, adopt: true) { TodoIndex.removePriority($0, line: $1) } }
-        a.hide = { t in rewrite(t.todo, adopt: false) { TodoIndex.addTag($0, line: $1, tag: "proj-hide") } }
+    /// pattern; never grow a many-argument call here). All closures act on the ParsedTodo
+    /// source line (the shared TodoRowCallout shape); Check/Uncheck and Go to Definition
+    /// reuse the chart rows' exact toggle/open behavior.
+    private func rowMenuActions() -> TodoRowMenuActions {
+        var a = TodoRowMenuActions()
+        a.toggle = { t in
+            NativeDashPanel.toggleTodo(engine, t)
+            engine.todoFeedRefreshNow(today: NativeDashPanel.todayIso()) // serve-stale: land it NOW
+            frozen?.stamp = engine.todoDataStamp // our own write — no refreeze/reshuffle
+        }
+        a.openTodo = { t in
+            if t.source == "event" {
+                onOpen(t.eventId, t.line, t.occurrenceKey)
+            } // event drawer
+            else if let key = t.dailyDate {
+                onJump(key, t.line)
+            } // fly to the note
+        }
+        a.setColor = { t, c in rewrite(t, adopt: true) { TodoIndex.setColorToken($0, line: $1, color: c) } }
+        a.pin = { t in rewrite(t, adopt: true) { TodoIndex.addTag($0, line: $1, tag: "proj-pinned") } }
+        a.unpin = { t in rewrite(t, adopt: true) { TodoIndex.removeTag($0, line: $1, tag: "proj-pinned") } }
+        a.setPriority = { t, n in rewrite(t, adopt: true) { TodoIndex.setPriority($0, line: $1, level: n) } }
+        a.clearPriority = { t in rewrite(t, adopt: true) { TodoIndex.removePriority($0, line: $1) } }
+        a.hide = { t in rewrite(t, adopt: false) { TodoIndex.addTag($0, line: $1, tag: "proj-hide") } }
         a.delete = { t in // window-level confirm dialog first; the closure is the yes-path
-            onDeleteRequest(t.todo.text) { confirmDelete(t) }
+            onDeleteRequest(t.text) { confirmDelete(t) }
         }
         return a
     }
 
-    private func confirmDelete(_ t: ProjTask) {
-        rewrite(t.todo, adopt: false) { TodoIndex.removeTodoLine($0, line: $1) }
+    private func confirmDelete(_ t: ParsedTodo) {
+        rewrite(t, adopt: false) { TodoIndex.removeTodoLine($0, line: $1) }
     }
 
     /// See Frozen. Rebuilt only when basis/stamp move; @State writes hop off the render pass.
@@ -240,7 +255,7 @@ private struct ProjChart: View {
     var onOpenTodo: (ParsedTodo) -> Void
     var onQuickAdd: (String) -> Void
     var onQuickAddHover: (Bool) -> Void = { _ in } // reports up: the panel's click-away guard
-    var menuActions: ProjRowMenuActions = .init()
+    var menuActions: TodoRowMenuActions = .init()
 
     @State private var frontLabel: String? // hovered deadline/event label: raised above the rest
     @State private var draft = "" // the quick-add field's in-progress text
@@ -311,10 +326,10 @@ private struct ProjChart: View {
                      attachmentAnchor: .rect(.rect(rowMenu?.anchor ?? .zero)),
                      arrowEdge: .trailing) {
                 if let m = rowMenu {
-                    ProjTodoCallout(task: m.task, theme: theme, actions: menuActions,
-                                    onToggle: onToggle, onOpenTodo: onOpenTodo,
-                                    onColorPreview: { menuPreview = $0 },
-                                    onClose: { rowMenu = nil; menuPreview = nil })
+                    TodoRowCallout(todo: m.task.todo, done: m.task.end != nil,
+                                   pinTag: "proj-pinned", theme: theme, actions: menuActions,
+                                   onColorPreview: { menuPreview = $0 },
+                                   onClose: { rowMenu = nil; menuPreview = nil })
                 }
             }
         }
@@ -399,12 +414,12 @@ private struct ProjChart: View {
                 .handCursor()
             Button { onOpenTodo(t.todo) } label: {
                 HStack(spacing: 4) {
-                    // Pinned rows (#proj-pinned, the quick-add's tag): a quiet monotone pin —
-                    // the emoji popped too hard against the 13pt grey-scale labels.
-                    if t.todo.tags.contains("proj-pinned") {
+                    // Pinned rows (#proj-pinned OR the TODO panel's #pinned): the accent pin —
+                    // the shared pin language across the panels and the note preview.
+                    if TodoFeed.hasPinTag(t.todo.tags) {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(theme.text.opacity(0.45))
+                            .foregroundStyle(Theme.accent)
                     }
                     // The title is render-only (allowsHitTesting false): Text otherwise claims
                     // the pointer over a clickable row — the label's contentShape carries the
@@ -685,20 +700,6 @@ private struct ProjChart: View {
     }
 }
 
-/// Every WRITE the PROJ row callout can trigger — assignment-style construction only, the
-/// EventMenuActions pattern (a many-argument call here is a type-checker cliff). Read-only
-/// actions (Copy) and existing row actions (Check/Uncheck via onToggle, Go to Definition via
-/// onOpenTodo) stay on ProjChart's own closures.
-struct ProjRowMenuActions {
-    var setColor: (ProjTask, String) -> Void = { _, _ in }
-    var pin: (ProjTask) -> Void = { _ in }
-    var unpin: (ProjTask) -> Void = { _ in }
-    var setPriority: (ProjTask, Int) -> Void = { _, _ in }
-    var clearPriority: (ProjTask) -> Void = { _ in }
-    var hide: (ProjTask) -> Void = { _ in }
-    var delete: (ProjTask) -> Void = { _ in }
-}
-
 /// An AppKit right-click catcher riding as a row strip's BACKGROUND: SwiftUI controls ignore
 /// rightMouseDown, so this NSView hit-tests ONLY right-button events — left clicks (and the
 /// panel's tap gesture) fall through to the SwiftUI content above untouched. Reports the click
@@ -813,187 +814,6 @@ private struct ChartMouseLayer: NSViewRepresentable {
                 NSEvent.removeMonitor(m)
             }
         }
-    }
-}
-
-/// The gantt row's right-click callout — the event callout's exact chrome (same popover card
-/// width/padding, MenuRow rows, MENU_COLORS circle row) acting on the todo's SOURCE LINE via
-/// TodoIndex token rewrites.
-private struct ProjTodoCallout: View {
-    let task: ProjTask
-    let theme: Theme
-    let actions: ProjRowMenuActions
-    var onToggle: (ProjTask) -> Void
-    var onOpenTodo: (ParsedTodo) -> Void
-    var onColorPreview: (String?) -> Void = { _ in }
-    var onClose: () -> Void
-
-    @State private var priorityOpen = false // the Priority row's inline 1–5 expansion
-
-    private var done: Bool {
-        task.end != nil
-    }
-
-    private var pinned: Bool {
-        task.todo.tags.contains("proj-pinned")
-    }
-
-    /// Ring only an EXPLICIT line `color:` token — an event-inherited color isn't the line's.
-    private var lineColor: String? {
-        task.todo.colorSource == "line" ? task.todo.color : nil
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            colorRow.padding(.horizontal, 6).padding(.top, 2).padding(.bottom, 6)
-            Divider().padding(.bottom, 3)
-            row("Check", icon: "checkmark.square", disabled: done) { onToggle(task) }
-            row("Uncheck", icon: "square", disabled: !done) { onToggle(task) }
-            row("Copy", icon: "doc.on.doc") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(task.todo.text, forType: .string)
-            }
-            if pinned {
-                row("Unpin", icon: "pin.slash") { actions.unpin(task) }
-            } else {
-                row("Pin", icon: "pin") { actions.pin(task) }
-            }
-            priorityRow
-            row("Hide from Project Panel", icon: "eye.slash") { actions.hide(task) }
-            Divider().padding(.vertical, 3)
-            row("Go to Definition", icon: "arrow.uturn.backward.circle") { onOpenTodo(task.todo) }
-            Divider().padding(.vertical, 3)
-            row("Delete", icon: "trash", destructive: true) { actions.delete(task) }
-        }
-        .padding(6)
-        .frame(width: 208)
-    }
-
-    /// The event callout's quick-color row, wired to the line's `color:` token. Hovering a
-    /// dot live-tints the row's bars (render-only preview; the click commits the token).
-    private var colorRow: some View {
-        HStack(spacing: 7) {
-            ForEach(MENU_COLORS, id: \.self) { key in
-                ProjColorDot(key: key, current: lineColor == key, theme: theme,
-                             onHoverDot: { onColorPreview($0 ? key : nil) }) {
-                    onColorPreview(nil)
-                    actions.setColor(task, key)
-                    onClose()
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .onHover { over in
-            if over {
-                priorityOpen = false
-            }
-        }
-    }
-
-    /// "Priority": a true SECONDARY menu — hovering the row pops a side panel (arrowEdge
-    /// .trailing) listing "!"…"!!!!!" vertically, the current level checkmarked on the right.
-    /// Hovering any other row closes it (see row(_:)/colorRow's onHover).
-    private var priorityRow: some View {
-        MenuRow(label: "Priority", icon: "exclamationmark.circle", key: "▸",
-                destructive: false, theme: theme) {
-            priorityOpen = true // click opens too
-        }
-        .onHover { over in
-            if over {
-                priorityOpen = true
-            }
-        }
-        .popover(isPresented: $priorityOpen, arrowEdge: .trailing) {
-            VStack(alignment: .leading, spacing: 1) {
-                // "None" (checked when the line carries no p: token) clears the priority.
-                ProjPriorityOption(bangs: "None", current: task.todo.priority == nil,
-                                   theme: theme) {
-                    actions.clearPriority(task)
-                    priorityOpen = false
-                    onClose()
-                }
-                Divider().padding(.vertical, 2)
-                ForEach(1 ... TodoIndex.maxPriority, id: \.self) { n in
-                    ProjPriorityOption(bangs: String(repeating: "!", count: n),
-                                       current: task.todo.priority == n, theme: theme) {
-                        actions.setPriority(task, n)
-                        priorityOpen = false
-                        onClose()
-                    }
-                }
-            }
-            .padding(6)
-            .frame(width: 104)
-        }
-    }
-
-    private func row(_ label: String, icon: String, destructive: Bool = false,
-                     disabled: Bool = false, action: @escaping () -> Void) -> some View {
-        MenuRow(label: label, icon: icon, key: nil, destructive: destructive, disabled: disabled,
-                theme: theme) {
-            action()
-            onClose()
-        }
-        .onHover { over in // leaving for another row closes the priority side menu
-            if over {
-                priorityOpen = false
-            }
-        }
-    }
-}
-
-/// One MENU_COLORS circle (the event callout's 18pt dot): current-color ring, hover ring, .help.
-/// No engine color-preview here — the write is a line-token rewrite, not an event color.
-private struct ProjColorDot: View {
-    let key: String
-    let current: Bool
-    let theme: Theme
-    var onHoverDot: (Bool) -> Void = { _ in }
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Circle()
-            .fill(theme.eventBorder(key))
-            .frame(width: 18, height: 18)
-            .overlay(Circle().strokeBorder(theme.text, lineWidth: current ? 2 : hovering ? 1 : 0))
-            .contentShape(Circle())
-            .onHover { over in
-                hovering = over
-                onHoverDot(over)
-            }
-            .onTapGesture { action() }
-            .help(key)
-    }
-}
-
-/// One row of the Priority SIDE menu ("!" … "!!!!!"), current level checkmarked on the right.
-private struct ProjPriorityOption: View {
-    let bangs: String
-    let current: Bool
-    let theme: Theme
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Text(bangs)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(theme.text)
-                Spacer(minLength: 8)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(theme.text.opacity(0.8))
-                    .opacity(current ? 1 : 0)
-            }
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 5)
-                .fill(theme.text.opacity(hovering ? 0.1 : 0)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
     }
 }
 

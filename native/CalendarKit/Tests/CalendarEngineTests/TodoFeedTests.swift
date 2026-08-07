@@ -81,6 +81,48 @@ final class TodoFeedTests: XCTestCase {
                        ["root a", "child a1", "grandchild"])
     }
 
+    func testPinnedSectionOnTopNewestCreatedFirst() {
+        let todos = daily("""
+        - [ ] alpha due:today #pinned created:2026-07-01T10:00
+        - [ ] beta due:today #Pinned created:2026-07-20T10:00
+        - [ ] gamma due:today #pinned
+        - [ ] plain due:today
+        """)
+        let secs = TodoFeed.sectionsForDay(todos, viewIso: today, today: today)
+        // The Pinned section leads the list: newest created: first, missing created: last
+        // (ProjIndex.chartRows' pinned ordering); the tag match is case-insensitive.
+        XCTAssertEqual(secs.first?.key, "pinned")
+        XCTAssertEqual(secs.first?.title, "Pinned")
+        XCTAssertEqual(secs.first?.items.map(\.text), ["beta", "alpha", "gamma"])
+    }
+
+    func testPinnedFloatIsAStablePartition() {
+        let todos = daily("""
+        - [ ] a1 due:2026-07-27
+        - [ ] p1 due:2026-07-28 #pinned
+        - [ ] a2 due:2026-07-29
+        - [ ] p2 due:2026-07-30 #pinned
+        """, date: "2026-07-27")
+        let secs = TodoFeed.rangeSections(todos, start: "2026-07-26", end: "2026-08-01",
+                                          word: "this week", prefs: .week)
+        let open = secs.first { $0.key == "open" }
+        // Pinned first, keeping their existing relative (due-date) order; the rest unchanged.
+        XCTAssertEqual(open?.items.map(\.text), ["p1", "p2", "a1", "a2"])
+    }
+
+    func testPinnedItemsStayInTheirOtherSections() {
+        let todos = daily("""
+        - [ ] pinned overdue due:2026-07-20 #pinned
+        - [ ] plain overdue due:2026-07-21
+        """)
+        let secs = TodoFeed.sectionsForDay(todos, viewIso: today, today: today)
+        let byKey = Dictionary(uniqueKeysWithValues: secs.map { ($0.key, $0) })
+        // Overlap is intended: the pinned item appears BOTH in Pinned and (floated to the
+        // top of) its normal section.
+        XCTAssertEqual(byKey["pinned"]?.items.map(\.text), ["pinned overdue"])
+        XCTAssertEqual(byKey["overdue"]?.items.map(\.text), ["pinned overdue", "plain overdue"])
+    }
+
     @MainActor func testEngineFeedCachesPerGen() {
         // A THROWAWAY store: without this the engine loads (and, past the 0.5s persist debounce,
         // could WRITE) the developer's real calendar. calendarKitBaseDir reads the env per call,

@@ -22,7 +22,7 @@ struct NativePanelHost: View, Equatable {
     @Binding var noteMode: NotesMode
     var onOpen: (String, Int?, String?) -> Void
     var onJump: (String, Int?) -> Void = { _, _ in }
-    /// PROJ row-menu Delete → the window-level confirm dialog (CalendarView hosts it).
+    /// TODO/PROJ row-menu Delete → the window-level confirm dialog (CalendarView hosts it).
     var onDeleteRequest: (String, @escaping () -> Void) -> Void = { _, _ in }
 
     /// The per-frame TimelineView re-creates this view every frame; the closures make SwiftUI
@@ -57,7 +57,8 @@ struct NativePanelHost: View, Equatable {
         ZStack {
             if tab == .todo || mountedTabs.contains(.todo) {
                 NativeDashPanel(engine: engine, scope: scope, key: key, theme: theme,
-                                settings: settings, nav: nav, onOpen: onOpen, onJump: onJump)
+                                settings: settings, nav: nav, onOpen: onOpen, onJump: onJump,
+                                onDeleteRequest: onDeleteRequest)
                     .opacity(tab == .todo ? 1 : 0)
                     .allowsHitTesting(tab == .todo)
             }

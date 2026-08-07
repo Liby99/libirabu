@@ -78,6 +78,40 @@ public enum TodoFeed {
         "\(t.source)\0\(t.eventId)\0\(t.occurrenceKey ?? "")\0\(t.dailyDate ?? "")"
     }
 
+    /// #pinned (case-insensitive) — the TODO panel's pin tag (PROJ's is #proj-pinned).
+    public static func isPinned(_ t: ParsedTodo) -> Bool {
+        t.tags.contains { $0.lowercased() == "pinned" }
+    }
+
+    /// Either pin tag (#pinned / #proj-pinned) → the row shows the accent pin prefix
+    /// (TODO panel rows, PROJ gantt labels, and the note preview alike).
+    public static func hasPinTag(_ tags: [String]) -> Bool {
+        tags.contains { let l = $0.lowercased(); return l == "pinned" || l == "proj-pinned" }
+    }
+
+    /// Layer the #pinned semantics over built sections: a "Pinned" section on TOP (every
+    /// pinned todo in the pool, newest `created:` first, missing stamps last — mirroring
+    /// ProjIndex.chartRows' pinned ordering), and within every OTHER section a STABLE
+    /// partition floating pinned items first (their existing relative order kept, the rest
+    /// unchanged). Pinned items stay members of their normal sections too — the overlap is
+    /// intended. Exempt from the prefs.sections filter: pinning is an explicit per-item act.
+    static func withPinned(_ sections: [TodoSection], pool: [ParsedTodo]) -> [TodoSection] {
+        var out = sections.map { s in
+            var s2 = s
+            s2.items = s.items.filter(isPinned) + s.items.filter { !isPinned($0) }
+            return s2
+        }
+        let pinned = pool.filter(isPinned).sorted { a, b in
+            let ac = a.created ?? "", bc = b.created ?? ""
+            return ac != bc ? ac > bc : tieKey(a) < tieKey(b)
+        }
+        if !pinned.isEmpty {
+            out.insert(TodoSection(key: "pinned", title: "Pinned", items: pinned, done: false),
+                       at: 0)
+        }
+        return out
+    }
+
     /// Children grouped under their parent's (note-scope, line) soft link, in line order.
     public static func childrenIndex(_ todos: [ParsedTodo]) -> [String: [ParsedTodo]] {
         var idx: [String: [ParsedTodo]] = [:]
@@ -153,7 +187,7 @@ public enum TodoFeed {
             return d >= recentStart && d <= viewIso
         }.sorted(by: byDoneDesc)
 
-        return [
+        let base: [TodoSection] = [
             TodoSection(key: "dueDay", title: "", items: dueThisDay, done: false),
             TodoSection(key: "overdue", title: "Overdue", items: overdue, done: false),
             TodoSection(key: "followup", title: "Remember to Followup", items: followups, done: false),
@@ -168,6 +202,7 @@ public enum TodoFeed {
             }
             return s2
         }
+        return withPinned(base, pool: pool)
     }
 
     /// The WEEK/MONTH range sections (ports dashboard.ts rangeTodoSections). Roots only; a
@@ -199,9 +234,10 @@ public enum TodoFeed {
             else { return false }
             return inR(d) && !openKeys.contains(tieKey(t))
         }.sorted(by: byDoneDesc)
-        return [
+        let base = [
             TodoSection(key: "open", title: "TODOs \(word)", items: open, done: false),
             TodoSection(key: "done", title: "Completed \(word)", items: completed, done: true),
         ].filter { !$0.items.isEmpty && prefs.sections.contains($0.key) }
+        return withPinned(base, pool: pool)
     }
 }

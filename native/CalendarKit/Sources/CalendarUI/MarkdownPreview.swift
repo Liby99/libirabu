@@ -576,6 +576,21 @@ enum MarkdownDoc {
             .font: bodyFont(), .paragraphStyle: para,
         ]))
         let tok = TodoIndex.tokenizeLine(text)
+        // Pinned rows (#pinned / #proj-pinned): a small accent pin between the checkbox and
+        // the body text — the panels' pin prefix, as a tinted, cached image attachment.
+        if TodoFeed.hasPinTag(tok.tags) {
+            let pinAtt = NSTextAttachment()
+            let pin = pinImage(accent: accent)
+            let h: CGFloat = 11
+            pinAtt.image = pin
+            pinAtt.bounds = CGRect(x: 0, y: -1.5,
+                                   width: pin.size.width * h / max(1, pin.size.height), height: h)
+            let a = NSMutableAttributedString(attachment: pinAtt)
+            a.append(NSAttributedString(string: " ", attributes: [.font: bodyFont()]))
+            a.addAttribute(.paragraphStyle, value: para,
+                           range: NSRange(location: 0, length: a.length))
+            out.append(a)
+        }
         let body = inline(tok.text, font: bodyFont(), color: done ? base.withAlphaComponent(0.45) : base,
                           accent: accent, para: para)
         if done {
@@ -1114,6 +1129,28 @@ enum MarkdownDoc {
             return true
         }
         checkboxCache[key] = img
+        return img
+    }
+
+    // ── Pin prefix image (the panels' accent pin, as an attachment) ──
+    private static var pinCache: [String: NSImage] = [:]
+    fileprivate static func pinImage(accent: NSColor) -> NSImage {
+        let key = accent.description
+        if let hit = pinCache[key] {
+            return hit
+        }
+        // Tint by drawing the SF symbol into an offscreen image and flood-filling sourceAtop
+        // (symbol images ignore a plain draw-time fill color) — checkboxImage's cache pattern.
+        let sym = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
+        let size = sym?.size ?? NSSize(width: 11, height: 11)
+        let img = NSImage(size: size, flipped: false) { rect in
+            sym?.draw(in: rect)
+            accent.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        pinCache[key] = img
         return img
     }
 }

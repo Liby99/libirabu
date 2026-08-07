@@ -132,9 +132,25 @@ struct NativeDashPanel: View {
     var nav: NativeDashNavModel? // keyboard row cursor (⌘B focus / arrows / Space / Enter)
     var onOpen: (String, Int?, String?) -> Void // event row → drawer (id, note line, occurrence key)
     var onJump: (String, Int?) -> Void = { _, _ in } // note todo row → fly to its note (storage key)
+    /// Row-menu Delete: publish (item text, confirm action) up to the window-level dialog host
+    /// — the confirm's blur must cover the WHOLE window, not just this panel.
+    var onDeleteRequest: (String, @escaping () -> Void) -> Void = { _, _ in }
 
     @State private var doneOpen: Set<String> = [] // per-view completed expansion (session-scoped)
     private static let doneShow = 10
+
+    /// The right-click callout's row + anchor rect (both in the panel-root space).
+    private struct RowMenu {
+        var todo: ParsedTodo
+        var rect: CGRect
+    }
+
+    @State private var rowMenu: RowMenu?
+    @State private var rowFrames = TodoRowFrameStore() // rows report their frames here
+
+    /// The panel root's named coordinate space — row frames and the right-click layer's local
+    /// points share it, so scrolled positions stay correct by construction.
+    static let rowSpaceName = "dashTodoPanel"
 
     /// STAY-IN-PLACE (the web's selfEditAt rule): the visible list STRUCTURE (sections, order)
     /// freezes at each full render; a checkbox toggle updates the row's visuals in place via the
@@ -210,9 +226,78 @@ struct NativeDashPanel: View {
                 }
             }
         }
-        // Right-click anywhere in the panel = the cog's layering menu (single-sourced from
+        .coordinateSpace(name: Self.rowSpaceName)
+        // ONE AppKit right-click layer per panel (the ChartMouseLayer pattern): rows are
+        // VARIABLE-HEIGHT (subtrees — no grid math), so the layer resolves the clicked row
+        // from the frames the rows themselves report into rowFrames, and consumes the event.
+        // Non-row right-clicks fall through to the .contextMenu below.
+        .background(DashRightClickLayer(frames: rowFrames, onHit: { todo, rect in
+            rowMenu = RowMenu(todo: todo, rect: rect)
+        }))
+        .popover(isPresented: rowMenuShown,
+                 attachmentAnchor: .rect(.rect(rowMenu?.rect ?? .zero)),
+                 arrowEdge: .trailing) {
+            if let m = rowMenu {
+                rowCallout(m, live: live)
+            }
+        }
+        // Right-click anywhere OUTSIDE a row = the cog's layering menu (single-sourced from
         // DashTodoCatalog, writing through DashTodoSettings — same as the webview's popup).
         .contextMenu { prefsMenu }
+    }
+
+    private var rowMenuShown: Binding<Bool> {
+        Binding(get: { rowMenu != nil }, set: { v in
+            if !v {
+                rowMenu = nil
+            }
+        })
+    }
+
+    /// The row's right-click callout — the SHARED TodoRowCallout (PROJ's exact menu) with this
+    /// panel's pin tag (#pinned) and write paths. The todo re-resolves through `live` so the
+    /// menu reflects the current parse of its line.
+    private func rowCallout(_ m: RowMenu, live: [String: ParsedTodo]) -> some View {
+        let t = live[Self.anchor(m.todo)] ?? m.todo
+        return TodoRowCallout(todo: t, done: t.done, pinTag: "pinned", theme: theme,
+                              actions: rowMenuActions(), onClose: { rowMenu = nil })
+    }
+
+    // ── Row-menu writes (the right-click callout's actions) ──────────────────────────────────
+
+    /// One-line token rewrite through toggleTodo's exact source routing + the serve-stale
+    /// refresh (NativeProjPanel.rewrite's pattern). `adopt` keeps the frozen structure — our
+    /// own write, no reshuffle; Delete passes false so the refreeze drops the row.
+    private func rewrite(_ t: ParsedTodo, adopt: Bool, _ transform: (String, Int) -> String?) {
+        Self.rewriteTodoLine(engine, t, transform)
+        engine.wake() // repaint now — the paused render clock won't (see NativeProjPanel)
+        if adopt {
+            frozen?.stamp = engine.todoDataStamp
+        }
+    }
+
+    /// The row callout's write actions — assignment-style construction (EventMenuActions'
+    /// pattern; never grow a many-argument call here). Check/Uncheck reuses the checkbox's
+    /// toggle path; Go to Definition the row's open path (drawer / fly-to-note).
+    private func rowMenuActions() -> TodoRowMenuActions {
+        var a = TodoRowMenuActions()
+        a.toggle = { t in toggle(t) }
+        a.openTodo = { t in openRow(t) }
+        a.setColor = { t, c in rewrite(t, adopt: true) { TodoIndex.setColorToken($0, line: $1, color: c) } }
+        // Pin/Unpin do NOT adopt: the movement into/out of the Pinned section IS the feedback
+        // — let the refreeze reshuffle immediately (unlike a checkbox, where stay-in-place wins).
+        a.pin = { t in rewrite(t, adopt: false) { TodoIndex.addTag($0, line: $1, tag: "pinned") } }
+        a.unpin = { t in rewrite(t, adopt: false) { TodoIndex.removeTag($0, line: $1, tag: "pinned") } }
+        a.setPriority = { t, n in rewrite(t, adopt: true) { TodoIndex.setPriority($0, line: $1, level: n) } }
+        a.clearPriority = { t in rewrite(t, adopt: true) { TodoIndex.removePriority($0, line: $1) } }
+        // #proj-hide only affects the PROJECT panel — this list keeps the row, so adopt.
+        a.hide = { t in rewrite(t, adopt: true) { TodoIndex.addTag($0, line: $1, tag: "proj-hide") } }
+        a.delete = { t in // window-level confirm dialog first; the closure is the yes-path
+            onDeleteRequest(t.text) {
+                rewrite(t, adopt: false) { TodoIndex.removeTodoLine($0, line: $1) }
+            }
+        }
+        return a
     }
 
     /// A todo's soft-link identity (note scope + line) — stable across a toggle, unlike tieKey
@@ -388,7 +473,7 @@ struct NativeDashPanel: View {
         let ctx = TodoSubtree.Ctx(
             today: today,
             ownNoteKey: scope == "day" ? key : scope == "week" ? "week:\(key)" : "month:\(key)",
-            theme: theme, live: live, nav: nav,
+            theme: theme, live: live, nav: nav, frames: rowFrames,
             toggle: { self.toggle($0) },
             open: { self.openRow($0) },
             fold: { self.toggleFold($0) },
@@ -607,6 +692,115 @@ struct NativeDashPanel: View {
     }
 }
 
+/// Row frames keyed by anchor, in the panel-root's named coordinate space — a plain class box
+/// written from row backgrounds during layout (cheap; no @State, no preference aggregation).
+/// The right-click layer resolves the clicked row from it; VARIABLE-HEIGHT rows (subtrees) are
+/// free because every row reports its real rect.
+final class TodoRowFrameStore {
+    fileprivate var rows: [String: (rect: CGRect, todo: ParsedTodo)] = [:]
+
+    fileprivate func hit(_ p: CGPoint) -> ParsedTodo? {
+        rows.values.first { $0.rect.contains(p) }?.todo
+    }
+}
+
+/// The per-row frame reporter (a row's .background): reads the row's rect in the panel-root
+/// space and writes it into the shared store. Layout-driven — the GeometryReader body re-runs
+/// as the row moves (scroll included), and unmounting (LazyVStack, folds) clears the entry.
+private struct RowFrameReporter: View {
+    let anchor: String
+    let todo: ParsedTodo
+    let frames: TodoRowFrameStore
+
+    var body: some View {
+        GeometryReader { g in
+            let _ = frames.rows[anchor] = (g.frame(in: .named(NativeDashPanel.rowSpaceName)), todo)
+            Color.clear
+        }
+        .onDisappear { frames.rows[anchor] = nil }
+    }
+}
+
+/// ONE background NSView per panel with a LOCAL rightMouseDown monitor (the ChartMouseLayer
+/// pattern — SwiftUI content above eats hit-tests, monitors don't care). The view fills the
+/// panel root, so its flipped local coordinates ARE the named panel space the rows report in;
+/// a click landing inside a reported row rect opens the callout and consumes the event, all
+/// other clicks pass through (the panel's .contextMenu keeps the layering menu).
+private struct DashRightClickLayer: NSViewRepresentable {
+    let frames: TodoRowFrameStore
+    var onHit: (ParsedTodo, CGRect) -> Void
+
+    func makeNSView(context _: Context) -> Layer {
+        let v = Layer()
+        apply(to: v)
+        return v
+    }
+
+    func updateNSView(_ v: Layer, context _: Context) {
+        apply(to: v)
+    }
+
+    private func apply(to v: Layer) {
+        v.frames = frames
+        v.onHit = onHit
+    }
+
+    final class Layer: NSView {
+        var frames: TodoRowFrameStore?
+        var onHit: ((ParsedTodo, CGRect) -> Void)?
+
+        override var isFlipped: Bool {
+            true
+        } // top-left origin, like the SwiftUI space the rows report in
+
+        /// Never the hit-test target: left clicks belong to the SwiftUI rows above.
+        override func hitTest(_: NSPoint) -> NSView? {
+            nil
+        }
+
+        /// Parked/warmed twins of this panel stay mounted at opacity 0 — their monitors must
+        /// not steal the live panel's right-clicks.
+        private var effectivelyVisible: Bool {
+            guard window != nil, !isHiddenOrHasHiddenAncestor else { return false }
+            var l = layer
+            while let cur = l {
+                if cur.opacity < 0.01 {
+                    return false
+                }
+                l = cur.superlayer
+            }
+            return true
+        }
+
+        private var rightClickMonitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                if let m = rightClickMonitor {
+                    NSEvent.removeMonitor(m)
+                    rightClickMonitor = nil
+                }
+            } else if rightClickMonitor == nil {
+                rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown]) {
+                    [weak self] e in
+                    guard let self, e.window === self.window, self.effectivelyVisible else { return e }
+                    let p = self.convert(e.locationInWindow, from: nil)
+                    guard self.bounds.contains(p), let todo = self.frames?.hit(p) else { return e }
+                    self.onHit?(todo, CGRect(x: p.x, y: p.y, width: 1, height: 1))
+                    return nil // consumed — no pass-through context menus underneath
+                }
+            }
+        }
+
+        deinit {
+            if let m = rightClickMonitor {
+                NSEvent.removeMonitor(m)
+            }
+        }
+    }
+}
+
 /// A section header: uppercase title, count badge, optional "+N more" hint + expansion chevron
 /// (the PROJ panel's disclosure language). Shared with NativeProjPanel.
 struct SectionHeader: View {
@@ -709,17 +903,18 @@ private struct TodoSubtree: View {
         let theme: Theme
         let live: [String: ParsedTodo]
         let nav: NativeDashNavModel?
+        let frames: TodoRowFrameStore // rows report their panel-space frames (right-click)
         let toggle: (ParsedTodo) -> Void
         let open: (ParsedTodo) -> Void
         let fold: (ParsedTodo) -> Void
         let foldAndCenter: (ParsedTodo) -> Void
 
         init(today: String, ownNoteKey: String, theme: Theme, live: [String: ParsedTodo],
-             nav: NativeDashNavModel?,
+             nav: NativeDashNavModel?, frames: TodoRowFrameStore,
              toggle: @escaping (ParsedTodo) -> Void, open: @escaping (ParsedTodo) -> Void,
              fold: @escaping (ParsedTodo) -> Void, foldAndCenter: @escaping (ParsedTodo) -> Void) {
             self.today = today; self.ownNoteKey = ownNoteKey; self.theme = theme
-            self.live = live; self.nav = nav
+            self.live = live; self.nav = nav; self.frames = frames
             self.toggle = toggle; self.open = open; self.fold = fold
             self.foldAndCenter = foldAndCenter
         }
@@ -743,6 +938,10 @@ private struct TodoSubtree: View {
                     onOpen: { ctx.open(t) },
                     onFold: { ctx.fold(t) })
                 .id(NativeDashPanel.anchor(t))
+                // Layout-driven frame reporting for the right-click layer: the row's rect in
+                // the PANEL-ROOT space (scroll-correct — the GeometryReader re-reads on scroll).
+                .background(RowFrameReporter(anchor: NativeDashPanel.anchor(t), todo: t,
+                                             frames: ctx.frames))
             if !node.children.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(node.children.indices, id: \.self) { i in
@@ -809,10 +1008,18 @@ private struct TodoRow: View {
                 .handCursor()
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 3) {
-                    animatedTitle
+                    // The pin prefix rides OUTSIDE the animated strikethrough text (PROJ's
+                    // rule): either pin tag (#pinned / #proj-pinned) shows the accent pin.
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        if TodoFeed.hasPinTag(todo.tags) {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Theme.accent)
+                        }
+                        animatedTitle
+                    }
                     metaRow
                 }
-                .contentShape(Rectangle())
                 // Hover wash on the TEXT REGION only (back to the web's .cc-dtodo-main:hover):
                 // a rounded accent-grey fill bled slightly past the content so layout never
                 // shifts. The title tint rides the same hover state.
@@ -821,10 +1028,15 @@ private struct TodoRow: View {
                         .fill(hovering ? theme.accentGrey.opacity(0.14) : .clear)
                         .padding(.horizontal, -6).padding(.vertical, -3)
                 )
-                .onHover { hovering = $0 }
+                // The PROJ fix: the Text is render-only — it otherwise claims the pointer over
+                // a clickable row (arrow cursor); the contentShape carries the clicks and the
+                // Button's handCursor/onHover own the pointer.
+                .allowsHitTesting(false)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .handCursor()
+            .onHover { hovering = $0 }
             if foldable {
                 Spacer(minLength: 4)
                 Button(action: onFold) {
