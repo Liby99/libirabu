@@ -735,6 +735,7 @@ extension CalendarEngine {
         // the store but no generation — the native panel's Equatable gate saw "unchanged" and the
         // row's checkbox sat stale until an unrelated edit/sync bumped a gen minutes later.
         caches.noteGen &+= 1
+        noteEdits.gen &+= 1 // OBSERVABLE: at-rest panels repaint through Observation (no tick needed)
         schedulePersist()
     }
 
@@ -760,6 +761,7 @@ extension CalendarEngine {
         rf.occurrenceNotes = occ.isEmpty ? nil : occ
         items.richById[id] = rf
         caches.noteGen &+= 1 // same freshness contract as setNotes
+        noteEdits.gen &+= 1 // observable — see setNotes
         schedulePersist() // per-occurrence note: CodeMirror-owned undo, not the calendar stack (see setNotes)
     }
 }

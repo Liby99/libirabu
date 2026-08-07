@@ -48,6 +48,11 @@ struct NativeProjPanel: View {
     static let barOpacity: Double = 0.60
 
     var body: some View {
+        // OBSERVABLE dependency on note content (NoteEditGen, the preview-repaint pattern):
+        // a quick-add or row-menu write at REST must repaint through Observation — wake()'s
+        // ticks can be ZERO on an idle ProMotion display, and unlike a checkbox toggle these
+        // writes touch no @State (the "new item only shows after app-switching" bug).
+        let _ = engine.noteEdits.gen
         let today = NativeDashPanel.todayIso()
         let (rs, re) = range
         let feed = ProjIndex.shown(engine.projFeed(today: today), rs: rs, re: re)

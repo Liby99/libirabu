@@ -153,6 +153,10 @@ struct NativeDashPanel: View {
     @State private var deadlineRange = NativeDashPanel.dayDeadlineRange // day deadline window
 
     var body: some View {
+        // OBSERVABLE dependency on note content (NoteEditGen): external note writes at REST
+        // (quick-add, row-menu edits, another panel's toggle) repaint through Observation —
+        // wake()'s ticks can be ZERO on an idle ProMotion display (see NativeProjPanel).
+        let _ = engine.noteEdits.gen
         let today = Self.todayIso()
         let (start, end) = range
         let word = scope == "week" ? "this week" : "this month"
