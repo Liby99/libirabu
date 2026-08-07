@@ -409,7 +409,8 @@ private struct ProjChart: View {
                     // The title is render-only (allowsHitTesting false): Text otherwise claims
                     // the pointer over a clickable row — the label's contentShape carries the
                     // clicks, handCursor the pointing hand.
-                    ProjLabelTitle(text: t.todo.text, done: done, theme: theme)
+                    ProjLabelTitle(text: t.todo.text, done: done,
+                                   hovering: hoveredRow == t.rowId, theme: theme)
                 }
                 .allowsHitTesting(false)
                 .contentShape(Rectangle())
@@ -1002,6 +1003,9 @@ private struct ProjPriorityOption: View {
 private struct ProjLabelTitle: View {
     let text: String
     let done: Bool
+    /// Row hover (the chart's hoveredRow): open titles tint to the ACCENT, done titles lift
+    /// to the full text color — the TODO panel's exact hover rule.
+    var hovering = false
     let theme: Theme
 
     @State private var strike: CGFloat = -1 // -1 = unseeded (first render settles, no sweep)
@@ -1038,7 +1042,8 @@ private struct ProjLabelTitle: View {
         Text(text)
             .font(.system(size: 13)) // the TODO list's row size
             .strikethrough(struck, color: theme.accentGrey)
-            .foregroundStyle(struck ? theme.accentGrey : theme.text)
+            .foregroundStyle(struck ? (hovering ? theme.text : theme.accentGrey)
+                : (hovering ? Theme.accent : theme.text))
             .lineLimit(1)
     }
 }
