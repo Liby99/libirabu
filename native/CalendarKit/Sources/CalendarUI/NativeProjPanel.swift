@@ -270,9 +270,22 @@ private struct ProjChart: View {
             let labelW = max(120, geo.size.width * 0.32)
             let plotW = max(40, geo.size.width - labelW - 10)
             ZStack(alignment: .topLeading) {
-                // BEHIND the columns: full-width hover strips (wash + hover tracking + the
-                // right-click catcher) spanning label column AND plot, one per row.
-                rowStrips(fullW: geo.size.width)
+                // BEHIND the columns: ONE AppKit mouse layer per chart. NSView tracking areas
+                // fire regardless of the SwiftUI content drawn above (unlike .onHover, which
+                // goes to the topmost hit-testable view — strips behind the row buttons/plot
+                // shapes never heard a thing: the "hover doesn't show" bug). It owns hover
+                // row-tracking AND the right-click; left clicks pass through untouched.
+                ChartMouseLayer(headroom: headroom, rowH: NativeProjPanel.rowH,
+                                rowCount: tasks.count,
+                                onHover: { idx in
+                                    hoveredRow = idx.map { tasks[$0].rowId }
+                                },
+                                onRightClick: { idx, p in
+                                    guard idx < tasks.count else { return }
+                                    rowMenu = RowMenu(task: tasks[idx],
+                                                      anchor: CGRect(x: p.x, y: p.y,
+                                                                     width: 1, height: 1))
+                                })
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 0) {
                         // The quick-add row rides INSIDE the existing headroom strip (bottom-
@@ -287,6 +300,11 @@ private struct ProjChart: View {
                     plot(scale, w: plotW)
                         .frame(width: plotW, alignment: .topLeading)
                 }
+                // IN FRONT of the columns: the wash strips, rendering-only (no hit-testing) —
+                // behind the columns the wash vanished under the plot's opaque grey tracks.
+                // At 0.05 alpha the over-wash reads as a row highlight, not a tint.
+                rowStrips(fullW: geo.size.width)
+                    .allowsHitTesting(false)
             }
             .popover(isPresented: menuShown,
                      attachmentAnchor: .rect(.rect(rowMenu?.anchor ?? .zero)),
@@ -324,21 +342,10 @@ private struct ProjChart: View {
         .animation(.easeOut(duration: 0.12), value: hoveredRow)
     }
 
-    private func rowStrip(_ t: ProjTask, index: Int, fullW: CGFloat) -> some View {
+    private func rowStrip(_ t: ProjTask, index _: Int, fullW: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: 6) // = the quick-add wash (same fill, all corners round)
             .fill(theme.text.opacity(hoveredRow == t.rowId ? 0.05 : 0))
             .frame(width: fullW, height: NativeProjPanel.rowH)
-            .background(RightClickCatcher { p in
-                let y = headroom + CGFloat(index) * NativeProjPanel.rowH + p.y
-                rowMenu = RowMenu(task: t, anchor: CGRect(x: p.x, y: y, width: 1, height: 1))
-            })
-            .onHover { over in
-                if over {
-                    hoveredRow = t.rowId
-                } else if hoveredRow == t.rowId {
-                    hoveredRow = nil
-                }
-            }
     }
 
     /// The compact quick-add input: a "+" in the checkbox column (15pt + the row's 8pt gap),
@@ -672,25 +679,81 @@ struct ProjRowMenuActions {
 /// rightMouseDown, so this NSView hit-tests ONLY right-button events — left clicks (and the
 /// panel's tap gesture) fall through to the SwiftUI content above untouched. Reports the click
 /// point in the view's own top-left-origin space (the strip is flipped to match SwiftUI).
-private struct RightClickCatcher: NSViewRepresentable {
-    var onRightClick: (CGPoint) -> Void
+/// One AppKit mouse layer per chart: hover row-tracking via an NSTrackingArea — which fires
+/// regardless of the SwiftUI content drawn above it, unlike .onHover — plus the right-click.
+/// hitTest bites ONLY on right-button events, so every left click passes through to the
+/// SwiftUI rows exactly as before. Reports row indices computed from the shared row grid
+/// (headroom + index·rowH) and points in the chart's (flipped) coordinate space.
+private struct ChartMouseLayer: NSViewRepresentable {
+    var headroom: CGFloat
+    var rowH: CGFloat
+    var rowCount: Int
+    var onHover: (Int?) -> Void
+    var onRightClick: (Int, CGPoint) -> Void
 
-    func makeNSView(context _: Context) -> Catcher {
-        let v = Catcher()
-        v.onRightClick = onRightClick
+    func makeNSView(context _: Context) -> Layer {
+        let v = Layer()
+        apply(to: v)
         return v
     }
 
-    func updateNSView(_ v: Catcher, context _: Context) {
+    func updateNSView(_ v: Layer, context _: Context) {
+        apply(to: v)
+    }
+
+    private func apply(to v: Layer) {
+        v.headroom = headroom
+        v.rowH = rowH
+        v.rowCount = rowCount
+        v.onHover = onHover
         v.onRightClick = onRightClick
     }
 
-    final class Catcher: NSView {
-        var onRightClick: ((CGPoint) -> Void)?
+    final class Layer: NSView {
+        var headroom: CGFloat = 0
+        var rowH: CGFloat = 26
+        var rowCount = 0
+        var onHover: ((Int?) -> Void)?
+        var onRightClick: ((Int, CGPoint) -> Void)?
+        private var lastRow: Int? = -1 // -1 ≠ nil: force the first report
 
         override var isFlipped: Bool {
             true
-        } // local points arrive in SwiftUI's space
+        } // row 0 at the top, like the SwiftUI layout
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(
+                rect: .zero,
+                options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                owner: self, userInfo: nil
+            ))
+        }
+
+        private func row(at p: CGPoint) -> Int? {
+            let i = Int((p.y - headroom) / rowH)
+            return p.y >= headroom && i >= 0 && i < rowCount ? i : nil
+        }
+
+        private func report(_ r: Int?) {
+            if r != lastRow {
+                lastRow = r
+                onHover?(r)
+            }
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            report(row(at: convert(event.locationInWindow, from: nil)))
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            report(row(at: convert(event.locationInWindow, from: nil)))
+        }
+
+        override func mouseExited(with _: NSEvent) {
+            report(nil)
+        }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             // Right-button events only; everything else passes through to SwiftUI.
@@ -703,7 +766,10 @@ private struct RightClickCatcher: NSViewRepresentable {
         }
 
         override func rightMouseDown(with event: NSEvent) {
-            onRightClick?(convert(event.locationInWindow, from: nil))
+            let p = convert(event.locationInWindow, from: nil)
+            if let r = row(at: p) {
+                onRightClick?(r, p)
+            }
         }
     }
 }
