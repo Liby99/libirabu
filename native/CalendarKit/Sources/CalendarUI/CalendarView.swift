@@ -135,6 +135,7 @@ public struct CalendarView: View {
         ic.isModalDelete = {
             ui.pendingDelete != nil || ui.pendingBatchDelete != nil || ui.notice != nil
                 || ui.calendarPrompt != nil || ui.pendingCalendarRemove
+                || ui.pendingTodoDelete != nil
         }
         ic.onDeleteDialogKey = { handleDeleteDialogKey($0) }
         ic.isBatchRenaming = { ui.batchRenaming }
@@ -189,6 +190,16 @@ public struct CalendarView: View {
         if ui.notice != nil {
             if key == .confirm || key == .cancel {
                 ui.notice = nil; engine.wake()
+            }
+            return
+        }
+        // PROJ row-menu delete confirm: Enter deletes, Esc cancels.
+        if let td = ui.pendingTodoDelete {
+            if key == .confirm {
+                td.confirm()
+            }
+            if key == .confirm || key == .cancel {
+                ui.pendingTodoDelete = nil; engine.wake()
             }
             return
         }
@@ -755,6 +766,10 @@ public struct CalendarView: View {
                                         guard !NativeDash.tapsSuppressed else { return }
                                         jumpToNoteKey(key, line: line)
                                     },
+                                    onDeleteRequest: { text, confirm in
+                                        ui.pendingTodoDelete = CalendarUIState
+                                            .PendingTodoDelete(text: text, confirm: confirm)
+                                    },
                                     warmAllTabs: NativeDash.warmIds.contains(panel.panelId),
                                     trimToActiveTab: !isLive
                                         && !NativeDash.warmIds.contains(panel.panelId))
@@ -1195,17 +1210,17 @@ public struct CalendarView: View {
     @ToolbarContentBuilder
     private var mainToolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) { Breadcrumb(engine: engine) }
-        ToolbarSpacer(.flexible)
+        ToolbarSpacerCompat(.flexible)
         ToolbarItem(placement: .primaryAction) {
             if search.open {
                 SearchBar(engine: engine, search: search,
                           onCommit: { commitSearch() }, onClose: { closeSearch() })
             } else {
                 Button { openSearch() } label: { Image(systemName: "magnifyingglass") }
-                    .buttonStyle(.glass).buttonBorderShape(.circle).help("Search (⌘F)")
+                    .glassButtonStyleCompat().buttonBorderShape(.circle).help("Search (⌘F)")
             }
         }
-        ToolbarSpacer(.fixed)
+        ToolbarSpacerCompat(.fixed)
         ToolbarItem(placement: .primaryAction) {
             // With a shared assistant: a quick-ask CALLOUT anchored to this button (an NSPopover —
             // caret + glass, may extend beyond the window). Without one (dev shell): the window.
@@ -1216,7 +1231,7 @@ public struct CalendarView: View {
                     openWindow(id: "assistant")
                 }
             } label: { Image(systemName: "sparkles") }
-                .buttonStyle(.glass).buttonBorderShape(.circle).help("MagiCal AI (⌘I)")
+                .glassButtonStyleCompat().buttonBorderShape(.circle).help("MagiCal AI (⌘I)")
                 .popover(isPresented: $showAssistantCallout, arrowEdge: .bottom) {
                     if let assistant {
                         AssistantCalloutView(state: assistant) {
@@ -1235,20 +1250,20 @@ public struct CalendarView: View {
                     }
                 }
         }
-        ToolbarSpacer(.fixed)
+        ToolbarSpacerCompat(.fixed)
         ToolbarItem(placement: .primaryAction) {
             // View ▸ Filter by Tags lives here as a stay-open checklist popover (a menu can't stay open
             // while multi-toggling). The View-menu item in both shells toggles it via .toggleTagFilter.
             Button { showTagFilter.toggle() } label: { Image(systemName: "tag") }
-                .buttonStyle(.glass).buttonBorderShape(.circle).help("Filter by Tags (⌘G)")
+                .glassButtonStyleCompat().buttonBorderShape(.circle).help("Filter by Tags (⌘G)")
                 .popover(isPresented: $showTagFilter, arrowEdge: .bottom) {
                     TagFilterPopover(engine: engine)
                 }
         }
-        ToolbarSpacer(.fixed)
+        ToolbarSpacerCompat(.fixed)
         ToolbarItem(placement: .primaryAction) {
             Button { engine.goToToday() } label: { Text("Today") }
-                .buttonStyle(.glass).buttonBorderShape(.capsule)
+                .glassButtonStyleCompat().buttonBorderShape(.capsule)
                 .help("Go to today (⌘T)")
         }
     }

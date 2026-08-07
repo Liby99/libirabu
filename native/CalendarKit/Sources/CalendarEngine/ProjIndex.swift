@@ -119,7 +119,9 @@ public enum ProjIndex {
                 due: t
                     .dueSource == "line" ? (t.due.map { String($0.prefix(10)) }.flatMap { $0.isEmpty ? nil : $0 }) :
                     nil,
-                color: color
+                // An explicit line `color:` token (the row menu's palette) beats the
+                // source-inherited color, so a pick recolors the bar immediately.
+                color: (t.colorSource == "line" ? t.color : nil) ?? color
             )
             for k in t.projects {
                 with(k) { $0.tasks.append(task) }

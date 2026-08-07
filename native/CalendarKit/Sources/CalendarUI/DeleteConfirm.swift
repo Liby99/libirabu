@@ -342,13 +342,15 @@ struct ModalOverlays: ViewModifier {
     private func syncModalGate() {
         engine.inputModalUp = ui.pendingDelete != nil || ui.notice != nil
             || ui.calendarPrompt != nil || ui.pendingCalendarRemove
+            || ui.pendingTodoDelete != nil
     }
 
     func body(content: Content) -> some View {
         content
             // Gentle blur on the calendar while a blocking dialog (delete confirm / notice) is up
             // (before the dialog overlay, so the dialog stays sharp).
-            .blur(radius: ui.pendingDelete != nil || ui.notice != nil ? 2.5 : 0)
+            .blur(radius: ui.pendingDelete != nil || ui.notice != nil
+                || ui.pendingTodoDelete != nil ? 2.5 : 0)
             .overlay {
                 if let pd = ui.pendingDelete {
                     DeleteConfirmDialog(pending: pd, theme: theme, onChoose: onDelete)
@@ -357,6 +359,21 @@ struct ModalOverlays: ViewModifier {
             }
             .animation(.easeOut(duration: 0.12), value: ui.pendingDelete)
             .onChange(of: ui.pendingDelete == nil) { _, _ in syncModalGate() }
+            // PROJ row-menu Delete confirm — window-level (full-window blur), same glass card.
+            .overlay {
+                if let td = ui.pendingTodoDelete {
+                    TodoDeleteDialog(text: td.text, theme: theme,
+                                     onDelete: {
+                                         td.confirm()
+                                         ui.pendingTodoDelete = nil
+                                         engine.wake()
+                                     },
+                                     onCancel: { ui.pendingTodoDelete = nil; engine.wake() })
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: ui.pendingTodoDelete == nil)
+            .onChange(of: ui.pendingTodoDelete == nil) { _, _ in syncModalGate() }
             // One-button informational notice (e.g. "Printing Week view is not supported right now.").
             .overlay {
                 if let msg = ui.notice {

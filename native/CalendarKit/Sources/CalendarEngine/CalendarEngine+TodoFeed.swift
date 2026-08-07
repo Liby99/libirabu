@@ -114,6 +114,7 @@ extension CalendarEngine {
     /// caches carry the old gens, so the next read schedules another refresh — never stale-forever.
     func rebuildFeedsInBackground(today: String) {
         let gens = (gen: caches.editGen, noteGen: caches.noteGen)
+        let calendar = registry.activeId // a build snapshotted on one calendar must never publish onto another
         let sources = todoSources()
         let notes = items.dailyNotes
         let dls = items.deadlines.map { displayDeadline($0) }
@@ -122,7 +123,7 @@ extension CalendarEngine {
             let projects = ProjIndex.build(todos: todos, sources: sources, deadlines: dls,
                                            today: today)
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.registry.activeId == calendar else { return }
                 self.todoFeedCache = (gens.gen, gens.noteGen, today, todos)
                 self.projFeedCache = (gens.gen, gens.noteGen, today, projects)
                 self.wake()
@@ -132,9 +133,17 @@ extension CalendarEngine {
 
     @discardableResult
     private func buildTodoFeed(today: String) -> [ParsedTodo] {
-        let todos = Self.buildFeedPure(sources: todoSources(), dailyNotes: items.dailyNotes,
+        let sources = todoSources()
+        let todos = Self.buildFeedPure(sources: sources, dailyNotes: items.dailyNotes,
                                        today: today)
         todoFeedCache = (caches.editGen, caches.noteGen, today, todos)
+        // The PROJ feed refreshes in the SAME inline pass: serving it stale here let the
+        // chart's refreeze adopt the new data stamp with the OLD membership — a row-menu
+        // Hide/Delete then never disappeared until some later unrelated gen bump.
+        let projects = ProjIndex.build(todos: todos, sources: sources,
+                                       deadlines: items.deadlines.map { displayDeadline($0) },
+                                       today: today)
+        projFeedCache = (caches.editGen, caches.noteGen, today, projects)
         return todos
     }
 

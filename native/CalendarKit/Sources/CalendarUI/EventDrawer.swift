@@ -21,6 +21,15 @@ public final class CalendarUIState {
     }
 
     public var openNoteTarget: OpenNoteTarget?
+
+    /// PROJ row-menu Delete awaiting its confirm: item text + the yes-action. Hosted by the
+    /// window-level DialogOverlay so the blur covers the WHOLE window, not just the panel.
+    public struct PendingTodoDelete {
+        public var text: String
+        public var confirm: () -> Void
+    }
+
+    public var pendingTodoDelete: PendingTodoDelete?
     public var editingTrack: TrackEdit? // inline track-name editor target
     public var editingBand: BandEdit? // inline band-title editor target
     public var editingTimed: TimedEdit? // inline timed-event-title editor target

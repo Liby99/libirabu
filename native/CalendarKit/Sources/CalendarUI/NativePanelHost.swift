@@ -22,6 +22,8 @@ struct NativePanelHost: View, Equatable {
     @Binding var noteMode: NotesMode
     var onOpen: (String, Int?, String?) -> Void
     var onJump: (String, Int?) -> Void = { _, _ in }
+    /// PROJ row-menu Delete → the window-level confirm dialog (CalendarView hosts it).
+    var onDeleteRequest: (String, @escaping () -> Void) -> Void = { _, _ in }
 
     /// The per-frame TimelineView re-creates this view every frame; the closures make SwiftUI
     /// assume it changed, so WITHOUT this the whole panel body (sections, dictionaries, gantt
@@ -61,7 +63,7 @@ struct NativePanelHost: View, Equatable {
             }
             if tab == .proj || mountedTabs.contains(.proj) {
                 NativeProjPanel(engine: engine, scope: scope, key: key, theme: theme,
-                                onOpen: onOpen, onJump: onJump)
+                                onOpen: onOpen, onJump: onJump, onDeleteRequest: onDeleteRequest)
                     .opacity(tab == .proj ? 1 : 0)
                     .allowsHitTesting(tab == .proj)
             }
