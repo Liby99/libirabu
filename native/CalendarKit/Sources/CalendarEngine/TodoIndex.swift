@@ -537,6 +537,14 @@ public enum TodoIndex {
         }
     }
 
+    /// Remove the row's `p:!…` token entirely (the priority submenu's "None"); no-op when the
+    /// row has no priority. rewriteTaskLine's return contract.
+    public static func removePriority(_ noteText: String, line: Int) -> String? {
+        rewriteTaskLine(noteText, line: line) { row in
+            Self.priority.replaceFirst(row) { _ in "" }
+        }
+    }
+
     /// Append ` #<tag>` to the row unless it's already tagged (case-insensitive dedupe against
     /// the line's parsed tags, so URLs can't false-match). rewriteTaskLine's return contract.
     public static func addTag(_ noteText: String, line: Int, tag name: String) -> String? {

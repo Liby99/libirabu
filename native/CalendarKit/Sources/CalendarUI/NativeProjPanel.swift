@@ -113,6 +113,7 @@ struct NativeProjPanel: View {
         a.pin = { t in rewrite(t.todo, adopt: true) { TodoIndex.addTag($0, line: $1, tag: "proj-pinned") } }
         a.unpin = { t in rewrite(t.todo, adopt: true) { TodoIndex.removeTag($0, line: $1, tag: "proj-pinned") } }
         a.setPriority = { t, n in rewrite(t.todo, adopt: true) { TodoIndex.setPriority($0, line: $1, level: n) } }
+        a.clearPriority = { t in rewrite(t.todo, adopt: true) { TodoIndex.removePriority($0, line: $1) } }
         a.hide = { t in rewrite(t.todo, adopt: false) { TodoIndex.addTag($0, line: $1, tag: "proj-hide") } }
         a.delete = { t in // window-level confirm dialog first; the closure is the yes-path
             onDeleteRequest(t.todo.text) { confirmDelete(t) }
@@ -690,6 +691,7 @@ struct ProjRowMenuActions {
     var pin: (ProjTask) -> Void = { _ in }
     var unpin: (ProjTask) -> Void = { _ in }
     var setPriority: (ProjTask, Int) -> Void = { _, _ in }
+    var clearPriority: (ProjTask) -> Void = { _ in }
     var hide: (ProjTask) -> Void = { _ in }
     var delete: (ProjTask) -> Void = { _ in }
 }
@@ -900,6 +902,14 @@ private struct ProjTodoCallout: View {
         }
         .popover(isPresented: $priorityOpen, arrowEdge: .trailing) {
             VStack(alignment: .leading, spacing: 1) {
+                // "None" (checked when the line carries no p: token) clears the priority.
+                ProjPriorityOption(bangs: "None", current: task.todo.priority == nil,
+                                   theme: theme) {
+                    actions.clearPriority(task)
+                    priorityOpen = false
+                    onClose()
+                }
+                Divider().padding(.vertical, 2)
                 ForEach(1 ... TodoIndex.maxPriority, id: \.self) { n in
                     ProjPriorityOption(bangs: String(repeating: "!", count: n),
                                        current: task.todo.priority == n, theme: theme) {

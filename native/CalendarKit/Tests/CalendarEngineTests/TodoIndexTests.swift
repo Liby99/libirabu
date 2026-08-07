@@ -258,6 +258,14 @@ final class TodoIndexTests: XCTestCase {
         XCTAssertNil(TodoIndex.addTag(note, line: 5, tag: "proj-hide")) // stale anchor
     }
 
+    func testRemovePriorityClearsToken() {
+        XCTAssertEqual(TodoIndex.removePriority("- [ ] a p:!!! due:2026-08-09", line: 1),
+                       "- [ ] a due:2026-08-09")
+        XCTAssertEqual(TodoIndex.removePriority("- [ ] tail p:!", line: 1), "- [ ] tail")
+        // No priority → the rewrite returns the note unchanged.
+        XCTAssertEqual(TodoIndex.removePriority("- [ ] plain", line: 1), "- [ ] plain")
+    }
+
     func testRemoveTagRemovesAndNoOps() {
         let note = "- [ ] ship it #proj-pinned due:2026-08-09\n- [ ] other"
         // Removes the tag (mid-line: the doubled space collapses with it).
