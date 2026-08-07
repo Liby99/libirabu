@@ -502,7 +502,9 @@ private struct ProjChart: View {
         let accent = theme.eventBorder("red")
         Rectangle().fill(accent.opacity(0.95)).frame(width: 1.5, height: marksH)
             .offset(x: px, y: rowTop)
-        Text("today")
+        // The top pill on the now-line stays "now" (wall-clock marker); only the AXIS label
+        // under the chart says "today" (user spec).
+        Text("now")
             .font(.system(size: 10.5, weight: .bold))
             .foregroundStyle(.white)
             .padding(.horizontal, 6).padding(.vertical, 1.5)
