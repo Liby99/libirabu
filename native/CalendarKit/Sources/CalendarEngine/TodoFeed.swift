@@ -83,8 +83,9 @@ public enum TodoFeed {
         t.tags.contains { $0.lowercased() == "pinned" }
     }
 
-    /// Either pin tag (#pinned / #proj-pinned) → the row shows the accent pin prefix
-    /// (TODO panel rows, PROJ gantt labels, and the note preview alike).
+    /// Either pin tag (#pinned / #proj-pinned) → the accent pin prefix in the NOTE PREVIEW
+    /// (a note belongs to no one panel). The panels each show only their OWN tag's pin:
+    /// #pinned in the TODO panel, #proj-pinned on the PROJ gantt labels.
     public static func hasPinTag(_ tags: [String]) -> Bool {
         tags.contains { let l = $0.lowercased(); return l == "pinned" || l == "proj-pinned" }
     }

@@ -414,9 +414,9 @@ private struct ProjChart: View {
                 .handCursor()
             Button { onOpenTodo(t.todo) } label: {
                 HStack(spacing: 4) {
-                    // Pinned rows (#proj-pinned OR the TODO panel's #pinned): the accent pin —
-                    // the shared pin language across the panels and the note preview.
-                    if TodoFeed.hasPinTag(t.todo.tags) {
+                    // Pinned rows (#proj-pinned, THIS panel's tag — the TODO panel's #pinned
+                    // shows no pin here): the accent pin, the shared pin language.
+                    if t.todo.tags.contains(where: { $0.lowercased() == "proj-pinned" }) {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(Theme.accent)

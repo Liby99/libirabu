@@ -1009,9 +1009,10 @@ private struct TodoRow: View {
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 3) {
                     // The pin prefix rides OUTSIDE the animated strikethrough text (PROJ's
-                    // rule): either pin tag (#pinned / #proj-pinned) shows the accent pin.
+                    // rule). THIS panel's pin tag only — #pinned; #proj-pinned is the PROJ
+                    // panel's and shows no pin here.
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        if TodoFeed.hasPinTag(todo.tags) {
+                        if TodoFeed.isPinned(todo) {
                             Image(systemName: "pin.fill")
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(Theme.accent)
