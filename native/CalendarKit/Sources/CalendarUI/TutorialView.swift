@@ -26,6 +26,10 @@ struct TutorialView: View {
         .init(gif: "ai-assistant", caption: "Click the AI button to let AI help you manage your calendar."),
         .init(gif: "markdown-notes", caption: "Edit markdown notes in events or the daily notepad to add TODO items."),
         .init(
+            gif: "dashboard-tour",
+            caption: "Every day, week, and month has a dashboard — press ⌘B for its TODO list, and click PROJ for per-project Gantt charts."
+        ),
+        .init(
             gif: "",
             caption: "That's the tour — your calendar is ready. Enjoy planning your time with MagiCal!",
             welcome: true

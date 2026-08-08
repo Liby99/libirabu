@@ -42,6 +42,26 @@ public struct DemoCursorOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
         }
+        // Floating keycap (e.g. "⌘ B") for keyboard-driven beats — scenes can't show a real
+        // keystroke, so the pressed chord is drawn as a keyboard-style cap, lower-center.
+        if let key = demo.keyCap {
+            VStack {
+                Spacer()
+                Text(key)
+                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 10)
+                        .fill(.black.opacity(0.72)))
+                    .overlay(RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(.white.opacity(0.35), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
+                    .padding(.bottom, 70)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
+            .transition(.opacity)
+        }
         if let p = demo.cursor {
             let img = NSCursor.arrow.image
             let hs = NSCursor.arrow.hotSpot

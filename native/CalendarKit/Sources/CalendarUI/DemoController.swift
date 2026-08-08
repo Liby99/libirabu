@@ -19,6 +19,7 @@ public final class DemoController {
     public var cursor: CGPoint? // calendar-view-local point of the synthetic cursor (nil = hidden)
     public var pressed = false // mouse-down visual (a small ring around the cursor)
     public var pinchDots: (CGPoint, CGPoint)? // two fingertips for the pinch-zoom gesture (nil = hidden)
+    public var keyCap: String? // floating keycap pill (e.g. "⌘ B") for keyboard-driven beats
     public private(set) var active = false
 
     // ai-assistant scene: an in-window demo panel showing a staged (offline) conversation. The real
@@ -120,6 +121,7 @@ public final class DemoController {
         case "promote": await scenePromote()
         case "promote-manual": await scenePromoteManual()
         case "daily-dashboard": await sceneDailyDashboard()
+        case "dashboard-tour": await sceneDashboardTour()
         case "bench-year-scroll": await sceneBenchYearScroll()
         case "bench-year-fling": await sceneBenchYearFling()
         case "bench-month-swipe": await sceneBenchMonthSwipe()

@@ -618,6 +618,52 @@ public enum HelpContent {
                 ]
             ),
             HelpTopic(
+                id: "google-secret-address", title: "Connect Google Calendar with a secret address",
+                summary: "Subscribe to a Google calendar's secret iCal address.",
+                keywords: ["google", "google calendar", "secret address", "ical", "feed", "subscribe",
+                           "import", "basic.ics"],
+                blocks: [
+                    .paragraph(
+                        "MagiCal can subscribe directly to a Google calendar through its secret iCal address — no sign-in needed. Events appear read-only with an imported badge, and the feed refreshes automatically (Google updates secret feeds with a few minutes' delay)."
+                    ),
+                    .steps([
+                        "Open Google Calendar in your browser and go to Settings (the gear icon).",
+                        "Under “Settings for my calendars”, pick the calendar you want to show in MagiCal.",
+                        "Scroll to “Integrate calendar” and copy the “Secret address in iCal format” — it starts with https://calendar.google.com/…/private-…/basic.ics.",
+                        "In MagiCal, open Settings ▸ Account ▸ Google Calendar, paste the address, and press Add.",
+                    ]),
+                    .paragraph(
+                        "The secret address grants read access to that calendar to anyone who holds it, so MagiCal keeps it only in your macOS Keychain. Subscriptions are per MagiCal calendar: a feed you add applies to the calendar that's open at the time."
+                    ),
+                    .tip(
+                        "Alternative: add your Google account in macOS System Settings ▸ Internet Accounts with Calendars enabled — your Google events then arrive through the Apple Calendar connection, kept fresh by macOS."
+                    ),
+                ]
+            ),
+            HelpTopic(
+                id: "outlook-published-address", title: "Connect Outlook Calendar with a published address",
+                summary: "Subscribe to an Outlook calendar's published ICS address.",
+                keywords: ["outlook", "microsoft", "office 365", "exchange", "published", "ics",
+                           "feed", "subscribe", "import"],
+                blocks: [
+                    .paragraph(
+                        "MagiCal can subscribe to an Outlook calendar through its published ICS address — no sign-in needed. Events appear read-only with an imported badge and refresh automatically."
+                    ),
+                    .steps([
+                        "Open Outlook on the web (outlook.live.com for a personal account, outlook.office365.com for work or school) and go to Calendar settings.",
+                        "Under “Shared calendars”, find “Publish a calendar” and pick the calendar and permission level.",
+                        "Publish it and copy the ICS link (ends in calendar.ics).",
+                        "In MagiCal, open Settings ▸ Account ▸ Outlook Calendar, paste the address, and press Add.",
+                    ]),
+                    .paragraph(
+                        "Work and school accounts can publish only if the organization allows it — if the “Publish a calendar” option is missing or grayed out, that's an admin policy. The published address grants read access to anyone who holds it, so MagiCal keeps it only in your macOS Keychain, scoped to the MagiCal calendar that's open when you add it."
+                    ),
+                    .tip(
+                        "Microsoft refreshes published feeds on its own schedule — updates can lag by a few hours (Google's secret feeds update within minutes). For faster, richer sync, add the account in macOS System Settings ▸ Internet Accounts instead; its events then arrive through the Apple Calendar connection."
+                    ),
+                ]
+            ),
+            HelpTopic(
                 id: "hidden-imported", title: "Hide or show imported events",
                 summary: "Declutter by hiding imported events you don't need.",
                 keywords: ["hide", "show", "imported", "hidden", "view menu", "declutter"],

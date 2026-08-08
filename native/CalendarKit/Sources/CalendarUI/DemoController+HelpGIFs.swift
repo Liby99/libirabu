@@ -347,6 +347,105 @@ extension DemoController {
         try? await pause(2.2)
     }
 
+    /// DASHBOARD TOUR (the tutorial's dashboard page): MONTH view → ⌘B pins the dashboard open on
+    /// the TODO tab (the real hotkey path, keycap shown) → the cursor clicks "PROJ" and the
+    /// per-project gantt charts appear. Seeded with a month of tokenized todos across two
+    /// @project:s (created/done/due histories → interesting bars, a crossed due → hatch, a
+    /// milestone deadline + a band event box) so both tabs look lived-in.
+    func sceneDashboardTour() async {
+        guard let engine else { return }
+        // Full-window recording: the month grid + the panel sliding in over its right side.
+        engine.demoClearEvents()
+        seedWeek()
+        seedYear()
+        seedDashboardTour()
+        if engine.dashPinned {
+            engine.toggleDashPin() // defaults leak across runs — always OPEN ON CAMERA
+        }
+        engine.jumpToMonth(engine.year, 6) // July's month view
+        try? await pause(2.4)
+        signalReady()
+        await waitForGo()
+        try? await pause(1.2)
+
+        // ⌘B (the real View ▸ TODO List path: closed month panel → pin open on the TODO tab).
+        keyCap = "⌘ B"
+        try? await pause(0.8)
+        NotificationCenter.default.post(name: .focusDashTodo, object: nil)
+        try? await pause(1.4)
+        keyCap = nil
+        try? await pause(2.6) // dwell: the month's TODO list
+
+        // Click "PROJ": glide onto the tab row (from the SAME dashScopePanels geometry the tab
+        // overlay places with) and flip through the real ⌘J path — exactly what the tab does.
+        let tab = projTabPoint() ?? CGPoint(x: size.width * 0.9, y: Layout.topPad + Layout.monthH - 14)
+        cursor = CGPoint(x: tab.x - 110, y: tab.y + 90)
+        await move(to: tab, over: 0.9)
+        try? await pause(0.25)
+        pressed = true; try? await pause(0.16); pressed = false
+        NotificationCenter.default.post(name: .focusDashProj, object: nil)
+        try? await pause(3.4) // dwell: the gantt charts
+    }
+
+    /// The PROJ tab's view-local point: the tabs row right-aligns 18pt inside the month panel's
+    /// right edge (DashTabs order TODO·PROJ·NOTE, ~43pt per label at 11pt tracked caps), on the
+    /// row 14pt above the month band's bottom — the DashTabsOverlay formulas, panel geometry from
+    /// dashScopePanels (view x = padLeft + panel.x; gutterShift is 0 in demo mode).
+    private func projTabPoint() -> CGPoint? {
+        guard let engine, let sp = dashScopePanels(engine.snapshotInput()) else { return nil }
+        let p = sp.a
+        let right = Layout.padLeft + p.x + p.w
+        return CGPoint(x: right - 86, y: Layout.topPad + Layout.monthH - 14)
+    }
+
+    /// A month of dashboard fodder (July, the demo month): two @project:s with created/done/due
+    /// histories in the MONTHLY note, general todos in the monthly + a daily note, an event-note
+    /// pair (provenance prefixes), a #pinned row (the Pinned section), a project milestone
+    /// deadline, and a band event box on the apollo chart.
+    private func seedDashboardTour() {
+        guard let engine else { return }
+        let y = engine.year
+        func d(_ day: Int) -> String {
+            String(format: "%04d-07-%02d", y, day)
+        }
+        engine.setDailyNote(String(format: "month:%04d-07", y), """
+        ## Apollo
+        - [x] Draft the architecture @project:apollo created:\(d(2)) done:\(d(8))T14:00 due:\(d(7))
+        - [x] Build the data importer @project:apollo created:\(d(5)) done:\(d(15))T11:20
+        - [ ] Ship the beta build @project:apollo created:\(d(10)) due:\(d(24)) p:!!!
+        - [ ] Write onboarding docs @project:apollo created:\(d(16)) due:\(d(29)) #pinned
+
+        ## Paper
+        - [x] Run the ablation sweep @project:neurips-paper created:\(d(3)) done:\(d(12))T16:00
+        - [ ] Final experiments @project:neurips-paper created:\(d(8)) due:\(d(20)) p:!!
+        - [ ] Polish the figures @project:neurips-paper created:\(d(14)) due:\(d(26)) #figures
+        - [ ] Camera-ready pass @project:neurips-paper created:\(d(19)) due:\(d(30))
+
+        ## This month
+        - [ ] Book flights for the conference #travel due:\(d(22))
+        - [x] Submit the expense report done:\(d(9))T10:00
+        """)
+        engine.setDailyNote(d(21), """
+        - [ ] Prepare the demo script due:\(d(22))
+        - [ ] Send the agenda to Sam @sam due:\(d(21))
+        """)
+        let review = engine.demoAddTimed(month: 6, day: 23, startHour: 15, endHour: 16,
+                                         title: "Grant review", color: "indigo")
+        engine.setNotes(review, """
+        - [ ] Score the proposals p:!! due:\(d(24))
+        - [ ] Send summary to the committee @chair due:\(d(25))
+        """)
+        // The apollo chart's milestone rule + event box (bare @project: lines in their notes).
+        let launch = engine.createDeadline(year: y, month: 6, day: 28, hour: 17,
+                                           title: "Beta launch", color: "red")
+        engine.setNotes(launch, "@project:apollo")
+        let sprint = engine.demoAddBand(month: 6, track: 1, startDay: 18, endDay: 23,
+                                        title: "Apollo sprint", color: "purple")
+        engine.setNotes(sprint, "@project:apollo")
+        engine.demoSelect(nil)
+        engine.todoFeedRefreshNow(today: NativeDashPanel.todayIso()) // land the seeds NOW
+    }
+
     /// Float the synthetic cursor in a borderless, click-through panel window pinned over the main
     /// window's content area — above EVERY window layer, including NSPopover callouts (which sit over the
     /// whole SwiftUI hierarchy and would otherwise cover an in-tree cursor overlay).

@@ -34,6 +34,7 @@ the five tutorial-carousel GIFs) and wired into its Help topic via `HelpTopic.gi
 | `search-demo.gif` | Keyboard & Tips ▸ Search your calendar | `search-demo` | types "coffee wed", flies to hit |
 | `promote.gif` | Organizing ▸ Tracks & promoting events | `promote-manual` | HAND-RECORDED (real mouse); scripted `promote` scene also exists |
 | `daily-dashboard.gif` | Getting Around ▸ The daily dashboard | `daily-dashboard` | rich TODO DSL seeds; real webview toggle |
+| `dashboard-tour.gif` | onboarding tutorial ▸ dashboard page | `dashboard-tour` | month view → ⌘B (keycap shown, real hotkey path) pins the TODO panel → click PROJ → gantt charts; seeded @project histories (bars/hatch/milestone/event box); theme-variant pair like the other carousel GIFs |
 
 Re-record any of them with `./scripts/record-tutorial.sh <scene> [seconds]` (full-window scenes use
 `FPS=12 SCALE=900 COLORS=128 DITHER=none`). `promote-manual` stages the scene and lets a human drive the

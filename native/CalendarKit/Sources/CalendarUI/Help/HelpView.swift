@@ -5,6 +5,19 @@
 import AppKit
 import SwiftUI
 
+public extension Notification.Name {
+    /// Open the Help window at a topic (object: the topic id String). Posted by any UI (e.g. the
+    /// Settings "How to…" button); each shell listens and shows ITS Help window, and HelpView
+    /// selects the topic. Set `HelpNav.pending` before posting, so a not-yet-open window still
+    /// lands on the topic when it appears.
+    static let openHelpTopic = Notification.Name("cc.help.openTopic")
+}
+
+/// The topic a not-yet-created Help window should open on (see .openHelpTopic).
+@MainActor public enum HelpNav {
+    public static var pending: String?
+}
+
 public struct HelpView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
@@ -26,8 +39,18 @@ public struct HelpView: View {
         }
         .frame(minWidth: 760, idealWidth: 860, minHeight: 500, idealHeight: 620)
         .onAppear {
-            if selection == nil {
+            if let pending = HelpNav.pending {
+                selection = pending // deep-link queued before the window existed
+                HelpNav.pending = nil
+            } else if selection == nil {
                 selection = initialTopic
+            }
+        }
+        // Already-open window: jump straight to the requested topic.
+        .onReceive(NotificationCenter.default.publisher(for: .openHelpTopic)) { note in
+            if let topic = note.object as? String {
+                selection = topic
+                HelpNav.pending = nil
             }
         }
     }
