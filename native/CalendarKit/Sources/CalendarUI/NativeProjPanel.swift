@@ -43,9 +43,16 @@ struct NativeProjPanel: View {
 
     static let rowH: CGFloat = 26 // row pitch (label row == track row)
     static let trackH: CGFloat = 20 // the grey track's height within the row
-    /// Bar-segment opacity — tune to taste. The web shipped .85; lightened to .80 so the
-    /// segments sit a touch softer against the grey tracks.
+    /// Bar-segment opacity — tune to taste. LIGHT: .60 of the hue over a near-white track
+    /// reads as a pleasant tint (the web shipped .85). DARK needs MORE alpha, not less: the
+    /// same alpha composites the color into the dark track and washes it grey — the "faded,
+    /// low-saturation" dark gantt.
     static let barOpacity: Double = 0.60
+    static let barOpacityDark: Double = 0.85
+
+    static func barOpacity(dark: Bool) -> Double {
+        dark ? barOpacityDark : barOpacity
+    }
 
     var body: some View {
         // OBSERVABLE dependency on note content (NoteEditGen, the preview-repaint pattern):
@@ -544,9 +551,11 @@ private struct ProjChart: View {
     private func trackRow(_ t: ProjTask, _ s: ChartScale, w: CGFloat) -> some View {
         // Palette hover in the open row menu tints THIS row's bars live (commit rewrites the
         // line's color: token; the preview is render-only).
-        let color = theme.eventBorder(
-            (rowMenu?.task.rowId == t.rowId ? menuPreview : nil) ?? t.color
-        )
+        // DARK: the border palette is deliberately PASTEL (tuned for 1-2px strokes on a dark
+        // ground) — as an area fill it has no saturation to give. Fills take the saturated
+        // hue (eventColor); light mode keeps the border hue it was tuned on.
+        let key = (rowMenu?.task.rowId == t.rowId ? menuPreview : nil) ?? t.color
+        let color = theme.dark ? theme.eventColor(key) : theme.eventBorder(key)
         let end = t.end ?? today
         // Row hover: every OTHER row's bar segments (and due ticks) fade back; the hovered
         // row's stay at barOpacity. Grey tracks and axes are untouched.
@@ -582,7 +591,7 @@ private struct ProjChart: View {
         let l = s.x(a) * w
         let width = max(5, s.x(b) * w - l)
         return RoundedRectangle(cornerRadius: 3)
-            .fill(color.opacity(NativeProjPanel.barOpacity * (dim ? 0.35 : 1))) // open and done alike
+            .fill(color.opacity(NativeProjPanel.barOpacity(dark: theme.dark) * (dim ? 0.35 : 1))) // open and done alike
             .overlay {
                 if over { // past-due portion: the web's 45° hatch
                     Hatch().stroke(Color.black.opacity(0.3), lineWidth: 2.2)
@@ -596,7 +605,7 @@ private struct ProjChart: View {
     private func eventBoxes(_ s: ChartScale, w: CGFloat, rowsH: CGFloat) -> some View {
         ForEach(project.events.indices, id: \.self) { i in
             let ev = project.events[i]
-            let color = theme.eventBorder(ev.color)
+            let color = theme.dark ? theme.eventColor(ev.color) : theme.eventBorder(ev.color)
             let l = s.x(ev.start) * w
             let width = max(8, s.x(TodoIndex.addDuration(ev.end, 1, "d")) * w - l)
             RoundedRectangle(cornerRadius: 7)
