@@ -778,10 +778,12 @@ private struct ChartMouseLayer: NSViewRepresentable {
         }
 
         override func mouseEntered(with event: NSEvent) {
+            guard effectivelyVisible else { return }
             report(row(at: convert(event.locationInWindow, from: nil)))
         }
 
         override func mouseMoved(with event: NSEvent) {
+            guard effectivelyVisible else { return }
             report(row(at: convert(event.locationInWindow, from: nil)))
         }
 
@@ -797,6 +799,22 @@ private struct ChartMouseLayer: NSViewRepresentable {
             nil
         }
 
+        /// Parked/warmed twins of this chart stay mounted at opacity 0 AT THE SAME SCREEN
+        /// POSITION — their monitors must not steal the live chart's right-clicks (they
+        /// resolved a DIFFERENT month/week's row at the click point: the "menu shows the
+        /// wrong check state on some items" bug). Same guard as the TODO panel's layer.
+        private var effectivelyVisible: Bool {
+            guard window != nil, !isHiddenOrHasHiddenAncestor else { return false }
+            var l = layer
+            while let cur = l {
+                if cur.opacity < 0.01 {
+                    return false
+                }
+                l = cur.superlayer
+            }
+            return true
+        }
+
         private var rightClickMonitor: Any?
 
         override func viewDidMoveToWindow() {
@@ -809,7 +827,8 @@ private struct ChartMouseLayer: NSViewRepresentable {
             } else if rightClickMonitor == nil {
                 rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown]) {
                     [weak self] e in
-                    guard let self, e.window === self.window else { return e }
+                    guard let self, e.window === self.window, self.effectivelyVisible
+                    else { return e }
                     let p = self.convert(e.locationInWindow, from: nil)
                     guard self.bounds.contains(p), let r = self.row(at: p) else { return e }
                     self.onRightClick?(r, p)
