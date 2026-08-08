@@ -319,8 +319,11 @@ extension DemoController {
         - [ ] Send summary to the committee @chair
         """)
         let iso = String(format: "%04d-07-15", engine.year)
+        // A #pinned row up front so the GIF shows the Pinned section (accent pin) leading
+        // the TODO list — the panel's post-webview look.
         let note = """
         ## Today
+        - [ ] Rehearse the demo run-through #pinned p:!!
         - [ ] Review the draft due:today p:!!!
         - [ ] Email Alex about the demo @alex
         - [ ] Book flights for the conference #travel due:2026-07-22
