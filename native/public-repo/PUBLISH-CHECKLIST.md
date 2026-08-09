@@ -16,7 +16,7 @@ MagnifiCal; magnifical.dev is registered and will host the site.
       attendee emails + meeting links in bench payloads):
       `grep -rniE "ziyang|jh\.edu|jhu\.edu|upenn|zoom\.us|meet\.google" . | grep -v tommy@cs.jhu.edu`
       → should return nothing (tommy@ is a fictional test address and fine).
-- [ ] **Fresh eyes pass** over `CalendarApp/project.yml` (team id — public in any signed
+- [ ] **Fresh eyes pass** over `MagnifiCalApp/project.yml` (team id — public in any signed
       binary, but strip if you prefer) and `docs/` for anything you wouldn't publish.
 - [ ] **README TODOs**: record + embed the hero GIF; fix the TestFlight link.
 - [ ] `swift build && swift test` INSIDE the exported tree (catches accidental
@@ -36,7 +36,7 @@ MagnifiCal; magnifical.dev is registered and will host the site.
 
 ## Bench payloads (excluded — regenerate synthetic ones)
 
-The private repo's `CalendarKit/bench/*.json` were captured from a real calendar and are
+The private repo's `MagnifiCalKit/bench/*.json` were captured from a real calendar and are
 NOT exported. Before advertising the bench workflow to contributors, regenerate dense
 payloads synthetically (BenchStaging can seed; keep item counts comparable: ~500 bands /
 ~3000 events for the dense scenes) and commit those instead.

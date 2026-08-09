@@ -11,10 +11,10 @@
 #   cd ../magnifical && git add -A && git commit && git push
 #
 # What it deliberately EXCLUDES (see docs/release-roadmap.md, Phase 2 audit):
-#   • CalendarKit/bench/*.json      — REAL personal calendar payloads (attendee emails,
+#   • MagnifiCalKit/bench/*.json      — REAL personal calendar payloads (attendee emails,
 #                                     meeting links). Regenerate synthetic ones before
 #                                     publishing bench workflows publicly.
-#   • CalendarKit/legacy/           — retired webview experiments, monorepo-only.
+#   • MagnifiCalKit/legacy/           — retired webview experiments, monorepo-only.
 #   • PUBLISH-CHECKLIST.md          — operator notes (stays in native/public-repo/).
 #   • build products, xcuserdata, .DS_Store, results logs.
 # What it ADDS: the boilerplate staged in native/public-repo/ (README, CONTRIBUTING,
@@ -46,13 +46,13 @@ copy() { # copy a tree, pruning junk
 }
 
 echo "→ CalendarKit (sans bench payloads + legacy)"
-copy "$here/CalendarKit/" "$stage/CalendarKit/"
-rm -rf "$stage/CalendarKit/legacy"
+copy "$here/MagnifiCalKit/" "$stage/MagnifiCalKit/"
+rm -rf "$stage/MagnifiCalKit/legacy"
 # Bench HARNESS docs stay (they document the workflow); the real-data payloads go.
-find "$stage/CalendarKit/bench" -name '*.json' -delete 2>/dev/null || true
+find "$stage/MagnifiCalKit/bench" -name '*.json' -delete 2>/dev/null || true
 
 echo "→ CalendarApp"
-copy "$here/CalendarApp/" "$stage/CalendarApp/"
+copy "$here/MagnifiCalApp/" "$stage/MagnifiCalApp/"
 
 echo "→ eventkit-bridge + scripts"
 [ -d "$here/eventkit-bridge" ] && copy "$here/eventkit-bridge/" "$stage/eventkit-bridge/"
@@ -60,9 +60,9 @@ mkdir -p "$stage/scripts"
 copy "$here/scripts/" "$stage/scripts/"
 rm -f "$stage/scripts/export-public-repo.sh" # monorepo-only tool
 
-echo "→ design docs"
+echo "→ design docs (ai-assistant-design stays private: university-gateway internals)"
 mkdir -p "$stage/docs"
-for d in calendar-import-design.md keyboard-navigation.md ai-assistant-design.md; do
+for d in calendar-import-design.md keyboard-navigation.md; do
     [ -f "$root/docs/$d" ] && cp "$root/docs/$d" "$stage/docs/"
 done
 
@@ -70,9 +70,16 @@ echo "→ public-repo boilerplate (README, CONTRIBUTING, .github, .gitignore)"
 copy "$here/public-repo/" "$stage/"
 rm -f "$stage/PUBLISH-CHECKLIST.md" # operator notes never publish
 
+echo "→ sanitize operator docs (author ids, signing identity)"
+perl -pi -e 's/ziyang\@cs\.jhu\.edu/<your-apple-id>/g' "$stage/MagnifiCalApp/DISTRIBUTE.md"
+perl -pi -e 's/ · Owner: ziyang//g' "$stage"/docs/*.md "$stage"/MagnifiCalKit/docs/*.md 2>/dev/null || true
+
 echo "→ safety: no personal data may leave the monorepo"
+# Allowlisted survivors: the fictional test address, fabricated example links in design
+# docs/scenarios, and CODE that merely detects meeting-link hosts (ManagedNote).
 hits="$(grep -rniE "ziyang|jh\.edu|jhu\.edu|upenn|zoom\.us|meet\.google" "$stage" \
-    | grep -v "tommy@cs.jhu.edu" || true)"
+    | grep -viE 'tommy@cs\.jhu\.edu|meet\.google\.com/abc|zoom\.us/j/9876|contains\("meet\.google|contains\("zoom|linkLabel' \
+    || true)"
 if [ -n "$hits" ]; then
     echo "error: personal-data grep hit — aborting before anything reaches $target:" >&2
     echo "$hits" | head >&2
