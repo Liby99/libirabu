@@ -236,7 +236,7 @@ public struct EventsOverlay: View {
                     .foregroundStyle(theme.text)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2.5)
-                    .glassEffect(.regular, in: .capsule)
+                    .glassEffectCompat(.regular, in: .capsule)
                     .fixedSize()
                     .position(wm.center)
             }
@@ -314,7 +314,7 @@ public struct TimeTagsOverlay: View {
         .frame(width: spec.rect.width, height: spec.rect.height,
                alignment: spec.pointsRight ? .trailing : .leading)
         .background(shape.fill(baseFill))
-        .glassEffect(.regular.tint(glassTint), in: shape)
+        .glassEffectCompat(.regular.tint(glassTint), in: shape)
         .overlay(shape.strokeBorder(c, lineWidth: 1))
         // Caret on the line-facing edge; on a side flip the old one retracts and the new one grows.
         .overlay { flipCaret(pointsRight: true, shown: spec.pointsRight, color: c, h: 8) }
@@ -354,7 +354,7 @@ public struct TimeTagsOverlay: View {
         .padding(.horizontal, 7).padding(.vertical, 3) // match the deadline pill's padding
         .frame(width: spec.rect.width, height: spec.rect.height, alignment: spec.pointsRight ? .trailing : .leading)
         .background(shape.fill(baseFill)) // solid base so the frost reads clean
-        .glassEffect(.regular.tint(glassTint), in: shape)
+        .glassEffectCompat(.regular.tint(glassTint), in: shape)
         .overlay(shape.strokeBorder(red, lineWidth: 1)) // fully wrapped border
         // Caret on the line-facing edge; on a side flip (e.g. week↔day) the old one retracts and the
         // new one grows, so the label slides across smoothly instead of jumping.
@@ -525,6 +525,10 @@ extension EventsOverlay {
                 }
             }
         }
+        // Hover promotion: bars the hovered band overlaps (same-start stacks) become glass views
+        // too (forceGlass), so the hovered glass frosts real content — the glass-on-glass overlap
+        // look of the pre-Performance-Mode rendering, paid only under the pointer.
+        let hoverRects = hovered.map { h in placed.filter { $0.ev.id == h }.map(\.rect) } ?? []
         return placed.compactMap { p in
             let id = p.ev.id
             if hidden.contains(id) {
@@ -533,9 +537,10 @@ extension EventsOverlay {
             let a = activation(id)
             let z: Double = a.isActive ? a.z : (zBy[id] ?? Double(10 + p.ev.startDay))
             let isEditing = id == editingId
+            let promoted = a == .plain && hoverRects.contains { $0.intersects(p.rect) }
             // Plain + not-editing at year/month zoom → the Canvas fast path draws it (flat payload);
-            // active/editing bands stay views (glass, borders, spill scrim, inline editor).
-            let fast: StickerDraw? = (canvasFastOn && a == .plain && !isEditing)
+            // active/editing/hover-overlapped bands stay views (glass, borders, spill scrim, editor).
+            let fast: StickerDraw? = (canvasFastOn && a == .plain && !isEditing && !promoted)
                 ? .band(BandDraw(ev: p.ev, gap: gapBy[id], clipBox: clipBox.contains(id),
                                  clipStart: p.clipStart, clipEnd: p.clipEnd,
                                  warn: warn.contains(id), badges: bandBadges[id] ?? []))
@@ -548,7 +553,7 @@ extension EventsOverlay {
                                     clipStart: p.clipStart, clipEnd: p.clipEnd,
                                     warn: warned, box: p.rect.size,
                                     badges: badges,
-                                    plain: plain,
+                                    plain: plain, forceGlass: promoted,
                                     theme: theme))
             }, canvas: fast)
         }
@@ -642,6 +647,9 @@ extension EventsOverlay {
         // cache. The cached segment copies bake the event values at cache-build time, so drawing
         // them directly ate any transient styling that (by design) doesn't bump editGen.
         let freshById = Dictionary(events.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        // Hover promotion (see bandItems): boxes the hovered event's segments overlap render as
+        // glass views (forceGlass) so its glass frosts them — glass-on-glass, hover-only cost.
+        let hoverRects = hovered.map { h in placed.filter { $0.seg.event.id == h }.map(\.rect) } ?? []
         return placed.enumerated().map { i, p in
             let id = p.seg.event.id
             let a = activation(id)
@@ -664,11 +672,12 @@ extension EventsOverlay {
             let badges = eventBadges[id] ?? []
             let (timeText, subText, plain) =
                 (fmtHourRange(p.seg.fullStart, p.seg.fullEnd), subLabels[id], plainEff)
+            let promoted = a == .plain && hoverRects.contains { $0.intersects(p.rect) }
             // Plain + not-editing/dragging → the Canvas fast path draws it. Text rendering
             // (week/day zoom) is canvas-drawn ONLY mid-transition (zoomTransient); at settled
             // week/day the rich SwiftUI text path owns it (canvasFastOn is false past z 1.5).
             let fast: StickerDraw? = (canvasFastOn && a == .plain && !isEditing && id != draggingId
-                && (!showText || zoomTransient))
+                && !promoted && (!showText || zoomTransient))
                 ? .timed(TimedDraw(ev: ev, clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
                                    badges: badges, showText: showText,
                                    timeText: timeText, subTimeText: subText))
@@ -678,7 +687,8 @@ extension EventsOverlay {
                                      clipTop: p.seg.clipTop, clipBottom: p.seg.clipBottom,
                                      timeText: timeText,
                                      subTimeText: subText,
-                                     plain: plain, activation: a, badges: badges,
+                                     plain: plain, forceGlass: promoted,
+                                     activation: a, badges: badges,
                                      editing: isEditing,
                                      theme: theme))
             }, canvas: fast)

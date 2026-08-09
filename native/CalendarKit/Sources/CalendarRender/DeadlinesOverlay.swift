@@ -185,7 +185,7 @@ private struct DeadlinePill: View {
         .background {
             ZStack {
                 shape.fill(theme.bg) // occludes the timeline behind → the frost reads solid
-                Color.clear.glassEffect(.regular.tint(color.opacity(activation.tint * theme.eventTintScale)), in: shape)
+                Color.clear.glassEffectCompat(.regular.tint(color.opacity(activation.tint * theme.eventTintScale)), in: shape)
             }
         }
         // Edge accent (border + caret) on the line-facing side; the other side stays collapsed. On a

@@ -21,7 +21,7 @@ import SwiftUI
 /// notification (→ engine.viewPrefsChanged → repaint).
 public enum AccentPref {
     public static let key = "cc.accentHex"
-    public static let defaultHex: UInt32 = 0xFF3B6B // MagiCal red
+    public static let defaultHex: UInt32 = 0xFF3B6B // MagnifiCal red
     /// The alternatives row in Settings (name, hex).
     public static let alternatives: [(name: String, hex: UInt32)] = [
         ("Blue", 0x007AFF), // Apple system blue

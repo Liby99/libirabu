@@ -14,18 +14,57 @@ private extension View {
     /// that flat fill UNDER the glass (Performance Mode is on), so a flat→glass hover cross-fades:
     /// the fill stays put and the glass materializes over the colored fill instead of tearing the
     /// fill out and flashing the dark backdrop while the glass forms. Non-perf: glass only.
-    func eventSurface<S: Shape>(_ glass: Glass, plainFill: Color, in shape: S, flat: Bool,
+    func eventSurface<S: Shape>(_ glass: CompatGlass, plainFill: Color, in shape: S, flat: Bool,
                                 keepFillBase: Bool) -> some View {
-        self.background {
+        modifier(EventSurface(glass: glass, plainFill: plainFill, shape: shape,
+                              flat: flat, keepFillBase: keepFillBase))
+    }
+}
+
+/// The surface body behind eventSurface. The under-fill exists so the flat→glass switch never
+/// flashes the bare backdrop (the sticker mounts mid-hover, the canvas's flat fill gone that same
+/// frame) — but left at full strength it also DEFEATS the glass: `.regular` glass over an opaque-ish
+/// tint plate has nothing to frost, which is why hovered events stopped reading as Liquid Glass once
+/// Performance Mode became the default. So: mount WITH the fill (seamless takeover), then fade it
+/// away once the glass is up — the established glass frosts the actual backdrop (grid lines,
+/// neighboring events). Flipping back to `flat` shows the fill again on that same frame
+/// (`flat || !glassed`), no state round-trip needed, so un-hovering never shows an empty box.
+private struct EventSurface<S: Shape>: ViewModifier {
+    let glass: CompatGlass
+    let plainFill: Color
+    let shape: S
+    let flat: Bool
+    let keepFillBase: Bool
+    @State private var glassed = false // glass established → the under-fill has faded away
+
+    func body(content: Content) -> some View {
+        content.background {
             ZStack {
                 if flat || keepFillBase {
-                    shape.fill(plainFill)
-                } // stable base in Performance Mode
+                    shape.fill(plainFill).opacity(flat || !glassed ? 1 : 0)
+                } // stable base in Performance Mode; fades out under established glass
                 if !flat {
-                    Color.clear.glassEffect(glass, in: shape)
+                    Color.clear.glassEffectCompat(glass, in: shape)
                 } // glass on top; fades in over the fill
             }
         }
+        .onAppear { // mounted already-active (the canvas→view hover promotion)
+            if !flat {
+                fadeFillOut()
+            }
+        }
+        .onChange(of: flat) { _, isFlat in
+            if isFlat {
+                glassed = false // rearm; the fill is ALREADY visible via the `flat ||` branch
+            } else {
+                fadeFillOut()
+            }
+        }
+    }
+
+    /// The short delay keeps the fill solid over the first frames while the glass forms.
+    private func fadeFillOut() {
+        withAnimation(.easeOut(duration: 0.3).delay(0.05)) { glassed = true }
     }
 }
 
@@ -41,6 +80,7 @@ struct EventSticker: View { // internal: read by EventsOverlay.swift
     var timeText: String? // the WHOLE event's range (every segment shows the true span, e.g. "23:00 – 06:00")
     var subTimeText: String? // anchor-zone time when it differs from the view (e.g. "12:00 – 14:00 (PST)")
     var plain: Bool = false // skip glass (animating, or tiny month sliver)
+    var forceGlass: Bool = false // glass despite plain — a box the hovered event overlaps
     let activation: EventActivation
     var badges: EventBadges = [] // provenance/kind marker glyphs (same as bands)
     var editing: Bool = false // the inline title editor is open over this box → hide its own title
@@ -57,7 +97,7 @@ struct EventSticker: View { // internal: read by EventsOverlay.swift
         let r = BandStyle.cornerRadius
         let active = activation.isActive
         let tint = activation.tint * theme.eventTintScale
-        let glass: Glass = (active || BandStyle.idleFrosted) ? .regular.tint(color.opacity(tint))
+        let glass: CompatGlass = (active || BandStyle.idleFrosted) ? .regular.tint(color.opacity(tint))
             : .clear.tint(color.opacity(tint))
         let barWidth = activation.accentWide ? BandStyle.accentWidthSelected : BandStyle.accentWidth
         // The left accent bar is a fixed-width vertical bar on every timed event, tall or short.
@@ -108,7 +148,8 @@ struct EventSticker: View { // internal: read by EventsOverlay.swift
         .padding(.trailing, BandStyle.titleTrailing)
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .eventSurface(glass, plainFill: color.opacity(tint), in: boxShape, flat: plain && !active, keepFillBase: plain)
+        .eventSurface(glass, plainFill: color.opacity(tint), in: boxShape,
+                      flat: plain && !active && !forceGlass, keepFillBase: plain)
         .overlay(alignment: .topTrailing) { // week/day view: markers pinned to the top-right corner
             if showText, !badges.isEmpty, height >= 12 { // too-short boxes hide the marker row
                 badgeRow(badges, border).padding(.top, 3).padding(.trailing, 4).padding(.leading, 4)
@@ -305,6 +346,7 @@ struct BandSticker: View { // internal: read by EventsOverlay.swift
     let box: CGSize // band box size (for scrim geometry)
     var badges: EventBadges = [] // provenance/kind marker glyphs at the bottom of the bar
     var plain: Bool = false // skip glass while animating (page-turn/pinch) — cheaper per frame
+    var forceGlass: Bool = false // glass despite plain — a bar the hovered event overlaps
     let theme: Theme
 
     var body: some View {
@@ -313,7 +355,7 @@ struct BandSticker: View { // internal: read by EventsOverlay.swift
         let r = BandStyle.cornerRadius
         let active = activation.isActive
         let tint = activation.tint * theme.eventTintScale
-        let glass: Glass = (active || BandStyle.idleFrosted) ? .regular.tint(color.opacity(tint))
+        let glass: CompatGlass = (active || BandStyle.idleFrosted) ? .regular.tint(color.opacity(tint))
             : .clear.tint(color.opacity(tint))
         let barWidth = activation.accentWide ? BandStyle.accentWidthSelected : BandStyle.accentWidth
         // Clipped edges (band runs off-screen): square off that side's corners so it reads as continuing
@@ -347,7 +389,7 @@ struct BandSticker: View { // internal: read by EventsOverlay.swift
                 glass,
                 plainFill: color.opacity(tint),
                 in: bandShape,
-                flat: plain && !active,
+                flat: plain && !active && !forceGlass,
                 keepFillBase: plain
             )
             // Spill scrim: a frosted plate of THIS event's color that sits UNDER the box, shares its
@@ -359,7 +401,7 @@ struct BandSticker: View { // internal: read by EventsOverlay.swift
                     let shape = bandShape
                     Rectangle().fill(theme.bg.opacity(0.55)) // base occlusion under the frost
                         .frame(width: box.width + maskW, height: box.height)
-                        .glassEffect(.regular.tint(color.opacity(BandStyle.tintIdle * theme.eventTintScale)), in: shape)
+                        .glassEffectCompat(.regular.tint(color.opacity(BandStyle.tintIdle * theme.eventTintScale)), in: shape)
                         .clipShape(shape)
                 }
             }
