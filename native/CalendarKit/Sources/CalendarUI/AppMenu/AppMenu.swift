@@ -49,10 +49,10 @@ public enum MenuItemID: Sendable {
     case todoList, noteEditor, projList
     case newConversation, currentConversation, apiKeys
     case syncNow
-    case help, tutorial, keyboardShortcuts
+    case help, tutorial, keyboardShortcuts, reportProblem
     case closeWindow, minimize
 
-    public static let appName = "MagiCal"
+    public static let appName = "MagnifiCal"
 
     public var title: String {
         switch self {
@@ -83,6 +83,7 @@ public enum MenuItemID: Sendable {
         case .help: "\(Self.appName) Help"
         case .tutorial: "Welcome to \(Self.appName)"
         case .keyboardShortcuts: "Keyboard Shortcuts"
+        case .reportProblem: "Report a Problem…"
         case .closeWindow: "Close"
         case .minimize: "Minimize"
         }
@@ -129,6 +130,7 @@ public enum MenuItemID: Sendable {
         case .help: "questionmark.circle"
         case .tutorial: "graduationcap"
         case .keyboardShortcuts: "keyboard"
+        case .reportProblem: "ladybug"
         default: nil
         }
     }
@@ -166,8 +168,10 @@ public enum StandardItem: Sendable {
 
 /// ── Rich controls that each adapter renders in its own idiom (pickers, dynamic submenus, toggles). ──
 public enum MenuWidget: Sendable {
-    case currentCalendar // File ▸ "Calendar: [Name]" (disabled info row, dynamic)
-    case recentCalendars // File ▸ Recently Opened Calendars ▸ (dynamic submenu, switch on click)
+    case recentCalendars // File ▸ Calendars ▸ (dynamic submenu: EVERY calendar with its item
+    // count, the open one ticked; click switches). Rows come from engine.calendarMenuRows(),
+    // rebuilt at menu-open time (NSMenuDelegate) in both shells — SwiftUI Commands can't be
+    // trusted to re-render dynamic content, so the .app's FileMenuUpdater owns this item too.
     case showHiddenToggle // View ▸ Show Hidden Imported Events (checkmark)
     case currentTimezone // View ▸ Current Timezone ▸ (picker)
     case altTimezone // View ▸ Alternative Timezone ▸ (picker)
@@ -222,7 +226,6 @@ public enum AppMenu {
         // File — the open calendar ("document") controls, then import/export + print, and Close at the
         // very bottom (kept out of the way of the calendar/document actions).
         out.append(MenuSection(.file, "File", [
-            .widget(.currentCalendar),
             .item(.newCalendar), .item(.removeCalendar),
             .widget(.recentCalendars),
             .item(.renameCalendar), .separator,
@@ -269,10 +272,11 @@ public enum AppMenu {
             .item(.minimize),
         ]))
 
-        // Help — help window, tutorial, shortcut guide.
+        // Help — help window, tutorial, shortcut guide, GitHub issue reporter.
         out.append(MenuSection(.help, "Help", [
             .item(.help), .separator,
-            .item(.tutorial), .item(.keyboardShortcuts),
+            .item(.tutorial), .item(.keyboardShortcuts), .separator,
+            .item(.reportProblem),
         ]))
 
         return out

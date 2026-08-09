@@ -1,4 +1,4 @@
-// The Help book's content — a task-based, searchable set of topics shown by HelpView (Help ▸ MagiCal Help).
+// The Help book's content — a task-based, searchable set of topics shown by HelpView (Help ▸ MagnifiCal Help).
 //
 // Apple's guidance (Human Interface Guidelines ▸ Offering help / Menus): help should be task-focused,
 // brief, conversational, and searchable, with the Help menu as the rightmost menu. We don't register a
@@ -17,6 +17,10 @@ public enum HelpBlock: Equatable, Sendable {
     case steps([String]) // an ordered how-to list
     case bullets([String]) // an unordered list
     case tip(String) // a highlighted aside
+    /// A still screenshot inline in the body — a tutorial-asset name resolved like the GIFs
+    /// ("<name>-light/-dark.png", plain "<name>.png" fallback; produced by
+    /// scripts/capture-help-shots.sh). A missing asset simply isn't shown.
+    case image(String)
 }
 
 /// A keyboard shortcut worth surfacing alongside a topic (the live, per-context guide is ⌘K).
@@ -51,6 +55,7 @@ public struct HelpTopic: Identifiable, Equatable, Sendable {
             switch b {
             case let .paragraph(s), let .tip(s): parts.append(s)
             case let .steps(xs), let .bullets(xs): parts.append(contentsOf: xs)
+            case .image: break // asset names aren't prose
             }
         }
         return parts.joined(separator: " ").lowercased()
@@ -69,10 +74,11 @@ public struct HelpCategory: Identifiable, Equatable, Sendable {
 }
 
 public enum HelpContent {
-    public static let appName = "MagiCal"
+    public static let appName = "MagnifiCal"
 
     public static let categories: [HelpCategory] = [
-        gettingStarted, gettingAround, events, deadlines, organizing, assistant, syncImport, keyboardTips,
+        gettingStarted, gettingAround, events, deadlines, organizing, projects, assistant, syncImport,
+        keyboardTips,
     ]
 
     public static var allTopics: [HelpTopic] {
@@ -116,17 +122,17 @@ public enum HelpContent {
     /// ─────────────────────────────────────────────────────────────────────────────────
     static let gettingStarted = HelpCategory(id: "start", title: "Getting Started", symbol: "sparkles", topics: [
         HelpTopic(
-            id: "welcome", title: "What is MagiCal?",
+            id: "welcome", title: "What is MagnifiCal?",
             summary: "A zoomable calendar that keeps your schedule, notes, and to-dos together.",
             keywords: ["overview", "intro", "introduction", "about", "semantic zoom"],
             blocks: [
                 .paragraph(
-                    "MagiCal is a calendar you move through by zooming. One continuous canvas holds a whole year, and you zoom in to a month, a week, or a single day — the layout re-forms at each level instead of switching to a different screen."
+                    "MagnifiCal is a calendar you move through by zooming. One continuous canvas holds a whole year, and you zoom in to a month, a week, or a single day — the layout re-forms at each level instead of switching to a different screen."
                 ),
                 .paragraph(
                     "Alongside the schedule, every event and every day can hold Markdown notes and to-do items, and a built-in AI assistant can read and change your calendar for you."
                 ),
-                .tip("New here? Open Help ▸ Welcome to MagiCal for a quick visual tour of the main gestures."),
+                .tip("New here? Open Help ▸ Welcome to MagnifiCal for a quick visual tour of the main gestures."),
             ]
         ),
         HelpTopic(
@@ -380,7 +386,7 @@ public enum HelpContent {
             keywords: ["delete", "remove", "trash"],
             blocks: [
                 .paragraph(
-                    "Select an event and press Delete, or use the trash button in its drawer. MagiCal asks you to confirm before removing it."
+                    "Select an event and press Delete, or use the trash button in its drawer. MagnifiCal asks you to confirm before removing it."
                 ),
                 .paragraph(
                     "For a repeating event, you can delete just one occurrence (a single skip) or the whole series — choose when prompted."
@@ -506,17 +512,96 @@ public enum HelpContent {
     ])
 
     // ─────────────────────────────────────────────────────────────────────────────────
+    // MARK: Projects & to-dos
+
+    /// ─────────────────────────────────────────────────────────────────────────────────
+    static let projects = HelpCategory(
+        id: "projects",
+        title: "Projects & To-Dos",
+        symbol: "chart.bar.xaxis",
+        topics: [
+            HelpTopic(
+                id: "projects-gantt", title: "Projects & Gantt charts",
+                summary: "Tag todos with @project:name and the Proj tab charts each project's life cycle.",
+                keywords: ["project", "gantt", "chart", "proj", "milestone", "timeline", "bars",
+                           "quick add", "pin", "hatch", "overdue", "sprint"],
+                blocks: [
+                    .paragraph(
+                        "Tag any top-level todo with @project:name and it becomes a row on that project's gantt chart. Open the dashboard's Proj tab (⌘J) in day, week, or month view — one chart per project, drawn from the todos you already have."
+                    ),
+                    .image("proj-gantt"),
+                    .paragraph("Reading a chart:"),
+                    .bullets([
+                        "Every row is the todo itself — its checkbox ticks the real item, and clicking a title jumps to the line it came from.",
+                        "A row's bar runs from its start: (or created:) date to its done: date — or to the now line while the item is open.",
+                        "Run past a due: date and the overdue stretch hatches; a due date still ahead draws as a small tick on the track.",
+                        "The red now line marks the current moment, and the grey band frames the week or month you're viewing.",
+                        "A deadline with a bare @project:name line in its note becomes the project's milestone — a dashed vertical rule in the deadline's color.",
+                        "A multi-day band event with @project:name in its note draws as an outlined box across the chart — sprints, trips, review periods.",
+                    ]),
+                    .paragraph(
+                        "Busy charts show their most relevant rows and fold the rest — the chevron next to a project's name expands it. Tag an item #proj-pinned to keep it on top with the accent pin (or right-click the row and choose Pin)."
+                    ),
+                    .paragraph(
+                        "To add work without leaving the chart, type into the “new todo...” row above the tasks: the item lands in this scope's note already project-tagged, pinned, and created-stamped. Right-clicking any row offers color, priority, pin, hide, Go to Definition, and delete."
+                    ),
+                    .tip(
+                        "The tokens driving all of this — start:, created:, due:, done: — are mostly stamped for you as you work. See “Todo & note syntax” for the grammar and “How tokens show up” for the full display map."
+                    ),
+                ],
+                shortcuts: [.init("⌘J", "Focus the Projects tab")]
+            ),
+            HelpTopic(
+                id: "token-display", title: "How tokens show up",
+                summary: "Where start:, created:, due:, and done: surface — list rows, gantt bars, preview pills.",
+                keywords: ["tokens", "display", "chips", "pills", "badges", "due", "start", "created",
+                           "done", "priority", "followup", "pinned", "overdue", "surfaces", "mapping"],
+                blocks: [
+                    .paragraph(
+                        "One tokenized todo line renders in three places: its row in the To-Do list, its bar on a Projects chart, and its line in the note preview. The grammar itself lives in “Todo & note syntax” — this topic is where each token appears."
+                    ),
+                    .paragraph("In the To-Do list:"),
+                    .image("todo-panel"),
+                    .bullets([
+                        "due: shows as the row's relative date (“in 3d”, “today”) and ranks the item; overdue turns red — and in Day view files it under Overdue. Without a due:, the note's own date stands in.",
+                        "start: displays nothing — it works by absence, keeping the item out of the daily lists until its day arrives.",
+                        "created: is invisible on the row; it orders the Pinned section, newest first.",
+                        "done: flips the row into the Completed section with a green “✓ finished …” stamp, and the other badges drop away.",
+                        "p: renders its bangs in red — levels !!!! and !!!!! as a white-on-red badge — and boosts the row's rank.",
+                        "followup: shows “↪ follow up in …” in teal, turning red once it comes due.",
+                        "#pinned adds the accent pin and a Pinned section on top; @project draws an accent-outlined pill; other #tags show in the accent color.",
+                        "Rows gathered from another note or an event carry a grey provenance prefix — “Grant review · ”, “Daily note · 2026-08-05”.",
+                    ]),
+                    .paragraph(
+                        "On a Projects chart the date tokens become geometry: start:/created: is the bar's left end, done: its right (open bars run to the now line), and due: either hatches the overrun or draws a tick ahead of the bar. p: raises a row's rank there too, and #proj-pinned pins it to the top of the chart."
+                    ),
+                    .paragraph("In the note preview:"),
+                    .image("note-preview"),
+                    .bullets([
+                        "Value tokens render as small labeled pills on the line — DUE, FROM (that's start:), and DONE with their dates; created: is bookkeeping and shows no pill.",
+                        "p: keeps its bangs (white-on-red at !!!! and up), followup: its teal pill, and #tags, @people, and @project their colored chips.",
+                        "Ticking a preview checkbox strikes the line, dims its pills, and stamps done: on the source line — the same line everywhere else updates with it.",
+                    ]),
+                    .tip(
+                        "done: and created: stamp themselves as you tick boxes and finish editing sessions, so the history your charts draw from usually costs you nothing but the @project: tag."
+                    ),
+                ]
+            ),
+        ]
+    )
+
+    // ─────────────────────────────────────────────────────────────────────────────────
     // MARK: The AI assistant
 
     /// ─────────────────────────────────────────────────────────────────────────────────
     static let assistant = HelpCategory(id: "ai", title: "The AI Assistant", symbol: "wand.and.stars", topics: [
         HelpTopic(
-            id: "assistant-intro", title: "Meet MagiCal AI",
+            id: "assistant-intro", title: "Meet MagnifiCal AI",
             summary: "A chat assistant that can read and change your calendar.",
             keywords: ["ai", "assistant", "chat", "magical ai", "sparkles"],
             blocks: [
                 .paragraph(
-                    "MagiCal AI is a chat panel that understands your calendar. Ask it questions in plain language and it can answer, or make the change for you."
+                    "MagnifiCal AI is a chat panel that understands your calendar. Ask it questions in plain language and it can answer, or make the change for you."
                 ),
                 .paragraph(
                     "Open it from the sparkles button in the toolbar, or press ⌘I. Type a request and press Return."
@@ -595,7 +680,7 @@ public enum HelpContent {
                 keywords: ["icloud", "sync", "cloudkit", "backup", "devices"],
                 blocks: [
                     .paragraph(
-                        "When you're signed in to iCloud, MagiCal keeps your events, deadlines, notes, and track names in sync across your Macs automatically. You can see the current status in Settings ▸ Account."
+                        "When you're signed in to iCloud, MagnifiCal keeps your events, deadlines, notes, and track names in sync across your Macs automatically. You can see the current status in Settings ▸ Account."
                     ),
                     .paragraph(
                         "Sync runs on its own, but you can nudge it any time with Connectivity ▸ Sync Now (⌘R) — that also re-imports your Apple Calendar events."
@@ -610,7 +695,7 @@ public enum HelpContent {
                 keywords: ["apple calendar", "eventkit", "macos calendar", "import", "subscribe"],
                 blocks: [
                     .paragraph(
-                        "MagiCal can display events from the macOS Calendar app so everything sits in one place. Turn it on and pick which calendars to include in Settings ▸ Account."
+                        "MagnifiCal can display events from the macOS Calendar app so everything sits in one place. Turn it on and pick which calendars to include in Settings ▸ Account."
                     ),
                     .paragraph(
                         "Imported events are read-only — edit them in Calendar.app — but you can still add your own notes, tags, and track placement to them here."
@@ -624,16 +709,16 @@ public enum HelpContent {
                            "import", "basic.ics"],
                 blocks: [
                     .paragraph(
-                        "MagiCal can subscribe directly to a Google calendar through its secret iCal address — no sign-in needed. Events appear read-only with an imported badge, and the feed refreshes automatically (Google updates secret feeds with a few minutes' delay)."
+                        "MagnifiCal can subscribe directly to a Google calendar through its secret iCal address — no sign-in needed. Events appear read-only with an imported badge, and the feed refreshes automatically (Google updates secret feeds with a few minutes' delay)."
                     ),
                     .steps([
                         "Open Google Calendar in your browser and go to Settings (the gear icon).",
-                        "Under “Settings for my calendars”, pick the calendar you want to show in MagiCal.",
+                        "Under “Settings for my calendars”, pick the calendar you want to show in MagnifiCal.",
                         "Scroll to “Integrate calendar” and copy the “Secret address in iCal format” — it starts with https://calendar.google.com/…/private-…/basic.ics.",
-                        "In MagiCal, open Settings ▸ Account ▸ Google Calendar, paste the address, and press Add.",
+                        "In MagnifiCal, open Settings ▸ Account ▸ Google Calendar, paste the address, and press Add.",
                     ]),
                     .paragraph(
-                        "The secret address grants read access to that calendar to anyone who holds it, so MagiCal keeps it only in your macOS Keychain. Subscriptions are per MagiCal calendar: a feed you add applies to the calendar that's open at the time."
+                        "The secret address grants read access to that calendar to anyone who holds it, so MagnifiCal keeps it only in your macOS Keychain. Subscriptions are per MagnifiCal calendar: a feed you add applies to the calendar that's open at the time."
                     ),
                     .tip(
                         "Alternative: add your Google account in macOS System Settings ▸ Internet Accounts with Calendars enabled — your Google events then arrive through the Apple Calendar connection, kept fresh by macOS."
@@ -647,16 +732,16 @@ public enum HelpContent {
                            "feed", "subscribe", "import"],
                 blocks: [
                     .paragraph(
-                        "MagiCal can subscribe to an Outlook calendar through its published ICS address — no sign-in needed. Events appear read-only with an imported badge and refresh automatically."
+                        "MagnifiCal can subscribe to an Outlook calendar through its published ICS address — no sign-in needed. Events appear read-only with an imported badge and refresh automatically."
                     ),
                     .steps([
                         "Open Outlook on the web (outlook.live.com for a personal account, outlook.office365.com for work or school) and go to Calendar settings.",
                         "Under “Shared calendars”, find “Publish a calendar” and pick the calendar and permission level.",
                         "Publish it and copy the ICS link (ends in calendar.ics).",
-                        "In MagiCal, open Settings ▸ Account ▸ Outlook Calendar, paste the address, and press Add.",
+                        "In MagnifiCal, open Settings ▸ Account ▸ Outlook Calendar, paste the address, and press Add.",
                     ]),
                     .paragraph(
-                        "Work and school accounts can publish only if the organization allows it — if the “Publish a calendar” option is missing or grayed out, that's an admin policy. The published address grants read access to anyone who holds it, so MagiCal keeps it only in your macOS Keychain, scoped to the MagiCal calendar that's open when you add it."
+                        "Work and school accounts can publish only if the organization allows it — if the “Publish a calendar” option is missing or grayed out, that's an admin policy. The published address grants read access to anyone who holds it, so MagnifiCal keeps it only in your macOS Keychain, scoped to the MagnifiCal calendar that's open when you add it."
                     ),
                     .tip(
                         "Microsoft refreshes published feeds on its own schedule — updates can lag by a few hours (Google's secret feeds update within minutes). For faster, richer sync, add the account in macOS System Settings ▸ Internet Accounts instead; its events then arrive through the Apple Calendar connection."
@@ -679,7 +764,7 @@ public enum HelpContent {
                 keywords: ["ics", "icalendar", "file", "import", "invite"],
                 blocks: [
                     .paragraph(
-                        "MagiCal can import a standard .ics calendar file, adding its events to yours. This is additive — it brings the new events in without touching what you already have."
+                        "MagnifiCal can import a standard .ics calendar file, adding its events to yours. This is additive — it brings the new events in without touching what you already have."
                     ),
                     .tip(
                         "This is available from the File menu once it's enabled — see the note in Backing up & restoring."
@@ -695,7 +780,7 @@ public enum HelpContent {
                         "Export a complete backup of your calendar — events, deadlines, notes, and track names — to a single .mgc file, and restore from it later or on another Mac (legacy .mdc and web .zip backups import too)."
                     ),
                     .paragraph(
-                        "Restoring replaces your current data with the backup's contents; MagiCal warns you first, and ⌘Z can undo it."
+                        "Restoring replaces your current data with the backup's contents; MagnifiCal warns you first, and ⌘Z can undo it."
                     ),
                     .tip(
                         "Import and export live in the File menu. Note: in the current build the File menu isn't installed yet — this is a known gap we're wiring up."
@@ -716,7 +801,7 @@ public enum HelpContent {
             keywords: ["keyboard", "shortcuts", "keys", "guide", "cmd k", "hotkeys"],
             blocks: [
                 .paragraph(
-                    "MagiCal is fully keyboard-drivable. Because the useful keys change with what's selected, hold ⌘K to pop up a live guide of exactly the shortcuts available right now."
+                    "MagnifiCal is fully keyboard-drivable. Because the useful keys change with what's selected, hold ⌘K to pop up a live guide of exactly the shortcuts available right now."
                 ),
                 .paragraph("Some shortcuts that work almost everywhere:"),
                 .bullets([
@@ -765,7 +850,7 @@ public enum HelpContent {
             keywords: ["appearance", "theme", "dark mode", "light mode", "automatic"],
             blocks: [
                 .paragraph(
-                    "Set how MagiCal looks in Settings ▸ Appearance (⌘,): Light, Dark, or Automatic to follow the system."
+                    "Set how MagnifiCal looks in Settings ▸ Appearance (⌘,): Light, Dark, or Automatic to follow the system."
                 ),
             ],
             shortcuts: [.init("⌘,", "Open Settings")]
@@ -776,7 +861,7 @@ public enum HelpContent {
             keywords: ["timezone", "time zone", "second", "alternate", "travel", "utc"],
             blocks: [
                 .paragraph(
-                    "If you work across time zones, MagiCal can show an alternate time zone next to your local one on the timeline, so you can read both at once."
+                    "If you work across time zones, MagnifiCal can show an alternate time zone next to your local one on the timeline, so you can read both at once."
                 ),
             ]
         ),

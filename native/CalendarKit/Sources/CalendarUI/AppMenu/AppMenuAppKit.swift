@@ -17,9 +17,8 @@ import CalendarEngine
     // Dynamic Sync menu state, refreshed when the menu opens.
     private weak var syncMenu: NSMenu?
     private weak var syncStatusItem: NSMenuItem?
-    // Dynamic File menu state (multi-calendar): the "Calendar: [Name]" row + the recents submenu.
+    // Dynamic File menu state (multi-calendar): the Calendars submenu.
     private weak var fileMenu: NSMenu?
-    private weak var currentCalendarItem: NSMenuItem?
     private weak var recentCalendarsMenu: NSMenu?
 
     public init(ctx: MenuContext) {
@@ -44,7 +43,7 @@ import CalendarEngine
             case .window: NSApp.windowsMenu = sub
             case .help: NSApp.helpMenu = sub
             case .sync: syncMenu = sub; sub.delegate = self // refresh "Last Sync: …"
-            case .file: fileMenu = sub; sub.delegate = self // refresh "Calendar: [Name]" + remove-enable
+            case .file: fileMenu = sub; sub.delegate = self // (Calendars submenu refreshes via its own delegate)
             default: break
             }
         }
@@ -74,13 +73,9 @@ import CalendarEngine
 
     private func addWidget(_ w: MenuWidget, to menu: NSMenu) {
         switch w {
-        case .currentCalendar:
-            let mi = menu.addItem(withTitle: "Calendar: …", action: nil, keyEquivalent: "")
-            mi.isEnabled = false
-            currentCalendarItem = mi
         case .recentCalendars:
-            let item = menu.addItem(withTitle: "Recently Opened Calendars", action: nil, keyEquivalent: "")
-            let rm = NSMenu(title: "Recently Opened Calendars")
+            let item = menu.addItem(withTitle: "Calendars", action: nil, keyEquivalent: "")
+            let rm = NSMenu(title: "Calendars")
             rm.delegate = self
             rm.autoenablesItems = false
             item.submenu = rm
@@ -203,7 +198,7 @@ import CalendarEngine
         if item.action == #selector(toggleShowHidden(_:)) {
             item.state = UserDefaults.standard.bool(forKey: PrefKeys.showHiddenImported) ? .on : .off
         }
-        // "Remove Current MagiCal" is disabled when it's the only calendar.
+        // "Remove Current MagnifiCal" is disabled when it's the only calendar.
         if let box = item.representedObject as? IDBox, box.id == .removeCalendar {
             return ctx.engine()?.canRemoveCalendar ?? false
         }
@@ -222,28 +217,21 @@ import CalendarEngine
         if menu === syncMenu {
             refreshSyncStatus()
         }
-        if menu === fileMenu { // "Calendar: [Name]" row reflects the open calendar
-            currentCalendarItem?.title = "Calendar: \(ctx.engine()?.activeCalendarName ?? "Main")"
-        }
         if menu === recentCalendarsMenu {
             rebuildRecents(menu)
         }
     }
 
-    /// ── Recently Opened Calendars (dynamic; switch on click) ──────────────────────────────────────
+    /// ── Calendars ▸ (dynamic; EVERY calendar with its item count, the open one ticked) ────────────
     private final class RecentPick { let id: String; init(_ id: String) {
         self.id = id
     } }
     private func rebuildRecents(_ menu: NSMenu) {
         menu.removeAllItems()
-        let recents = ctx.engine()?.recentCalendars ?? []
-        if recents.isEmpty {
-            menu.addItem(withTitle: "No other calendars", action: nil, keyEquivalent: "").isEnabled = false
-            return
-        }
-        for c in recents {
-            let mi = menu.addItem(withTitle: c.name, action: #selector(switchToRecent(_:)), keyEquivalent: "")
-            mi.target = self; mi.representedObject = RecentPick(c.id)
+        for row in ctx.engine()?.calendarMenuRows() ?? [] {
+            let mi = menu.addItem(withTitle: row.label, action: #selector(switchToRecent(_:)), keyEquivalent: "")
+            mi.target = self; mi.representedObject = RecentPick(row.id)
+            mi.state = row.active ? .on : .off
         }
     }
 

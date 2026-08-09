@@ -5,10 +5,34 @@
 
 import Foundation
 
+/// One row of the File ▸ Calendars submenu: every calendar (the open one ticked), with its item count.
+public struct CalendarMenuRow: Identifiable, Sendable {
+    public let id: String
+    public let name: String
+    public let count: Int
+    public let active: Bool
+
+    /// The submenu label, e.g. "Main: 325 events" — shared by both shells so they can't drift.
+    public var label: String {
+        "\(name): \(count) event\(count == 1 ? "" : "s")"
+    }
+}
+
 public extension CalendarEngine {
     /// ── Read accessors (for the File menu) ────────────────────────────────────────────────────────
     var activeCalendar: CalendarMeta? {
         registry.meta(registry.activeId)
+    }
+
+    /// The active calendar's id — the key external-source prefs (Apple selection, ICS feeds) scope by.
+    var activeCalendarId: String {
+        registry.activeId
+    }
+
+    /// A calendar id's user-facing name, read from the on-disk registry — for the engine-less
+    /// Settings window (which tracks the active id via UserDefaults, see PrefKeys.currentCalendarId).
+    static func calendarDisplayName(_ id: String) -> String {
+        CalendarRegistry().meta(id)?.name ?? "Main"
     }
 
     var activeCalendarName: String {
@@ -29,9 +53,38 @@ public extension CalendarEngine {
         return recent + others
     }
 
-    /// "Remove Current" is disabled when this is the only calendar (there must always be one).
+    /// "Remove Current" is disabled when this is the only calendar (there must always be one) —
+    /// and ALWAYS for Main: it's the anchor calendar (fixed id, every device's shared iCloud
+    /// zone, the legacy-migration target), so it can never be deleted.
     var canRemoveCalendar: Bool {
-        registry.all.count > 1
+        registry.all.count > 1 && registry.activeId != CalendarRegistry.mainId
+    }
+
+    /// Rows for the File ▸ Calendars submenu — EVERY calendar, the open one flagged `active`.
+    /// Called at MENU-OPEN time by both shells (their NSMenuDelegate rebuilds the submenu in
+    /// menuNeedsUpdate; SwiftUI Commands can't be trusted to re-render dynamic content). The
+    /// active calendar counts its LIVE items; the others' counts come from a one-shot read of
+    /// their data.json, cached — an inactive calendar's store can't change while it's closed
+    /// (its zone isn't syncing), and the cache entry is refreshed on switch-away.
+    func calendarMenuRows() -> [CalendarMenuRow] {
+        let active = registry.activeId
+        return registry.all.map { m in
+            let count: Int
+            if m.id == active {
+                count = liveItemCount
+            } else if let hit = calCountCache[m.id] {
+                count = hit
+            } else {
+                let s = ItemStore(calendarId: m.id).load()
+                count = s.map { $0.events.count + $0.bands.count + $0.deadlines.count } ?? 0
+                calCountCache[m.id] = count
+            }
+            return CalendarMenuRow(id: m.id, name: m.name, count: count, active: m.id == active)
+        }
+    }
+
+    internal var liveItemCount: Int {
+        items.events.count + items.bands.count + items.deadlines.count
     }
 
     /// ── Switch ────────────────────────────────────────────────────────────────────────────────────
@@ -44,6 +97,7 @@ public extension CalendarEngine {
         if persistCurrent {
             persistNow()
         }
+        calCountCache[registry.activeId] = liveItemCount // menu count for the calendar we're leaving
         stopCloudSync() // detach cloud from the current calendar
 
         // Reset everything scoped to the current calendar so nothing bleeds across.
@@ -51,7 +105,23 @@ public extension CalendarEngine {
         setSelection([], primary: nil)
         imported = ImportedItems() // read-only Apple items belong to the old calendar
         colorPreview = nil; hover = .none; hoveredEventId = nil
-        caches = DisplayCaches() // display caches were keyed to the old data
+        // Display caches were keyed to the old data — but the gen counters must CARRY FORWARD
+        // (+1), not restart at 0: every derived cache in the app keys on them (todo/proj feeds,
+        // entity index, panel todoDataStamp snapshots, the events overlay's per-month packing via
+        // displayGen), and a reset-to-zero collides with entries stamped by the OLD calendar —
+        // fresh counters == cached gens → the old calendar's data served as current forever.
+        var fresh = DisplayCaches()
+        fresh.editGen = caches.editGen &+ 1
+        fresh.noteGen = caches.noteGen &+ 1
+        fresh.deadlineGen = caches.deadlineGen &+ 1
+        caches = fresh
+        // Drop the parsed feeds outright: on a gen MISMATCH todoFeed()/projFeed() still SERVE the
+        // stale (old calendar's) rows while a refresh coalesces — a nil cache rebuilds inline on
+        // the next read instead, so the panels never flash another calendar's todos/projects.
+        todoFeedCache = nil; projFeedCache = nil
+        todoFeedWork?.cancel(); todoFeedWork = nil
+        entityIdxCache = nil
+        entityIdxWork?.cancel(); entityIdxWork = nil
 
         // Repoint at the target calendar and load it.
         registry.setActive(id)
@@ -59,9 +129,11 @@ public extension CalendarEngine {
         restoreItemsFromStore()
         migrateAnchors()
 
-        // Re-attach external sources for the NEW calendar (its own Apple selection + iCloud state).
+        // Re-attach external sources for the NEW calendar (its own Apple selection, its own ICS
+        // feed subscriptions, its own iCloud state).
         enableCloudSyncIfEntitled()
         importAppleCalendar()
+        importICSFeeds(urls: icsFeedURLs?() ?? []) // per-calendar feed list (see ICSFeeds in CalendarUI)
         onExternalDataChange?() // dismiss any drawer/dialog bound to a now-absent item
         NotificationScheduler.shared.requestResync() // schedule now reflects the NEW calendar's items
         wake()
@@ -82,14 +154,15 @@ public extension CalendarEngine {
     /// Delete the current calendar (and all its data) and switch to the most-recent other one. No-op when
     /// it's the only calendar. The current calendar isn't persisted first — it's being thrown away.
     func removeCurrentCalendar() {
+        guard canRemoveCalendar else { return } // never the last calendar, never Main
         let list = registry.all
-        guard list.count > 1 else { return }
         let doomed = registry.activeId
         let fallback = recentCalendars.first?.id ?? list.first(where: { $0.id != doomed })!.id
         switchCalendar(to: fallback, persistCurrent: false) // stops the doomed calendar's item sync
         CloudSync.deleteZone(calendarId: doomed) // purge its CloudKit zone (all its records)
         registrySync?.removeCalendar(doomed) // drop it from the synced calendar registry
         registry.remove(doomed) // registry entry + local directory
+        calCountCache.removeValue(forKey: doomed)
         wake()
     }
 
@@ -117,7 +190,7 @@ public extension CalendarEngine {
             }
             registry.remove(id)
         }
-        wake() // the File menu re-reads the list on next open
+        wake()
     }
 
     /// ── Cloud teardown (switch/remove) ────────────────────────────────────────────────────────────

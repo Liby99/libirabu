@@ -29,6 +29,24 @@ extension CalendarEngine {
         return nil
     }
 
+    /// `kind(of:)` extended to the read-only imported bucket — for UI (context menu) that offers
+    /// kind-gated overlay actions (Promote, Paste Here) on imported boxes too. Kept separate so the
+    /// assistant CRUD paths (which use `kind(of:)` as an "editable item exists" gate) don't start
+    /// treating vendor-owned items as writable.
+    public func kindIncludingImported(_ id: String) -> ItemKind? {
+        if let k = kind(of: id) {
+            return k
+        }
+        let sid = sourceId(of: id)
+        if imported.events.contains(where: { $0.id == sid }) {
+            return .timed
+        }
+        if imported.bands.contains(where: { $0.id == sid }) {
+            return .band
+        }
+        return nil
+    }
+
     private func setRich(_ id: String, notes: String?, tags: [String], byAI: Bool,
                          promoteTrack: Int? = nil) {
         guard notes != nil || !tags.isEmpty || byAI || promoteTrack != nil else { return }

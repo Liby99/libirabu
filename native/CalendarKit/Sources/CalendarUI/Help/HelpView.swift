@@ -1,4 +1,4 @@
-// The in-app Help browser (Help ▸ MagiCal Help), hosted in its own window by the AppKit shell. A searchable
+// The in-app Help browser (Help ▸ MagnifiCal Help), hosted in its own window by the AppKit shell. A searchable
 // category sidebar on the left, a task topic on the right — the modern stand-in for a registered Help book.
 // Content is data (HelpContent); this file is just presentation.
 
@@ -177,6 +177,13 @@ public struct HelpView: View {
                     }
                 }
             }
+        case let .image(name):
+            HelpStill(name: name)
+                .frame(maxWidth: 540)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(theme.text.opacity(0.08)))
+                .padding(.vertical, 4)
         case let .tip(s):
             HStack(alignment: .firstTextBaseline, spacing: 9) {
                 Image(systemName: "lightbulb.fill").font(.system(size: 12)).foregroundStyle(Theme.accent)
@@ -219,6 +226,24 @@ private struct HelpGIF: View {
             ?? Bundle.module.url(forResource: name, withExtension: "gif", subdirectory: "tutorial"),
             let img = NSImage(contentsOf: url) {
             GIFImageView(image: img)
+                .aspectRatio(img.size.width / max(1, img.size.height), contentMode: .fit)
+        }
+    }
+}
+
+/// ── Still screenshot (.image blocks) ─────────────────────────────────────────────────────
+/// The GIFs' theme convention for PNGs: prefer "<name>-light/-dark.png" matching the viewer,
+/// fall back to the plain name. Captured by scripts/capture-help-shots.sh.
+private struct HelpStill: View {
+    let name: String
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        let variant = "\(name)-\(scheme == .dark ? "dark" : "light")"
+        if let url = Bundle.module.url(forResource: variant, withExtension: "png", subdirectory: "tutorial")
+            ?? Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "tutorial"),
+            let img = NSImage(contentsOf: url) {
+            Image(nsImage: img)
+                .resizable()
                 .aspectRatio(img.size.width / max(1, img.size.height), contentMode: .fit)
         }
     }

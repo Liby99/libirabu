@@ -18,6 +18,9 @@ import Security
 
 enum Keychain {
     /// Namespaces our items so they don't collide with anything else in the keychain.
+    /// DELIBERATELY the legacy id (pre-2026-08 bundle-id rename): the service string is how
+    /// existing items are FOUND — renaming it would orphan every stored API key and feed URL.
+    /// The entitlements list the legacy keychain access group so those items stay readable.
     private static let service = "dev.libirabu.calendar.apikeys"
 
     /// Store (or, for a nil/empty value, remove) the secret for `account`. Returns success.

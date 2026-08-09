@@ -269,6 +269,7 @@ public struct CalendarView: View {
                 }
             }
             demo.closeEventMenuHook = { ui.eventMenu = nil }
+            demo.dashSetTabHook = { dashTab = $0 } // help-shot scenes: a tab click, nothing more
             demo.searchState = search
             demo.startIfDemo(engine: engine, size: size)
         } // GIF recording session
@@ -1137,19 +1138,28 @@ public struct CalendarView: View {
                     // Apple Calendar import: pull on first appearance, whenever the app returns to the foreground
                     // (auto-refresh), and when the Settings window changes the connection.
                     .onAppear {
-                        engine.icsFeedURLs = { ICSFeeds.list() } // engine-triggered refreshes (Sync Now)
+                        // Feed subscriptions are PER MagnifiCal calendar — always resolve against the
+                        // engine's ACTIVE calendar at call time (switching repoints automatically).
+                        engine.icsFeedURLs = { [weak engine] in
+                            ICSFeeds.list(calendarId: engine?.activeCalendarId ?? "")
+                        } // engine-triggered refreshes (Sync Now, calendar switch)
                         engine.importAppleCalendar()
-                        engine.importICSFeeds(urls: ICSFeeds.list())
+                        engine.importICSFeeds(urls: ICSFeeds.list(calendarId: engine.activeCalendarId))
                     }
                     .onReceive(NotificationCenter.default
                         .publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                             engine.importAppleCalendar()
-                            engine.importICSFeeds(urls: ICSFeeds.list())
+                            engine.importICSFeeds(urls: ICSFeeds.list(calendarId: engine.activeCalendarId))
                             engine.syncNow() // also pull/push iCloud on foreground (was never wired before)
                     }
                     // Settings changed the ICS feed list (add/remove) → re-import right away.
                     .onReceive(NotificationCenter.default.publisher(for: .icsFeedsChanged)) { _ in
-                        engine.importICSFeeds(urls: ICSFeeds.list())
+                        engine.importICSFeeds(urls: ICSFeeds.list(calendarId: engine.activeCalendarId))
+                    }
+                    // A "How to…" deep link (e.g. from Settings) → open the Help window; HelpView
+                    // itself selects the topic (HelpNav.pending / the same notification).
+                    .onReceive(NotificationCenter.default.publisher(for: .openHelpTopic)) { _ in
+                        openWindow(id: "help")
                     }
                     .onReceive(NotificationCenter.default.publisher(for: .appleCalendarSettingsChanged)) { _ in
                         engine.importAppleCalendar()
@@ -1231,7 +1241,7 @@ public struct CalendarView: View {
                     openWindow(id: "assistant")
                 }
             } label: { Image(systemName: "sparkles") }
-                .glassButtonStyleCompat().buttonBorderShape(.circle).help("MagiCal AI (⌘I)")
+                .glassButtonStyleCompat().buttonBorderShape(.circle).help("MagnifiCal AI (⌘I)")
                 .popover(isPresented: $showAssistantCallout, arrowEdge: .bottom) {
                     if let assistant {
                         AssistantCalloutView(state: assistant) {

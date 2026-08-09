@@ -87,7 +87,7 @@ public enum PrefKeys {
     public static let altTz = "cc.view.altTz"
     /// The timeline scale-bar's per-hour height (week/day views). Persisted across launches.
     public static let weekHourH = "cc.view.weekHourH"
-    /// Apple Calendar import (see +AppleImport). Each MagiCal calendar subscribes to its OWN external
+    /// Apple Calendar import (see +AppleImport). Each MagnifiCal calendar subscribes to its OWN external
     /// calendars, so the enabled-state + selected ids are keyed per calendar id via these helpers.
     public static func appleEnabled(_ calendarId: String) -> String {
         "cc.appleCal.enabled.\(calendarId)"
@@ -104,6 +104,14 @@ public enum PrefKeys {
     /// The calendar LIST itself lives in calendars.json (see CalendarRegistry), not UserDefaults.
     public static let calActiveId = "cc.cal.activeId"
     public static let calRecents = "cc.cal.recents"
+    /// The default "Main" calendar's fixed id (see CalendarRegistry.mainId) — public so the
+    /// engine-less Settings window can key legacy migrations (e.g. the pre-per-calendar feed list).
+    public static let mainCalendarId = "main"
+    /// An ICS feed's display name (its X-WR-CALNAME, captured on fetch) — keyed by the feed's
+    /// short key, NOT the secret URL (the name isn't a secret; the URL never leaves the Keychain).
+    public static func icsFeedName(_ feedKey: String) -> String {
+        "cc.icsfeed.name.\(feedKey)"
+    }
     /// The active calendar id as seen from UserDefaults — for the separate Settings window, which has no
     /// engine reference. The engine itself uses `registry.activeId` (authoritative); both resolve equal.
     public static var currentCalendarId: String {

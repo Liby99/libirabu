@@ -1,4 +1,4 @@
-// Multiple calendars ("documents"). Each calendar is a disjoint MagiCal with its own on-disk store
+// Multiple calendars ("documents"). Each calendar is a disjoint MagnifiCal with its own on-disk store
 // (calendars/<id>/); exactly one is active at a time, and opening one shows only its content. The list
 // of calendars persists to calendars.json; the active id + recently-opened list are per-device
 // (UserDefaults). A pre-multi-calendar install (one data.json at the root) is migrated into a "Main"
@@ -18,6 +18,10 @@ public struct CalendarMeta: Codable, Sendable, Identifiable, Equatable {
 }
 
 struct CalendarRegistry {
+    /// The default "Main" calendar's FIXED id (see bootstrap). Main is the anchor calendar:
+    /// it maps every device to the same iCloud zone and can never be removed.
+    static let mainId = PrefKeys.mainCalendarId
+
     private let registryURL: URL
     private let defaults: UserDefaults
 
@@ -49,7 +53,7 @@ struct CalendarRegistry {
             // The default "Main" uses a FIXED id so every device's Main maps to the same iCloud zone and
             // reconciles (a per-device UUID would fork Main into disjoint zones). Calendars the user creates
             // later get UUID ids, minted once and propagated to other devices via the synced registry.
-            let main = CalendarMeta(id: "main", name: "Main", createdAt: Date(), order: 0)
+            let main = CalendarMeta(id: Self.mainId, name: "Main", createdAt: Date(), order: 0)
             migrateLegacyStore(into: main.id)
             migrateLegacyAppleKeys(into: main.id)
             save([main])

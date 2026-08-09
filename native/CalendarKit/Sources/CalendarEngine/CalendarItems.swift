@@ -56,6 +56,9 @@ public struct ImportedItems: Sendable {
     public internal(set) var bands: [BandEvent] = []
     /// EventKit identifier → our item id, for opening the original in Calendar.app.
     var appleEventIds: [String: String] = [:]
+    /// ICS-feed series id ("gcal-<key>-<uid>") → the RAW VEVENT UID, for building the
+    /// "Edit original" Google Calendar deep link (the id's uid part is sanitized/truncated).
+    var gcalUids: [String: String] = [:]
     public init() {}
 }
 

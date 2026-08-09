@@ -65,34 +65,21 @@ public struct MenuActionButton: View {
 }
 
 /// ── File menu: multiple-calendars payload (shared) ──────────────────────────────────────────────
-/// The calendar ("document") controls at the top of the File menu: the open-calendar row, New/Remove,
-/// the Recently-Opened submenu, and Rename. New/Remove/Rename post notifications → CalendarView shows a
-/// dialog; the recents switch directly. Mirrors AppMenu.sections(...)'s File `currentCalendar`/`recentCalendars`.
+/// The STATIC calendar ("document") controls at the top of the File menu: New/Remove/Rename (they
+/// post notifications → CalendarView shows a dialog). The DYNAMIC "Calendars" submenu (every
+/// calendar with its item count, the open one ticked) is deliberately NOT rendered here: macOS
+/// SwiftUI Commands don't reliably re-evaluate dynamic content (@Observable *and* @AppStorage
+/// triggers both left it stale), so the .app's FileMenuUpdater (CalendarApp.swift) builds that
+/// item in AppKit on every menu open — the same mechanism the dev shell uses (menuNeedsUpdate).
 public struct CalendarMenuContent: View {
     let engine: CalendarEngine
-    /// The re-render trigger. macOS SwiftUI Commands do NOT reliably re-evaluate when @Observable
-    /// state changes (the menu kept showing the OLD calendar after a switch) — but an @AppStorage
-    /// key change always invalidates them. The engine bumps this key in pushCalendarChrome()
-    /// whenever the active calendar, a name, or the list changes; the row VALUES come from the
-    /// chrome mirrors pushed in the same call.
-    @AppStorage(PrefKeys.calMenuGen) private var calMenuGen = 0
     public init(engine: CalendarEngine) {
         self.engine = engine
     }
 
     public var body: some View {
-        let _ = calMenuGen // the @AppStorage dependency that makes the menu re-render (see above)
-        Text("Calendar: \(engine.chrome.activeCalendarName)") // disabled info row (plain Text isn't actionable)
         MenuActionButton(.newCalendar, engine: engine)
-        MenuActionButton(.removeCalendar, engine: engine).disabled(engine.chrome.recentCalendars.isEmpty)
-        Menu {
-            let recents = engine.chrome.recentCalendars
-            if recents.isEmpty {
-                Text("No other calendars")
-            } else {
-                ForEach(recents) { c in Button(c.name) { engine.switchCalendar(to: c.id) } }
-            }
-        } label: { Label("Recently Opened Calendars", systemImage: "clock.arrow.circlepath") }
+        MenuActionButton(.removeCalendar, engine: engine)
         MenuActionButton(.renameCalendar, engine: engine)
     }
 }

@@ -96,6 +96,15 @@ extension CalendarEngine {
         Self.hasImportedPrefix(sourceId(of: id))
     }
 
+    /// A non-"manual" rich source ("ical", "apple") on an EDITABLE item — e.g. a one-shot .ics file
+    /// import, which is a fully-editable local copy that still wears the imported badge. The drawer
+    /// explains those with an informational banner (no vendor buttons). nil for manual items.
+    public func editableImportSource(_ id: String) -> String? {
+        guard !isImported(id) else { return nil }
+        let src = items.richById[overlayKey(id)]?.source
+        return src == nil || src == "manual" ? nil : src
+    }
+
     /// Read-only imported id namespaces: "apple-" (EventKit) and "gcal-" (ICS feed subscriptions).
     static func hasImportedPrefix(_ id: String) -> Bool {
         id.hasPrefix("apple-") || id.hasPrefix("gcal-")

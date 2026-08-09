@@ -65,6 +65,30 @@ public enum MenuWindow: Sendable { case assistant, help, settings }
     case .keyboardShortcuts: NotificationCenter.default.post(name: .showKeyboardShortcuts, object: nil)
     case .closeWindow: NSApp.keyWindow?.performClose(nil)
     case .minimize: NSApp.keyWindow?.performMiniaturize(nil)
+    case .reportProblem: openProblemReport()
+    }
+}
+
+/// The public repo's issue tracker (see docs/release-roadmap.md — created when the
+/// project open-sources; the menu item simply 404s to the profile until then).
+private let githubRepoURL = "https://github.com/liby99/MagnifiCal"
+
+/// Help ▸ Report a Problem… → a prefilled GitHub issue with the environment block filled
+/// in (app version, macOS) so friends' reports arrive triageable without back-and-forth.
+@MainActor private func openProblemReport() {
+    let app = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    let os = ProcessInfo.processInfo.operatingSystemVersionString
+    let body = """
+    <!-- What happened? Steps to reproduce, what you expected, what you saw. -->
+
+
+    ---
+    MagnifiCal \(app) · \(os)
+    """
+    var c = URLComponents(string: "\(githubRepoURL)/issues/new")!
+    c.queryItems = [URLQueryItem(name: "body", value: body)]
+    if let url = c.url {
+        NSWorkspace.shared.open(url)
     }
 }
 
@@ -126,7 +150,7 @@ public enum MenuWindow: Sendable { case assistant, help, settings }
     public static func exportMDC(_ engine: CalendarEngine) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "mgc") ?? .data]
-        panel.nameFieldStringValue = "MagiCal-\(isoDayString()).mgc"
+        panel.nameFieldStringValue = "MagnifiCal-\(isoDayString()).mgc"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do { try engine.exportMDC(to: url) }

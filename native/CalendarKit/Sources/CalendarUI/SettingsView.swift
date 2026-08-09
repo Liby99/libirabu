@@ -10,7 +10,7 @@
 //  • API Keys   — the assistant's credentials (LLM provider for chat, Tavily for web search),
 //                 stored in the macOS Keychain (see Keychain.swift); local to this device.
 //
-// Native controls throughout, tinted with the app's accent (AccentPref — MagiCal red by default,
+// Native controls throughout, tinted with the app's accent (AccentPref — MagnifiCal red by default,
 // as in EventDrawer).
 
 import CalendarEngine
@@ -41,21 +41,78 @@ public struct SettingsView: View {
 
 private struct AccountTab: View {
     @State private var iCloud: ICloudStatus? // nil = still probing
+    // The ACTIVE MagnifiCal calendar, tracked LIVE via UserDefaults (the engine writes it on every
+    // switch): import settings below are scoped to THIS calendar, and the whole import block
+    // re-keys (.id) when it changes, so a switch mid-session can never edit the wrong calendar.
+    @AppStorage(PrefKeys.calActiveId) private var activeCalId = PrefKeys.mainCalendarId
 
     var body: some View {
+        let calName = CalendarEngine.calendarDisplayName(activeCalId)
         Form {
             Section("iCloud") {
                 iCloudRow
             }
-            Section("macOS Apple Calendar") {
-                AppleCalendarRows()
+            // Import scope banner — unmistakable: everything below configures ONLY this calendar.
+            Section {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "square.stack").foregroundStyle(Theme.accent).padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Importing into “\(calName)”").fontWeight(.semibold)
+                        Text("The Apple, Google, and Outlook calendar connections below apply only to " +
+                            "the MagnifiCal calendar that is currently open — “\(calName)”. Each MagnifiCal " +
+                            "calendar keeps its own import setup: switch calendars (File ▸ Calendars) " +
+                            "to configure another one.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 2)
             }
-            Section("Google Calendar") {
-                GoogleCalendarRows()
+            Section {
+                AppleCalendarRows(calId: activeCalId)
+            } header: {
+                sectionHeader("macOS Apple Calendar", calName)
+            }
+            Section {
+                FeedAddressForm(calId: activeCalId,
+                                addressLabel: "Secret Calendar Address",
+                                example: "https://calendar.google.com/…/basic.ics",
+                                helpTopic: "google-secret-address")
+            } header: {
+                sectionHeader("Google Calendar", calName)
+            }
+            // Google's subscribed feeds — a headerless list right under its section (its wash
+            // separates it from the form; Outlook's feeds live under the Outlook section below).
+            Section {
+                CalendarFeedList(calId: activeCalId, outlook: false)
+            }
+            Section {
+                FeedAddressForm(calId: activeCalId,
+                                addressLabel: "Published Calendar Address",
+                                example: "https://outlook.live.com/owa/calendar/…/calendar.ics",
+                                helpTopic: "outlook-published-address")
+            } header: {
+                sectionHeader("Outlook Calendar", calName)
+            }
+            Section {
+                CalendarFeedList(calId: activeCalId, outlook: true)
             }
         }
         .formStyle(.grouped)
         .task { iCloud = await CalendarEngine.iCloudStatus() }
+        .id(activeCalId) // switch → rebuild the import rows against the new calendar's keys
+    }
+
+    /// Import-section header: source name left; right, a deliberately low-key "import into <name>"
+    /// (lowercase, regular weight, washed color) naming which MagnifiCal calendar it configures.
+    private func sectionHeader(_ title: String, _ calName: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text("import into \(calName)")
+                .fontWeight(.regular)
+                .foregroundStyle(.tertiary)
+        }
     }
 
     private var iCloudRow: some View {
@@ -96,16 +153,21 @@ private struct AccountTab: View {
 /// The Settings window is isolated from the running engine, so this talks to EventKit directly and
 /// shares state with the engine through UserDefaults + a `.appleCalendarSettingsChanged` notification.
 private struct AppleCalendarRows: View {
-    // Apple subscription state is per MagiCal calendar; key both by the active calendar id (read from
-    // UserDefaults, which the engine keeps in sync). Fixed for this Settings session.
-    private static let calId = PrefKeys.currentCalendarId
-    @AppStorage(PrefKeys.appleEnabled(AppleCalendarRows.calId)) private var enabled = false
+    // Apple subscription state is per MagnifiCal calendar: the parent (AccountTab) passes the LIVE
+    // active id and re-keys this view (.id) on switch, so the toggles always edit that calendar.
+    let calId: String
+    @AppStorage private var enabled: Bool
     @Environment(\.openURL) private var openURL
     @State private var access = CalendarEngine.appleAccess
     @State private var calendars: [AppleCalendarInfo] = []
     @State private var selected: Set<String> = []
     @State private var busy = false
     private let importer = AppleCalendarImporter()
+
+    init(calId: String) {
+        self.calId = calId
+        _enabled = AppStorage(wrappedValue: false, PrefKeys.appleEnabled(calId))
+    }
 
     var body: some View {
         // Connection status + action (the section header already names it "macOS Apple Calendar").
@@ -116,7 +178,7 @@ private struct AppleCalendarRows: View {
         }
         .padding(.vertical, 2)
         .onAppear {
-            selected = Set(UserDefaults.standard.stringArray(forKey: PrefKeys.appleCalendars(Self.calId)) ?? [])
+            selected = Set(UserDefaults.standard.stringArray(forKey: PrefKeys.appleCalendars(calId)) ?? [])
             access = CalendarEngine.appleAccess
             if access == .authorized {
                 calendars = importer.calendars()
@@ -203,7 +265,7 @@ private struct AppleCalendarRows: View {
     }
 
     private func save() {
-        UserDefaults.standard.set(Array(selected), forKey: PrefKeys.appleCalendars(Self.calId))
+        UserDefaults.standard.set(Array(selected), forKey: PrefKeys.appleCalendars(calId))
         notifyEngine()
     }
 
@@ -217,75 +279,105 @@ private struct AppleCalendarRows: View {
     }
 }
 
-/// ── Google Calendar (read-only, no OAuth) ──────────────────────────────────────────
-/// Two routes: the macOS account bridge (zero-config, uses the Apple Calendar import above), and
-/// secret-ICS-URL subscriptions fetched directly by the app. Both are fully local + user-chosen.
-private struct GoogleCalendarRows: View {
+/// ── ICS feed subscriptions (read-only, no OAuth) ────────────────────────────────────
+/// One provider section per source (Google / Outlook), each just this input form with its own
+/// label, example, and Help topic. The subscribed feeds themselves live in one shared list
+/// section (CalendarFeedList); the two stay in sync through .icsFeedsChanged. Per MagnifiCal
+/// calendar (see ICSFeeds); the parent re-keys everything on switch.
+private struct FeedAddressForm: View {
+    let calId: String
+    let addressLabel: String // "Secret Calendar Address" (Google) / "Published Calendar Address" (Outlook)
+    let example: String
+    let helpTopic: String // Help topic id the "How to obtain" button opens
     @State private var newURL = ""
-    @State private var feeds = ICSFeeds.list()
 
     var body: some View {
-        // Route A — the easiest: let macOS do the OAuth.
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Easiest: add your Google account to macOS").font(.callout).fontWeight(.medium)
-            Text(
-                "System Settings ▸ Internet Accounts ▸ Google, with Calendars enabled — your Google events then appear through the Apple Calendar connection above, kept fresh by macOS."
-            )
-            .font(.caption).foregroundStyle(.secondary)
-            Button("Open Internet Accounts…") {
-                NSWorkspace.shared
-                    .open(URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!)
-            }
-            .font(.caption)
-        }
-        .padding(.vertical, 2)
-
-        // Route B — subscribe to a calendar's secret iCal address (read-only, refreshed by the app).
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Or: subscribe with a secret calendar address").font(.callout).fontWeight(.medium)
-            Text("""
-            1. Open Google Calendar settings (button below) and pick the calendar under “Settings for my calendars”.
-            2. Scroll to “Integrate calendar” and copy the **Secret address in iCal format** (starts with https://calendar.google.com/…/private-…/basic.ics).
-            3. Paste it here and press Add. Events appear read-only with an “imported” badge; Google refreshes this feed with a few minutes’ delay.
-            """)
-            .font(.caption).foregroundStyle(.secondary)
-            Button("Open Google Calendar Settings…") {
-                NSWorkspace.shared.open(URL(string: "https://calendar.google.com/calendar/r/settings")!)
-            }
-            .font(.caption)
-            Text("The secret address grants read access to that calendar — it's stored only in your macOS Keychain.")
-                .font(.caption2).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
-
+        // Input form: label · address box · Add.
         HStack(spacing: 8) {
-            TextField("https://calendar.google.com/…/basic.ics", text: $newURL)
+            Text(addressLabel).font(.callout)
+            TextField("", text: $newURL)
                 .textFieldStyle(.roundedBorder)
             Button("Add") {
-                ICSFeeds.add(newURL)
+                ICSFeeds.add(newURL, calendarId: calId) // posts .icsFeedsChanged → the list section updates
                 newURL = ""
-                feeds = ICSFeeds.list()
             }
             .disabled(!newURL.contains("://"))
         }
-        ForEach(feeds, id: \.self) { url in
-            HStack {
-                Image(systemName: "link").font(.caption).foregroundStyle(.secondary)
-                Text(ICSFeeds.displayName(url)).font(.caption)
-                Spacer()
-                Button("Remove") {
-                    ICSFeeds.remove(url)
-                    feeds = ICSFeeds.list()
-                }
-                .font(.caption)
-            }
-        }
-        if !feeds.isEmpty {
-            Button("Refresh Feeds Now") {
-                NotificationCenter.default.post(name: .icsFeedsChanged, object: nil)
+        .padding(.vertical, 2)
+        // Format example + the how-to (instructions live in Help, not here).
+        HStack {
+            Text(verbatim: "Example: \(example)")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button("How to obtain") {
+                HelpNav.pending = helpTopic
+                NotificationCenter.default.post(name: .openHelpTopic, object: helpTopic)
             }
             .font(.caption)
         }
+    }
+}
+
+/// The subscribed feeds (all providers), one row each: the feed's calendar name (X-WR-CALNAME,
+/// once fetched) with right-aligned Remove / Refresh. A separate section from the forms above.
+private struct CalendarFeedList: View {
+    let calId: String
+    /// This list's provider slice: Outlook feeds under the Outlook section; everything else
+    /// (Google + generic .ics — either could have been pasted into the Google box) under Google's.
+    let outlook: Bool
+    @State private var feeds: [String]
+    @State private var nameGen = 0 // bumped when a fetched feed name lands (see feedTitle)
+
+    init(calId: String, outlook: Bool) {
+        self.calId = calId
+        self.outlook = outlook
+        _feeds = State(initialValue: ICSFeeds.list(calendarId: calId))
+    }
+
+    private var shown: [String] {
+        feeds.filter { (ICSFeedProvider.label(forURL: $0) == "Outlook Calendar") == outlook }
+    }
+
+    var body: some View {
+        Group {
+            if shown.isEmpty {
+                Text("No subscribed calendars.").font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(shown, id: \.self) { url in
+                HStack(spacing: 8) {
+                    Image(systemName: "link").font(.caption).foregroundStyle(.secondary)
+                    Text(feedTitle(url)).font(.callout).lineLimit(1)
+                    Spacer(minLength: 10)
+                    Button("Remove") {
+                        ICSFeeds.remove(url, calendarId: calId)
+                        feeds = ICSFeeds.list(calendarId: calId)
+                    }
+                    .font(.caption)
+                    Button("Refresh") {
+                        // Full per-calendar re-import: importICSFeeds prunes feeds missing from the
+                        // list it's given, so a single-feed call would delete the others' events.
+                        NotificationCenter.default.post(name: .icsFeedsChanged, object: nil)
+                    }
+                    .font(.caption)
+                }
+                .padding(.vertical, 1)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .icsFeedsChanged)) { _ in
+            feeds = ICSFeeds.list(calendarId: calId) // an Add in the section above (or elsewhere)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .icsFeedNamesChanged)) { _ in
+            nameGen &+= 1 // a fetch stored a feed's display name → re-render the rows
+        }
+    }
+
+    /// "Google Calendar — <name>" / "Outlook Calendar — <name>" once a fetch captured the feed's
+    /// X-WR-CALNAME; the privacy-friendly host · key form until then.
+    private func feedTitle(_ url: String) -> String {
+        _ = nameGen // @State read → the rows re-render when a name arrives
+        let provider = ICSFeedProvider.label(forURL: url)
+        let name = UserDefaults.standard.string(forKey: PrefKeys.icsFeedName(ICSFeedKey.feedKey(url)))
+        return "\(provider) — \(name ?? ICSFeeds.displayName(url))"
     }
 }
 
@@ -324,7 +416,7 @@ private struct AccentColorRows: View {
     var body: some View {
         HStack(spacing: 10) {
             swatch(AccentPref.defaultHex)
-            Text("MagiCal Red")
+            Text("MagnifiCal Red")
             Text("default").font(.caption).foregroundStyle(.secondary)
             Spacer()
         }
@@ -643,7 +735,7 @@ private struct NotificationsTab: View {
         case .denied:
             HStack(spacing: 10) {
                 Circle().fill(.orange).frame(width: 9, height: 9)
-                Text("Notifications are turned off for MagiCal in System Settings.")
+                Text("Notifications are turned off for MagnifiCal in System Settings.")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Open System Settings…") {
@@ -809,9 +901,9 @@ private struct DeveloperTab: View {
                     NotificationScheduler.shared.dumpPending()
                 }
                 Text("Writes the notifications currently scheduled with macOS (the ground truth of what " +
-                    "will ring) to the unified log — subsystem dev.libirabu.calendar, category notify. " +
+                    "will ring) to the unified log — subsystem dev.magnifical.calendar, category notify. " +
                     "Watch it in Xcode's console, Console.app, or:\n" +
-                    "log stream --predicate 'subsystem == \"dev.libirabu.calendar\" AND category == \"notify\"'")
+                    "log stream --predicate 'subsystem == \"dev.magnifical.calendar\" AND category == \"notify\"'")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)

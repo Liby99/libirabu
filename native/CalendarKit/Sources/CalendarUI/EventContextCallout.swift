@@ -179,7 +179,9 @@ struct EventContextCallout: View {
     }
 
     private var kind: CalendarEngine.ItemKind? {
-        engine.kind(of: id)
+        // IncludingImported: plain kind(of:) only sees the editable store, which hid the
+        // kind-gated overlay rows (Promote, Paste Here) on imported boxes.
+        engine.kindIncludingImported(id)
     }
 
     private var promoted: Bool {

@@ -253,6 +253,9 @@ public final class CalendarEngine {
     /// UI-provided: the subscribed ICS feed URLs (stored in the UI-side Keychain). Lets engine-
     /// initiated refreshes (Sync Now) re-import feeds without the engine touching secrets.
     public var icsFeedURLs: (() -> [String])?
+    /// Feed key ("gcal-<key>-…" id prefix) → the subscribed feed URL, recorded at import time —
+    /// resolves an imported box back to its feed for provenance labels + Edit-original links.
+    var icsFeedByKey: [String: String] = [:]
     public var trackEditing = false // an inline track-name field is open (freezes scroll)
     public let chrome = CalendarChrome() // breadcrumb state for the toolbar
 
@@ -451,6 +454,10 @@ public final class CalendarEngine {
     private var undoWork: DispatchWorkItem?
     /// The set of calendars ("documents"); guarantees a "Main" exists + migrates a legacy install.
     let registry = CalendarRegistry()
+    /// Item counts of the INACTIVE calendars for the File ▸ Calendars submenu (see
+    /// calendarMenuRows). A closed calendar's store can't change, so entries live until the
+    /// calendar is switched away from (refreshed) or removed (dropped).
+    var calCountCache: [String: Int] = [:]
     /// The ACTIVE calendar's on-disk store. Set in init() from `registry.activeId`; repointed by
     /// `switchCalendar`. Implicitly-unwrapped so property init needn't reference `registry`.
     var store: ItemStore!

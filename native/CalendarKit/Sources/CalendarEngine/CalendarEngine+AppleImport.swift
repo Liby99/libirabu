@@ -13,7 +13,7 @@ extension CalendarEngine {
     // running engine share them without a direct reference; Settings posts `.appleCalendarSettingsChanged`
     // to nudge an immediate re-import. Imported events are read-only + kept out of persistence/iCloud.
 
-    /// Keyed per ACTIVE calendar: each MagiCal calendar subscribes to its own external calendars.
+    /// Keyed per ACTIVE calendar: each MagnifiCal calendar subscribes to its own external calendars.
     public var appleSyncEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: PrefKeys.appleEnabled(registry.activeId)) }
         set { UserDefaults.standard.set(newValue, forKey: PrefKeys.appleEnabled(registry.activeId)) }

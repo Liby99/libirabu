@@ -610,6 +610,8 @@ struct EventDrawer: View {
             VStack(alignment: .leading, spacing: 14) {
                 if imported {
                     importedBanner
+                } else if let src = engine.editableImportSource(id) {
+                    editableImportBanner(src) // .ics file import: editable, but explain the badge
                 }
                 VStack(alignment: .leading, spacing: 7) {
                     Group {
@@ -958,8 +960,13 @@ struct EventDrawer: View {
         DisclosureGroup(isExpanded: $configOpen) {
             VStack(alignment: .leading, spacing: 0) {
                 configItem("Tags") { tagsControls.drawerRingAnchor(.cfgTags) }
-                configDivider
-                configItem("Repeat") { repeatControls } // rings live on each repeat sub-control
+                // Imported events have NO Repeat section: recurrence is configured in the source
+                // calendar app (Apple Calendar / Google / Outlook), which expands occurrences for
+                // us — a local rule would fight the vendor's. (Tags/promote stay: local overlays.)
+                if !imported {
+                    configDivider
+                    configItem("Repeat") { repeatControls } // rings live on each repeat sub-control
+                }
                 configDivider
                 configItem(kind == .band ? "Lane" : "Promote") { laneOrPromoteControls } // rings live on each control
                 if kind != .band { // bands are all-day → timezone-irrelevant
@@ -1010,17 +1017,21 @@ struct EventDrawer: View {
         .padding(.vertical, 7)
     }
 
-    private var importedBanner: some View {
+    /// Provenance banner for a READ-ONLY imported event: real source name (Apple Calendar /
+    /// Google Calendar / Calendar Feed) + Edit-original deep link (when derivable) + local copy.
+    @ViewBuilder private var importedBanner: some View {
+        let prov = engine.importedProvenance(id)
         HStack(spacing: 7) {
             Image(systemName: "calendar").font(.system(size: 11, weight: .semibold))
-            Text("Apple Calendar").font(.system(size: 11, weight: .medium)).fixedSize()
+            Text(prov?.label ?? "Imported").font(.system(size: 11, weight: .medium)).fixedSize()
             Spacer(minLength: 6)
-            // Reveal the event back in Calendar.app (only when we still hold its identifier).
-            if let url = engine.appleOriginalURL(id) {
+            // Reveal the event back in its source calendar (Calendar.app deep link / Google
+            // Calendar web link) — only when we can still derive the original's identity.
+            if let prov, let url = prov.editURL {
                 Button { NSWorkspace.shared.open(url) } label: {
                     Label("Edit original", systemImage: "arrow.up.forward.app")
                 }
-                .help("Open this event in Calendar.app")
+                .help(prov.editHelp)
             }
             // Clone into our own calendar (editable); the read-only original is hidden. Re-point the drawer.
             Button {
@@ -1036,6 +1047,26 @@ struct EventDrawer: View {
         .buttonStyle(.borderless)
         .controlSize(.small)
         .font(.system(size: 11, weight: .medium))
+        .lineLimit(1)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 9).padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.12)))
+    }
+
+    /// Informational banner for an EDITABLE item that still wears the imported badge (a one-shot
+    /// .ics file import): explains the badge without vendor buttons — the copy is fully local.
+    private func editableImportBanner(_ source: String) -> some View {
+        let label = switch source {
+        case "ical": "Imported from .ics file (editable local copy)"
+        case "apple": "Imported from Apple Calendar (editable local copy)"
+        default: "Imported (editable local copy)"
+        }
+        return HStack(spacing: 7) {
+            Image(systemName: "square.and.arrow.down").font(.system(size: 11, weight: .semibold))
+            Text(label).font(.system(size: 11, weight: .medium))
+            Spacer(minLength: 0)
+        }
         .lineLimit(1)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 9).padding(.vertical, 6)
@@ -1776,19 +1807,23 @@ struct EventDrawer: View {
         }
         if configOpen {
             order.append(.cfgTags)
-            order.append(.cfgRepeat)
-            // The repeat sub-controls appear conditionally — mirror repeatControls exactly so Tab
-            // visits every input that's actually on screen.
-            if rep.kind == "weekly" || rep.kind == "weekdays" {
-                order.append(.repEvery)
-            }
-            if rep.kind == "weekdays" {
-                order.append(.repDays)
-            }
-            if rep.kind != "none" {
-                order.append(.repUntil)
-                if rep.until != nil {
-                    order.append(.repUntilDate)
+            // Imported events have no Repeat section (vendor-owned recurrence) — keep the Tab
+            // cycle in lockstep with configBox.
+            if !imported {
+                order.append(.cfgRepeat)
+                // The repeat sub-controls appear conditionally — mirror repeatControls exactly so
+                // Tab visits every input that's actually on screen.
+                if rep.kind == "weekly" || rep.kind == "weekdays" {
+                    order.append(.repEvery)
+                }
+                if rep.kind == "weekdays" {
+                    order.append(.repDays)
+                }
+                if rep.kind != "none" {
+                    order.append(.repUntil)
+                    if rep.until != nil {
+                        order.append(.repUntilDate)
+                    }
                 }
             }
             order.append(.cfgPromote)

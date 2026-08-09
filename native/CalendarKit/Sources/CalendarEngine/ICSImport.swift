@@ -69,6 +69,17 @@ public enum ICSImport {
         RichFields(notes: notes, tags: ["imported"], source: "ical")
     }
 
+    /// The calendar's own display name, from the VCALENDAR-level X-WR-CALNAME header (Google —
+    /// and most providers — set it on exported/secret feeds). nil when absent.
+    public static func feedCalendarName(from text: String) -> String? {
+        for line in unfold(text) {
+            guard let (name, _, value) = property(line), name == "X-WR-CALNAME" else { continue }
+            let clean = unescapeText(value).trimmingCharacters(in: .whitespacesAndNewlines)
+            return clean.isEmpty ? nil : clean
+        }
+        return nil
+    }
+
     // ── Wall-clock model ──────────────────────────────────────────────────────────────
     /// A resolved date/time in the device's local wall clock. `allDay` drops the time.
     private struct WC { var year, month, day, hour, minute: Int; var allDay: Bool }
@@ -677,10 +688,12 @@ public enum ICSImport {
     /// Recurring VEVENTs expand a subset of RRULE (DAILY/WEEKLY/BYDAY/YEARLY + INTERVAL + UNTIL +
     /// COUNT, minus EXDATEs) across `years`; overridden instances (RECURRENCE-ID) replace their slot.
     /// MONTHLY and fancier rules fall back to the base occurrence only.
-    public static func feedItems(from text: String, feedKey: String, years: ClosedRange<Int>)
-        -> (events: [TimedEvent], bands: [BandEvent], rich: [String: RichFields]) {
+    public static func feedItems(from text: String, feedKey: String, years: ClosedRange<Int>,
+                                 provenance: String = "Calendar feed")
+        -> (events: [TimedEvent], bands: [BandEvent], rich: [String: RichFields], uids: [String: String]) {
         var events: [TimedEvent] = [], bands: [BandEvent] = []
         var rich: [String: RichFields] = [:]
+        var uids: [String: String] = [:] // series id → raw UID (for the Google "Edit original" link)
         let parsed = vevents(in: text)
         // Overridden instances claim their original slot so the base expansion skips it.
         var overridden: Set<String> = []
@@ -700,7 +713,10 @@ public enum ICSImport {
             let title = ve.summary.isEmpty ? "(untitled)" : ve.summary
             let uid = ve.uid ?? "\(title)-\(s.year)\(s.month)\(s.day)"
             let series = "gcal-\(feedKey)-\(sanitize(uid))"
-            let block = ManagedNote.render(provenance: "Google Calendar feed",
+            if ve.uid != nil {
+                uids[series] = uid
+            }
+            let block = ManagedNote.render(provenance: provenance,
                                            meetingUrl: ve.url, location: ve.location, organizer: ve.organizer,
                                            attendees: ve.attendees.map { ($0.name, $0.status ?? "") },
                                            description: ve.description)
@@ -744,7 +760,7 @@ public enum ICSImport {
                 }
             }
         }
-        return (events, bands, rich)
+        return (events, bands, rich, uids)
     }
 
     private static func daysBetween(_ a: WC, _ b: WC) -> Int {

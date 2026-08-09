@@ -204,7 +204,7 @@ struct CalendarNameDialog: View {
         ZStack {
             Color.black.opacity(0.1).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { cancel() }
             VStack(spacing: 14) {
-                Text(isRename ? "Rename Calendar" : "New MagiCal")
+                Text(isRename ? "Rename Calendar" : "New MagnifiCal")
                     .font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.text)
                 TextField("Name", text: Binding(get: { ui.calendarPromptText },
                                                 set: { ui.calendarPromptText = $0 }))
