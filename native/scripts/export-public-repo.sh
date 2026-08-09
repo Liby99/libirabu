@@ -66,9 +66,10 @@ for d in calendar-import-design.md keyboard-navigation.md; do
     [ -f "$root/docs/$d" ] && cp "$root/docs/$d" "$stage/docs/"
 done
 
-echo "→ public-repo boilerplate (README, CONTRIBUTING, .github, .gitignore)"
+echo "→ public-repo boilerplate (README, CONTRIBUTING, .github, .gitignore) + format config"
 copy "$here/public-repo/" "$stage/"
 rm -f "$stage/PUBLISH-CHECKLIST.md" # operator notes never publish
+cp "$here/.swiftformat" "$stage/.swiftformat" # CI's lint step + contributors format against it
 
 echo "→ sanitize operator docs (author ids, signing identity)"
 perl -pi -e 's/ziyang\@cs\.jhu\.edu/<your-apple-id>/g' "$stage/MagnifiCalApp/DISTRIBUTE.md"
