@@ -44,6 +44,9 @@ public final class DemoController {
     // toggle — keyboard-focus the first row, then activate it (check animation + strike-through + persist).
     @ObservationIgnored var dashTodoFocusHook: (() -> Void)?
     @ObservationIgnored var dashTodoToggleHook: (() -> Void)?
+    // help-shot scenes: flip the pinned dashboard's tab exactly like a tab click — no editor
+    // focus, so a written note stays in its content-default PREVIEW (⌘E would force edit mode).
+    @ObservationIgnored var dashSetTabHook: ((DashTab) -> Void)?
 
     // search-demo scene hooks (wired by CalendarView.setupOnAppear): open the toolbar search bar, and the
     // live SearchState the field binds to — the scene types into it and reads the results.
@@ -83,7 +86,7 @@ public final class DemoController {
         active = true
         self.engine = engine
         self.size = size
-        // Script-launched app bundles (BIN=MagiCal.app/... bench runs) start UNACTIVATED: no key
+        // Script-launched app bundles (BIN=MagnifiCal.app/... bench runs) start UNACTIVATED: no key
         // window, and the bench window can sit occluded behind the user's session — which pauses
         // presents and records a run that measures nothing. Front the window like the CLI shell does.
         NSApp.activate(ignoringOtherApps: true)
@@ -122,6 +125,9 @@ public final class DemoController {
         case "promote-manual": await scenePromoteManual()
         case "daily-dashboard": await sceneDailyDashboard()
         case "dashboard-tour": await sceneDashboardTour()
+        case "proj-gantt": await sceneHelpShot(tab: "proj")
+        case "todo-panel": await sceneHelpShot(tab: "todo")
+        case "note-preview": await sceneHelpShot(tab: "note")
         case "bench-year-scroll": await sceneBenchYearScroll()
         case "bench-year-fling": await sceneBenchYearFling()
         case "bench-month-swipe": await sceneBenchMonthSwipe()
@@ -542,7 +548,8 @@ public final class DemoController {
     /// Write the scene's crop region (a fraction of the view) to $CC_DEMO_DATADIR/crop.txt in VIEW-LOCAL
     /// points (top-left origin, relative to the content area). The recording script records only this
     /// region, so each GIF is tight around the events/timeline instead of the whole window.
-    private func writeCrop(x fx: CGFloat, y fy: CGFloat, w fw: CGFloat, h fh: CGFloat) {
+    /// Internal: the help-shot scenes (DemoController+HelpGIFs.swift) crop to the dashboard panel.
+    func writeCrop(x fx: CGFloat, y fy: CGFloat, w fw: CGFloat, h fh: CGFloat) {
         guard let dir = ProcessInfo.processInfo.environment["CC_DEMO_DATADIR"], !dir.isEmpty else { return }
         // Even integers keep the encoder happy; clamp inside the content.
         let x = Int((size.width * fx).rounded()), y = Int((size.height * fy).rounded())

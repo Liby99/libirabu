@@ -25,3 +25,17 @@ keep the file small; the cropped scenes use the script defaults. All get a `gifs
 These are produced automatically by `scripts/record-tutorial.sh <scene>` (see DemoController.swift). They're
 copied into the app bundle at build time and loaded via `Bundle.module.url(...subdirectory:"tutorial")`. A
 slide falls back to a placeholder if its GIF is missing.
+
+## Still help screenshots (PNGs)
+
+The Help browser's `.image` blocks (HelpContent) use STILL screenshots, captured by
+`./scripts/capture-help-shots.sh [scene ...]` — one settled frame per scene instead of a movie, in the
+same `<name>-light.png` / `<name>-dark.png` theme pairs (HelpView's HelpStill picks the variant). Scenes
+live in DemoController+HelpGIFs.sceneHelpShot and seed TODAY-RELATIVE data, so a re-capture always shows
+current-looking bars/dates.
+
+| filename           | scene (capture-help-shots.sh) | shows |
+|--------------------|-------------------------------|-------|
+| `proj-gantt.png`   | `proj-gantt`   | The PROJ tab's gantt charts: bars, hatch, due ticks, milestone rule, event box, pinned row. |
+| `todo-panel.png`   | `todo-panel`   | The TODO tab: Pinned section, due/priority/followup meta, project pills, provenance prefixes. |
+| `note-preview.png` | `note-preview` | The NOTE tab's preview: DUE/FROM/DONE pills, priority badges, tag/person/project chips. |

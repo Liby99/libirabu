@@ -449,6 +449,150 @@ extension DemoController {
         engine.todoFeedRefreshNow(today: NativeDashPanel.todayIso()) // land the seeds NOW
     }
 
+    /// ── STILL help shots (scripts/capture-help-shots.sh) ────────────────────────────────────────
+    /// One SETTLED frame per scene, not a motion demo: month view, the dashboard pinned open on
+    /// `tab` ("todo" | "proj" | "note"), seeded today-relative so every re-capture shows live
+    /// bars (a crossed due → hatch, future dues → ticks, a pinned row, the milestone rule and
+    /// event box). The scene crops to the panel, signals ready, and holds; the capture script
+    /// grabs a single PNG instead of recording a movie.
+    func sceneHelpShot(tab: String) async {
+        guard let engine else { return }
+        engine.demoClearEvents()
+        seedWeek()
+        seedYear()
+        seedHelpShots()
+        engine.demoSetDashMonthFrac(0.5) // double the default 0.25 — readable rows/bars in a still
+        let today = NativeDashPanel.todayIso()
+        let month = (Int(today.dropFirst(5).prefix(2)) ?? 7) - 1
+        engine.jumpToMonth(engine.year, month) // this month's month view
+        try? await pause(2.4)
+
+        // Pin the panel open at MONTH level (the pin can also LEAK open from a previous run's
+        // UserDefaults — then it's already out and posting ⌘B again would retract it). The
+        // hotkey is a no-op while the month-jump is still in flight (dashHotkey ignores the
+        // year level), so post-and-poll until the pin actually lands.
+        for _ in 0 ..< 4 where !engine.dashPinned {
+            NotificationCenter.default.post(name: .focusDashTodo, object: nil)
+            for _ in 0 ..< 15 where !engine.dashPinned {
+                try? await pause(0.1)
+            }
+        }
+        // Land on the target tab like a TAB CLICK (dashSetTabHook), not the ⌘E/⌘J hotkeys:
+        // ⌘E forces the note EDITOR (the shot wants the arrival-rule PREVIEW of a written
+        // note), and a re-posted hotkey on its own tab retracts the panel.
+        try? await pause(1.2)
+        dashSetTabHook?(tab == "proj" ? .proj : tab == "note" ? .note : .todo)
+        try? await pause(2.0) // tab mount + slide-in fully settled
+        cropToDashPanel(tab: tab)
+        signalReady()
+        await waitForGo()
+        try? await pause(0.8) // hold the settled frame while the script grabs it
+    }
+
+    /// Crop to the open dashboard panel — the scope panel's rect from dashScopePanels, the same
+    /// geometry the chrome draws with (see projTabPoint). Vertically: from just above the header
+    /// block (kicker + title + tabs live in the band's lower half) to the panel bottom — except
+    /// the PROJ tab, whose content-sized chart stack would leave the still half dead space, so
+    /// its bottom is estimated from the feed (NativeProjPanel's row metrics).
+    private func cropToDashPanel(tab: String) {
+        guard let engine else { return }
+        let input = engine.snapshotInput()
+        guard let sp = dashScopePanels(input) else { return }
+        let p = sp.a
+        let dy = dashBodyPanels(input).first?.dy ?? 0
+        // Geometry space → view: −gutterShift (the pinned month view reclaims the label gutter,
+        // shifting the whole scene left — p.x alone landed the crop ~275pt right of the panel).
+        let x = max(0, Layout.padLeft + p.x - engine.gutterShift - 8)
+        let y = max(0, Layout.topPad + dy + Layout.monthH - 96)
+        var h = size.height - y
+        if tab == "proj" {
+            let key = String(NativeDashPanel.todayIso().prefix(7))
+            let feed = ProjIndex.shown(engine.projFeed(today: NativeDashPanel.todayIso()),
+                                       rs: key + "-01", re: CalendarEngine.monthEndIso(key))
+            // Per chart: section header (~30) + headroom + rows + two axis rows + stack spacing.
+            let charts = feed.reduce(CGFloat(0)) { acc, proj in
+                let rows = CGFloat(min(proj.tasks.count, ProjIndex.maxRows))
+                let headroom: CGFloat = proj.deadlines.isEmpty && proj.events.isEmpty ? 24 : 36
+                return acc + 30 + headroom + rows * NativeProjPanel.rowH + 36 + 22
+            }
+            let bodyTop = Layout.topPad + dy + Layout.monthH + 14
+            h = min(h, bodyTop + charts + 10 - y)
+        }
+        writeCrop(x: x / size.width, y: y / size.height,
+                  w: 1 - x / size.width, h: h / size.height) // script clamps to the window
+    }
+
+    /// seedDashboardTour's cast re-anchored on the REAL today (demo mode doesn't pin the date),
+    /// so the captured stills read current whenever they're re-taken: bars land around the now
+    /// line, one due is crossed (hatch), the rest lie ahead (ticks), and the month view is the
+    /// month being captured.
+    private func seedHelpShots() {
+        guard let engine else { return }
+        let today = NativeDashPanel.todayIso()
+        func d(_ off: Int) -> String {
+            TodoIndex.addDuration(today, off, "d")
+        }
+        /// (month index, day) of an ISO date, clamped into TODAY's month for the month-locked
+        /// seeds (bands/events near a month edge just hug the boundary).
+        func md(_ iso: String) -> (m: Int, day: Int) {
+            let p = iso.split(separator: "-").compactMap { Int($0) }
+            let t = today.split(separator: "-").compactMap { Int($0) }
+            guard p.count == 3, t.count == 3 else { return (6, 15) }
+            if p[0] < t[0] || (p[0] == t[0] && p[1] < t[1]) {
+                return (t[1] - 1, 1)
+            }
+            if p[0] > t[0] || (p[0] == t[0] && p[1] > t[1]) {
+                let last = Int(CalendarEngine.monthEndIso(String(today.prefix(7))).suffix(2)) ?? 28
+                return (t[1] - 1, last)
+            }
+            return (p[1] - 1, p[2])
+        }
+        engine.setDailyNote("month:" + today.prefix(7), """
+        ## Apollo
+        - [x] Draft the architecture @project:apollo created:\(d(-12)) done:\(d(-6))T14:00 due:\(d(-7))
+        - [x] Build the data importer @project:apollo created:\(d(-9)) start:\(d(-5)) done:\(d(-1))T11:20
+        - [ ] Ship the beta build @project:apollo created:\(d(-4)) due:\(d(9)) p:!!! #proj-pinned
+        - [ ] Write onboarding docs @project:apollo created:\(d(-2)) due:\(d(14)) #pinned
+
+        ## Paper
+        - [x] Run the ablation sweep @project:neurips-paper created:\(d(-11)) done:\(d(-2))T16:00
+        - [ ] Final experiments @project:neurips-paper created:\(d(-6)) due:\(d(5)) p:!!
+        - [ ] Polish the figures @project:neurips-paper created:\(d(-3)) due:\(d(11)) #figures
+        - [ ] Camera-ready pass @project:neurips-paper created:\(d(-1)) due:\(d(16))
+
+        ## This month
+        - [ ] Revise the intro section p:!!!! due:\(d(-1))
+        - [ ] Book flights for the conference #travel due:\(d(8))
+        - [ ] Circle back with the reviewers followup:\(d(4)) @chair
+        - [x] Submit the expense report done:\(d(-3))T10:00
+        """)
+        engine.setDailyNote(today, """
+        - [ ] Prepare the demo script due:\(d(1))
+        - [ ] Send the agenda to Sam @sam due:\(today)
+        """)
+        let rev = md(d(2))
+        let review = engine.demoAddTimed(month: rev.m, day: rev.day, startHour: 15, endHour: 16,
+                                         title: "Grant review", color: "indigo")
+        engine.setNotes(review, """
+        - [ ] Score the proposals p:!! due:\(d(3))
+        - [ ] Send summary to the committee @chair due:\(d(4))
+        """)
+        // The apollo chart's milestone rule + event box (bare @project: lines in their notes).
+        let dl = md(d(9))
+        let launch = engine.createDeadline(year: engine.year, month: dl.m, day: dl.day, hour: 17,
+                                           title: "Beta launch", color: "red")
+        engine.setNotes(launch, "@project:apollo")
+        let (b0, b1) = (md(d(-3)), md(d(2)))
+        // Track 2: free of seedYear's ambient bands in any nearby month (track 1 holds
+        // August's "Summit", which would collide with a same-track sprint band).
+        let sprint = engine.demoAddBand(month: b1.m, track: 2,
+                                        startDay: b0.m == b1.m ? b0.day : 1, endDay: b1.day,
+                                        title: "Apollo sprint", color: "purple")
+        engine.setNotes(sprint, "@project:apollo")
+        engine.demoSelect(nil)
+        engine.todoFeedRefreshNow(today: today) // land the seeds NOW
+    }
+
     /// Float the synthetic cursor in a borderless, click-through panel window pinned over the main
     /// window's content area — above EVERY window layer, including NSPopover callouts (which sit over the
     /// whole SwiftUI hierarchy and would otherwise cover an in-tree cursor overlay).
