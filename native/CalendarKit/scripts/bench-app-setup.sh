@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stage the "manual benchmark" data dir for the Xcode CalendarApp (MagiCal), then print the exact
+# Stage the "manual benchmark" data dir for the Xcode CalendarApp (MagnifiCal), then print the exact
 # environment variables to paste into its Run scheme. This lets you A/B the SIGNED Xcode app against
 # the CalendarMac harness by hand: same fixture data (145 bands · 487 events), and EVERYTHING else off —
 # no iCloud sync, no ICS feeds, no Apple-Calendar import, no notifications, no now-timer (all gated by
@@ -8,7 +8,7 @@
 #   ./scripts/bench-app-setup.sh            # stage the default display fixture
 #   PAYLOAD=full ./scripts/bench-app-setup.sh   # copy your REAL live store instead (max realism)
 #
-# If MagiCal is smooth in this mode but janky normally, the cost is the background work, not rendering.
+# If MagnifiCal is smooth in this mode but janky normally, the cost is the background work, not rendering.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

@@ -71,7 +71,7 @@ public final class ConversationStore {
             let data = try JSONEncoder().encode(conversations)
             try data.write(to: url, options: .atomic)
         } catch {
-            Logger(subsystem: "dev.libirabu.calendar", category: "chat")
+            Logger(subsystem: "dev.magnifical.calendar", category: "chat")
                 .error("conversation store write FAILED: \(error.localizedDescription, privacy: .public)")
         }
     }

@@ -1,4 +1,4 @@
-# MagiCal Assistant — Scenario & Evaluation Dataset
+# MagnifiCal Assistant — Scenario & Evaluation Dataset
 
 A prompt-tuning + regression dataset for the AI assistant (chat → tools → auditor pipeline).
 Each scenario is a realistic user interaction, the ideal system behavior, measurable success

@@ -13,10 +13,19 @@
 		<string>CloudKit</string>
 	</array>
 	<!-- iCloud key-value store: syncs small app preferences (appearance, …) across the
-	     user's devices via NSUbiquitousKeyValueStore. Xcode expands the variables to
-	     <TeamID>.dev.libirabu.calendar. Part of the same iCloud capability already enabled. -->
+	     user's devices via NSUbiquitousKeyValueStore. PINNED to the LEGACY app id (not
+	     $(CFBundleIdentifier)): the bundle id became dev.magnifical.calendar in 2026-08's
+	     rename, and following it would orphan every user's synced prefs. -->
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
-	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
+	<string>$(TeamIdentifierPrefix)dev.libirabu.calendar</string>
+	<!-- Keychain: new items land in the app's own group (first entry); the LEGACY group is
+	     listed so API keys + ICS feed URLs stored by the dev.libirabu.calendar builds stay
+	     readable after the bundle-id rename (the item service string never changed). -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)dev.magnifical.calendar</string>
+		<string>$(AppIdentifierPrefix)dev.libirabu.calendar</string>
+	</array>
 	<!-- Hardened Runtime resource access: EventKit (Apple Calendar import). Pairs with the
 	     NSCalendarsFullAccessUsageDescription usage string in the generated Info.plist. -->
 	<key>com.apple.security.personal-information.calendars</key>

@@ -1,5 +1,5 @@
-// Renders the DMG volume icon: a clean, drawn-in-code disk drive with the MagiCal app icon
-// composited on its face — the classic "disk with the app inside" a mounted MagiCal.dmg shows.
+// Renders the DMG volume icon: a clean, drawn-in-code disk drive with the MagnifiCal app icon
+// composited on its face — the classic "disk with the app inside" a mounted MagnifiCal.dmg shows.
 //
 // The drive is OUR artwork (make-icon.swift house style: minimal, monotone grays, hairlines) —
 // NSWorkspace.icon(for: .diskImage) was tried first and rejected: its small representations

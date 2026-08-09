@@ -9,10 +9,14 @@
 /* Begin PBXBuildFile section */
 		11C9B6871CD81247B3236C9F /* CalendarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01C64964D11274919B9C8CB0 /* CalendarApp.swift */; };
 		16A2BA359D6134E8A00015F8 /* CalendarApp_iOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC56E7EA43E70B5199ACD8ED /* CalendarApp_iOS.swift */; };
+		1A6F44304956BD0E09A59D56 /* empty.json in Resources */ = {isa = PBXBuildFile; fileRef = 419AB648DD4F66B087E6CA59 /* empty.json */; };
+		241B61EFA0B209A9DB1F93D6 /* todo-dense-2026.json in Resources */ = {isa = PBXBuildFile; fileRef = A765860F0690BF30E7E61549 /* todo-dense-2026.json */; };
 		41AD28C49C7A1C726CE6DF07 /* PhoneEventSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2546ABFD1065E6FC703B37F7 /* PhoneEventSheet.swift */; };
 		607B9674E8C9FF684B82C101 /* PhoneMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BAE0AB0D1D411DCF3BA7924 /* PhoneMenuView.swift */; };
+		659485E7C85FF2BAA2CE3C9C /* year-display-2026.json in Resources */ = {isa = PBXBuildFile; fileRef = E53ACBE6385A60031AD8F6D6 /* year-display-2026.json */; };
 		6824311A9C2A2662CD2252A0 /* SyncHarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C789AA3FD488F088FF6D88E5 /* SyncHarnessView.swift */; };
 		70E6451AC9E8333EE4545419 /* PhoneCalendarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B02BDE9796F06C3BE0399496 /* PhoneCalendarView.swift */; };
+		88FC9DC4D1E9901ED2377447 /* year-dense-2026.json in Resources */ = {isa = PBXBuildFile; fileRef = 61E7B91A91A295847A413FBD /* year-dense-2026.json */; };
 		8F01E15DBDD027143974B0BB /* PhoneMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40312066751FD684A47801C /* PhoneMarkdown.swift */; };
 		9FBEFB316C1463468E7C3678 /* CalendarUI in Frameworks */ = {isa = PBXBuildFile; productRef = 4621EA362909A0CB306A1505 /* CalendarUI */; };
 		B1AB267A9F80C77C00BCFC97 /* CalendarEngine in Frameworks */ = {isa = PBXBuildFile; productRef = 80D6AD537A21092EBD96D7DE /* CalendarEngine */; };
@@ -27,8 +31,11 @@
 		01C64964D11274919B9C8CB0 /* CalendarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarApp.swift; sourceTree = "<group>"; };
 		2546ABFD1065E6FC703B37F7 /* PhoneEventSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneEventSheet.swift; sourceTree = "<group>"; };
 		3BAE0AB0D1D411DCF3BA7924 /* PhoneMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneMenuView.swift; sourceTree = "<group>"; };
+		419AB648DD4F66B087E6CA59 /* empty.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = empty.json; sourceTree = "<group>"; };
+		61E7B91A91A295847A413FBD /* year-dense-2026.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "year-dense-2026.json"; sourceTree = "<group>"; };
 		96E6CFB98C6B71920E5BD485 /* PhonePagers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePagers.swift; sourceTree = "<group>"; };
 		9F26929D3FA8206C874AC575 /* CalendarApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CalendarApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A765860F0690BF30E7E61549 /* todo-dense-2026.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "todo-dense-2026.json"; sourceTree = "<group>"; };
 		B02BDE9796F06C3BE0399496 /* PhoneCalendarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneCalendarView.swift; sourceTree = "<group>"; };
 		B40312066751FD684A47801C /* PhoneMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneMarkdown.swift; sourceTree = "<group>"; };
 		B6F1345B7435663121D4B4D1 /* CalendarKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CalendarKit; path = ../CalendarKit; sourceTree = SOURCE_ROOT; };
@@ -37,6 +44,7 @@
 		C789AA3FD488F088FF6D88E5 /* SyncHarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncHarnessView.swift; sourceTree = "<group>"; };
 		CF4DC5ACF24156D3C0AAA974 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DC56E7EA43E70B5199ACD8ED /* CalendarApp_iOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarApp_iOS.swift; sourceTree = "<group>"; };
+		E53ACBE6385A60031AD8F6D6 /* year-display-2026.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "year-display-2026.json"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -61,12 +69,32 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		44751D4D8CED2F3329600BB4 /* native */ = {
+			isa = PBXGroup;
+			children = (
+				A4841147425F0AEC74CBB706 /* CalendarKit */,
+			);
+			name = native;
+			path = ..;
+			sourceTree = "<group>";
+		};
 		5D687BEEBCEEA6E47290CFF1 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
 				B6F1345B7435663121D4B4D1 /* CalendarKit */,
 			);
 			name = Packages;
+			sourceTree = "<group>";
+		};
+		62A4BA36FFC99FE1177843FC /* bench */ = {
+			isa = PBXGroup;
+			children = (
+				419AB648DD4F66B087E6CA59 /* empty.json */,
+				A765860F0690BF30E7E61549 /* todo-dense-2026.json */,
+				61E7B91A91A295847A413FBD /* year-dense-2026.json */,
+				E53ACBE6385A60031AD8F6D6 /* year-display-2026.json */,
+			);
+			path = bench;
 			sourceTree = "<group>";
 		};
 		709E3A04F947331B7129C45B /* Sources */ = {
@@ -82,10 +110,19 @@
 			children = (
 				CF4DC5ACF24156D3C0AAA974 /* Assets.xcassets */,
 				F68F2689C5A690D9C13988EA /* iOS */,
+				44751D4D8CED2F3329600BB4 /* native */,
 				5D687BEEBCEEA6E47290CFF1 /* Packages */,
 				709E3A04F947331B7129C45B /* Sources */,
 				B83179594B26ED5721E390DA /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		A4841147425F0AEC74CBB706 /* CalendarKit */ = {
+			isa = PBXGroup;
+			children = (
+				62A4BA36FFC99FE1177843FC /* bench */,
+			);
+			path = CalendarKit;
 			sourceTree = "<group>";
 		};
 		B83179594B26ED5721E390DA /* Products */ = {
@@ -213,6 +250,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				F0D848F2BF3844A6AC26ABF9 /* Assets.xcassets in Resources */,
+				1A6F44304956BD0E09A59D56 /* empty.json in Resources */,
+				241B61EFA0B209A9DB1F93D6 /* todo-dense-2026.json in Resources */,
+				88FC9DC4D1E9901ED2377447 /* year-dense-2026.json in Resources */,
+				659485E7C85FF2BAA2CE3C9C /* year-display-2026.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -290,7 +331,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -352,7 +393,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -380,8 +421,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.libirabu.calendar;
-				PRODUCT_NAME = MagiCal;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.magnifical.calendar;
+				PRODUCT_NAME = MagnifiCal;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -399,18 +440,18 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = MagiCal;
+				INFOPLIST_KEY_CFBundleDisplayName = MagnifiCal;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MagiCal reads your Apple Calendar events so it can show them alongside your MagiCal calendar.";
-				INFOPLIST_KEY_NSCalendarsUsageDescription = "MagiCal reads your Apple Calendar events so it can show them alongside your MagiCal calendar.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MagnifiCal reads your Apple Calendar events so it can show them alongside your MagnifiCal calendar.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "MagnifiCal reads your Apple Calendar events so it can show them alongside your MagnifiCal calendar.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.libirabu.calendar;
-				PRODUCT_NAME = MagiCal;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.magnifical.calendar;
+				PRODUCT_NAME = MagnifiCal;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.0;
 			};
@@ -428,18 +469,18 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = MagiCal;
+				INFOPLIST_KEY_CFBundleDisplayName = MagnifiCal;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MagiCal reads your Apple Calendar events so it can show them alongside your MagiCal calendar.";
-				INFOPLIST_KEY_NSCalendarsUsageDescription = "MagiCal reads your Apple Calendar events so it can show them alongside your MagiCal calendar.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MagnifiCal reads your Apple Calendar events so it can show them alongside your MagnifiCal calendar.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "MagnifiCal reads your Apple Calendar events so it can show them alongside your MagnifiCal calendar.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.libirabu.calendar;
-				PRODUCT_NAME = MagiCal;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.magnifical.calendar;
+				PRODUCT_NAME = MagnifiCal;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.0;
 			};
@@ -462,8 +503,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.libirabu.calendar;
-				PRODUCT_NAME = MagiCal;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.magnifical.calendar;
+				PRODUCT_NAME = MagnifiCal;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

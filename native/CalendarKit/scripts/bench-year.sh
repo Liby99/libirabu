@@ -17,7 +17,7 @@ CONFIG="${CONFIG:-release}"
 SCENE="${SCENE:-bench-year-scroll}"   # bench-year-scroll | bench-year-fling | bench-month-swipe | bench-week-swipe
 TMP="$(mktemp -d /tmp/cc-bench.XXXXXX)"
 # BIN override: point the same scripted scene at ANY binary built from this code — e.g. the
-# Xcode-built MagiCal.app executable — to split app-shell effects from UI-code effects.
+# Xcode-built MagnifiCal.app executable — to split app-shell effects from UI-code effects.
 if [ -n "${BIN:-}" ]; then
   echo "Using external binary: $BIN (no swift build)"
 else

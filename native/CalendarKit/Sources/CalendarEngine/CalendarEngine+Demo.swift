@@ -62,6 +62,17 @@ extension CalendarEngine {
         return id
     }
 
+    /// Widen the pinned MONTH dashboard for the still help shots — the divider drag's exact
+    /// clamp (dashMonthMinW floor, 0.55 cap), so the staged width is a state a user can reach.
+    /// Demo-only: deliberately NOT persisted to UserDefaults (no pref leak out of a recording).
+    public func demoSetDashMonthFrac(_ v: CGFloat) {
+        let minFrac = Layout.dashMonthMinW / max(1, viewport.w - Layout.labelW)
+        let mv = max(min(v, 0.55), minFrac)
+        dashMonthFrac = mv
+        chrome.dashMonthFrac = mv
+        wake()
+    }
+
     /// Drive the REAL pointer/create path from VIEW-local points (GeometryReader space, 0,0 = top-left), so a
     /// scripted drag creates an event exactly under the synthetic cursor — with the live create-preview. This
     /// mirrors CatcherView.point(): geometry space = view − padLeft (+ the live drawer shift).

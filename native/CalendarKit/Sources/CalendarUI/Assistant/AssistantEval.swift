@@ -41,7 +41,9 @@ public enum AssistantEval {
 
     public static func run(_ opts: Options) async {
         // Read the APP's preferences (active provider, its tested settings, view prefs) from this
-        // headless process — its own defaults domain is empty.
+        // headless process — its own defaults domain is empty. Both domains: the app's current
+        // (dev.magnifical.calendar, post-2026-08 bundle-id rename) and the legacy one it migrated from.
+        UserDefaults.standard.addSuite(named: "dev.magnifical.calendar")
         UserDefaults.standard.addSuite(named: "dev.libirabu.calendar")
         let all = parseScenarios(at: opts.scenarioFile)
         let scenarios = opts.ids.isEmpty ? all : all.filter { opts.ids.contains($0.id) }

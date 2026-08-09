@@ -31,7 +31,7 @@ struct TutorialView: View {
         ),
         .init(
             gif: "",
-            caption: "That's the tour — your calendar is ready. Enjoy planning your time with MagiCal!",
+            caption: "That's the tour — your calendar is ready. Enjoy planning your time with MagnifiCal!",
             welcome: true
         ),
     ]
@@ -123,7 +123,7 @@ struct TutorialView: View {
     }
 }
 
-/// The final slide: the MagiCal app icon + a welcome heading, centered (the friendly sign-off is the
+/// The final slide: the MagnifiCal app icon + a welcome heading, centered (the friendly sign-off is the
 /// caption rendered below the stage). Plain SwiftUI, so it centers cleanly in the fixed stage.
 private struct WelcomeStage: View {
     let theme: Theme
@@ -138,7 +138,7 @@ private struct WelcomeStage: View {
                 Image(systemName: "calendar")
                     .font(.system(size: 96)).foregroundStyle(Theme.accent)
             }
-            Text("Welcome to MagiCal")
+            Text("Welcome to MagnifiCal")
                 .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(theme.text)
         }

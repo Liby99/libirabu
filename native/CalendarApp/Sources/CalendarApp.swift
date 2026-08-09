@@ -17,12 +17,19 @@ struct CalendarApp: App {
 
     /// The one calendar engine, owned at app level so BOTH the calendar window and the standalone
     /// chat window read the same live state — the assistant's read-only calendar context reflects
-    /// whatever the calendar is currently showing.
-    @State private var engine = CalendarEngine()
-    /// Keeps the File ▸ Close item pinned to the bottom of the File menu (retained so its delegate lives).
-    @State private var fileMenuCloseRelocator = FileMenuCloseRelocator()
+    /// whatever the calendar is currently showing. Constructed in init() (NOT as a property
+    /// default, which Swift evaluates BEFORE the init body): it must come after the legacy-
+    /// defaults migration, or the registry would read the active-calendar id from empty prefs.
+    @State private var engine: CalendarEngine
+    /// The File menu's AppKit-side maintenance: Close/Close All at the bottom + the dynamic
+    /// "Calendars" submenu, rebuilt on every open (retained so its delegate lives).
+    @State private var fileMenuUpdater = FileMenuUpdater()
 
     init() {
+        // FIRST, before anything reads preferences (the engine's registry, PrefsSync below):
+        // one-time defaults migration from the legacy dev.libirabu.calendar bundle id.
+        LegacyIdentity.migrateDefaultsIfNeeded()
+        _engine = State(initialValue: CalendarEngine())
         // The conversation store is shared by (and retained through) both sessions below.
         let store = ConversationStore()
         _assistant = State(initialValue: AssistantState(store: store))
@@ -56,9 +63,9 @@ struct CalendarApp: App {
                     // tabbing removes the View/Window menu's "Show Tab Bar / Show All Tabs / Move Tab…"
                     // items. Idempotent; safe to set on every appearance.
                     NSWindow.allowsAutomaticWindowTabbing = false
-                    // Move the default File ▸ Close (⌘W) to the bottom of the File menu (SwiftUI injects it
-                    // at the top), matching the dev shell's spec-driven placement.
-                    fileMenuCloseRelocator.install()
+                    // File menu upkeep (AppKit, on every open): Close/Close All to the bottom +
+                    // the dynamic "Calendars" submenu — matching the dev shell's spec-driven menu.
+                    fileMenuUpdater.install(engine: engine)
                 }
         }
         .defaultSize(width: 1440, height: 840)
@@ -129,10 +136,12 @@ struct CalendarApp: App {
             // and opens the in-app Help browser window; the tutorial + ⌘K shortcut guide sit below it. All
             // titles/shortcuts/actions come from the shared AppMenu spec.
             CommandGroup(replacing: .help) {
-                OpenHelpCommand() // "MagiCal Help" (⌘?) → opens the HelpView window
+                OpenHelpCommand() // "MagnifiCal Help" (⌘?) → opens the HelpView window
                 Divider()
                 MenuActionButton(.tutorial, engine: engine)
                 MenuActionButton(.keyboardShortcuts, engine: engine)
+                Divider()
+                MenuActionButton(.reportProblem, engine: engine) // prefilled GitHub issue
             }
         }
 
@@ -143,7 +152,7 @@ struct CalendarApp: App {
 
         // The standalone "Calendar AI" chat window — a separate, draggable window opened from the
         // toolbar sparkles button or the menu-bar item. Independent of the calendar window.
-        Window("MagiCal AI", id: "assistant") {
+        Window("MagnifiCal AI", id: "assistant") {
             AssistantWindowView(state: assistant, callout: quickAssistant)
                 .onAppear {
                     applyPersistedAppearance()
@@ -154,9 +163,9 @@ struct CalendarApp: App {
         .defaultSize(width: 420, height: 640) // slim, chat-only by default (sidebar starts closed)
         .windowResizability(.contentMinSize)
 
-        // The in-app Help browser — its own window (matches the AppKit dev shell's Help ▸ MagiCal Help).
+        // The in-app Help browser — its own window (matches the AppKit dev shell's Help ▸ MagnifiCal Help).
         // A single-instance window: opening it again just refocuses it. Content is HelpView (CalendarUI).
-        Window("MagiCal Help", id: "help") {
+        Window("MagnifiCal Help", id: "help") {
             HelpView()
                 .onAppear { applyPersistedAppearance() }
         }
@@ -165,30 +174,81 @@ struct CalendarApp: App {
 
         // Menu-bar item (top-right) → a small dropdown. Its presence keeps the app alive when all
         // windows are closed, so the chat can be opened without (or outliving) the calendar window.
-        MenuBarExtra("MagiCal AI", systemImage: "sparkles") {
+        MenuBarExtra("MagnifiCal AI", systemImage: "sparkles") {
             MenuBarContent(assistant: assistant)
         }
     }
 }
 
-/// Moves the default File ▸ Close (⌘W) item SwiftUI injects at the TOP of the File menu down to the
-/// bottom, out of the way of the calendar/document actions. A one-shot move is unreliable (SwiftUI builds
-/// the menu lazily and can rebuild it when our dynamic File content changes), so this attaches as the File
-/// menu's delegate and re-positions on every open. The File menu is found locale-independently by our own
-/// "New MagiCal" item; a ⌘W match (plus the performClose action) catches Close whatever selector SwiftUI
-/// gives it. Mirrors the dev shell, where the spec puts Close at the bottom of File.
-@MainActor final class FileMenuCloseRelocator: NSObject, NSMenuDelegate {
-    func install(attempt: Int = 0) {
+/// The File menu's AppKit-side maintenance, attached as its NSMenuDelegate so it re-runs on EVERY
+/// open (a one-shot pass is unreliable — SwiftUI builds the menu lazily and can rebuild it at will;
+/// and SwiftUI Commands don't reliably re-render dynamic content, so anything that must stay fresh
+/// is (re)built here instead, mirroring the dev shell's menuNeedsUpdate approach). Duties:
+///   1. Move the SwiftUI-injected Close (⌘W) / Close All items to the very bottom.
+///   2. Own the "Calendars" submenu: every calendar with its item count, the open one ticked,
+///      click switches. Rebuilt from engine.calendarMenuRows() on each open.
+///   3. Enable/disable "Remove Current MagnifiCal" by whether another calendar exists.
+/// The File menu is found locale-independently by our own "New MagnifiCal" item.
+@MainActor final class FileMenuUpdater: NSObject, NSMenuDelegate {
+    private weak var engine: CalendarEngine?
+    private static let calendarsTag = 0xCA15 // marks OUR inserted "Calendars" item
+
+    func install(engine: CalendarEngine, attempt: Int = 0) {
+        self.engine = engine
         if let file = findFileMenu() {
-            relocate(file)
-            file.delegate = self // re-position on every open (survives SwiftUI rebuilding the menu)
+            refresh(file)
+            file.delegate = self // re-run on every open (survives SwiftUI rebuilding the menu)
         } else if attempt < 12 { // menu bar not built yet → retry briefly
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.install(attempt: attempt + 1) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.install(engine: engine, attempt: attempt + 1)
+            }
         }
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        refresh(menu)
+    }
+
+    private func refresh(_ menu: NSMenu) {
         relocate(menu)
+        refreshCalendars(menu)
+    }
+
+    /// (Re)build the "Calendars" item: remove any previous instance (SwiftUI rebuilds can shuffle
+    /// the menu under us), then insert a fresh AppKit-owned submenu right after "Remove Current".
+    private func refreshCalendars(_ menu: NSMenu) {
+        guard let engine else { return }
+        if let old = menu.items.first(where: { $0.tag == Self.calendarsTag }) {
+            menu.removeItem(old)
+        }
+        let item = NSMenuItem(title: "Calendars", action: nil, keyEquivalent: "")
+        item.tag = Self.calendarsTag
+        item.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)
+        let sub = NSMenu(title: "Calendars")
+        sub.autoenablesItems = false
+        for row in engine.calendarMenuRows() {
+            let mi = NSMenuItem(title: row.label, action: #selector(pickCalendar(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.representedObject = row.id as NSString
+            mi.state = row.active ? .on : .off // the tick on the open calendar
+            sub.addItem(mi)
+        }
+        item.submenu = sub
+        // After "Remove Current MagnifiCal" (spec order: New, Remove, Calendars ▸, Rename); fall back
+        // to after "New MagnifiCal", then the top.
+        let anchor = menu.items.firstIndex { $0.title == MenuItemID.removeCalendar.title }
+            ?? menu.items.firstIndex { $0.title == MenuItemID.newCalendar.title }
+        menu.insertItem(item, at: anchor.map { $0 + 1 } ?? 0)
+        // Remove Current is pointless with a single calendar (the engine no-ops); SwiftUI's own
+        // .disabled can't track this (stale Commands), so set it here at open time.
+        if let remove = menu.items.first(where: { $0.title == MenuItemID.removeCalendar.title }) {
+            remove.isEnabled = engine.canRemoveCalendar
+        }
+    }
+
+    @objc private func pickCalendar(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        engine?.switchCalendar(to: id) // no-op when it's already the open one
     }
 
     private func findFileMenu() -> NSMenu? {
@@ -200,23 +260,36 @@ struct CalendarApp: App {
         return nil
     }
 
-    /// Collapse any Close item(s) to exactly one, at the bottom (after a separator). Idempotent: once
-    /// Close is last, re-running leaves it in place.
+    /// Collapse the Close and Close All item(s) to exactly one of each, at the bottom (after a
+    /// separator, Close first). Idempotent: once they're last, re-running leaves them in place.
     private func relocate(_ menu: NSMenu) {
-        let closes = menu.items.filter(isClose)
-        guard !closes.isEmpty else { return }
-        for c in closes {
+        let closes = menu.items.filter { isClose($0, all: false) }
+        let closeAlls = menu.items.filter { isClose($0, all: true) }
+        guard !(closes.isEmpty && closeAlls.isEmpty) else { return }
+        for c in closes + closeAlls {
             menu.removeItem(c)
         }
         if menu.items.last?.isSeparatorItem == false {
             menu.addItem(.separator())
         }
-        menu.addItem(closes[0])
+        if let c = closes.first {
+            menu.addItem(c)
+        }
+        if let ca = closeAlls.first {
+            menu.addItem(ca)
+        }
     }
 
-    private func isClose(_ item: NSMenuItem) -> Bool {
-        item.action == #selector(NSWindow.performClose(_:))
-            || (item.keyEquivalent == "w" && item.keyEquivalentModifierMask == [.command])
+    /// `all: false` → Close (⌘W / performClose); `all: true` → Close All (⌥⌘W, or any
+    /// "…closeAll…" selector, whatever name SwiftUI gives its injected item).
+    private func isClose(_ item: NSMenuItem, all: Bool) -> Bool {
+        if item.keyEquivalent == "w",
+           item.keyEquivalentModifierMask == (all ? [.command, .option] : [.command]) {
+            return true
+        }
+        guard let action = item.action else { return false }
+        return all ? String(describing: action).localizedCaseInsensitiveContains("closeall")
+            : action == #selector(NSWindow.performClose(_:))
     }
 }
 
@@ -295,18 +368,18 @@ private struct OpenAssistantCommand: View {
                 openWindow(id: "assistant")
             }
         } label: {
-            menuLabel(.openAssistant) // "MagiCal AI" + sparkles, from the shared spec
+            menuLabel(.openAssistant) // "MagnifiCal AI" + sparkles, from the shared spec
         }
         .modifier(OptionalShortcut(s: MenuItemID.openAssistant.shortcut))
     }
 }
 
-/// Help ▸ "MagiCal Help" (⌘?) — opens the in-app Help browser window. A dedicated view so
+/// Help ▸ "MagnifiCal Help" (⌘?) — opens the in-app Help browser window. A dedicated view so
 /// `@Environment(\.openWindow)` resolves inside the command builder (mirrors OpenAssistantCommand).
 private struct OpenHelpCommand: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        Button { openWindow(id: "help") } label: { menuLabel(.help) } // "MagiCal Help" + icon, from the spec
+        Button { openWindow(id: "help") } label: { menuLabel(.help) } // "MagnifiCal Help" + icon, from the spec
             .modifier(OptionalShortcut(s: MenuItemID.help.shortcut))
     }
 }
@@ -318,15 +391,15 @@ private struct MenuBarContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button { openWindow(id: "assistant") } label: { Label("Open MagiCal AI", systemImage: "sparkles") }
+        Button { openWindow(id: "assistant") } label: { Label("Open MagnifiCal AI", systemImage: "sparkles") }
         Button { assistant.newChat(); openWindow(id: "assistant") } label: { Label(
             "New Chat",
             systemImage: "square.and.pencil"
         ) }
         Divider()
-        Button { openWindow(id: "calendar") } label: { Label("Show MagiCal", systemImage: "calendar") }
+        Button { openWindow(id: "calendar") } label: { Label("Show MagnifiCal", systemImage: "calendar") }
         SettingsLink { Label("Settings…", systemImage: "gearshape") }
         Divider()
-        Button { NSApplication.shared.terminate(nil) } label: { Label("Quit MagiCal", systemImage: "power") }
+        Button { NSApplication.shared.terminate(nil) } label: { Label("Quit MagnifiCal", systemImage: "power") }
     }
 }

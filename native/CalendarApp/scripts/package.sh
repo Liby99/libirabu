@@ -22,8 +22,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PROJ_DIR="$(cd "$HERE/.." && pwd)"
 cd "$PROJ_DIR"
 
-SCHEME="MagiCalRelease"   # shared Release scheme defined in project.yml (archives the CalendarApp target)
-APP_NAME="${APP_NAME:-MagiCal}"   # must match PRODUCT_NAME in project.yml
+SCHEME="MagnifiCalRelease"   # shared Release scheme defined in project.yml (archives the CalendarApp target)
+APP_NAME="${APP_NAME:-MagnifiCal}"   # must match PRODUCT_NAME in project.yml
 TEAM_ID="${TEAM_ID:-X84ZG75WAM}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-libirabu-notary}"
 NOTARIZE="${NOTARIZE:-1}"

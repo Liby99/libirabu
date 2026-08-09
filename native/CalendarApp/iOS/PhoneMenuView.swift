@@ -8,6 +8,7 @@ import SwiftUI
 struct PhoneMenuView: View {
     let engine: CalendarEngine
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("cc.fpsHUD") private var fpsHUD = false // same key as the Mac's Developer toggle
 
     var body: some View {
         NavigationStack {
@@ -44,6 +45,16 @@ struct PhoneMenuView: View {
                 Section("Filters") {
                     Text("Tag filtering is coming to iPhone.")
                         .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Toggle("Frame rate HUD", isOn: $fpsHUD)
+                } header: {
+                    Text("Developer")
+                } footer: {
+                    Text(
+                        "fps · p95 · max over the last second. Numbers are only meaningful in a Release build — Debug SwiftUI is far slower."
+                    )
                 }
             }
             .navigationTitle("Menu")

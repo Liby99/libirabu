@@ -46,6 +46,10 @@ import Security
 
 @MainActor
 final class CloudSync: NSObject, CKSyncEngineDelegate {
+    /// DELIBERATELY the legacy id — do NOT "fix" to match the dev.magnifical.calendar bundle id.
+    /// Container ids are invisible to users and freely attach to any app id on the same team;
+    /// every user's private database lives HERE, and moving containers would mean a client-side
+    /// re-upload of all records from every device. The 2026-08 bundle-id rename kept it on purpose.
     static let containerID = "iCloud.dev.libirabu.calendar"
 
     // WEAK, not unowned: CKSyncEngine retains this delegate (and we retain it back), so CloudSync can
@@ -53,7 +57,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     // dangling `unowned` and crash. Weak + guard makes those callbacks no-op once the engine is gone.
     private weak var engine: CalendarEngine?
     private let container: CKContainer
-    /// Each MagiCal calendar syncs to its OWN CloudKit zone (zoneName = the calendar id), so calendars are
+    /// Each MagnifiCal calendar syncs to its OWN CloudKit zone (zoneName = the calendar id), so calendars are
     /// disjoint on the server and deleting one = deleting its zone. The active calendar's CloudSync points
     /// here; switching calendars tears this down and starts a new CloudSync for the new zone.
     private let zoneID: CKRecordZone.ID

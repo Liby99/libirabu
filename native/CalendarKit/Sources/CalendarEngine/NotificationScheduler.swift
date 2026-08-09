@@ -21,9 +21,9 @@ public extension Notification.Name {
     static let notifyPrefsChanged = Notification.Name("cc.notify.prefsChanged")
 }
 
-/// Scheduling visibility (Console.app, or: log stream --predicate 'subsystem == "dev.libirabu.calendar"
+/// Scheduling visibility (Console.app, or: log stream --predicate 'subsystem == "dev.magnifical.calendar"
 /// AND category == "notify"'). Failures here are otherwise perfectly silent — the OS just never rings.
-let notifyLog = Logger(subsystem: "dev.libirabu.calendar", category: "notify")
+let notifyLog = Logger(subsystem: "dev.magnifical.calendar", category: "notify")
 
 /// Authorization state as the Settings UI needs it — mirrors UNAuthorizationStatus without
 /// making CalendarUI import UserNotifications.
@@ -251,7 +251,7 @@ public final class NotificationScheduler: NSObject {
 
 /// Delivery callbacks arrive on an arbitrary queue → nonisolated, hopping to main for app state.
 extension NotificationScheduler: UNUserNotificationCenterDelegate {
-    /// Show banners even while MagiCal is frontmost (the system default suppresses them).
+    /// Show banners even while MagnifiCal is frontmost (the system default suppresses them).
     public nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void

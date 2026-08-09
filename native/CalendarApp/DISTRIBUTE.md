@@ -109,7 +109,7 @@ invite (email or public link), and every new build you upload reaches them autom
 
 **iOS (CalendarPhone)** — straightforward; this is the only sane distribution path on iPhone.
 
-**macOS (MagiCal)** — TestFlight for Mac routes through App Store review infrastructure, so the
+**macOS (MagnifiCal)** — TestFlight for Mac routes through App Store review infrastructure, so the
 build must be **App Sandbox**-ed (`com.apple.security.app-sandbox`), which this app currently is
 NOT. Sandboxing needs, at minimum: the sandbox entitlement + `network.client` (LLM/CloudKit),
 `personal-information.calendars` (already present), and user-selected-file read for `.ics`
@@ -117,8 +117,16 @@ import. Until that migration is done, macOS testers stay on the notarized DMG (o
 for auto-update); iOS can go TestFlight immediately.
 
 One-time setup (both platforms):
+0. **Developer portal (after the 2026-08 bundle-id rename):** register the App ID
+   `dev.magnifical.calendar` (Identifiers → +) with iCloud, Push Notifications, and the
+   EventKit-relevant capabilities — and under its iCloud configuration **assign the EXISTING
+   container `iCloud.dev.libirabu.calendar`** (containers are team-owned and attach to any of
+   the team's App IDs; every user's data lives there, so the new app id keeps using it — the
+   entitlements and `CloudSync.containerID` are already pinned to it on purpose). The KVS id
+   and Keychain access groups in the entitlements likewise reference the legacy id — that's
+   deliberate migration compatibility, not drift.
 1. <https://appstoreconnect.apple.com> → My Apps → **+** → New App. One app record, bundle id
-   `dev.libirabu.calendar`; add both macOS and iOS platforms to the same record.
+   `dev.magnifical.calendar`; add both macOS and iOS platforms to the same record.
 2. Xcode → Settings → Accounts → Manage Certificates → **+** → *Apple Distribution* (this is a
    different certificate from Developer ID; automatic signing will then mint App Store
    provisioning profiles on archive).
@@ -130,7 +138,7 @@ One-time setup (both platforms):
 Per release:
 1. Move `[Unreleased]` → the new version in `native/CHANGELOG.md`; bump `MARKETING_VERSION`
    in `project.yml`; `xcodegen`; commit; tag `vX.Y.Z`.
-2. Xcode → Product → **Archive** (scheme `MagiCalRelease` / `MagiCalPhoneRelease`) → Organizer →
+2. Xcode → Product → **Archive** (scheme `MagnifiCalRelease` / `MagnifiCalPhoneRelease`) → Organizer →
    **Distribute App** → *TestFlight & App Store* (a.k.a. App Store Connect) → Upload, letting it
    auto-manage the build number.
 3. App Store Connect → TestFlight → the build finishes processing (~10 min) → fill in

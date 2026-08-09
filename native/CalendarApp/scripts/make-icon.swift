@@ -1,4 +1,4 @@
-// Renders the MagiCal app icon (1024×1024 master PNG) using CoreGraphics.
+// Renders the MagnifiCal app icon (1024×1024 master PNG) using CoreGraphics.
 // Design: minimalistic + monotone. A flat white "calendar page" card with the brand-red
 // header band on top, and below it a hairline day/lane grid carrying three light red/pink
 // HORIZONTAL band-event pills — the app's signature year-view band lanes.

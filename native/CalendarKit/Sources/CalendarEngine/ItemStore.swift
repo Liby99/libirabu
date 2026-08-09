@@ -152,4 +152,4 @@ struct ItemStore {
 }
 
 /// Persistence failures are logged (visible in Console.app), never silently dropped.
-let storeLog = Logger(subsystem: "dev.libirabu.calendar", category: "store")
+let storeLog = Logger(subsystem: "dev.magnifical.calendar", category: "store")

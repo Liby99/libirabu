@@ -23,10 +23,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>MagiCal</string>
-  <key>CFBundleDisplayName</key><string>MagiCal</string>
+  <key>CFBundleName</key><string>MagnifiCal</string>
+  <key>CFBundleDisplayName</key><string>MagnifiCal</string>
   <key>CFBundleExecutable</key><string>CalendarMac</string>
-  <key>CFBundleIdentifier</key><string>dev.libirabu.calendar</string>
+  <key>CFBundleIdentifier</key><string>dev.magnifical.calendar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>
   <key>CFBundleVersion</key><string>1</string>

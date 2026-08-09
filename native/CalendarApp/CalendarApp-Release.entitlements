@@ -19,9 +19,16 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
-	<!-- iCloud key-value store for synced app preferences (see CalendarApp.entitlements). -->
+	<!-- iCloud key-value store for synced app preferences — PINNED to the legacy app id
+	     across the 2026-08 bundle-id rename (see CalendarApp.entitlements). -->
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
-	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
+	<string>$(TeamIdentifierPrefix)dev.libirabu.calendar</string>
+	<!-- Keychain: legacy group kept readable across the bundle-id rename (see CalendarApp.entitlements). -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)dev.magnifical.calendar</string>
+		<string>$(AppIdentifierPrefix)dev.libirabu.calendar</string>
+	</array>
 	<!-- Hardened Runtime resource access: EventKit (Apple Calendar import). -->
 	<key>com.apple.security.personal-information.calendars</key>
 	<true/>

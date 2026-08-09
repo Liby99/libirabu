@@ -1,4 +1,4 @@
-// The MagiCal backup codec (`.mgc`; legacy `.mdc` files are identical). A DEFLATE zip whose layout mirrors the
+// The MagnifiCal backup codec (`.mgc`; legacy `.mdc` files are identical). A DEFLATE zip whose layout mirrors the
 // web app's data export (src/lib/backup.ts): a `manifest.json` + a `database.json` whose value is an
 // object keyed by table name, each an array of rows, with `Date` columns tagged `{"__bk":"date","v":ISO}`.
 // The web dumps all 32 Prisma tables; the native app owns only three — `calendarItem` (events/bands/
@@ -27,7 +27,7 @@ public enum MDCBackup {
         case notABackup, badJSON
         public var errorDescription: String? {
             switch self {
-            case .notABackup: "That file isn't a MagiCal/libirabu backup (missing manifest or database)."
+            case .notABackup: "That file isn't a MagnifiCal/libirabu backup (missing manifest or database)."
             case .badJSON: "The backup's data could not be read."
             }
         }

@@ -20,6 +20,11 @@ import SwiftUI
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMenu()
+        // "How to…" deep links (e.g. Settings ▸ Google Calendar) → show the Help window; HelpView
+        // selects the topic itself (HelpNav.pending / the notification's object).
+        NotificationCenter.default.addObserver(forName: .openHelpTopic, object: nil, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.showHelp(nil) }
+        }
         // Reconcile preferences with iCloud, then apply the saved appearance now that NSApp
         // exists. Syncs only on the entitled signed app; local-only here (see AppSettings.swift).
         PrefsSync.shared.start()
@@ -47,7 +52,7 @@ import SwiftUI
             backing: .buffered,
             defer: false
         )
-        window.title = "MagiCal"
+        window.title = "MagnifiCal"
         // Keep the window alive after Cmd-W so it can be reopened (see reopen handler).
         window.isReleasedWhenClosed = false
         // contentView (not contentViewController): a GeometryReader-based SwiftUI view
@@ -178,7 +183,7 @@ import SwiftUI
         menuCoordinator.install(caps: AppMenuCaps(hasAssistant: false))
     }
 
-    /// Help ▸ MagiCal Help — open (or focus) the in-app Help browser window.
+    /// Help ▸ MagnifiCal Help — open (or focus) the in-app Help browser window.
     @objc func showHelp(_ sender: Any?) {
         if helpWindow == nil {
             let w = NSWindow(
@@ -187,7 +192,7 @@ import SwiftUI
                 backing: .buffered,
                 defer: false
             )
-            w.title = "MagiCal Help"
+            w.title = "MagnifiCal Help"
             w.isReleasedWhenClosed = false
             w.contentView = NSHostingView(rootView: HelpView())
             w.center()
@@ -205,7 +210,7 @@ import SwiftUI
             attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
         )
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "MagiCal",
+            .applicationName: "MagnifiCal",
             .applicationVersion: version,
             .credits: credits,
         ])
@@ -231,7 +236,7 @@ final class BenchToolbarDelegate: NSObject, NSToolbarDelegate {
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         let item = NSToolbarItem(itemIdentifier: id)
         if id.rawValue == "cc-bench-item" {
-            item.view = NSHostingView(rootView: Text("MagiCal Bench").font(.callout).padding(.horizontal, 8))
+            item.view = NSHostingView(rootView: Text("MagnifiCal Bench").font(.callout).padding(.horizontal, 8))
         }
         return item
     }

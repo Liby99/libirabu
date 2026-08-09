@@ -10,7 +10,7 @@ extension CalendarEngine {
     /// A one-VEVENT VCALENDAR for the box's SOURCE item, or nil if the id resolves to nothing.
     public func icsText(for boxId: String) -> String? {
         let src = sourceId(of: boxId)
-        var lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//MagiCal//EN", "BEGIN:VEVENT",
+        var lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//MagnifiCal//EN", "BEGIN:VEVENT",
                      "UID:\(src)@magical", "DTSTAMP:\(Self.icsUTCStamp(Date()))"]
         let notes: String? = {
             let n = self.notes(src)

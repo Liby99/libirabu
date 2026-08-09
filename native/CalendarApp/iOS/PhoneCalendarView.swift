@@ -18,7 +18,9 @@ import SwiftUI
 
 struct PhoneCalendarView: View {
     let engine: CalendarEngine
+    let bench: PhoneBenchRunner
     @Environment(\.colorScheme) private var scheme
+    @AppStorage("cc.fpsHUD") private var hudPref = false // same key as the Mac's Developer toggle
     @State private var sheetItem: SheetItem?
     @State private var showMenu = false
     @State private var showAI = false
@@ -43,6 +45,9 @@ struct PhoneCalendarView: View {
                 ZStack {
                     PhoneDriverLayer(engine: engine, vp: vp, frozen: pinchActive)
                     TimelineView(.animation(paused: !awake)) { tl in
+                        // One evaluation = one rendered frame — the bench/HUD frame feed
+                        // (cheap no-op unless a scene records or the HUD is on).
+                        let _ = bench.benchTick(tl.date)
                         calendarScene(engine.sceneInput(at: tl.date, viewport: vp), vp: vp, theme: theme)
                     }
                     .allowsHitTesting(false) // presentational; touch goes to the drivers below
@@ -75,6 +80,9 @@ struct PhoneCalendarView: View {
                             editGen: engine.displayGen, mainTz: engine.mainTz
                         )
                     }
+                    // CC_DEMO=bench-* (MagnifiCalPhoneBench scheme): run the scripted scene now
+                    // that the viewport is set and the initial navigation has landed.
+                    bench.startIfDemo(engine: engine, size: geo.size)
                 }
                 .onChange(of: geo.size) { _, s in engine.setViewport(s) }
             }
@@ -86,6 +94,14 @@ struct PhoneCalendarView: View {
             .ignoresSafeArea(.container, edges: [.top, .bottom])
             // The toolbar capsules stay INSIDE the safe area (above the home indicator).
             bottomBar
+        }
+        // Live frame-rate readout (CC_FPS_HUD=1 or the menu's Developer toggle). Top-leading —
+        // the bottom belongs to the glass toolbar. Thresholds scale with the display's budget.
+        .overlay(alignment: .topLeading) {
+            if PhoneBenchRunner.hudEnabled || hudPref {
+                FPSHUDView(stats: { bench.hudStats() }, budgetMs: bench.budgetMs)
+                    .padding(.top, 40) // clear the Dynamic Island
+            }
         }
         .background(theme.bg.ignoresSafeArea())
         .sheet(item: $sheetItem, onDismiss: {
@@ -232,7 +248,11 @@ struct PhoneCalendarView: View {
             Canvas { ctx, _ in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
-                SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
+                // CC_PROF=1: same keys as the Mac (CalendarView) so layers_ms and the
+                // Instruments Points-of-Interest lanes read identically across platforms.
+                RenderProf.measure("drawBelow", "1_drawBelow") {
+                    SceneRenderer.drawBelow(input: input, in: &c, theme: theme)
+                }
             }
             // 2. events (bands + timed) — perfMode on the phone: flat tinted fills instead of
             // Liquid Glass (a year of glass stickers is too costly on mobile GPU budgets).
@@ -248,8 +268,10 @@ struct PhoneCalendarView: View {
             Canvas { ctx, _ in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
-                SceneRenderer.drawMid(input: input, deadlines: engine.viewDeadlines(),
-                                      selected: engine.selectedId, in: &c, theme: theme)
+                RenderProf.measure("drawMid", "3_drawMid") {
+                    SceneRenderer.drawMid(input: input, deadlines: engine.viewDeadlines(),
+                                          selected: engine.selectedId, in: &c, theme: theme)
+                }
             }
             DeadlinesOverlay(input: input, deadlines: engine.viewDeadlines(),
                              sides: engine.deadlineSides(),
@@ -260,7 +282,9 @@ struct PhoneCalendarView: View {
             Canvas { ctx, _ in
                 var c = ctx
                 c.translateBy(x: Layout.padLeft, y: 0)
-                SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames, in: &c, theme: theme)
+                RenderProf.measure("drawAbove", "5_drawAbove") {
+                    SceneRenderer.drawAbove(input: input, tracks: engine.items.trackNames, in: &c, theme: theme)
+                }
             }
         }
         .opacity(input.flipFade) // whole-calendar fade during a year flip

@@ -483,7 +483,7 @@ public final class AssistantState {
         let today = isoDayString(now)
         let weekday = Self.weekdayFmt.string(from: now)
         var lines: [String] = [
-            "You are the assistant inside MagiCal, a research calendar app. You help the user understand and plan their calendar.",
+            "You are the assistant inside MagnifiCal, a research calendar app. You help the user understand and plan their calendar.",
             "Today is \(weekday), \(today).",
             viewContextLine(),
             timezoneLine(),

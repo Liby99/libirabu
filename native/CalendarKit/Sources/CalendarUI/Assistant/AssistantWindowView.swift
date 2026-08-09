@@ -39,7 +39,7 @@ public struct AssistantWindowView: View {
                 .navigationSplitViewColumnWidth(240) // fixed width → no size interpolation on toggle
         } detail: {
             ConversationView(state: state, theme: theme)
-                .navigationTitle("MagiCal AI")
+                .navigationTitle("MagnifiCal AI")
                 .toolbar { toolbar }
         }
         .frame(minWidth: 360, minHeight: 480)

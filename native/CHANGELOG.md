@@ -1,6 +1,6 @@
-# MagiCal — Changelog (private)
+# MagnifiCal — Changelog (private)
 
-The running, developer-facing log for the native apps (macOS MagiCal + iOS read-only client).
+The running, developer-facing log for the native apps (macOS MagnifiCal + iOS read-only client).
 Not shipped with the app; the public TestFlight "What to Test" notes are distilled from here at
 each release.
 

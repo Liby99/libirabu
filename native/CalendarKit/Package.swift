@@ -10,8 +10,12 @@ import PackageDescription
 ///   CalendarUI        ← AppKit input/editing/chrome + views     (→ Geometry, Engine, Render)
 ///   CalendarMac       ← macOS app bootstrap (executable)        (→ UI)
 ///
-/// Targets macOS 26 for Liquid Glass (.glassEffect) — the native glass the events
-/// use. Language mode is held at v5 for now to avoid strict-concurrency churn.
+/// Floor is macOS 15 (Sequoia) so Intel-era Macs that can't run 26 still work: all
+/// Liquid Glass call sites route through GlassCompat.swift (CalendarRender), which
+/// uses the real .glassEffect on 26+ and a material-frost fallback below. Going
+/// lower than 15 would mean backporting onScrollGeometryChange (the pager scroll
+/// drivers) — don't, without a plan for that. Language mode is held at v5 for now
+/// to avoid strict-concurrency churn.
 ///
 /// iOS 26 is a supported platform: the iPhone app links CalendarEngine (which carries
 /// the CloudKit sync layer) and CalendarRender (the platform-neutral scene renderer —
@@ -20,7 +24,7 @@ import PackageDescription
 /// never compile for iOS.
 let package = Package(
     name: "CalendarKit",
-    platforms: [.macOS("26.0"), .iOS("26.0")],
+    platforms: [.macOS("15.0"), .iOS("26.0")],
     products: [
         .library(name: "CalendarGeometry", targets: ["CalendarGeometry"]),
         .library(name: "CalendarEngine", targets: ["CalendarEngine"]),
@@ -39,6 +43,7 @@ let package = Package(
         .executableTarget(name: "CalendarMac", dependencies: ["CalendarUI"]),
         .executableTarget(name: "AssistantEvalRunner", dependencies: ["CalendarUI"]),
         .testTarget(name: "CalendarGeometryTests", dependencies: ["CalendarGeometry"]),
+        .testTarget(name: "CalendarRenderTests", dependencies: ["CalendarRender", "CalendarEngine", "CalendarGeometry"]),
         .testTarget(name: "CalendarEngineTests", dependencies: ["CalendarEngine", "CalendarGeometry"],
                     resources: [.copy("Fixtures")]),
     ],
