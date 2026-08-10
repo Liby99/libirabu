@@ -16,6 +16,10 @@ each release.
 
 ## [Unreleased]
 
+_(nothing yet)_
+
+## [0.2.0] — 2026-08-10
+
 - Added: the direct (Developer-ID) build updates itself via Sparkle — App menu ▸
   "Check for Updates…", plus a daily background check against the GitHub releases
   appcast. (Mac App Store builds will exclude Sparkle.)
