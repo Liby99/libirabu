@@ -8,8 +8,10 @@ each release.
 - Every user-visible feature or bug fix lands as a bullet under **[Unreleased]** in the same
   change/PR that implements it. Keep bullets one line, user-visible phrasing, most recent last.
 - On a version bump: retitle **[Unreleased]** to the new version + date, distill the public
-  changelog from it, start a fresh empty **[Unreleased]**, bump `MARKETING_VERSION` in
-  `CalendarApp/project.yml`, tag `vX.Y.Z` in git.
+  changelog from it — BOTH the release notes AND the in-app Help ▸ What's New entries
+  (`MagnifiCalKit/Sources/CalendarUI/Help/Changelog.swift`) — start a fresh empty
+  **[Unreleased]**, bump `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION` in
+  `MagnifiCalApp/project.yml`, tag `vX.Y.Z` in git.
 - Versions are semver-ish while pre-1.0: **0.MINOR.PATCH** — MINOR for feature releases,
   PATCH for fix-only releases. Build numbers (`CURRENT_PROJECT_VERSION`) are a separate,
   per-upload counter and never appear here.
