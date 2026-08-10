@@ -43,8 +43,9 @@ payloads synthetically (BenchStaging can seed; keep item counts comparable: ~500
 
 ## After publishing
 
-- [ ] First GitHub Release: notarized DMG + release notes (see DISTRIBUTE.md).
-- [ ] Sparkle: generate EdDSA keys (`generate_keys`), KEEP THE PRIVATE KEY OUT OF THE
-      REPO (Keychain/password manager), add the public key + appcast URL to the app,
-      publish the appcast from Releases. (Direct build only — never in the MAS build.)
+- [ ] First GitHub Release: notarized DMG + release notes + appcast.xml (DISTRIBUTE.md).
+- [ ] Sparkle is WIRED (package, menu item, feed URL, appcast script — 2026-08-10). Your
+      part, once: run `generate_keys`, back the private key up to your password manager
+      (never a repo), paste the public key into MagnifiCalApp/Info-macOS.plist
+      SUPublicEDKey. Full steps: DISTRIBUTE.md ▸ "Sparkle auto-updates".
 - [ ] Point friends/students at `/releases/latest` + the TestFlight link.

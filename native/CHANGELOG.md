@@ -16,6 +16,9 @@ each release.
 
 ## [Unreleased]
 
+- Added: the direct (Developer-ID) build updates itself via Sparkle — App menu ▸
+  "Check for Updates…", plus a daily background check against the GitHub releases
+  appcast. (Mac App Store builds will exclude Sparkle.)
 - Fixed: event marker symbols (recurring/promoted/AI/imported) no longer overflow small event
   boxes — markers that don't fit are dropped, and boxes too small for the row hide it entirely
   (month bands re-center their title when the row hides).
