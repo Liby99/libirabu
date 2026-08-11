@@ -18,7 +18,18 @@ each release.
 
 ## [Unreleased]
 
-_(nothing yet)_
+- Added: Help ▸ What's New — the changelog in its own window, each release's entries
+  formatted with Added/Improved/Fixed badges (curated in Changelog.swift).
+- Added: the Welcome tutorial's dashboard-tour slide is recorded (light + dark); demo
+  recordings no longer inherit this device's dashboard prefs (deterministic scenes).
+- Improved: the pinned monthly dashboard opens wider by default (0.25 → 0.32 of the
+  window; a width you dragged yourself is kept).
+- Added: per-subscription default colors for Google/Outlook feeds — a swatch dropdown on
+  each Settings row, palette-cycled on subscribe; changing it re-colors the feed's
+  imported events you haven't individually recolored (and imported all-day bands now
+  honor color choices at all).
+- Improved: fully native — removed the retired web-based note editor and its ~3MB of
+  bundled JavaScript (smaller app, one less rendering stack).
 
 ## [0.2.0] — 2026-08-10
 
