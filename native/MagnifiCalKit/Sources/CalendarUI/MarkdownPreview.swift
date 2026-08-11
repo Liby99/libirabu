@@ -355,7 +355,7 @@ enum MarkdownDoc {
     /// CommonMark ATX heading: 1–6 `#`s followed by a space/tab (or nothing — `##` alone is a
     /// valid empty heading). `#tag` — no space — is NOT a heading (same rule as the tag grammar
     /// and the live editor's `^#{1,6} ` highlighter): it falls through to prose, where the chip
-    /// renderer picks it up. Before this check, `#ziyang-cs-jhu-edu` at line start rendered as
+    /// renderer picks it up. Before this check, `#some-long-tag` at line start rendered as
     /// an h1 instead of a tag chip.
     static func isAtxHeading(_ line: String) -> Bool {
         let hashes = line.prefix(while: { $0 == "#" })
