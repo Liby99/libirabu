@@ -30,6 +30,9 @@ each release.
   honor color choices at all).
 - Improved: fully native — removed the retired web-based note editor and its ~3MB of
   bundled JavaScript (smaller app, one less rendering stack).
+- Fixed: a line beginning with a `#tag` (no space after `#`) no longer renders as a huge
+  heading in note previews — it chips as a tag, matching CommonMark and the editor's own
+  highlighting. Real headings (`# Title`, with the space) are unchanged.
 - Changed: tags are markdown now — type `#tag` anywhere in an event's note (a space after
   `#` still makes a heading); the drawer's separate Tags UI is gone. Existing tags migrate
   into the notes as `#tokens` automatically (illegal characters become `-`), previews keep
