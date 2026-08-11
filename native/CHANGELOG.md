@@ -30,6 +30,11 @@ each release.
   honor color choices at all).
 - Improved: fully native — removed the retired web-based note editor and its ~3MB of
   bundled JavaScript (smaller app, one less rendering stack).
+- Changed: tags are markdown now — type `#tag` anywhere in an event's note (a space after
+  `#` still makes a heading); the drawer's separate Tags UI is gone. Existing tags migrate
+  into the notes as `#tokens` automatically (illegal characters become `-`), previews keep
+  rendering them as chips, and search/filter/dashboards keep working (the old tags field
+  lives on as a cache recomputed on every note save).
 
 ## [0.2.0] — 2026-08-10
 
