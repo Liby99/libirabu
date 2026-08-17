@@ -30,6 +30,10 @@ each release.
   honor color choices at all).
 - Improved: fully native — removed the retired web-based note editor and its ~3MB of
   bundled JavaScript (smaller app, one less rendering stack).
+- Fixed: typing in a note — especially a `#tag` — no longer gets laggier with every
+  character. Each keystroke was re-parsing the note's tags and invalidating the display
+  caches + the autocomplete index (a full rescan per keypress); the tag cache now settles
+  once, ~0.35s after typing pauses.
 - Fixed: a line beginning with a `#tag` (no space after `#`) no longer renders as a huge
   heading in note previews — it chips as a tag, matching CommonMark and the editor's own
   highlighting. Real headings (`# Title`, with the space) are unchanged.
