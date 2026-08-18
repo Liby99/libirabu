@@ -98,7 +98,7 @@ struct TimedDraw {
 
 /// Flat payload for an edge-indicator sliver — a scrolled-off event's pinned marker at the
 /// timeline's top/bottom edge (see CalendarGeometry/EdgeIndicators.swift). Mirrors
-/// EdgeIndicatorSticker exactly: color fill only, no bar/text/badges.
+/// EdgeIndicatorSticker exactly: tinted fill + left accent bar, no text/badges.
 struct EdgeIndicatorDraw {
     let colorKey: String
     let hidden: Bool // revealed hidden import → neutral gray
@@ -292,8 +292,8 @@ struct CanvasSticker {
         }
     }
 
-    /// ── Edge indicator: an uneven-rounded fill of the event's color, nothing else ───────────────
-    /// (square corners on the edge-flush side, rounded facing the viewport — mirrors
+    /// ── Edge indicator: an uneven-rounded fill of the event's color + its left accent bar ───────
+    /// (square corners/bar-cap on the edge-flush side, rounded facing the viewport — mirrors
     /// EdgeIndicatorSticker exactly)
     private static func drawEdgeIndicator(_ e: EdgeIndicatorDraw, rect: CGRect, fade: Double,
                                           ctx: inout GraphicsContext, theme: Theme) {
@@ -308,6 +308,15 @@ struct CanvasSticker {
             Path(roundedRect: rect, cornerRadii: radii),
             with: .color(color.opacity(edgeIndicatorFillOpacity(theme: theme)))
         )
+        let barW = BandStyle.accentWidth
+        let barVInset = min(BandStyle.accentInset, max(0, (rect.height - BandStyle.accentInset * 2) / 2))
+        let bar = CGRect(x: rect.minX + BandStyle.accentInset,
+                         y: e.top ? rect.minY : rect.minY + barVInset,
+                         width: barW, height: max(0, rect.height - barVInset))
+        let cap = barW / 2
+        let barRadii = RectangleCornerRadii(topLeading: e.top ? 0 : cap, bottomLeading: e.top ? cap : 0,
+                                            bottomTrailing: e.top ? cap : 0, topTrailing: e.top ? 0 : cap)
+        layer.fill(Path(roundedRect: bar, cornerRadii: barRadii), with: .color(theme.eventBorder(e.colorKey)))
     }
 
     /// The badge glyph row: 6.5pt bold SF Symbols, 2px apart, left-anchored at `at.x`, centered on `at.y`.
