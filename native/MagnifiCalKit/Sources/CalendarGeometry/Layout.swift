@@ -101,12 +101,13 @@ public enum Layout {
 
     /// ── Viewport-overflow edge indicators (week/day hour timelines) ────────────────
     /// THE hand-tunable size of the Apple-Calendar-style scrolled-off-event indicators
-    /// (see EdgeIndicators.swift). One knob, three duties: the pinned sliver's height,
-    /// the stack's per-level indentation step, AND the clamp remnant (an event stops
-    /// shrinking once this many px remain visible at the edge). All widths/offsets
-    /// derive from it — 1 indicator → full event width; 2 → each (full − H) wide,
-    /// stepped H apart; 3 → each (full − 2H), stepped 0/H/2H — so one edit re-tunes
-    /// the whole feature.
+    /// (see EdgeIndicators.swift). One knob, four duties: the innermost card's height,
+    /// the stack's per-level indentation step, the per-level HEIGHT step of the card
+    /// staircase (1st card = H, 2nd = 2H, 3rd = 3H tall, all edge-pinned), AND the
+    /// clamp remnant (an event stops shrinking once this many px remain visible at the
+    /// edge). All widths/offsets/heights derive from it — 1 indicator → full event
+    /// width, H tall; 2 → each (full − H) wide, stepped H apart, H/2H tall; 3 → each
+    /// (full − 2H), stepped 0/H/2H, H/2H/3H tall — so one edit re-tunes the feature.
     public static let edgeIndicatorH: CGFloat = 5
     /// Scroll distance (px past the clamp point) over which each indicator morph plays
     /// out: joining/leaving the stack, indent shifts, the 4th-event handoff. The layout

@@ -197,19 +197,21 @@ func edgeIndicatorFillOpacity(_ progress: CGFloat, theme: Theme) -> Double {
     Double(lerp(CGFloat(BandStyle.tintIdle * theme.eventTintScale), 0.9, progress))
 }
 
-/// A scrolled-off event's pinned edge marker (see CalendarGeometry/EdgeIndicators.swift): the
-/// event's color, sticker-rounded but only Layout.edgeIndicatorH tall — NO title, NO accent bar,
-/// no activation states. Visual only: the containing overlay is hit-test-transparent; stack
-/// clicks are resolved geometrically by the engine (edgeIndicatorTarget).
+/// A scrolled-off event's pinned edge card (see CalendarGeometry/EdgeIndicators.swift): the
+/// event's color, sticker-rounded, edge-pinned — the pure model sizes it (deeper stack cards are
+/// taller, forming the staircase) — NO title, NO accent bar, no activation states. Visual only:
+/// the containing overlay is hit-test-transparent; stack clicks are resolved geometrically by the
+/// engine (edgeIndicatorTarget).
 struct EdgeIndicatorSticker: View { // internal: read by EventsOverlay.swift
     let colorKey: String
     let hidden: Bool // revealed hidden import → neutral gray, like its sticker fill
     let progress: CGFloat // 0 just clamped … 1 settled in the stack (drives fill strength)
+    let height: CGFloat // the model's card height (radius adapts; mirrors drawEdgeIndicator)
     let theme: Theme
 
     var body: some View {
         let color = hidden ? theme.text : theme.eventColor(colorKey)
-        RoundedRectangle(cornerRadius: min(BandStyle.cornerRadius, Layout.edgeIndicatorH / 2))
+        RoundedRectangle(cornerRadius: min(BandStyle.cornerRadius, height / 2))
             .fill(color.opacity(edgeIndicatorFillOpacity(progress, theme: theme)))
     }
 }

@@ -19,16 +19,22 @@
 //    by exactly the newcomer's progress. total = Σ p·vis is the CONTINUOUS member count:
 //      width     = base − S·(clamp(total, 1, max) − 1)
 //      indent(r) = S·min(Σ outward p·vis, max − 1)
-//    reproduce the integer layouts (1 → full width; 2 → full−S stepped S; 3 → full−2S stepped
-//    0/S/2S) exactly, and linearly interpolate every transition between them — including the
-//    4th-event handoff, where the survivors' indents relax while the outermost fades out.
+//      height(r) = S·(1 + min(Σ inward p·vis, max − 1))
+//    reproduce the integer layouts exactly (1 → full width, S tall; 2 → full−S stepped S, heights
+//    S/2S; 3 → full−2S stepped 0/S/2S, heights S/2S/3S) and linearly interpolate every transition
+//    between them — including the 4th-event handoff, where each survivor's indent relaxes a step
+//    while its height grows one, and the outermost fades out frozen at the deepest step.
+//  • The heights make the stack a CARD STAIRCASE, not co-located bands: every sliver's top is
+//    pinned at the edge (bottom edge mirrored), the innermost/nearest is the shallowest (S) and
+//    drawn on top, and each deeper card is S taller AND S less indented — so it peeks S below and
+//    S beside the card above it, stepping down-and-outward toward the viewport content.
 
 import CoreGraphics
 
 /// One pinned sliver at a timeline edge.
 public struct EdgeIndicator: Sendable, Equatable {
     public var index: Int // into the rects array handed to dayEdgeIndicators
-    public var rect: CGRect // the sliver (viewport space): Layout.edgeIndicatorH tall, at the edge
+    public var rect: CGRect // the card (viewport space), edge-pinned; settled height = (rank+1)·edgeIndicatorH
     public var opacity: CGFloat // 1 shown … → 0 as the pushed-out outermost exits
     public var rank: Int // 0 = nearest-in-time / innermost — draw ABOVE higher ranks
     public var progress: CGFloat // 0 just clamped … 1 settled into its stack slot
@@ -77,13 +83,16 @@ public func dayEdgeIndicators(rects: [CGRect], tlTop: CGFloat, tlBottom: CGFloat
         flags[e.index] = true
     }
     out.isIndicator = flags
+    // The click band spans the whole staircase (its tallest card), one target per stack.
     if let inner = top.first {
         out.topNearest = inner.index
-        out.topHit = CGRect(x: baseX, y: tlTop, width: baseW, height: S)
+        let maxH = top.reduce(S) { max($0, $1.rect.height) }
+        out.topHit = CGRect(x: baseX, y: tlTop, width: baseW, height: maxH)
     }
     if let inner = bottom.first {
         out.bottomNearest = inner.index
-        out.bottomHit = CGRect(x: baseX, y: tlBottom - S, width: baseW, height: S)
+        let maxH = bottom.reduce(S) { max($0, $1.rect.height) }
+        out.bottomHit = CGRect(x: baseX, y: tlBottom - maxH, width: baseW, height: maxH)
     }
     return out
 }
@@ -122,7 +131,16 @@ private func edgeStack(_ rects: [CGRect], edgeY: CGFloat, topEdge: Bool,
         total += p[r] * vis[r]
     }
     let slotW = max(3, baseW - S * (clamp(total, 1, maxN) - 1))
-    let slotY = topEdge ? edgeY : edgeY - S
+    // Slot heights — the card staircase: S per stack step. Each rank's settled height is S plus
+    // S per vis-weighted member INWARD of it (rank 0 → S, rank 1 → 2S, rank 2 → 3S), so a
+    // newcomer's arrival continuously pushes the survivors one step deeper/taller; the cap
+    // freezes the fading outermost at the deepest step instead of growing it past the stack.
+    var slotH = [CGFloat](repeating: S, count: cand.count)
+    var inMass: CGFloat = 0
+    for r in cand.indices {
+        slotH[r] = S * (1 + min(inMass, maxN - 1))
+        inMass += p[r] * vis[r]
+    }
     // Walk outermost → innermost accumulating the vis-weighted mass OUTWARD of each rank — that
     // mass (× S) is the rank's indent, so indents relax continuously as the outermost exits.
     var outward: CGFloat = 0
@@ -131,10 +149,11 @@ private func edgeStack(_ rects: [CGRect], edgeY: CGFloat, topEdge: Bool,
         if vis[r] > 0.001 {
             let slotX = baseX + S * min(outward, maxN - 1)
             let own = rects[cand[r].i]
-            // p lerps the sliver from its own clamped rect (continuous with the just-clipped
-            // sticker it replaces) into its stack slot.
-            let rect = CGRect(x: lerp(own.minX, slotX, p[r]), y: slotY,
-                              width: lerp(own.width, slotW, p[r]), height: S)
+            // p lerps the sliver from its own clamped rect (an S-px band continuous with the
+            // just-clipped sticker it replaces) into its stack slot — x, width, AND height.
+            let h = lerp(S, slotH[r], p[r])
+            let rect = CGRect(x: lerp(own.minX, slotX, p[r]), y: topEdge ? edgeY : edgeY - h,
+                              width: lerp(own.width, slotW, p[r]), height: h)
             out.append(EdgeIndicator(index: cand[r].i, rect: rect, opacity: vis[r],
                                      rank: r, progress: p[r]))
         }

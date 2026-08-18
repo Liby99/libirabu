@@ -736,9 +736,10 @@ extension EventsOverlay {
             let fast: StickerDraw? = canvasFastOn
                 ? .edgeIndicator(EdgeIndicatorDraw(colorKey: colorKey, hidden: hidden, progress: progress))
                 : nil
+            let cardH = pn.rect.height
             out.append(Item2(id: key, rect: pn.rect, fade: pn.fade, z: z, makeView: { [theme] in
                 AnyView(EdgeIndicatorSticker(colorKey: colorKey, hidden: hidden,
-                                             progress: progress, theme: theme))
+                                             progress: progress, height: cardH, theme: theme))
             }, canvas: fast))
         }
         return out

@@ -120,7 +120,9 @@ extension CalendarEngine {
         let colX = tl.x0 + (CGFloat(relCursor) - 1) * tl.colW
         let ind = dayEdgeIndicators(rects: rects, tlTop: tl.tlTop, tlBottom: tl.tlBottom,
                                     colX: colX, colW: tl.colW)
-        let grace: CGFloat = 3 // a Layout.edgeIndicatorH-tall band alone is a fiddly click target
+        // The hit band spans the whole staircase (its tallest card — up to 3·edgeIndicatorH),
+        // plus a couple px of grace so the target isn't fiddly at a 1-card stack.
+        let grace: CGFloat = 3
         if let hit = ind.topHit, let n = ind.topNearest,
            p.x >= hit.minX, p.x <= hit.maxX, p.y <= hit.maxY + grace {
             return (evs[n].startHour, min(24, evs[n].endHour))
