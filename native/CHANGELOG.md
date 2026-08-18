@@ -46,6 +46,9 @@ each release.
   top/bottom edge — event color + accent bar, stacked Apple-Calendar-style as a staircase
   (nearest event tallest and innermost, up to 3 per day column), morphing smoothly with the
   scroll; clicking a stack scrolls the nearest hidden event back into view.
+- Fixed: with two note editors open (e.g. the dashboard notepad and an event's note in
+  the drawer), Cmd+S could save the editor you weren't typing in - it now saves exactly
+  the note holding the cursor.
 
 ## [0.2.0] — 2026-08-10
 
