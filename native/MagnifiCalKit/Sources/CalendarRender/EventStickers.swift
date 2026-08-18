@@ -189,30 +189,32 @@ struct EventSticker: View { // internal: read by EventsOverlay.swift
     }
 }
 
-/// Fill strength for an edge-indicator sliver: at progress 0 it takes over seamlessly from the
-/// plain sticker fill it replaces (same idle tint), then solidifies as it morphs into the pinned
-/// stack — a lone half-tint 5px sliver would otherwise be nearly invisible. Shared by the SwiftUI
-/// sticker and the Canvas fast path so both render identically.
-func edgeIndicatorFillOpacity(_ progress: CGFloat, theme: Theme) -> Double {
-    Double(lerp(CGFloat(BandStyle.tintIdle * theme.eventTintScale), 0.9, progress))
+/// Fill strength for an edge-indicator sliver: exactly the plain sticker's translucent idle tint
+/// (an event's card keeps its normal background color as it clamps into the stack). Shared by the
+/// SwiftUI sticker and the Canvas fast path so both render identically.
+func edgeIndicatorFillOpacity(theme: Theme) -> Double {
+    BandStyle.tintIdle * theme.eventTintScale
 }
 
 /// A scrolled-off event's pinned edge card (see CalendarGeometry/EdgeIndicators.swift): the
-/// event's color, sticker-rounded, edge-pinned — the pure model sizes it (deeper stack cards are
-/// taller, forming the staircase) — NO title, NO accent bar, no activation states. Visual only:
+/// event's color, edge-pinned — the pure model sizes it (deeper stack cards are taller, forming
+/// the staircase) — NO title, NO accent bar, no activation states. Corners are uneven: square on
+/// the edge-flush side, sticker-rounded on the side facing the viewport content. Visual only:
 /// the containing overlay is hit-test-transparent; stack clicks are resolved geometrically by the
 /// engine (edgeIndicatorTarget).
 struct EdgeIndicatorSticker: View { // internal: read by EventsOverlay.swift
     let colorKey: String
     let hidden: Bool // revealed hidden import → neutral gray, like its sticker fill
-    let progress: CGFloat // 0 just clamped … 1 settled in the stack (drives fill strength)
+    let top: Bool // pinned at the top edge (square top corners) vs bottom edge (square bottom)
     let height: CGFloat // the model's card height (radius adapts; mirrors drawEdgeIndicator)
     let theme: Theme
 
     var body: some View {
         let color = hidden ? theme.text : theme.eventColor(colorKey)
-        RoundedRectangle(cornerRadius: min(BandStyle.cornerRadius, height / 2))
-            .fill(color.opacity(edgeIndicatorFillOpacity(progress, theme: theme)))
+        let r = min(BandStyle.cornerRadius, height / 2)
+        UnevenRoundedRectangle(topLeadingRadius: top ? 0 : r, bottomLeadingRadius: top ? r : 0,
+                               bottomTrailingRadius: top ? r : 0, topTrailingRadius: top ? 0 : r)
+            .fill(color.opacity(edgeIndicatorFillOpacity(theme: theme)))
     }
 }
 

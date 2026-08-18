@@ -102,7 +102,7 @@ struct TimedDraw {
 struct EdgeIndicatorDraw {
     let colorKey: String
     let hidden: Bool // revealed hidden import → neutral gray
-    let progress: CGFloat // 0 just clamped … 1 settled in the stack (drives fill strength)
+    let top: Bool // pinned at the top edge (square top corners) vs bottom edge (square bottom)
 }
 
 enum StickerDraw { case band(BandDraw), timed(TimedDraw), edgeIndicator(EdgeIndicatorDraw) }
@@ -292,16 +292,21 @@ struct CanvasSticker {
         }
     }
 
-    /// ── Edge indicator: a rounded fill of the event's color, nothing else ───────────────────────
+    /// ── Edge indicator: an uneven-rounded fill of the event's color, nothing else ───────────────
+    /// (square corners on the edge-flush side, rounded facing the viewport — mirrors
+    /// EdgeIndicatorSticker exactly)
     private static func drawEdgeIndicator(_ e: EdgeIndicatorDraw, rect: CGRect, fade: Double,
                                           ctx: inout GraphicsContext, theme: Theme) {
         guard fade > 0.001, rect.width > 0.5 else { return }
         var layer = ctx
         layer.opacity = fade
         let color = e.hidden ? theme.text : theme.eventColor(e.colorKey)
+        let r = min(BandStyle.cornerRadius, rect.height / 2)
+        let radii = RectangleCornerRadii(topLeading: e.top ? 0 : r, bottomLeading: e.top ? r : 0,
+                                         bottomTrailing: e.top ? r : 0, topTrailing: e.top ? 0 : r)
         layer.fill(
-            Path(roundedRect: rect, cornerRadius: min(BandStyle.cornerRadius, rect.height / 2)),
-            with: .color(color.opacity(edgeIndicatorFillOpacity(e.progress, theme: theme)))
+            Path(roundedRect: rect, cornerRadii: radii),
+            with: .color(color.opacity(edgeIndicatorFillOpacity(theme: theme)))
         )
     }
 

@@ -626,7 +626,7 @@ extension EventsOverlay {
         // slivers instead of being culled (see dayEdgeIndicators — the whole clamp/stack layout is
         // a pure per-frame function of these same rects). Collected per day, appended after the
         // normal items: they draw above plain stickers but below active ones.
-        var pinned: [(seg: TimedSegment, rect: CGRect, fade: Double, rank: Int, progress: CGFloat, top: Bool)] = []
+        var pinned: [(seg: TimedSegment, rect: CGRect, fade: Double, rank: Int, top: Bool)] = []
         var segRects: [(seg: TimedSegment, rect: CGRect)] = [] // reused per day (no per-day realloc)
         for day in days {
             let rd = day.rd
@@ -665,10 +665,10 @@ extension EventsOverlay {
                 placed.append((sr.seg, sr.rect, Double(fade)))
             }
             for e in ind.top {
-                pinned.append((segRects[e.index].seg, e.rect, Double(fade * e.opacity), e.rank, e.progress, true))
+                pinned.append((segRects[e.index].seg, e.rect, Double(fade * e.opacity), e.rank, true))
             }
             for e in ind.bottom {
-                pinned.append((segRects[e.index].seg, e.rect, Double(fade * e.opacity), e.rank, e.progress, false))
+                pinned.append((segRects[e.index].seg, e.rect, Double(fade * e.opacity), e.rank, false))
             }
         }
         placed.sort(by: orderTimed)
@@ -732,14 +732,14 @@ extension EventsOverlay {
             let hidden = (eventBadges[id] ?? []).contains(.hidden)
             let key = "\(id)#\(pn.seg.event.month * 100 + pn.seg.event.day)!\(pn.top ? "t" : "b")" + keyTag
             let z = 930 - Double(pn.rank) // above plain stickers, below active (950+); innermost on top
-            let progress = pn.progress
+            let onTop = pn.top
             let fast: StickerDraw? = canvasFastOn
-                ? .edgeIndicator(EdgeIndicatorDraw(colorKey: colorKey, hidden: hidden, progress: progress))
+                ? .edgeIndicator(EdgeIndicatorDraw(colorKey: colorKey, hidden: hidden, top: onTop))
                 : nil
             let cardH = pn.rect.height
             out.append(Item2(id: key, rect: pn.rect, fade: pn.fade, z: z, makeView: { [theme] in
                 AnyView(EdgeIndicatorSticker(colorKey: colorKey, hidden: hidden,
-                                             progress: progress, height: cardH, theme: theme))
+                                             top: onTop, height: cardH, theme: theme))
             }, canvas: fast))
         }
         return out
