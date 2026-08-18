@@ -1,7 +1,8 @@
 // The pure viewport-overflow indicator math (EdgeIndicators.swift): clamp-at-the-edge, the
-// 1/2/3-deep stack widths + indents + staircase heights (S/2S/3S, edge-pinned), the scroll-
-// driven interpolation between stack layouts, the 4th-event handoff, and the bottom-edge
-// mirror. All expected values are DERIVED from Layout.edgeIndicatorH / edgeIndicatorMorph so
+// 1/2/3-deep stack widths + indents + staircase heights (height = S + indent: the nearest/
+// innermost card is tallest, 3S, the farthest shortest and flush, S), the scroll-driven
+// interpolation between stack layouts, the 4th-event handoff, and the bottom-edge mirror.
+// All expected values are DERIVED from Layout.edgeIndicatorH / edgeIndicatorMorph so
 // hand-tuning the constants keeps these green.
 
 @testable import CalendarGeometry
@@ -80,19 +81,19 @@ final class EdgeIndicatorTests: XCTestCase {
         let one = layout([ending(deep)])
         assertRect(one.top[0].rect, baseX, tlTop, baseW, S)
         // Two: each (full − S) wide; the NEARER-in-time event (larger maxY) is innermost —
-        // indented S, S tall, on top; the older one sits at the base edge, one step (2S) deep.
+        // indented S, 2S tall, on top; the older one sits flush at the base edge, S tall.
         let two = layout([ending(deep - 20), ending(deep)]) // index 1 is nearer
         XCTAssertEqual(two.top.map(\.index), [1, 0]) // rank-ascending: innermost first
-        assertRect(two.top[0].rect, baseX + S, tlTop, baseW - S, S)
-        assertRect(two.top[1].rect, baseX, tlTop, baseW - S, 2 * S)
+        assertRect(two.top[0].rect, baseX + S, tlTop, baseW - S, 2 * S)
+        assertRect(two.top[1].rect, baseX, tlTop, baseW - S, S)
         XCTAssertEqual(two.topNearest, 1)
-        // Three: each (full − 2S) wide, indents 2S / S / 0 and staircase heights S / 2S / 3S
-        // from innermost out — every card's TOP pinned at the edge.
+        // Three: each (full − 2S) wide, indents 2S / S / 0 and staircase heights 3S / 2S / S
+        // from innermost out (height = S + indent) — every card's TOP pinned at the edge.
         let three = layout([ending(deep - 40), ending(deep), ending(deep - 20)])
         XCTAssertEqual(three.top.map(\.index), [1, 2, 0])
-        assertRect(three.top[0].rect, baseX + 2 * S, tlTop, baseW - 2 * S, S)
+        assertRect(three.top[0].rect, baseX + 2 * S, tlTop, baseW - 2 * S, 3 * S)
         assertRect(three.top[1].rect, baseX + S, tlTop, baseW - 2 * S, 2 * S)
-        assertRect(three.top[2].rect, baseX, tlTop, baseW - 2 * S, 3 * S)
+        assertRect(three.top[2].rect, baseX, tlTop, baseW - 2 * S, S)
         for e in three.top {
             XCTAssertEqual(e.opacity, 1, accuracy: 0.001)
         }
@@ -109,11 +110,13 @@ final class EdgeIndicatorTests: XCTestCase {
         let out = layout([ending(tlTop - 5 * T), ending(tlTop + S - T / 2)])
         XCTAssertEqual(out.top.map(\.index), [1, 0]) // newcomer (nearest) innermost
         let settled = out.top[1], newcomer = out.top[0]
-        // Settled card: halfway to the 2-stack width AND halfway down its step (S → 2S).
-        assertRect(settled.rect, baseX, tlTop, baseW - S / 2, 1.5 * S)
+        // Settled card: halfway to the 2-stack width; flush and S tall (its outward mass — hence
+        // indent AND height — is untouched by an arrival on its inward side).
+        assertRect(settled.rect, baseX, tlTop, baseW - S / 2, S)
         XCTAssertEqual(newcomer.progress, 0.5, accuracy: 0.001)
-        // Newcomer slot: x = baseX + S, w = baseW − S/2, h = S; own sliver: x = baseX, w = baseW.
-        assertRect(newcomer.rect, baseX + S / 2, tlTop, baseW - S / 4, S)
+        // Newcomer slot: x = baseX + S, w = baseW − S/2, h = 2S; own sliver: x = baseX, w = baseW,
+        // h = S — halfway between.
+        assertRect(newcomer.rect, baseX + S / 2, tlTop, baseW - S / 4, 1.5 * S)
     }
 
     func testTwoToThreeMorphMidpoint() {
@@ -123,11 +126,11 @@ final class EdgeIndicatorTests: XCTestCase {
         let out = layout([ending(deep - 20), ending(deep), ending(tlTop + S - T / 2)])
         XCTAssertEqual(out.top.map(\.index), [2, 1, 0])
         let newcomer = out.top[0], mid = out.top[1], outer = out.top[2]
-        // Survivors' heights step down the staircase with the newcomer: S→2S and 2S→3S, halfway.
-        assertRect(mid.rect, baseX + S, tlTop, baseW - 1.5 * S, 1.5 * S)
-        assertRect(outer.rect, baseX, tlTop, baseW - 1.5 * S, 2.5 * S)
-        // Newcomer: slot (x = baseX + 2S, w = baseW − 1.5S, h = S) lerped 50% from its own sliver.
-        assertRect(newcomer.rect, baseX + S, tlTop, baseW - 0.75 * S, S)
+        // Survivors hold their indents AND heights (outward mass unchanged); only widths narrow.
+        assertRect(mid.rect, baseX + S, tlTop, baseW - 1.5 * S, 2 * S)
+        assertRect(outer.rect, baseX, tlTop, baseW - 1.5 * S, S)
+        // Newcomer: slot (x = baseX + 2S, w = baseW − 1.5S, h = 3S) lerped 50% from its own sliver.
+        assertRect(newcomer.rect, baseX + S, tlTop, baseW - 0.75 * S, 2 * S)
         XCTAssertEqual(out.topNearest, 2)
     }
 
@@ -144,22 +147,22 @@ final class EdgeIndicatorTests: XCTestCase {
         XCTAssertEqual(out.top.map(\.index), [3, 0, 1, 2])
         let nw = out.top[0], sa = out.top[1], sb = out.top[2], sc = out.top[3]
         XCTAssertEqual(sc.opacity, 0.5, accuracy: 0.001) // exiting, half faded
-        // The exiting outermost holds its place: base edge, frozen at the deepest step (3S).
-        assertRect(sc.rect, baseX, tlTop, baseW - 2 * S, 3 * S)
-        // Survivors: indents relax a step while heights grow one — both halfway here.
-        assertRect(sa.rect, baseX + 1.5 * S, tlTop, baseW - 2 * S, 1.5 * S) // 2S→S in, S→2S tall
-        assertRect(sb.rect, baseX + 0.5 * S, tlTop, baseW - 2 * S, 2.5 * S) // S→0 in, 2S→3S tall
-        // Newcomer: innermost slot (x = baseX + 2S, capped; h = S), lerped 50% from its own sliver.
-        assertRect(nw.rect, baseX + S, tlTop, baseW - S, S)
+        // The exiting outermost fades at the flush shallow slot (indent 0 → height S).
+        assertRect(sc.rect, baseX, tlTop, baseW - 2 * S, S)
+        // Survivors: indents AND heights relax a step together — halfway here.
+        assertRect(sa.rect, baseX + 1.5 * S, tlTop, baseW - 2 * S, 2.5 * S) // 2S→S in, 3S→2S tall
+        assertRect(sb.rect, baseX + 0.5 * S, tlTop, baseW - 2 * S, 1.5 * S) // S→0 in, 2S→S tall
+        // Newcomer: innermost slot (x = baseX + 2S, capped; h = 3S), lerped 50% from its own sliver.
+        assertRect(nw.rect, baseX + S, tlTop, baseW - S, 2 * S)
         XCTAssertEqual(nw.opacity, 1, accuracy: 0.001)
 
         // Fully settled: the 4th is gone, the newcomer owns the innermost slot of a clean 3-stack.
         let settled = layout([a, b, c, ending(deep + 10)])
         XCTAssertEqual(settled.top.count, 3)
         XCTAssertEqual(settled.top.map(\.index), [3, 0, 1])
-        assertRect(settled.top[0].rect, baseX + 2 * S, tlTop, baseW - 2 * S, S)
+        assertRect(settled.top[0].rect, baseX + 2 * S, tlTop, baseW - 2 * S, 3 * S)
         assertRect(settled.top[1].rect, baseX + S, tlTop, baseW - 2 * S, 2 * S)
-        assertRect(settled.top[2].rect, baseX, tlTop, baseW - 2 * S, 3 * S)
+        assertRect(settled.top[2].rect, baseX, tlTop, baseW - 2 * S, S)
     }
 
     // ── Bottom edge mirror ────────────────────────────────────────────────────────
@@ -171,12 +174,12 @@ final class EdgeIndicatorTests: XCTestCase {
         XCTAssertTrue(one.top.isEmpty)
         assertRect(one.bottom[0].rect, baseX, tlBottom - S, baseW, S)
         XCTAssertEqual(one.bottomHit, CGRect(x: baseX, y: tlBottom - S, width: baseW, height: S))
-        // Two: the nearer-in-time event (SMALLER minY — the earlier one) is innermost/indented;
-        // the staircase mirrors — deeper cards grow UPWARD from the bottom edge (bottoms pinned).
+        // Two: the nearer-in-time event (SMALLER minY — the earlier one) is innermost/indented
+        // AND tallest; the staircase mirrors — cards grow UPWARD from the edge (bottoms pinned).
         let two = layout([starting(deep + 20), starting(deep)])
         XCTAssertEqual(two.bottom.map(\.index), [1, 0])
-        assertRect(two.bottom[0].rect, baseX + S, tlBottom - S, baseW - S, S)
-        assertRect(two.bottom[1].rect, baseX, tlBottom - 2 * S, baseW - S, 2 * S)
+        assertRect(two.bottom[0].rect, baseX + S, tlBottom - 2 * S, baseW - S, 2 * S)
+        assertRect(two.bottom[1].rect, baseX, tlBottom - S, baseW - S, S)
         XCTAssertEqual(two.bottomNearest, 1)
         XCTAssertEqual(two.bottomHit, CGRect(x: baseX, y: tlBottom - 2 * S, width: baseW, height: 2 * S))
     }
