@@ -189,6 +189,31 @@ struct EventSticker: View { // internal: read by EventsOverlay.swift
     }
 }
 
+/// Fill strength for an edge-indicator sliver: at progress 0 it takes over seamlessly from the
+/// plain sticker fill it replaces (same idle tint), then solidifies as it morphs into the pinned
+/// stack — a lone half-tint 5px sliver would otherwise be nearly invisible. Shared by the SwiftUI
+/// sticker and the Canvas fast path so both render identically.
+func edgeIndicatorFillOpacity(_ progress: CGFloat, theme: Theme) -> Double {
+    Double(lerp(CGFloat(BandStyle.tintIdle * theme.eventTintScale), 0.9, progress))
+}
+
+/// A scrolled-off event's pinned edge marker (see CalendarGeometry/EdgeIndicators.swift): the
+/// event's color, sticker-rounded but only Layout.edgeIndicatorH tall — NO title, NO accent bar,
+/// no activation states. Visual only: the containing overlay is hit-test-transparent; stack
+/// clicks are resolved geometrically by the engine (edgeIndicatorTarget).
+struct EdgeIndicatorSticker: View { // internal: read by EventsOverlay.swift
+    let colorKey: String
+    let hidden: Bool // revealed hidden import → neutral gray, like its sticker fill
+    let progress: CGFloat // 0 just clamped … 1 settled in the stack (drives fill strength)
+    let theme: Theme
+
+    var body: some View {
+        let color = hidden ? theme.text : theme.eventColor(colorKey)
+        RoundedRectangle(cornerRadius: min(BandStyle.cornerRadius, Layout.edgeIndicatorH / 2))
+            .fill(color.opacity(edgeIndicatorFillOpacity(progress, theme: theme)))
+    }
+}
+
 /// Selection/focus border for a cross-midnight segment: same widths/dash as `activationBorder`, but on an
 /// OPEN path that omits the midnight continuation edge(s).
 @ViewBuilder
@@ -401,7 +426,10 @@ struct BandSticker: View { // internal: read by EventsOverlay.swift
                     let shape = bandShape
                     Rectangle().fill(theme.bg.opacity(0.55)) // base occlusion under the frost
                         .frame(width: box.width + maskW, height: box.height)
-                        .glassEffectCompat(.regular.tint(color.opacity(BandStyle.tintIdle * theme.eventTintScale)), in: shape)
+                        .glassEffectCompat(
+                            .regular.tint(color.opacity(BandStyle.tintIdle * theme.eventTintScale)),
+                            in: shape
+                        )
                         .clipShape(shape)
                 }
             }

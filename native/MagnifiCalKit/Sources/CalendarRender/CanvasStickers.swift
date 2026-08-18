@@ -96,7 +96,16 @@ struct TimedDraw {
     var subTimeText: String? // anchor-zone range when it differs from the view tz
 }
 
-enum StickerDraw { case band(BandDraw), timed(TimedDraw) }
+/// Flat payload for an edge-indicator sliver — a scrolled-off event's pinned marker at the
+/// timeline's top/bottom edge (see CalendarGeometry/EdgeIndicators.swift). Mirrors
+/// EdgeIndicatorSticker exactly: color fill only, no bar/text/badges.
+struct EdgeIndicatorDraw {
+    let colorKey: String
+    let hidden: Bool // revealed hidden import → neutral gray
+    let progress: CGFloat // 0 just clamped … 1 settled in the stack (drives fill strength)
+}
+
+enum StickerDraw { case band(BandDraw), timed(TimedDraw), edgeIndicator(EdgeIndicatorDraw) }
 
 /// One Canvas-drawable sticker: geometry + the flat payload.
 struct CanvasSticker {
@@ -113,6 +122,7 @@ struct CanvasSticker {
             switch it.draw {
             case let .band(b): drawBand(b, rect: it.rect, fade: it.fade, ctx: &ctx, theme: theme)
             case let .timed(t): drawTimed(t, rect: it.rect, fade: it.fade, ctx: &ctx, theme: theme)
+            case let .edgeIndicator(e): drawEdgeIndicator(e, rect: it.rect, fade: it.fade, ctx: &ctx, theme: theme)
             }
         }
     }
@@ -280,6 +290,19 @@ struct CanvasSticker {
             drawBadges(t.badges, at: CGPoint(x: x, y: rect.minY + 3 + 4), maxX: rect.maxX - 2,
                        color: border, ctx: &layer)
         }
+    }
+
+    /// ── Edge indicator: a rounded fill of the event's color, nothing else ───────────────────────
+    private static func drawEdgeIndicator(_ e: EdgeIndicatorDraw, rect: CGRect, fade: Double,
+                                          ctx: inout GraphicsContext, theme: Theme) {
+        guard fade > 0.001, rect.width > 0.5 else { return }
+        var layer = ctx
+        layer.opacity = fade
+        let color = e.hidden ? theme.text : theme.eventColor(e.colorKey)
+        layer.fill(
+            Path(roundedRect: rect, cornerRadius: min(BandStyle.cornerRadius, rect.height / 2)),
+            with: .color(color.opacity(edgeIndicatorFillOpacity(e.progress, theme: theme)))
+        )
     }
 
     /// The badge glyph row: 6.5pt bold SF Symbols, 2px apart, left-anchored at `at.x`, centered on `at.y`.
