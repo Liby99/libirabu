@@ -429,3 +429,4 @@
 2026-08-17 23:17 [main|bench-weekday-zoom/release/store/1626x940/hover=0/dwell=0] avg 101.3 fps | HUD-min 87.9 fps | p50 8.33 ms | p95 16.67 ms | max 66.7 ms | hitches(>33ms) 12 | MOVING: 88.4 fps p95 16.7 ms hitches 12 | 840 frames / 8.28 s
 2026-08-17 23:19 [main|bench-weekday-zoom/release/store/1626x940/hover=0/dwell=0] avg 100.8 fps | HUD-min 85.1 fps | p50 8.33 ms | p95 16.67 ms | max 66.7 ms | hitches(>33ms) 11 | MOVING: 87.6 fps p95 25.0 ms hitches 11 | 836 frames / 8.28 s
 2026-08-17 23:19 [main|bench-weekday-zoom/release/store/1626x940/hover=0/dwell=0] avg 99.7 fps | HUD-min 83.7 fps | p50 8.33 ms | p95 16.67 ms | max 66.7 ms | hitches(>33ms) 12 | MOVING: 86.6 fps p95 25.0 ms hitches 12 | 819 frames / 8.21 s
+2026-08-18 14:23 [main|bench-weekday-zoom/release/store/1626x940/hover=0/dwell=0] avg 100.3 fps | HUD-min 85.1 fps | p50 8.33 ms | p95 16.67 ms | max 66.7 ms | hitches(>33ms) 12 | MOVING: 86.8 fps p95 25.0 ms hitches 12 | 833 frames / 8.29 s
