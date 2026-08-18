@@ -104,33 +104,51 @@ final class EdgeIndicatorTests: XCTestCase {
     // ── Scroll-driven interpolation ───────────────────────────────────────────────
 
     func testSecondEventMorphMidpoint() {
-        // One settled + a newcomer halfway through its morph (v = S − T/2 → p = 0.5): the settled
-        // sliver's width interpolates full → (full − S) as a linear function of the newcomer's
-        // progress; the newcomer lerps its own full-width sliver into the indented inner slot.
-        let out = layout([ending(tlTop - 5 * T), ending(tlTop + S - T / 2)])
+        // One settled + a newcomer joining it: the newcomer CLAMPS at its destination height 2S
+        // (one settled member outward of it) and holds that distance from the edge — its morph
+        // (p = 0.5 at v = 2S − T/2) only slides it sideways into the indented inner slot. The
+        // settled sliver's width interpolates full → (full − S) with the newcomer's progress; its
+        // indent and height are untouched (no outward mass changed).
+        let out = layout([ending(tlTop - 5 * T), ending(tlTop + 2 * S - T / 2)])
         XCTAssertEqual(out.top.map(\.index), [1, 0]) // newcomer (nearest) innermost
         let settled = out.top[1], newcomer = out.top[0]
-        // Settled card: halfway to the 2-stack width; flush and S tall (its outward mass — hence
-        // indent AND height — is untouched by an arrival on its inward side).
         assertRect(settled.rect, baseX, tlTop, baseW - S / 2, S)
         XCTAssertEqual(newcomer.progress, 0.5, accuracy: 0.001)
-        // Newcomer slot: x = baseX + S, w = baseW − S/2, h = 2S; own sliver: x = baseX, w = baseW,
-        // h = S — halfway between.
-        assertRect(newcomer.rect, baseX + S / 2, tlTop, baseW - S / 4, 1.5 * S)
+        // Newcomer slot: x = baseX + S, w = baseW − S/2; own clamped strip: x = baseX, w = baseW.
+        // Height holds at 2S on both ends of the lerp.
+        assertRect(newcomer.rect, baseX + S / 2, tlTop, baseW - S / 4, 2 * S)
+    }
+
+    func testJoiningEventHoldsAtDestinationHeight() {
+        // The hold zone: with one settled member, a nearer event whose remnant is between S and
+        // 2S is ALREADY a candidate (threshold = destination height 2S, not S) — it stops
+        // scrolling and holds 2S from the edge instead of shrinking to S and regrowing.
+        let v = 1.5 * S
+        let out = layout([ending(tlTop - 5 * T), ending(tlTop + v)])
+        XCTAssertEqual(out.top.map(\.index), [1, 0])
+        let joiner = out.top[0]
+        XCTAssertEqual(joiner.progress, (2 * S - v) / T, accuracy: 0.001)
+        XCTAssertEqual(joiner.rect.height, 2 * S, accuracy: 0.001) // held, never below 2S
+        XCTAssertEqual(joiner.rect.minY, tlTop, accuracy: 0.001)
+        // A LONE event at the same remnant is untouched (its destination height is only S).
+        let lone = layout([ending(tlTop + v)])
+        XCTAssertTrue(lone.top.isEmpty)
     }
 
     func testTwoToThreeMorphMidpoint() {
-        // Two settled + a third at p = 0.5: survivors' widths head to (full − 2S) — halfway is
-        // (full − 1.5S) — while their indents hold (S and 0); the newcomer lerps into the 2S slot.
+        // Two settled + a third joining: it clamps at its destination height 3S (two settled
+        // members outward) — p = 0.5 at v = 3S − T/2. Survivors' widths head to (full − 2S) —
+        // halfway is (full − 1.5S) — while their indents AND heights hold; the newcomer holds 3S
+        // tall and slides into the 2S-indented slot.
         let deep = tlTop - 5 * T
-        let out = layout([ending(deep - 20), ending(deep), ending(tlTop + S - T / 2)])
+        let out = layout([ending(deep - 20), ending(deep), ending(tlTop + 3 * S - T / 2)])
         XCTAssertEqual(out.top.map(\.index), [2, 1, 0])
         let newcomer = out.top[0], mid = out.top[1], outer = out.top[2]
         // Survivors hold their indents AND heights (outward mass unchanged); only widths narrow.
         assertRect(mid.rect, baseX + S, tlTop, baseW - 1.5 * S, 2 * S)
         assertRect(outer.rect, baseX, tlTop, baseW - 1.5 * S, S)
-        // Newcomer: slot (x = baseX + 2S, w = baseW − 1.5S, h = 3S) lerped 50% from its own sliver.
-        assertRect(newcomer.rect, baseX + S, tlTop, baseW - 0.75 * S, 2 * S)
+        // Newcomer: slot (x = baseX + 2S, w = baseW − 1.5S) lerped 50% from its own clamped strip.
+        assertRect(newcomer.rect, baseX + S, tlTop, baseW - 0.75 * S, 3 * S)
         XCTAssertEqual(out.topNearest, 2)
     }
 
@@ -142,7 +160,7 @@ final class EdgeIndicatorTests: XCTestCase {
         let a = ending(deep) // innermost of the old stack
         let b = ending(deep - 20)
         let c = ending(deep - 40) // outermost — the one pushed out
-        let n = ending(tlTop + S - T / 2) // newcomer, p = 0.5
+        let n = ending(tlTop + 3 * S - T / 2) // newcomer (clamps at 3S, capped), p = 0.5
         let out = layout([a, b, c, n])
         XCTAssertEqual(out.top.map(\.index), [3, 0, 1, 2])
         let nw = out.top[0], sa = out.top[1], sb = out.top[2], sc = out.top[3]
@@ -152,8 +170,9 @@ final class EdgeIndicatorTests: XCTestCase {
         // Survivors: indents AND heights relax a step together — halfway here.
         assertRect(sa.rect, baseX + 1.5 * S, tlTop, baseW - 2 * S, 2.5 * S) // 2S→S in, 3S→2S tall
         assertRect(sb.rect, baseX + 0.5 * S, tlTop, baseW - 2 * S, 1.5 * S) // S→0 in, 2S→S tall
-        // Newcomer: innermost slot (x = baseX + 2S, capped; h = 3S), lerped 50% from its own sliver.
-        assertRect(nw.rect, baseX + S, tlTop, baseW - S, 2 * S)
+        // Newcomer: innermost slot (x = baseX + 2S, capped), lerped 50% from its own clamped
+        // strip — height holds at 3S on both ends.
+        assertRect(nw.rect, baseX + S, tlTop, baseW - S, 3 * S)
         XCTAssertEqual(nw.opacity, 1, accuracy: 0.001)
 
         // Fully settled: the 4th is gone, the newcomer owns the innermost slot of a clean 3-stack.
