@@ -42,6 +42,9 @@ each release.
   into the notes as `#tokens` automatically (illegal characters become `-`), previews keep
   rendering them as chips, and search/filter/dashboards keep working (the old tags field
   lives on as a cache recomputed on every note save).
+- Week/day timelines: events scrolled out of view now pin as small colored slivers at the
+  top/bottom edge (Apple-Calendar-style card staircase, up to 3 per day column);
+  clicking a stack scrolls the nearest hidden event back into view.
 
 ## [0.2.0] — 2026-08-10
 
