@@ -49,6 +49,9 @@ each release.
 - Fixed: with two note editors open (e.g. the dashboard notepad and an event's note in
   the drawer), Cmd+S could save the editor you weren't typing in - it now saves exactly
   the note holding the cursor.
+- Fixed: the Help browser's "Projects & Gantt charts" / "How tokens show up" screenshots
+  and the tutorial's AI-assistant recording were stale or mis-captured (wrong tab, a grey
+  veil, an interrupted take) - re-captured from the scripted scenes in both themes.
 
 ## [0.2.0] — 2026-08-10
 
