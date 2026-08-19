@@ -43,7 +43,7 @@ public enum ChangelogContent {
     /// Newest first. Keep entries ONE line each, user-visible phrasing.
     public static let releases: [ChangelogRelease] = [
         ChangelogRelease(
-            version: "0.2.1", date: "August 19, 2026",
+            version: "0.3.0", date: "August 19, 2026",
             headline: "Markdown tags, timeline edge indicators, and a fully native editor.",
             changes: [
                 .init(.added, "**Tags are markdown** — type `#tag` anywhere in a note (a space after `#` still makes a heading); existing tags migrate into the notes automatically and the drawer's separate Tags UI is gone."),

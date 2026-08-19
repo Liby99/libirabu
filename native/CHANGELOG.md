@@ -18,7 +18,7 @@ each release.
 
 ## [Unreleased]
 
-## [0.2.1] — 2026-08-19
+## [0.3.0] — 2026-08-19
 
 - Added: Help ▸ What's New — the changelog in its own window, each release's entries
   formatted with Added/Improved/Fixed badges (curated in Changelog.swift).
