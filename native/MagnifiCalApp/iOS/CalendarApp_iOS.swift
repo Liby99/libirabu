@@ -51,6 +51,9 @@ struct CalendarPhoneApp: App {
         Layout.bottomPad = 104
         // Larger event titles: only a screenful of cells is visible at a time on the phone.
         BandStyle.titleSize = 15
+        // The dashboard drawer is READ-ONLY on the phone (no editing anywhere): panel writes
+        // (checkbox toggles, row menus, quick-add) no-op. Write-once, like the Layout knobs.
+        NativeDash.readOnly = true
 
         // Bench mode (CC_DEMO=bench-*, set in the MagnifiCalPhoneBench scheme): stage the payload
         // into the throwaway Documents/bench-store dir BEFORE the engine loads — the ItemStore

@@ -338,7 +338,11 @@ private struct ProjChart: View {
                         // The quick-add row rides INSIDE the existing headroom strip (bottom-
                         // aligned, right above the top row) — no extra chart height.
                         Color.clear.frame(height: headroom)
-                            .overlay(alignment: .bottomLeading) { quickAddRow }
+                            .overlay(alignment: .bottomLeading) {
+                                if !NativeDash.readOnly {
+                                    quickAddRow // read-only drawer (iPhone): no authoring row
+                                }
+                            }
                         ForEach(tasks, id: \.rowId) { t in
                             labelRow(t).transition(.rowReveal)
                         }

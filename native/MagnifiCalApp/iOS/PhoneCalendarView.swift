@@ -24,6 +24,16 @@ struct PhoneCalendarView: View {
     @State private var sheetItem: SheetItem?
     @State private var showMenu = false
     @State private var showAI = false
+    @State private var showDash = false
+    @State private var dashTab: DashTab = .todo // survives open/close (like the Mac's tab memory)
+    /// A drawer row asked for navigation: run it AFTER the sheet dismisses (navigating behind
+    /// a still-open sheet would be invisible; the reveal's fly-to needs the canvas front).
+    private enum PendingNav {
+        case reveal(String) // fly to an item + select it
+        case note(String) // jump to a note's home scope (daily ISO / "week:…" / "month:…")
+    }
+
+    @State private var pendingNav: PendingNav?
     /// While the event sheet is up, the calendar canvas lifts by this much so the selected
     /// event sits highlighted in the sheet-free TOP part of the screen (the medium detent
     /// covers the bottom half). Animated in on open, back to 0 on dismiss.
@@ -83,6 +93,10 @@ struct PhoneCalendarView: View {
                     // CC_DEMO=bench-* (MagnifiCalPhoneBench scheme): run the scripted scene now
                     // that the viewport is set and the initial navigation has landed.
                     bench.startIfDemo(engine: engine, size: geo.size)
+                    // First drawer open shouldn't pay the todo parse — warm the feeds at idle.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        engine.prewarmFeeds(today: NativeDashPanel.todayIso())
+                    }
                 }
                 .onChange(of: geo.size) { _, s in engine.setViewport(s) }
             }
@@ -115,6 +129,32 @@ struct PhoneCalendarView: View {
         .fullScreenCover(isPresented: $showMenu) {
             PhoneMenuView(engine: engine)
         }
+        // The dashboard drawer: TODO/PROJ/NOTE for the current scope (PhoneDashboard.swift).
+        // Medium detent keeps the calendar visible + interactive above it; row taps stash a
+        // PendingNav and dismiss — the navigation runs here, once the canvas is front again.
+        .sheet(isPresented: $showDash, onDismiss: {
+            guard let nav = pendingNav else { return }
+            pendingNav = nil
+            switch nav {
+            case let .reveal(id):
+                engine.revealAndSelect(id: id)
+            case let .note(key):
+                jumpToNoteHome(key)
+            }
+        }) {
+            PhoneDashboardDrawer(engine: engine, theme: theme, tab: $dashTab,
+                                 onReveal: { id in
+                                     pendingNav = .reveal(id)
+                                     showDash = false
+                                 },
+                                 onJumpNote: { key in
+                                     pendingNav = .note(key)
+                                     showDash = false
+                                 })
+                                 .presentationDetents([.medium, .large])
+                                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                                 .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showAI) {
             VStack(spacing: 10) {
                 Image(systemName: "sparkles")
@@ -126,6 +166,31 @@ struct PhoneCalendarView: View {
             }
             .presentationDetents([.fraction(0.25)])
             .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// Navigate to a note's home scope — the phone's jumpToNoteKey: "week:<sunday>" →
+    /// that week, "month:<YYYY-MM>" → that month, bare ISO → that day. The drawer reopens
+    /// naturally from the toolbar; auto-reopen-on-NOTE-tab is a polish candidate.
+    private func jumpToNoteHome(_ key: String) {
+        func parts(_ s: Substring) -> [Int] {
+            s.split(separator: "-").compactMap { Int($0) }
+        }
+        if key.hasPrefix("week:") {
+            let p = parts(key.dropFirst(5))
+            if p.count == 3 {
+                engine.jumpToWeek(p[0], p[1] - 1, p[2])
+            }
+        } else if key.hasPrefix("month:") {
+            let p = parts(key.dropFirst(6))
+            if p.count == 2 {
+                engine.jumpToMonth(p[0], p[1] - 1)
+            }
+        } else {
+            let p = parts(key[...])
+            if p.count == 3 {
+                engine.jumpToDay(p[0], p[1] - 1, p[2])
+            }
         }
     }
 
@@ -220,6 +285,12 @@ struct PhoneCalendarView: View {
             HStack(spacing: 2) {
                 Button { showAI = true } label: {
                     Image(systemName: "sparkles")
+                        .font(.system(size: 17, weight: .medium))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                Button { showDash = true } label: {
+                    Image(systemName: "checklist")
                         .font(.system(size: 17, weight: .medium))
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())

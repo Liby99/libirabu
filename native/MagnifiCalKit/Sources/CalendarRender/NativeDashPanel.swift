@@ -84,6 +84,11 @@ public enum NativeDash {
     /// regression (mounts landing inside the next gesture).
     @MainActor public static var settledSince: (id: String, at: Date)?
 
+    /// READ-ONLY panels (the iPhone drawer): checkbox toggles, row-menu writes, and quick-add
+    /// all no-op — set ONCE at launch by the phone app (like the Layout knobs; the Mac never
+    /// touches it). Display + navigation (deadline reveal, fold, open) stay live.
+    @MainActor public static var readOnly = false
+
     /// CC_DASH_DIAG=1: keep the >50ms main-thread tripwires (diagTime) armed.
     public static let diag = ProcessInfo.processInfo.environment["CC_DASH_DIAG"] != nil
 
@@ -156,13 +161,18 @@ public struct NativeDashPanel: View {
     /// — the confirm's blur must cover the WHOLE window, not just this panel.
     var onDeleteRequest: (String, @escaping () -> Void) -> Void = { _, _ in }
 
+    /// Deadline-row reveal override (the iPhone drawer dismisses itself before flying the
+    /// canvas; nil — the Mac — keeps the direct engine.revealAndSelect).
+    var onReveal: ((String) -> Void)?
+
     /// Explicit init mirroring the old memberwise defaults (public — the module boundary
     /// dropped the free memberwise init when the panel moved to CalendarRender).
     public init(engine: CalendarEngine, scope: String, key: String, theme: Theme,
                 settings: DashTodoSettings? = nil, nav: NativeDashNavModel? = nil,
                 onOpen: @escaping (String, Int?, String?) -> Void,
                 onJump: @escaping (String, Int?) -> Void = { _, _ in },
-                onDeleteRequest: @escaping (String, @escaping () -> Void) -> Void = { _, _ in }) {
+                onDeleteRequest: @escaping (String, @escaping () -> Void) -> Void = { _, _ in },
+                onReveal: ((String) -> Void)? = nil) {
         self.engine = engine
         self.scope = scope
         self.key = key
@@ -172,6 +182,7 @@ public struct NativeDashPanel: View {
         self.onOpen = onOpen
         self.onJump = onJump
         self.onDeleteRequest = onDeleteRequest
+        self.onReveal = onReveal
     }
 
     @State private var doneOpen: Set<String> = [] // per-view completed expansion (session-scoped)
@@ -614,7 +625,11 @@ public struct NativeDashPanel: View {
                 ForEach(list, id: \.0.id) { d, iso in
                     DeadlineRowView(deadline: d, label: "\(Self.relDue(today, iso)) · \(Self.hhmm(d.hour))",
                                     theme: theme) {
-                        engine.revealAndSelect(id: d.id)
+                        if let onReveal {
+                            onReveal(d.id) // phone: dismiss the drawer, then fly
+                        } else {
+                            engine.revealAndSelect(id: d.id)
+                        }
                     }
                 }
             }
@@ -627,6 +642,7 @@ public struct NativeDashPanel: View {
     /// paths. Shared by the TODO and PROJ panels.
     public static func toggleTodo(_ engine: CalendarEngine, _ t: ParsedTodo) {
         guard !NativeDash.tapsSuppressed else { return } // pinch lift-off, not a real click
+        guard !NativeDash.readOnly else { return } // the iPhone drawer never writes
 
         let stamp = todayIso() + "T" + clockNow()
         rewriteTodoLine(engine, t) { TodoIndex.toggleTodoLine($0, line: $1, stamp: stamp) }
@@ -638,6 +654,7 @@ public struct NativeDashPanel: View {
     /// no-op). Shared by the checkbox toggle and the PROJ row menu's token writes.
     public static func rewriteTodoLine(_ engine: CalendarEngine, _ t: ParsedTodo,
                                        _ transform: (String, Int) -> String?) {
+        guard !NativeDash.readOnly else { return } // the iPhone drawer never writes
         if t.source == "daily" {
             let key = t.dailyDate ?? ""
             let cur = engine.dailyNote(key)
