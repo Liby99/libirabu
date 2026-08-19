@@ -17,6 +17,11 @@ each release.
   per-upload counter and never appear here.
 
 ## [Unreleased]
+- Improved: the app is ~12MB lighter. Tutorial demos are compact mp4 clips now (sharper
+  AND smaller than the old GIFs), and the Help browser's demos/screenshots stream from
+  GitHub on first view (cached locally, pinned to the release) instead of shipping in
+  the bundle. Also fixed: the dark-theme markdown-notes tutorial slide was a broken
+  4KB stub - re-recorded.
 
 ## [0.3.0] — 2026-08-19
 
