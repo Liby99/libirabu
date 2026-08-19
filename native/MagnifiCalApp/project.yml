@@ -183,7 +183,7 @@ schemes:
       config: Release
     archive:
       config: Release
-  # iPhone BENCH runs (see CalendarKit/bench/PHONE.md): Release build + the CC_* env preset.
+  # iPhone BENCH runs (see MagnifiCalKit/bench/PHONE.md): Release build + the CC_* env preset.
   # Perf numbers are Release-only — Debug SwiftUI is dramatically slower and its numbers are
   # meaningless. Also uncheck "Debug executable" in Xcode for HUD sessions. Set CC_DEMO to the
   # scene under test and CC_BENCH_TAG to the git branch before a run; results print to the
