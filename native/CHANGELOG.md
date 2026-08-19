@@ -22,6 +22,9 @@ each release.
   GitHub on first view (cached locally, pinned to the release) instead of shipping in
   the bundle. Also fixed: the dark-theme markdown-notes tutorial slide was a broken
   4KB stub - re-recorded.
+- Improved: the menu-bar item is now a calendar (not the AI sparkles), with "Open
+  MagnifiCal" on top and a new "Past Conversations" that opens the chat with the
+  conversations sidebar revealed.
 
 ## [0.3.0] — 2026-08-19
 
