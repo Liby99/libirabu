@@ -22,7 +22,6 @@ struct PhoneCalendarView: View {
     @Environment(\.colorScheme) private var scheme
     @AppStorage("cc.fpsHUD") private var hudPref = false // same key as the Mac's Developer toggle
     @State private var sheetItem: SheetItem?
-    @State private var showMenu = false
     @State private var showAI = false
     @State private var showDash = false
     @State private var dashTab: DashTab = .todo // survives open/close (like the Mac's tab memory)
@@ -109,7 +108,7 @@ struct PhoneCalendarView: View {
             // The toolbar capsules stay INSIDE the safe area (above the home indicator).
             bottomBar
         }
-        // Live frame-rate readout (CC_FPS_HUD=1 or the menu's Developer toggle). Top-leading —
+        // Live frame-rate readout (CC_FPS_HUD=1 or Settings ▸ MagnifiCal ▸ Frame Rate HUD). Top-leading —
         // the bottom belongs to the glass toolbar. Thresholds scale with the display's budget.
         .overlay(alignment: .topLeading) {
             if PhoneBenchRunner.hudEnabled || hudPref {
@@ -125,9 +124,6 @@ struct PhoneCalendarView: View {
             }
         }) { item in
             PhoneEventSheet(engine: engine, boxId: item.id, theme: theme)
-        }
-        .fullScreenCover(isPresented: $showMenu) {
-            PhoneMenuView(engine: engine)
         }
         // The dashboard drawer: TODO/PROJ/NOTE for the current scope (PhoneDashboard.swift).
         // Medium detent keeps the calendar visible + interactive above it; row taps stash a
@@ -272,8 +268,9 @@ struct PhoneCalendarView: View {
     // ── Chrome ───────────────────────────────────────────────────────────────────────
 
     /// Floating Liquid Glass toolbar (Music/Safari style, iOS 26): two capsules resting
-    /// ABOVE the calendar canvas — Breadcrumb on the left; AI + Menu on the right. The
-    /// canvas runs full-height beneath them. Menu opens the full-screen configuration view.
+    /// ABOVE the calendar canvas — Breadcrumb on the left; AI + the dashboard drawer on the
+    /// right. The canvas runs full-height beneath them. Configuration lives in the system
+    /// Settings app (Settings ▸ MagnifiCal — see PhoneSettingsBridge in CalendarApp_iOS).
     private var bottomBar: some View {
         HStack {
             HStack(spacing: 0) {
@@ -291,12 +288,6 @@ struct PhoneCalendarView: View {
                 }
                 Button { showDash = true } label: {
                     Image(systemName: "checklist")
-                        .font(.system(size: 17, weight: .medium))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                Button { showMenu = true } label: {
-                    Image(systemName: "line.3.horizontal")
                         .font(.system(size: 17, weight: .medium))
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
