@@ -25,10 +25,12 @@
 		CD5287D71BD48B46891E37D3 /* year-dense-2026.json in Resources */ = {isa = PBXBuildFile; fileRef = 56281C7254A118BB9B6C37BF /* year-dense-2026.json */; };
 		D9E1CF5F081D51457C818F44 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5D0057A7F5A522D5C2B2A4CF /* Sparkle */; };
 		E8D37545805E6F4F51BD68E5 /* SyncHarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D7BA89EFFCB313E8AB4019E /* SyncHarnessView.swift */; };
+		F5D346FBFA87460E65F40852 /* PhoneDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0904345815835E73B7AA45CA /* PhoneDashboard.swift */; };
 		FAE10B3B1E0C63F7FA7C338A /* PhoneMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C32ED5C564B637A60B33C98 /* PhoneMenuView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0904345815835E73B7AA45CA /* PhoneDashboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneDashboard.swift; sourceTree = "<group>"; };
 		0D7BA89EFFCB313E8AB4019E /* SyncHarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncHarnessView.swift; sourceTree = "<group>"; };
 		2C32ED5C564B637A60B33C98 /* PhoneMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneMenuView.swift; sourceTree = "<group>"; };
 		37055FE5EA491AC959563A76 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -97,6 +99,7 @@
 				CB3954F3A2D0C14455D5A9D8 /* CalendarApp_iOS.swift */,
 				8F2F98D995398EA7D52D8975 /* Info.plist */,
 				6E3780F4CDCE73F941004528 /* PhoneCalendarView.swift */,
+				0904345815835E73B7AA45CA /* PhoneDashboard.swift */,
 				D66EACD7384594DC76E7671B /* PhoneEventSheet.swift */,
 				68DD47469E613D4977772E11 /* PhoneMarkdown.swift */,
 				2C32ED5C564B637A60B33C98 /* PhoneMenuView.swift */,
@@ -270,6 +273,7 @@
 			files = (
 				63DF6EB40B78FCC870E9CD0F /* CalendarApp_iOS.swift in Sources */,
 				5C1B288740E7633B3BFD5F45 /* PhoneCalendarView.swift in Sources */,
+				F5D346FBFA87460E65F40852 /* PhoneDashboard.swift in Sources */,
 				445FB58B6613D0CE6604DA8C /* PhoneEventSheet.swift in Sources */,
 				CAC4ABF36AEB7EF351499FC5 /* PhoneMarkdown.swift in Sources */,
 				FAE10B3B1E0C63F7FA7C338A /* PhoneMenuView.swift in Sources */,
