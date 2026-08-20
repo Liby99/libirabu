@@ -193,8 +193,26 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     }
 
     /// Settings ▸ Developer ▸ "Push Everything to iCloud" (active calendar's zone + records).
+    /// Also prunes STUCK pending sends aimed at foreign zones — the production bring-up found
+    /// years-old queue entries for the legacy "Calendar" zone and for other calendars' zones,
+    /// which retry (and fail "Zone Not Found") on every send, forever: this instance only ever
+    /// creates ITS OWN zone, so those entries can never succeed here. Each calendar's own
+    /// records are (re)offered by running the button with that calendar active.
     func pushEverything() {
-        guard !readOnly, let engine else { return }
+        guard !readOnly, let engine, let syncEngine else { return }
+        let foreign = syncEngine.state.pendingRecordZoneChanges.filter { change in
+            switch change {
+            case let .saveRecord(id), let .deleteRecord(id): id.zoneID != zoneID
+            @unknown default: false
+            }
+        }
+        if !foreign.isEmpty {
+            syncEngine.state.remove(pendingRecordZoneChanges: foreign)
+            cloudLog
+                .notice(
+                    "CloudSync[\(self.zoneID.zoneName, privacy: .public)] pruned \(foreign.count) stuck pending sends aimed at foreign zones"
+                )
+        }
         enqueueFullPush(engine)
         syncNow()
     }
