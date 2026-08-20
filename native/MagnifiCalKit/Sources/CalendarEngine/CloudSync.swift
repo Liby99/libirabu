@@ -345,6 +345,12 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
                 )
             applyFetched(modifications: e.modifications, deletions: e.deletions)
         case let .sentRecordZoneChanges(e):
+            if !e.savedRecords.isEmpty || !e.deletedRecordIDs.isEmpty {
+                cloudLog
+                    .notice(
+                        "CloudSync[\(self.zoneID.zoneName, privacy: .public)] sent OK: \(e.savedRecords.count) saved, \(e.deletedRecordIDs.count) deleted (\(e.failedRecordSaves.count) failed)"
+                    )
+            }
             handleSent(e)
         case .didFetchChanges, .didSendChanges:
             engine?.syncMonitor.markSynced() // a fetch/push round-trip completed → stamp "last synced"
