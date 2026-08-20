@@ -157,7 +157,11 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
             cloudLog
                 .notice("RegistrySync fetched \(e.modifications.count) modifications, \(e.deletions.count) deletions")
             applyFetched(modifications: e.modifications, deletions: e.deletions)
-        case let .sentRecordZoneChanges(e): handleSent(e)
+        case let .sentRecordZoneChanges(e):
+            if !e.savedRecords.isEmpty || !e.deletedRecordIDs.isEmpty {
+                cloudLog.notice("RegistrySync sent OK: \(e.savedRecords.count) saved, \(e.deletedRecordIDs.count) deleted (\(e.failedRecordSaves.count) failed)")
+            }
+            handleSent(e)
         default: break
         }
     }
