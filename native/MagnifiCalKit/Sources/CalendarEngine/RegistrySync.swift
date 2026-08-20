@@ -130,7 +130,10 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
         switch event {
         case let .stateUpdate(e): saveState(e.stateSerialization)
         case let .accountChange(e): handleAccountChange(e)
-        case let .fetchedRecordZoneChanges(e): applyFetched(modifications: e.modifications, deletions: e.deletions)
+        case let .fetchedRecordZoneChanges(e):
+            cloudLog
+                .notice("RegistrySync fetched \(e.modifications.count) modifications, \(e.deletions.count) deletions")
+            applyFetched(modifications: e.modifications, deletions: e.deletions)
         case let .sentRecordZoneChanges(e): handleSent(e)
         default: break
         }
