@@ -72,8 +72,17 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
     }
 
     /// Settings ▸ Developer ▸ "Push Everything to iCloud" (the calendar registry's half).
+    /// Drops the cached server records for the re-offered ids first: the cache can carry
+    /// ANOTHER environment's change tags (the dev↔prod split), which the server rejects as
+    /// "Unknown Item — recordChangeTag specified, but record not found" — the production
+    /// bring-up's last blocker. A fresh, tagless record creates cleanly; if the record DOES
+    /// exist server-side the send conflicts and the local-wins machinery re-sends over it.
     func pushEverything() {
         guard !readOnly, let engine else { return }
+        for c in engine.allCalendars {
+            knownRecords[c.id] = nil
+        }
+        saveRecordCache()
         enqueueFullPush(engine)
         syncNow()
     }
