@@ -18,6 +18,8 @@ each release.
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-08-20
+
 ### Added
 - iPhone: the dashboard drawer — the Mac's TODO / PROJ / NOTE panels as a read-only bottom
   sheet (checklist toolbar button); scope follows the zoom level.
