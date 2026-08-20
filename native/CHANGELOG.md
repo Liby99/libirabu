@@ -17,6 +17,24 @@ each release.
   per-upload counter and never appear here.
 
 ## [Unreleased]
+
+### Added
+- iPhone: the dashboard drawer — the Mac's TODO / PROJ / NOTE panels as a read-only bottom
+  sheet (checklist toolbar button); scope follows the zoom level.
+- iPhone: configuration lives in Settings ▸ MagnifiCal (frame-rate HUD, calendar switching,
+  version); the toolbar Menu button is gone.
+- Settings ▸ Developer ▸ "Push Everything to iCloud" — re-offers the active calendar + the
+  calendar registry to the server (recovery for a never-populated production environment).
+
+### Fixed
+- iPhone: a fresh install now adopts the primary cloud calendar instead of rendering the empty
+  bootstrap default forever, and Debug phone builds read the PRODUCTION CloudKit environment
+  (where the shipped Mac app's data lives).
+- Cloud sync logs its lifecycle and failures (subsystem dev.magnifical.calendar, category
+  cloud) — fetch/send errors were silently swallowed.
+
+### Improved
+- iPhone: compact breadcrumb ("2026 › Aug › Wk 4 › 19").
 - Improved: the app is ~12MB lighter. Tutorial demos are compact mp4 clips now (sharper
   AND smaller than the old GIFs), and the Help browser's demos/screenshots stream from
   GitHub on first view (cached locally, pinned to the release) instead of shipping in

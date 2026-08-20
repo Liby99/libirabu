@@ -49,9 +49,7 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
         )
         syncEngine = CKSyncEngine(config)
         if savedState == nil, !readOnly {
-            syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
-            syncEngine.state
-                .add(pendingRecordZoneChanges: engine.allCalendars.map { .saveRecord(recordID(for: $0.id)) })
+            enqueueFullPush(engine)
         }
         cloudLog.notice("RegistrySync started (readOnly \(self.readOnly), freshState \(savedState == nil))")
         Task { [weak self] in
@@ -62,6 +60,22 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
                 cloudLog.error("RegistrySync initial fetch FAILED: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    /// See CloudSync.enqueueFullPush — the registry's recovery path for a never-populated server.
+    private func enqueueFullPush(_ engine: CalendarEngine) {
+        guard let syncEngine else { return }
+        syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
+        syncEngine.state
+            .add(pendingRecordZoneChanges: engine.allCalendars.map { .saveRecord(recordID(for: $0.id)) })
+        cloudLog.notice("RegistrySync full push enqueued: \(engine.allCalendars.count) calendars")
+    }
+
+    /// Settings ▸ Developer ▸ "Push Everything to iCloud" (the calendar registry's half).
+    func pushEverything() {
+        guard !readOnly, let engine else { return }
+        enqueueFullPush(engine)
+        syncNow()
     }
 
     func syncNow() {
