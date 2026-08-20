@@ -12,7 +12,14 @@
 import CalendarGeometry
 import CloudKit
 import Foundation
+import os
 import Security
+
+/// Sync diagnostics (Xcode console / `log stream`, subsystem dev.magnifical.calendar,
+/// category "cloud"). This layer used to be SILENT — `try?` swallowed every fetch error,
+/// which made an empty first fetch on a fresh device undiagnosable (the 2026-08 phone
+/// empty-calendar hunt). Shared with RegistrySync.
+let cloudLog = Logger(subsystem: "dev.magnifical.calendar", category: "cloud")
 
 /// Developer maintenance (Settings ▸ Developer): enumerate every zone in the private database and
 /// delete the ones belonging to NO registered calendar — migration leftovers whose records linger
@@ -126,7 +133,13 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     /// ── Lifecycle ─────────────────────────────────────────────────────────────────
     func startIfAccountAvailable() async {
         let status = await (try? container.accountStatus()) ?? .couldNotDetermine
-        guard status == .available else { return } // signed out → stay local, retry on account change
+        guard status == .available else { // signed out → stay local, retry on account change
+            cloudLog
+                .error(
+                    "CloudSync[\(self.zoneID.zoneName, privacy: .public)] NOT starting: account status \(status.rawValue) (1=available)"
+                )
+            return
+        }
         guard let engine else { return } // engine gone → nothing to sync
         loadRecordCache()
 
@@ -137,6 +150,10 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             delegate: self
         )
         syncEngine = CKSyncEngine(config)
+        cloudLog
+            .notice(
+                "CloudSync[\(self.zoneID.zoneName, privacy: .public)] started (readOnly \(self.readOnly), freshState \(savedState == nil))"
+            )
 
         engine.beginSyncTracking()
         if !readOnly {
@@ -170,9 +187,23 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     func syncNow() {
         guard let syncEngine else { engine?.syncMonitor.isSyncing = false; return }
         Task { [weak self, readOnly] in
-            try? await syncEngine.fetchChanges()
+            do {
+                try await syncEngine.fetchChanges()
+            } catch {
+                cloudLog
+                    .error(
+                        "CloudSync[\(self?.zoneID.zoneName ?? "?", privacy: .public)] fetch FAILED: \(String(describing: error), privacy: .public)"
+                    )
+            }
             if !readOnly {
-                try? await syncEngine.sendChanges()
+                do {
+                    try await syncEngine.sendChanges()
+                } catch {
+                    cloudLog
+                        .error(
+                            "CloudSync[\(self?.zoneID.zoneName ?? "?", privacy: .public)] send FAILED: \(String(describing: error), privacy: .public)"
+                        )
+                }
             }
             self?.engine?.syncMonitor.isSyncing = false
         }
@@ -272,6 +303,10 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         case let .accountChange(e):
             handleAccountChange(e)
         case let .fetchedRecordZoneChanges(e):
+            cloudLog
+                .notice(
+                    "CloudSync[\(self.zoneID.zoneName, privacy: .public)] fetched \(e.modifications.count) modifications, \(e.deletions.count) deletions"
+                )
             applyFetched(modifications: e.modifications, deletions: e.deletions)
         case let .sentRecordZoneChanges(e):
             handleSent(e)

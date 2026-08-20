@@ -38,7 +38,10 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
     /// fresh device discovers calendars created elsewhere.
     func start() async {
         let status = await (try? container.accountStatus()) ?? .couldNotDetermine
-        guard status == .available, let engine else { return }
+        guard status == .available, let engine else {
+            cloudLog.error("RegistrySync NOT starting: account status \(status.rawValue) (1=available)")
+            return
+        }
         loadRecordCache()
         let savedState = loadState()
         let config = CKSyncEngine.Configuration(
@@ -50,15 +53,31 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
             syncEngine.state
                 .add(pendingRecordZoneChanges: engine.allCalendars.map { .saveRecord(recordID(for: $0.id)) })
         }
-        Task { [weak self] in try? await self?.syncEngine.fetchChanges() }
+        cloudLog.notice("RegistrySync started (readOnly \(self.readOnly), freshState \(savedState == nil))")
+        Task { [weak self] in
+            do {
+                try await self?.syncEngine.fetchChanges()
+                cloudLog.notice("RegistrySync initial fetch ok")
+            } catch {
+                cloudLog.error("RegistrySync initial fetch FAILED: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     func syncNow() {
         guard let syncEngine else { return }
         Task { [readOnly] in
-            try? await syncEngine.fetchChanges()
+            do {
+                try await syncEngine.fetchChanges()
+            } catch {
+                cloudLog.error("RegistrySync fetch FAILED: \(String(describing: error), privacy: .public)")
+            }
             if !readOnly {
-                try? await syncEngine.sendChanges()
+                do {
+                    try await syncEngine.sendChanges()
+                } catch {
+                    cloudLog.error("RegistrySync send FAILED: \(String(describing: error), privacy: .public)")
+                }
             }
         }
     }
