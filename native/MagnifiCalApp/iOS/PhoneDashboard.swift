@@ -63,7 +63,9 @@ struct PhoneDashboardDrawer: View {
                 .padding(.horizontal, 18)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.bg)
+        // NO background paint: all three tabs sit directly on the sheet's native styled
+        // background — the same surface PhoneEventSheet uses, so every drawer/sheet in the
+        // app shares one look (an opaque theme.bg here left the sheet chrome mismatched).
         .onChange(of: level) { _, _ in
             // The keyboard-nav registry keys rows by scope|key; keep it pointed at the live panel.
             nav.activePanel = scope + "|" + key
