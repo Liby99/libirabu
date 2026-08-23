@@ -159,7 +159,10 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
             applyFetched(modifications: e.modifications, deletions: e.deletions)
         case let .sentRecordZoneChanges(e):
             if !e.savedRecords.isEmpty || !e.deletedRecordIDs.isEmpty {
-                cloudLog.notice("RegistrySync sent OK: \(e.savedRecords.count) saved, \(e.deletedRecordIDs.count) deleted (\(e.failedRecordSaves.count) failed)")
+                cloudLog
+                    .notice(
+                        "RegistrySync sent OK: \(e.savedRecords.count) saved, \(e.deletedRecordIDs.count) deleted (\(e.failedRecordSaves.count) failed)"
+                    )
             }
             handleSent(e)
         default: break
@@ -215,6 +218,19 @@ final class RegistrySync: NSObject, CKSyncEngineDelegate {
             case .zoneNotFound, .userDeletedZone:
                 syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
                 syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(id)])
+            case .unknownItem:
+                // Cross-environment change tag (see CloudSync.handleSent) — shed + re-offer once.
+                if knownRecords[id.recordName] != nil {
+                    knownRecords[id.recordName] = nil
+                    syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(id)])
+                    cloudLog
+                        .notice("RegistrySync shed stale change tag on \(id.recordName, privacy: .public), re-offering")
+                } else {
+                    cloudLog
+                        .error(
+                            "RegistrySync giving up on \(id.recordName, privacy: .public): unknownItem with no cached tag"
+                        )
+                }
             default: break
             }
         }

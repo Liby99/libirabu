@@ -200,6 +200,12 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     /// records are (re)offered by running the button with that calendar active.
     func pushEverything() {
         guard !readOnly, let engine, let syncEngine else { return }
+        // Shed EVERY cached record first: the cache can carry another environment's change
+        // tags (dev↔prod), which the server rejects as unknownItem — records then vanished
+        // silently via the old give-up branch. Fresh tagless records create cleanly; ones the
+        // server truly has come back serverRecordChanged and converge through local-wins.
+        knownRecords.removeAll()
+        saveRecordCache()
         let foreign = syncEngine.state.pendingRecordZoneChanges.filter { change in
             switch change {
             case let .saveRecord(id), let .deleteRecord(id): id.zoneID != zoneID
@@ -455,8 +461,30 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             case .zoneNotFound, .userDeletedZone:
                 syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
                 syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(fail.record.recordID)])
-            case .serverRejectedRequest, .unknownItem:
-                break // give up on this record
+            case .unknownItem:
+                // "recordChangeTag specified, but record not found": our cached copy carries a
+                // change tag from ANOTHER environment (the dev↔prod split) — the server has
+                // never seen this record. Shed the poisoned cache entry and re-offer once as a
+                // fresh, tagless record; with no cached tag left this cannot loop.
+                if knownRecords[name] != nil {
+                    knownRecords[name] = nil
+                    syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(fail.record.recordID)])
+                    cloudLog
+                        .notice(
+                            "CloudSync[\(self.zoneID.zoneName, privacy: .public)] shed stale change tag on \(name, privacy: .public), re-offering"
+                        )
+                } else {
+                    cloudLog
+                        .error(
+                            "CloudSync[\(self.zoneID.zoneName, privacy: .public)] giving up on \(name, privacy: .public): unknownItem with no cached tag"
+                        )
+                }
+            case .serverRejectedRequest:
+                // Permanent — but never again silently: this branch ate records for days.
+                cloudLog
+                    .error(
+                        "CloudSync[\(self.zoneID.zoneName, privacy: .public)] giving up on \(name, privacy: .public): serverRejectedRequest"
+                    )
             default:
                 break // transient — CKSyncEngine retries automatically
             }
