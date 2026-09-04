@@ -20,6 +20,12 @@ each release.
 
 ## [0.3.3] — 2026-09-04
 
+### Added
+- iPhone: Apple Calendar import — Settings ▸ MagnifiCal ▸ "Import from Apple Calendar"
+  brings every calendar on the phone (iCloud, Google, subscriptions) into the calendar as
+  read-only events, matching the Mac's import; notes and local copies made on the Mac
+  re-attach to the same events.
+
 ### Fixed
 - Sync can no longer wedge itself: failed sends that can never succeed (foreign-zone
   leftovers, cross-environment tags, server-rejected records) are pruned from the queue
