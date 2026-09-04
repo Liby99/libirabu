@@ -496,9 +496,16 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             // starved everything queued behind them — the 2026-09-04 "DailyNote never
             // appears" hunt. Whatever the error: a foreign-zone failure is dropped, logged.
             if name.hasPrefix(Self.dnotePrefix) {
-                cloudLog.error("dnote[6-FAILED] \(name, privacy: .public): code \(fail.error.code.rawValue) — \(fail.error.localizedDescription, privacy: .public)")
+                cloudLog
+                    .error(
+                        "dnote[6-FAILED] \(name, privacy: .public): code \(fail.error.code.rawValue) — \(fail.error.localizedDescription, privacy: .public)"
+                    )
             }
             guard fail.record.recordID.zoneID == zoneID else {
+                // CKSyncEngine keeps FAILED saves pending until explicitly removed — logging
+                // without removal meant the whole doomed set rode along in EVERY batch,
+                // failing oplock and taking innocent same-zone records down with it.
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(fail.record.recordID)])
                 cloudLog
                     .notice(
                         "CloudSync[\(self.zoneID.zoneName, privacy: .public)] dropping stuck foreign-zone send \(name, privacy: .public) (zone \(fail.record.recordID.zoneID.zoneName, privacy: .public), \(fail.error.code.rawValue))"
@@ -529,6 +536,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
                             "CloudSync[\(self.zoneID.zoneName, privacy: .public)] shed stale change tag on \(name, privacy: .public), re-offering"
                         )
                 } else {
+                    syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(fail.record.recordID)])
                     cloudLog
                         .error(
                             "CloudSync[\(self.zoneID.zoneName, privacy: .public)] giving up on \(name, privacy: .public): unknownItem with no cached tag"
@@ -536,6 +544,7 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
                 }
             case .serverRejectedRequest:
                 // Permanent — but never again silently: this branch ate records for days.
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(fail.record.recordID)])
                 cloudLog
                     .error(
                         "CloudSync[\(self.zoneID.zoneName, privacy: .public)] giving up on \(name, privacy: .public): serverRejectedRequest"
