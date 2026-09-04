@@ -469,6 +469,20 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         guard !readOnly else { saveRecordCache(); return } // unreachable (nothing sends) — belt and braces
         for fail in e.failedRecordSaves {
             let name = fail.record.recordID.recordName
+            // STUCK-QUEUE KILL SWITCH: pending sends aimed at OTHER zones (the legacy
+            // "Calendar" zone, other calendars) can never converge from this instance — and
+            // every failure branch just recycled them: serverRecordChanged adopted-and-
+            // re-enqueued (an endless oplock loop when the zone exists, as in dev),
+            // zoneNotFound re-added blindly (when it doesn't, as in production). The churn
+            // starved everything queued behind them — the 2026-09-04 "DailyNote never
+            // appears" hunt. Whatever the error: a foreign-zone failure is dropped, logged.
+            guard fail.record.recordID.zoneID == zoneID else {
+                cloudLog
+                    .notice(
+                        "CloudSync[\(self.zoneID.zoneName, privacy: .public)] dropping stuck foreign-zone send \(name, privacy: .public) (zone \(fail.record.recordID.zoneID.zoneName, privacy: .public), \(fail.error.code.rawValue))"
+                    )
+                continue
+            }
             switch fail.error.code {
             case .serverRecordChanged:
                 // Adopt the server change-tag, then re-enqueue our save so the local edit
