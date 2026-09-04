@@ -214,6 +214,7 @@ extension CalendarEngine {
         // views (the dashboard preview) immediately, without waiting for a render-loop tick.
         caches.noteGen &+= 1
         noteEdits.gen &+= 1
+        cloudLog.notice("dnote[1-edit] key=\(iso, privacy: .public) chars=\(v.count)")
         schedulePersist()
     }
 

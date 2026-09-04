@@ -287,7 +287,14 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
 
     /// ── Outbound: local edits → pending CloudKit changes ──────────────────────────
     private func localChanged(upserts: [String], deletes: [String]) {
-        guard let syncEngine else { return }
+        guard let syncEngine else {
+            cloudLog.error("dnote[3-enqueue] DROPPED — no syncEngine (upserts \(upserts.count))")
+            return
+        }
+        let dn = upserts.filter { $0.hasPrefix(Self.dnotePrefix) }
+        if !dn.isEmpty {
+            cloudLog.notice("dnote[3-enqueue] \(dn.joined(separator: " "), privacy: .public)")
+        }
         var pending: [CKSyncEngine.PendingRecordZoneChange] = []
         pending += upserts.map { .saveRecord(recordID(for: $0)) }
         pending += deletes.map { .deleteRecord(recordID(for: $0)) }
@@ -324,6 +331,15 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             }
         }
         guard !pending.isEmpty, let engine else { return nil }
+        let dnPending = pending.compactMap { change -> String? in
+            if case let .saveRecord(id) = change, id.recordName.hasPrefix(Self.dnotePrefix) {
+                return id.recordName
+            }
+            return nil
+        }
+        if !dnPending.isEmpty {
+            cloudLog.notice("dnote[4-batch] \(dnPending.joined(separator: " "), privacy: .public)")
+        }
         let snap = engine.syncSnapshot()
         // Materialize up front on the main actor (touches knownRecords); the provider
         // closure, which CKSyncEngine calls off-actor, only reads the plain dictionary.
@@ -465,6 +481,9 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     private func handleSent(_ e: CKSyncEngine.Event.SentRecordZoneChanges) {
         for saved in e.savedRecords {
             knownRecords[saved.recordID.recordName] = saved
+            if saved.recordID.recordName.hasPrefix(Self.dnotePrefix) {
+                cloudLog.notice("dnote[6-saved] \(saved.recordID.recordName, privacy: .public) ✓ server accepted")
+            }
         }
         guard !readOnly else { saveRecordCache(); return } // unreachable (nothing sends) — belt and braces
         for fail in e.failedRecordSaves {
@@ -613,10 +632,17 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
         if let key = Self.dnoteKey(fromRecordName: name) {
             // Note gone/emptied since enqueue → nothing to save (the delta emits a DELETE for
             // clears; a dropped save here is the correct no-op, not a silent loss).
-            guard let text = snap.dailyNotes?[key], !text.isEmpty else { return nil }
+            guard let text = snap.dailyNotes?[key], !text.isEmpty else {
+                cloudLog
+                    .error(
+                        "dnote[5-materialize] NIL for \(name, privacy: .public) — key absent/empty in snapshot (notes in snap: \(snap.dailyNotes?.count ?? -1))"
+                    )
+                return nil
+            }
             let r = base(name, "DailyNote")
             r["key"] = key as NSString
             r["text"] = text as NSString
+            cloudLog.notice("dnote[5-materialize] built \(name, privacy: .public) (\(text.count) chars)")
             return r
         }
         if let e = snap.events.first(where: { $0.id == name }) {
