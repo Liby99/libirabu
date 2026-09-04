@@ -74,9 +74,19 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
     /// nothing can reach the server even if a change were enqueued somehow.
     private let readOnly: Bool
 
-    // System-fields cache: id → CKRecord carrying the server change-tag. Materialized
-    // records start from these so saves don't spuriously hit `serverRecordChanged`.
+    /// System-fields cache: id → CKRecord carrying the server change-tag. Materialized
+    /// records start from these so saves don't spuriously hit `serverRecordChanged`.
     private var knownRecords: [String: CKRecord] = [:]
+
+    /// Census accessors (StoreCensus.swift): sync-layer state without exposing the internals.
+    var recordCacheCount: Int {
+        knownRecords.count
+    }
+
+    var pendingSendCount: Int {
+        syncEngine?.state.pendingRecordZoneChanges.count ?? -1
+    }
+
     private let recordCacheURL: URL
 
     init(engine: CalendarEngine, calendarId: String, readOnly: Bool = false) {
