@@ -18,6 +18,15 @@ each release.
 
 ## [Unreleased]
 
+### Fixed
+- Sync can no longer wedge itself: failed sends that can never succeed (foreign-zone
+  leftovers, cross-environment tags, server-rejected records) are pruned from the queue
+  instead of retrying forever — the retry storms that throttled the container and blocked
+  every edit behind them are gone.
+- Every send logs an honest summary ("sent: N saved, N deleted, N failed"), and note-sync
+  carries permanent breadcrumb diagnostics (dnote[1…6]) so a stuck edit names its dead link.
+
+
 ## [0.3.2] — 2026-09-04
 
 ### Fixed
