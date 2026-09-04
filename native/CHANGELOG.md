@@ -19,6 +19,13 @@ each release.
 ## [Unreleased]
 
 ### Fixed
+- Daily/weekly/monthly notes now sync (new DailyNote iCloud record type) — they had no
+  record type at all, so the phone's NOTE tab and note-sourced todos were always empty.
+- Sync self-heals cross-environment change tags (unknownItem re-offers instead of a
+  silent permanent drop) and logs successes, give-ups, and a per-calendar store census
+  (Settings ▸ Developer ▸ Log Store Census) for systematic device diffing.
+
+### Fixed
 - Dragging a deadline by its label pill moves the moment line WITH the pill again — the line's
   canvas never re-recorded during a label drag (its inputs were read inside the draw closure,
   invisible to SwiftUI); it now invalidates exactly when a deadline or its activation changes.
