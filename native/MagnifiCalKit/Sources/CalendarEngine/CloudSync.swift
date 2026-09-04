@@ -379,10 +379,10 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
                 )
             applyFetched(modifications: e.modifications, deletions: e.deletions)
         case let .sentRecordZoneChanges(e):
-            if !e.savedRecords.isEmpty || !e.deletedRecordIDs.isEmpty {
+            if !e.savedRecords.isEmpty || !e.deletedRecordIDs.isEmpty || !e.failedRecordSaves.isEmpty {
                 cloudLog
                     .notice(
-                        "CloudSync[\(self.zoneID.zoneName, privacy: .public)] sent OK: \(e.savedRecords.count) saved, \(e.deletedRecordIDs.count) deleted (\(e.failedRecordSaves.count) failed)"
+                        "CloudSync[\(self.zoneID.zoneName, privacy: .public)] sent: \(e.savedRecords.count) saved, \(e.deletedRecordIDs.count) deleted, \(e.failedRecordSaves.count) failed"
                     )
             }
             handleSent(e)
@@ -495,6 +495,9 @@ final class CloudSync: NSObject, CKSyncEngineDelegate {
             // zoneNotFound re-added blindly (when it doesn't, as in production). The churn
             // starved everything queued behind them — the 2026-09-04 "DailyNote never
             // appears" hunt. Whatever the error: a foreign-zone failure is dropped, logged.
+            if name.hasPrefix(Self.dnotePrefix) {
+                cloudLog.error("dnote[6-FAILED] \(name, privacy: .public): code \(fail.error.code.rawValue) — \(fail.error.localizedDescription, privacy: .public)")
+            }
             guard fail.record.recordID.zoneID == zoneID else {
                 cloudLog
                     .notice(
