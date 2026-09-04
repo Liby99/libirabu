@@ -18,6 +18,11 @@ each release.
 
 ## [Unreleased]
 
+### Fixed
+- Dragging a deadline by its label pill moves the moment line WITH the pill again — the line's
+  canvas never re-recorded during a label drag (its inputs were read inside the draw closure,
+  invisible to SwiftUI); it now invalidates exactly when a deadline or its activation changes.
+
 ## [0.3.1] — 2026-08-20
 
 ### Added
