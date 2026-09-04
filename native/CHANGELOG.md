@@ -18,6 +18,8 @@ each release.
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-09-04
+
 ### Fixed
 - Sync can no longer wedge itself: failed sends that can never succeed (foreign-zone
   leftovers, cross-environment tags, server-rejected records) are pruned from the queue
