@@ -18,6 +18,10 @@ each release.
 
 ## [Unreleased]
 
+- Fixed: todos written by the AI assistant (daily notes, event notes, new events) now
+  get their `created:` stamp - the same post-processing a manual edit session runs on
+  close never covered AI writes, so AI-added items had no creation date.
+
 ### Improved
 - The timeline-edge deadline quick-add "+" lights up in the accent color on hover — accent ring
   and plus over a solid near-background accent tint — instead of darkening its edge.
