@@ -18,6 +18,10 @@ each release.
 
 ## [Unreleased]
 
+### Improved
+- The timeline-edge deadline quick-add "+" lights up in the accent color on hover — accent ring
+  and plus over a solid near-background accent tint — instead of darkening its edge.
+
 ## [0.3.3] — 2026-09-04
 
 ### Added
