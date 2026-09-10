@@ -25,6 +25,9 @@ each release.
 ### Improved
 - The timeline-edge deadline quick-add "+" lights up in the accent color on hover — accent ring
   and plus over a solid near-background accent tint — instead of darkening its edge.
+- A near-vertical trackpad pinch (axis >82° from horizontal) over the week/day timeline now
+  scales the timeline's hour height — same knob as the edge scale bar, anchored on the hour
+  under the fingers — while any other pinch still zooms between views.
 
 ### Fixed
 - Right-clicking a TODO/PROJ row: the menu appears instantly and Delete no longer freezes the
@@ -38,6 +41,9 @@ each release.
   events' edge cards): a thin line hugging the top/bottom edge with tiny solid end dots, plus
   a small empty pill — the deadline label's shape (rounded corners, side border, caret), fixed
   size, no text.
+- The current-time line gets the same treatment: scrolled out of view, it leaves a thin accent
+  line at the edge (tiny solid dots) with a small "now" tag — the CURRENT TIME pill's chrome at
+  a fixed mini size.
 
 ## [0.3.3] — 2026-09-04
 
