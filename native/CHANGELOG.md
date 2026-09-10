@@ -18,6 +18,11 @@ each release.
 
 ## [Unreleased]
 
+### Improved
+- The edge "now" tag is a click target: clicking it glides the timeline so the current time
+  sits centered, with a mild hover effect (stronger tint/border, slight scale) and the
+  pointing-hand cursor.
+
 ## [0.3.4] — 2026-09-10
 
 ### Improved
