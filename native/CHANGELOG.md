@@ -18,18 +18,16 @@ each release.
 
 ## [Unreleased]
 
-- Fixed: todos written by the AI assistant (daily notes, event notes, new events) now
-  get their `created:` stamp - the same post-processing a manual edit session runs on
-  close never covered AI writes, so AI-added items had no creation date.
+## [0.3.4] — 2026-09-10
 
 ### Improved
 - The timeline-edge deadline quick-add "+" lights up in the accent color on hover — accent ring
   and plus over a solid near-background accent tint — instead of darkening its edge.
-- A near-vertical trackpad pinch (axis steeper than a tunable cone) over the week/day timeline now
-  scales the timeline's hour height — same knob as the edge scale bar, anchored on the hour
-  under the fingers — while any other pinch still zooms between views.
 
 ### Fixed
+- Todos written by the AI assistant (daily notes, event notes, new events) now
+  get their `created:` stamp - the same post-processing a manual edit session runs on
+  close never covered AI writes, so AI-added items had no creation date.
 - Right-clicking a TODO/PROJ row: the menu appears instantly and Delete no longer freezes the
   app. The callout popover was presented from inside the per-frame dashboard carousel, whose
   ticking position modifiers re-anchored it every frame (an AttributeGraph cycle — seconds-slow
@@ -37,6 +35,9 @@ each release.
   presents from stable window-root content, exactly like the event callout.
 
 ### Added
+- A near-vertical trackpad pinch (axis steeper than a tunable cone) over the week/day timeline now
+  scales the timeline's hour height — same knob as the edge scale bar, anchored on the hour
+  under the fingers — while any other pinch still zooms between views.
 - Deadlines scrolled out of the day/week/month timeline leave an edge indicator (like timed
   events' edge cards): a thin line hugging the top/bottom edge with tiny solid end dots, plus
   a small empty pill — the deadline label's shape (rounded corners, side border, caret), fixed
