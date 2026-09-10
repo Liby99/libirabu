@@ -33,6 +33,12 @@ each release.
   menu, and a live-lock when Delete's full-window blur hit the dismissing popover); it now
   presents from stable window-root content, exactly like the event callout.
 
+### Added
+- Deadlines scrolled out of the day/week/month timeline leave an edge indicator (like timed
+  events' edge cards): a thin line hugging the top/bottom edge with tiny solid end dots, plus
+  a small empty pill — the deadline label's shape (rounded corners, side border, caret), fixed
+  size, no text.
+
 ## [0.3.3] — 2026-09-04
 
 ### Added
