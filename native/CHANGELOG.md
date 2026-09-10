@@ -26,6 +26,13 @@ each release.
 - The timeline-edge deadline quick-add "+" lights up in the accent color on hover — accent ring
   and plus over a solid near-background accent tint — instead of darkening its edge.
 
+### Fixed
+- Right-clicking a TODO/PROJ row: the menu appears instantly and Delete no longer freezes the
+  app. The callout popover was presented from inside the per-frame dashboard carousel, whose
+  ticking position modifiers re-anchored it every frame (an AttributeGraph cycle — seconds-slow
+  menu, and a live-lock when Delete's full-window blur hit the dismissing popover); it now
+  presents from stable window-root content, exactly like the event callout.
+
 ## [0.3.3] — 2026-09-04
 
 ### Added
