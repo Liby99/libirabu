@@ -25,7 +25,7 @@ each release.
 ### Improved
 - The timeline-edge deadline quick-add "+" lights up in the accent color on hover — accent ring
   and plus over a solid near-background accent tint — instead of darkening its edge.
-- A near-vertical trackpad pinch (axis >82° from horizontal) over the week/day timeline now
+- A near-vertical trackpad pinch (axis steeper than a tunable cone) over the week/day timeline now
   scales the timeline's hour height — same knob as the edge scale bar, anchored on the hour
   under the fingers — while any other pinch still zooms between views.
 

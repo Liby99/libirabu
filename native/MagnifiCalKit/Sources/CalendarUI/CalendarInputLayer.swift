@@ -36,6 +36,10 @@ struct InputCatcher: NSViewRepresentable {
 
     func makeNSView(context: Context) -> CatcherView {
         let v = CatcherView()
+        // Trackpad touch data on gesture events (magnify carries the two fingertip positions),
+        // so the pinch AXIS is recoverable — a near-vertical pinch scales the timeline instead
+        // of zooming views. Only enables NSTouch delivery; scroll/click routing is unchanged.
+        v.allowedTouchTypes = [.indirect]
         v.engine = engine
         v.monthBridge = monthBridge
         v.weekBridge = weekBridge
@@ -538,21 +542,65 @@ final class CatcherView: NSView, NSMenuItemValidation {
         }
     }
 
+    /// What the current pinch drives. Decided ONCE at `.began` and latched: the inter-touch axis
+    /// drifts as the fingers move, and flipping between view zoom and timeline scale mid-gesture
+    /// would be jarring (same latch idea as the day-view scroll's dayAxis).
+    private var pinchTarget = PinchTarget.viewZoom
+    private enum PinchTarget { case viewZoom, tlScale }
+
+    /// ── Raw trackpad touch tracking (the pinch axis) ─────────────────────────────────
+    /// Axis of the current two-finger touch pair — degrees from the horizontal (90 = vertical),
+    /// components scaled by the pad's physical `deviceSize` (normalizedPosition is per-axis 0…1,
+    /// so a wide trackpad would otherwise overstate verticality). Tracked via the touch responder
+    /// callbacks because the magnify event's OWN touch set is typically empty at `.began` — the
+    /// touches arrive as separate events, before the gesture is recognized. nil unless exactly
+    /// two fingers are down (resting thumb, Magic Mouse).
+    private var touchAxisDeg: CGFloat?
+
+    override func touchesBegan(with event: NSEvent) { updateTouchAxis(event) }
+    override func touchesMoved(with event: NSEvent) { updateTouchAxis(event) }
+    override func touchesEnded(with event: NSEvent) { updateTouchAxis(event) }
+    override func touchesCancelled(with event: NSEvent) { touchAxisDeg = nil }
+
+    private func updateTouchAxis(_ e: NSEvent) {
+        // in: nil — all the window's touches, not just ones that began over this view.
+        let touches = Array(e.touches(matching: .touching, in: nil))
+        guard touches.count == 2 else { touchAxisDeg = nil; return }
+        let dev = touches[0].deviceSize
+        let dx = (touches[0].normalizedPosition.x - touches[1].normalizedPosition.x) * dev.width
+        let dy = (touches[0].normalizedPosition.y - touches[1].normalizedPosition.y) * dev.height
+        guard abs(dx) > 0.001 || abs(dy) > 0.001 else { return }
+        touchAxisDeg = atan2(abs(dy), abs(dx)) * 180 / .pi
+    }
+
     override func magnify(with e: NSEvent) {
         if modalActive {
             return
         }
         let began = e.phase.contains(.began)
         let ended = e.phase.contains(.ended) || e.phase.contains(.cancelled)
+        if began {
+            pinchTarget = .viewZoom
+            if let deg = touchAxisDeg, engine?.pinchScalesTimeline(angleDeg: deg, at: point(e)) == true {
+                pinchTarget = .tlScale
+            }
+        }
         if CCTrace.on {
             if began {
-                CCTrace.event("pinchBegan L\(engine?.chrome.level ?? -1)")
+                CCTrace.event("pinchBegan L\(engine?.chrome.level ?? -1)\(pinchTarget == .tlScale ? " tlScale" : "")")
             }
             if ended {
                 CCTrace.event("pinchEnded")
             }
         }
-        engine?.onMagnify(delta: e.magnification, at: point(e), began: began, ended: ended)
+        if pinchTarget == .tlScale {
+            engine?.onTimelineScale(delta: e.magnification, at: point(e), began: began, ended: ended)
+        } else {
+            engine?.onMagnify(delta: e.magnification, at: point(e), began: began, ended: ended)
+        }
+        if ended {
+            pinchTarget = .viewZoom
+        }
     }
 
     /// ── Right-click (or ctrl-click) on an event → the context callout ──
