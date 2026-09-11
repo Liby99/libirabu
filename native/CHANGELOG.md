@@ -18,6 +18,8 @@ each release.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-11
+
 ### Improved
 - The edge "now" tag is a click target: clicking it glides the timeline so the current time
   sits centered, with a mild hover effect (stronger tint/border, slight scale) and the
@@ -34,6 +36,8 @@ each release.
 - Day view: pinching OUT over the timeline always scales the hour height, at any pinch angle —
   there's no deeper view to zoom into, so the gesture's direction decides (latched from its
   first movement); pinching in still zooms out to week, and week/month keep the angle rule.
+- Time ticks densify with the timeline's hour height: past the midpoint of the scale range a
+  label every hour (was always every 2), past 90% half-hour ticks + labels appear too.
 
 ### Added
 - Right-click a TODO panel row ▸ Edit: the row's text swaps to an inline input in the note
@@ -62,8 +66,6 @@ each release.
   “X”" / "the daily note on 2026-09-12" / the weekly/monthly note), a multi-selection confirms
   as a count — then removes the source line(s) as one undoable edit (row-menu Delete gets the
   same source line + undo).
-
-### Added
 - A dashboard toggle button in the toolbar, left of Today (the right-sidebar glyph: hollow
   window + filled right half, accent-tinted while pinned) — ⌘B's button form, toggling the
   pinned weekly/monthly dashboard; shown only at month/week zoom.
@@ -78,12 +80,6 @@ each release.
 - Deadline labels render ABOVE the gutter time ticks (day view puts the label over the left
   gutter): the pills moved into the above-chrome layer with the CURRENT TIME tag, so their
   glass frosts the "8:00" labels instead of the labels drawing crisp across the pill.
-
-### Improved
-- Time ticks densify with the timeline's hour height: past the midpoint of the scale range a
-  label every hour (was always every 2), past 90% half-hour ticks + labels appear too.
-
-### Fixed
 - The inline TODO row editor rendered as an empty box with a stray caret at the right (a
   zero-width text view — nothing ever drew); the text now renders, sizes to the row, and pans
   horizontally as you type.
