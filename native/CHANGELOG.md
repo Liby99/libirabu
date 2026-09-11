@@ -22,6 +22,8 @@ each release.
 - The edge "now" tag is a click target: clicking it glides the timeline so the current time
   sits centered, with a mild hover effect (stronger tint/border, slight scale) and the
   pointing-hand cursor.
+- Deadline edge mini pills too: clicking one glides the timeline so that deadline's hour sits
+  centered, with the same hover affordance (hand cursor + mild pill highlight).
 
 ## [0.3.4] — 2026-09-10
 
