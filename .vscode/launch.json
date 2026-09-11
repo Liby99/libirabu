@@ -4,41 +4,41 @@
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:libirabu}/native/CalendarKit",
-            "name": "Debug CalendarMac (native/CalendarKit)",
+            "cwd": "${workspaceFolder:libirabu}/native/MagnifiCalKit",
+            "name": "Debug CalendarMac (native/MagnifiCalKit)",
             "target": "CalendarMac",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug CalendarMac (native/CalendarKit)"
+            "preLaunchTask": "swift: Build Debug CalendarMac (native/MagnifiCalKit)"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:libirabu}/native/CalendarKit",
-            "name": "Release CalendarMac (native/CalendarKit)",
+            "cwd": "${workspaceFolder:libirabu}/native/MagnifiCalKit",
+            "name": "Release CalendarMac (native/MagnifiCalKit)",
             "target": "CalendarMac",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release CalendarMac (native/CalendarKit)"
+            "preLaunchTask": "swift: Build Release CalendarMac (native/MagnifiCalKit)"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:libirabu}/native/CalendarKit",
-            "name": "Debug assistant-eval (native/CalendarKit)",
+            "cwd": "${workspaceFolder:libirabu}/native/MagnifiCalKit",
+            "name": "Debug assistant-eval (native/MagnifiCalKit)",
             "target": "assistant-eval",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug assistant-eval (native/CalendarKit)"
+            "preLaunchTask": "swift: Build Debug assistant-eval (native/MagnifiCalKit)"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:libirabu}/native/CalendarKit",
-            "name": "Release assistant-eval (native/CalendarKit)",
+            "cwd": "${workspaceFolder:libirabu}/native/MagnifiCalKit",
+            "name": "Release assistant-eval (native/MagnifiCalKit)",
             "target": "assistant-eval",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release assistant-eval (native/CalendarKit)"
+            "preLaunchTask": "swift: Build Release assistant-eval (native/MagnifiCalKit)"
         }
     ]
 }

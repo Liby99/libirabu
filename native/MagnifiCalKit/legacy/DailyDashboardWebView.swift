@@ -64,6 +64,7 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
         }
         return super.hitTest(point)
     }
+
     private enum Axis { case undecided, horizontal, vertical }
     private var axis: Axis = .undecided
     /// The pointer is over a horizontally-scrollable element (a code block with a long line). Set from
@@ -200,7 +201,9 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
               shiftX: Double = 0, keepLive: Bool = false) {
         // Native default: no webview is ever registered — skip building the per-frame
         // CK.tick JSON payload entirely (it was pure waste at 120Hz).
-        if web == nil, NativeDash.enabled { return }
+        if web == nil, NativeDash.enabled {
+            return
+        }
         let key = "\(from)|\(to)|\(dir)|\(Int((p * 1000).rounded()))|\(Int((reveal * 1000).rounded()))|\(Int((slide * 1000).rounded()))|\(scopeA)|\(scopeB)|\(Int((scopeT * 1000).rounded()))|\(Int(dy.rounded()))|\(mFrom)|\(mTo)|\(Int(mDy0.rounded()))|\(Int(mDy1.rounded()))|\(Int((mP * 1000).rounded()))|\(mKeyA)|\(mKeyB)|\(wFrom)|\(wTo)|\(Int((wP * 1000).rounded()))|\(wKeyA)|\(wKeyB)|\(Int(maskX.rounded()))|\(Int(maskW.rounded()))|\(aName)|\(Int(aX.rounded()))|\(Int(aW.rounded()))|\(Int((aOp * 1000).rounded()))|\(bName)|\(Int(bX.rounded()))|\(Int(bW.rounded()))|\(Int((bOp * 1000).rounded()))|\(Int(shiftX.rounded()))|\(keepLive)"
         if key == lastKey {
             return
@@ -213,7 +216,9 @@ final class PassThroughWebView: WKWebView, FocusGatedControl {
             ptw.setPanelAlpha(CGFloat(reveal), keepLive: keepLive)
             ptw.interactiveLeftX = CGFloat(maskX - shiftX)
         }
-        func r4(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
+        func r4(_ v: Double) -> Double {
+            (v * 10000).rounded() / 10000
+        }
         let payload: [String: Any] = [
             "from": from, "to": to, "dir": dir,
             "p": r4(p), "reveal": r4(reveal), "slide": r4(slide),
@@ -355,7 +360,7 @@ struct DailyDashboardWebView: NSViewRepresentable {
     var inactive: Bool // drawer open → in-page scrim blurs + blocks the dashboard
     var interactive: Bool // the active day view → the web view may drive the cursor
     var todoPrefs: String = "{}" // per-scope layering prefs JSON (DashTodoSettings.jsJSON)
-    var todoMenu: DashTodoMenuController? = nil // shared cog/context menu (nil → no menu)
+    var todoMenu: DashTodoMenuController? // shared cog/context menu (nil → no menu)
     var theme: Theme
     var onToggle: (_ eventId: String, _ occKey: String?, _ value: String) -> Void
     var onOpen: (_ eventId: String) -> Void
@@ -679,8 +684,8 @@ struct DailyDashboardOverlay: View {
     var onCloseDrawer: () -> Void
     var onNoteExit: () -> Void = {}
     var onNavTab: (Bool) -> Void = { _ in }
-    var todoSettings: DashTodoSettings? = nil // per-scope TODO layering prefs (pushed as JSON)
-    var todoMenu: DashTodoMenuController? = nil // shared cog/right-click callout menu
+    var todoSettings: DashTodoSettings? // per-scope TODO layering prefs (pushed as JSON)
+    var todoMenu: DashTodoMenuController? // shared cog/right-click callout menu
 
     var body: some View {
         // The frame spans the FULL content region (labelW → right edge) and NEVER moves — panels
