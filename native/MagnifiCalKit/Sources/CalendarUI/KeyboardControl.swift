@@ -23,7 +23,8 @@ import SwiftUI
 
 /// ── A normalized key, independent of view/state (mapped from the raw NSEvent by the catcher) ──
 enum KeyToken: Equatable {
-    case enter, space, escape, tab, backTab, left, right, up, down, delete, cmdS, cmdN, cmdT, cmdU, cmdL
+    case enter, shiftEnter, cmdEnter, space, escape, tab, backTab, left, right, up, down, delete, cmdS, cmdN,
+         cmdT, cmdU, cmdL
     case cmdEqual, cmdMinus // ⌘= / ⌘− → zoom in / out (keeps the current focus)
     case cmdUp, cmdDown, cmdLeft, cmdRight // ⌘+arrows → move the selected event
     case optUp, optDown // ⌥↑ / ⌥↓ — guide display only (the note editor owns them: move line)
@@ -46,6 +47,8 @@ enum KeyToken: Equatable {
     var cap: String {
         switch self {
         case .enter: "return"
+        case .shiftEnter: "⇧return"
+        case .cmdEnter: "⌘return"
         case .space: "space"
         case .escape: "esc"
         case .tab: "tab"
@@ -144,6 +147,7 @@ enum AppKeyState: Equatable {
 @MainActor struct KeyboardModel {
     let engine: CalendarEngine
     let ui: CalendarUIState
+    var dashNav: NativeDashNavModel? = nil // TODO-panel mouse selection (Enter-to-edit fallback)
 
     var state: AppKeyState {
         if engine.timedEditing {
@@ -497,6 +501,27 @@ enum AppKeyState: Equatable {
     /// Run the binding for `token` if the current state has one. Returns whether it was handled (so the
     /// catcher can consume the event; unhandled keys fall through to the existing behavior / native field).
     @discardableResult func handle(_ token: KeyToken) -> Bool {
+        // The TODO panel's mouse selection is its own interaction system, EXCLUSIVE with the
+        // calendar's (selecting a row deselects the calendar item and vice versa) — so while
+        // exactly ONE row is selected, Enter belongs to it: the inline row editor, never the
+        // calendar's rename/select. The live panel adopts the request (the edit handshake).
+        // Every other key still flows to the state table.
+        if token == .enter, let nav = dashNav, nav.selected.count == 1, let a = nav.selected.first {
+            nav.requestEdit(a)
+            return true
+        }
+        // ⇧Enter / ⌘Enter with exactly ONE selected row → add a child / sibling and edit it.
+        if token == .shiftEnter || token == .cmdEnter, let nav = dashNav, nav.selected.count == 1,
+           let a = nav.selected.first {
+            nav.requestSubItem(a, sibling: token == .cmdEnter)
+            return true
+        }
+        // Delete with selected TODO rows → the confirm dialog (single names its source note;
+        // several confirm as a count). Same exclusivity argument as Enter above.
+        if token == .delete, let nav = dashNav, !nav.selected.isEmpty {
+            nav.requestDelete()
+            return true
+        }
         for b in bindings() where b.token == token {
             b.action(); return true
         }
