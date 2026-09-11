@@ -27,6 +27,15 @@ each release.
 - Edge-chrome click priority: when a "now"/deadline tag overlaps an event's edge card (or each
   other), the tag wins — now first, then the deadline pill, then event cards — instead of the
   click gliding to the overlapped event.
+- The big CURRENT TIME / deadline labels morph CONTINUOUSLY into their edge mini tags: over the
+  last 28px before the line leaves the viewport the pill shrinks toward the mini's size/shape
+  (text fading out, "now" fading in), so the handoff at the edge is seamless — scroll-driven,
+  like the event edge cards, never a timed animation.
+
+### Added
+- Right-click a TODO panel row ▸ Edit: the row swaps to a full-row inline input in the note
+  editor's exact face (Menlo + the same markdown highlighting), editing everything after the
+  "- [ ] " prefix in the source line; Return or click-away commits, Esc cancels.
 
 ## [0.3.4] — 2026-09-10
 
