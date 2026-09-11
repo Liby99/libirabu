@@ -51,6 +51,17 @@ each release.
 - Enter with exactly one selected TODO row opens the inline row editor; row edits and
   multi-selection checkbox sweeps land in the calendar edit history — ⌘Z/⇧⌘Z undo/redo them
   (while the editor is open, ⌘Z stays the field's own text undo).
+- ⇧Enter with a selected TODO row adds a sub-item directly under it (above existing children,
+  one indent deeper); ⌘Enter adds a SIBLING at the same level, below the item's whole subtree
+  (its children stay attached), and the list glides the new row into view when it lands far
+  down. Both open the inline editor with the "work on..." placeholder selected — type to
+  replace it, Enter to keep it, and Esc cancels the creation entirely (the row vanishes, no
+  undo residue). A committed creation is one ⌘Z step; top-level siblings get their created:
+  stamp.
+- Delete with selected TODO rows asks first — the confirm names the line's home ("from event
+  “X”" / "the daily note on 2026-09-12" / the weekly/monthly note), a multi-selection confirms
+  as a count — then removes the source line(s) as one undoable edit (row-menu Delete gets the
+  same source line + undo).
 
 ### Fixed
 - The inline TODO row editor rendered as an empty box with a stray caret at the right (a
@@ -60,6 +71,11 @@ each release.
   project ordering (splicing the new row on top of ITS project) instead of re-scoring and
   reordering every project under your cursor; the order still refreshes on tab re-entry or an
   external data change.
+- The deadline edge mini pill keeps the FULL label's side through the big↔mini morph — it
+  recomputed the default left/right rule while the full pill sat on its solver-assigned side,
+  so the tag could jump sides at the handoff while scrolling; the side now only changes when
+  the label layout genuinely re-solves (paging left/right, month or deadline-set changes),
+  and then both forms change together.
 
 ## [0.3.4] — 2026-09-10
 
