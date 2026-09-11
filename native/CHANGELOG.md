@@ -24,6 +24,9 @@ each release.
   pointing-hand cursor.
 - Deadline edge mini pills too: clicking one glides the timeline so that deadline's hour sits
   centered, with the same hover affordance (hand cursor + mild pill highlight).
+- Edge-chrome click priority: when a "now"/deadline tag overlaps an event's edge card (or each
+  other), the tag wins — now first, then the deadline pill, then event cards — instead of the
+  click gliding to the overlapped event.
 
 ## [0.3.4] — 2026-09-10
 
