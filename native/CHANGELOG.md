@@ -31,11 +31,27 @@ each release.
   last 28px before the line leaves the viewport the pill shrinks toward the mini's size/shape
   (text fading out, "now" fading in), so the handoff at the edge is seamless — scroll-driven,
   like the event edge cards, never a timed animation.
+- Day view: pinching OUT over the timeline always scales the hour height, at any pinch angle —
+  there's no deeper view to zoom into, so the gesture's direction decides (latched from its
+  first movement); pinching in still zooms out to week, and week/month keep the angle rule.
 
 ### Added
 - Right-click a TODO panel row ▸ Edit: the row swaps to a full-row inline input in the note
   editor's exact face (Menlo + the same markdown highlighting), editing everything after the
   "- [ ] " prefix in the source line; Return or click-away commits, Esc cancels.
+- TODO rows are selectable: mouse-down selects instantly (light accent wash, all-around rounded,
+  plus a slight content indent), shift+click multi-selects, and jumping to the source now takes
+  a DOUBLE click; hovering a selected row deepens its wash instead of the grey hover; the
+  checkbox never changes the selection, and checking a row inside a multi-selection
+  checks/unchecks the whole selection at once.
+- Enter with exactly one selected TODO row opens the inline row editor; row edits and
+  multi-selection checkbox sweeps land in the calendar edit history — ⌘Z/⇧⌘Z undo/redo them
+  (while the editor is open, ⌘Z stays the field's own text undo).
+
+### Fixed
+- The inline TODO row editor rendered as an empty box with a stray caret at the right (a
+  zero-width text view — nothing ever drew); the text now renders, sizes to the row, and pans
+  horizontally as you type.
 
 ## [0.3.4] — 2026-09-10
 
