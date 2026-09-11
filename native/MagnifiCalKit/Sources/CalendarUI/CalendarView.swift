@@ -129,6 +129,13 @@ public struct CalendarView: View {
                               weekBridge: weekBridge, dayBridge: dayBridge)
         ic.forwarder = catcherHandle
         ic.onOpenEvent = { ui.openEventId = $0 }
+        // Any calendar-canvas click clears the TODO row selection (the panels clear their own
+        // empty-space clicks via DashRightClickLayer; tab switches clear in onChange(dashTab)).
+        ic.onCanvasClick = { [dashNav] in
+            if !dashNav.selected.isEmpty {
+                dashNav.selected.removeAll()
+            }
+        }
         ic.onEventMenu = { (id: String, anchor: CGRect) in
             ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: anchor)
         }
@@ -138,7 +145,7 @@ public struct CalendarView: View {
         ic.onEditTrack = { te in engine.trackEditing = true; ui.editingTrack = te }
         // The keyboard state machine + the Cmd+K guide toggle. `onKey` reads
         // live engine/ui state each press; returns whether it consumed the key.
-        ic.onKey = { KeyboardModel(engine: engine, ui: ui).handle($0) }
+        ic.onKey = { KeyboardModel(engine: engine, ui: ui, dashNav: dashNav).handle($0) }
         ic.onKeyGuide = { ui.showKeyGuide = $0 }
         ic.isEditingText = { ui.drawerFieldEditing }
         ic.onSearch = { openSearch() }
@@ -771,9 +778,9 @@ public struct CalendarView: View {
                                         guard !NativeDash.tapsSuppressed else { return }
                                         jumpToNoteKey(key, line: line)
                                     },
-                                    onDeleteRequest: { text, confirm in
+                                    onDeleteRequest: { text, source, confirm in
                                         ui.pendingTodoDelete = CalendarUIState
-                                            .PendingTodoDelete(text: text, confirm: confirm)
+                                            .PendingTodoDelete(text: text, source: source, confirm: confirm)
                                     },
                                     onRowMenu: { ui.todoMenu = $0 },
                                     warmAllTabs: NativeDash.warmIds.contains(panel.panelId),
@@ -1137,7 +1144,10 @@ public struct CalendarView: View {
                     // The dashboard tab/mode toggles are SwiftUI overlays (not routed through the engine), and
                     // their transition animates via the timeline's CarouselDriver — so wake the render loop when
                     // they change, else the switch would freeze while the calendar is idle.
-                    .onChange(of: dashTab) { _, _ in engine.wake() }
+                    .onChange(of: dashTab) { _, _ in
+                        engine.wake()
+                        dashNav.selected.removeAll() // leaving TODO (or re-entering) drops the selection
+                    }
                     .onChange(of: noteMode) { _, _ in engine.wake() }
                     // Apple Calendar import: pull on first appearance, whenever the app returns to the foreground
                     // (auto-refresh), and when the Settings window changes the connection.
@@ -1279,6 +1289,22 @@ public struct CalendarView: View {
                 }
         }
         ToolbarSpacerCompat(.fixed)
+        // The pinned weekly/monthly dashboard toggle — ⌘B's button form, the sidebar glyph
+        // (hollow window + filled right half). Only at month/week zoom: day view forces the
+        // panel out and year has none (toggleDashPin's own guard mirrors this). chrome is the
+        // navigation-time observable, so the button appears/disappears on real level changes,
+        // not per frame.
+        if engine.chrome.level == 1 || engine.chrome.level == 2 {
+            ToolbarItem(placement: .primaryAction) {
+                Button { engine.toggleDashPin() } label: {
+                    Image(systemName: "rectangle.righthalf.inset.filled")
+                        .foregroundStyle(engine.chrome.dashPinned ? Theme.accent : Color.primary)
+                }
+                .glassButtonStyleCompat().buttonBorderShape(.circle)
+                .help(engine.chrome.dashPinned ? "Hide Dashboard (⌘B)" : "Show Dashboard (⌘B)")
+            }
+            ToolbarSpacerCompat(.fixed)
+        }
         ToolbarItem(placement: .primaryAction) {
             Button { engine.goToToday() } label: { Text("Today") }
                 .glassButtonStyleCompat().buttonBorderShape(.capsule)

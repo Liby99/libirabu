@@ -63,6 +63,11 @@ each release.
   as a count — then removes the source line(s) as one undoable edit (row-menu Delete gets the
   same source line + undo).
 
+### Added
+- A dashboard toggle button in the toolbar, left of Today (the right-sidebar glyph: hollow
+  window + filled right half, accent-tinted while pinned) — ⌘B's button form, toggling the
+  pinned weekly/monthly dashboard; shown only at month/week zoom.
+
 ### Fixed
 - The inline TODO row editor rendered as an empty box with a stray caret at the right (a
   zero-width text view — nothing ever drew); the text now renders, sizes to the row, and pans
