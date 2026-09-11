@@ -36,14 +36,18 @@ each release.
   first movement); pinching in still zooms out to week, and week/month keep the angle rule.
 
 ### Added
-- Right-click a TODO panel row ▸ Edit: the row swaps to a full-row inline input in the note
+- Right-click a TODO panel row ▸ Edit: the row's text swaps to an inline input in the note
   editor's exact face (Menlo + the same markdown highlighting), editing everything after the
-  "- [ ] " prefix in the source line; Return or click-away commits, Esc cancels.
-- TODO rows are selectable: mouse-down selects instantly (light accent wash, all-around rounded,
-  plus a slight content indent), shift+click multi-selects, and jumping to the source now takes
-  a DOUBLE click; hovering a selected row deepens its wash instead of the grey hover; the
-  checkbox never changes the selection, and checking a row inside a multi-selection
-  checks/unchecks the whole selection at once.
+  "- [ ] " prefix in the source line — the checkbox stays live and the row keeps its selected
+  dressing (wash + bar + indent) while editing; Return or click-away commits, Esc cancels.
+- TODO rows are selectable: mouse-down selects instantly — a content-hugging light accent wash
+  with a left accent bar (the event box's selected-bar language) and a slight content indent;
+  shift+click multi-selects, and jumping to the source now takes a DOUBLE click; hovering a
+  selected row deepens its wash instead of the grey hover; the checkbox never changes the
+  selection, and checking a row inside a multi-selection checks/unchecks the whole selection
+  at once. Clicking anywhere else — panel empty space or the calendar — and switching to the
+  PROJ/NOTE tab deselect. TODO selection and calendar item selection are mutually exclusive:
+  picking one drops the other, so Enter always speaks to the system you're in.
 - Enter with exactly one selected TODO row opens the inline row editor; row edits and
   multi-selection checkbox sweeps land in the calendar edit history — ⌘Z/⇧⌘Z undo/redo them
   (while the editor is open, ⌘Z stays the field's own text undo).
@@ -52,6 +56,10 @@ each release.
 - The inline TODO row editor rendered as an empty box with a stray caret at the right (a
   zero-width text view — nothing ever drew); the text now renders, sizes to the row, and pans
   horizontally as you type.
+- PROJ quick-add no longer shuffles the page: adding an item adopts the write into the frozen
+  project ordering (splicing the new row on top of ITS project) instead of re-scoring and
+  reordering every project under your cursor; the order still refreshes on tab re-entry or an
+  external data change.
 
 ## [0.3.4] — 2026-09-10
 
