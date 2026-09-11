@@ -69,6 +69,11 @@ each release.
   pinned weekly/monthly dashboard; shown only at month/week zoom.
 
 ### Fixed
+- Hovering a deadline label now reads as real Liquid Glass, like hovered events: the pill's
+  opaque base fades away under the established glass (it was permanently blocking the frost),
+  and snaps back on un-hover; the edge mini pill gets the same treatment.
+
+### Fixed
 - The inline TODO row editor rendered as an empty box with a stray caret at the right (a
   zero-width text view — nothing ever drew); the text now renders, sizes to the row, and pans
   horizontally as you type.
