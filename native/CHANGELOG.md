@@ -72,11 +72,28 @@ each release.
 - Hovering a deadline label now reads as real Liquid Glass, like hovered events: the pill's
   opaque base fades away under the established glass (it was permanently blocking the frost),
   and snaps back on un-hover; the edge mini pill gets the same treatment.
+- Where a deadline overlaps a timed event, the pointer now picks the DEADLINE (hover, click,
+  and cursor shape) — the label/line draws above the stickers, so it's what you see; events
+  previously stole the hover in the overlap.
+- Deadline labels render ABOVE the gutter time ticks (day view puts the label over the left
+  gutter): the pills moved into the above-chrome layer with the CURRENT TIME tag, so their
+  glass frosts the "8:00" labels instead of the labels drawing crisp across the pill.
+
+### Improved
+- Time ticks densify with the timeline's hour height: past the midpoint of the scale range a
+  label every hour (was always every 2), past 90% half-hour ticks + labels appear too.
 
 ### Fixed
 - The inline TODO row editor rendered as an empty box with a stray caret at the right (a
   zero-width text view — nothing ever drew); the text now renders, sizes to the row, and pans
   horizontally as you type.
+- Click-away now actually closes the inline TODO row editor, committing the edit: it only
+  committed on focus loss, and clicking empty space (panel or calendar) moves focus nowhere —
+  the editor watches for any click outside its box; the click still does its normal job
+  (select a row, toggle a checkbox, deselect) afterwards.
+- Clicking the empty space to the RIGHT of a todo row now deselects: rows reported full-width
+  frames to the click-away test, so that area counted as "on the row" — the test now uses the
+  content's true footprint (right-clicks still open the callout anywhere along the row).
 - PROJ quick-add no longer shuffles the page: adding an item adopts the write into the frozen
   project ordering (splicing the new row on top of ITS project) instead of re-scoring and
   reordering every project under your cursor; the order still refreshes on tab re-entry or an
