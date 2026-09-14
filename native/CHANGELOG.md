@@ -18,6 +18,14 @@ each release.
 
 ## [Unreleased]
 
+### Fixed
+- "libirabu" no longer appears in any user-visible string: imported events' managed-note
+  markers are now `magnifical:import:*` (notes stored under the old marker still parse, and
+  re-sync upgrades them in passing), backup manifests are stamped "magnifical", the not-a-backup
+  error and the dev shell's calendar-permission prompt say MagnifiCal, and the internal
+  clipboard type was renamed. On-disk/iCloud/Keychain identifiers keep their historic ids —
+  they're invisible and renaming would orphan existing data.
+
 ## [0.4.0] — 2026-09-11
 
 ### Improved
