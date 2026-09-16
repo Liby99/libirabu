@@ -1,6 +1,11 @@
 # Note Attachments — Design Document
 
-Status: **Draft v0.1** · Owner: ziyang · Last updated: 2026-09-16
+Status: **Draft v0.2** · Owner: ziyang · Last updated: 2026-09-16
+
+> **v0.2 change:** first-class support for the whole text family — code (`.md .js .c .rs .go
+> .jl .tex …`) and data (`.json .csv .xml .txt …`) — plus Office/RTF documents; and the
+> "thumbnail" spec is replaced by **full-row preview cards** (row-spanning, ≥ 70 pt tall),
+> not square icons. Grounded by an empirical QLThumbnailGenerator probe (§5.5).
 
 > Attach files — images first, PDFs second, any file type third — to **every markdown note**
 > (event notes, per-occurrence notes, daily/weekly/monthly scope notes). Import by **paste or
@@ -18,9 +23,11 @@ Status: **Draft v0.1** · Owner: ziyang · Last updated: 2026-09-16
 1. Paste (⌘V) or drag an image / PDF / any file into a note — editor **or** preview pane.
 2. A stable, human-readable token in the markdown source; plain-markdown renderers degrade
    gracefully (it's still standard image syntax).
-3. Preview: inline **thumbnails** (images and PDFs at least; any type with a Quick Look
-   generator gets one, others get an icon chip). Click to select → highlighted; ⌘C copies the
-   real file; **space** opens the system Quick Look panel; double-click opens in the default app.
+3. Preview: **full-row preview cards** (row-spanning, ≥ 70 pt) with real content — images
+   aspect-fit at row width, PDFs and Office docs as first pages, code and data files
+   syntax-highlighted natively (`.md .js .c .rs .go .jl .tex .json .csv .xml .txt …`);
+   unknown types get a metadata card. Click to select → highlighted; ⌘C copies the real file;
+   **space** opens the system Quick Look panel; double-click opens in the default app.
 4. **Deduplicated storage**: content-addressed by SHA-256; N references, 1 blob.
 5. **Space reclamation**: removing the last markdown reference eventually deletes the blob.
 6. **Sync**: attachments follow their calendar's iCloud zone; the iPhone client renders them
@@ -54,10 +61,15 @@ garbage:
 ```
 ![@image:screenshot 2026-09-16.png](ccfile:9f8a3b2c1d4e5f60)
 ![@pdf:NSF proposal draft.pdf](ccfile:0a1b2c3d4e5f6a7b)
-![@file:results.csv](ccfile:aa11bb22cc33dd44)
+![@code:parser.rs](ccfile:bb22cc33dd44ee55)
+![@data:results.csv](ccfile:aa11bb22cc33dd44)
+![@doc:committee report.docx](ccfile:cc33dd44ee55ff66)
+![@file:archive.zip](ccfile:dd44ee55ff66aa77)
 ```
 
-- **Alt part** `@<kind>:<display name>`: `kind ∈ {image, pdf, file}` — a *display* hint only
+- **Alt part** `@<kind>:<display name>`: `kind ∈ {image, pdf, code, data, doc, file}` —
+  assigned at import from the UTI (`code` = source types + `.md .tex`, `data` = json/csv/xml/
+  txt/yaml…, `doc` = Office/RTF/iWork, `file` = everything else), a *display* hint only
   (renderers decide by the real UTI from the index; the kind keeps the raw source scannable,
   per the product requirement that PDFs read as `![@pdf:…]`). The display name is the original
   filename, editable by the user in place (it's just text — renaming the token renames the
@@ -66,7 +78,9 @@ garbage:
   collision-proof at personal scale; the index stores the full hash, and the importer extends
   the id to 20/24 chars in the astronomically-unlikely prefix-collision case).
 - Grammar (both editor highlight and preview parse):
-  `!\[@(image|pdf|file):([^\]]*)\]\(ccfile:([0-9a-f]{16,64})\)`
+  `!\[@(image|pdf|code|data|doc|file):([^\]]*)\]\(ccfile:([0-9a-f]{16,64})\)`
+  (renderers must also accept an *unknown* kind word and treat it as `file` — the set will
+  grow, and an old build reading a newer note must not break)
 - **Placement rule**: a token alone on its line renders as a **block thumbnail**; a token inside
   a line renders as a small **inline chip** (icon + name). Paste/drag always inserts block form
   (own line) — inline chips only arise from hand-editing.
@@ -141,21 +155,54 @@ no `isRichText`). `MarkdownHighlight` gains the token regex: the `@kind:name` sp
 the accent color over a rounded background wash (the existing token-pill treatment), the
 `ccfile:…` span dims to `textMuted` — visually "this is an object", still hand-editable.
 
-### 5.3 Preview display
+### 5.3 Preview display — full-row preview cards
 
-New `MarkdownDoc` branch (before the bullet/paragraph fallthrough):
+A block token renders as a **card spanning the full text-column width, minimum 70 pt tall**
+(not a square icon). New `MarkdownDoc` branch (before the bullet/paragraph fallthrough)
+emits an `NSTextAttachment` whose image is the composed card; a `.link: ccsel://<line>/<id>`
+attribute rides on it for click routing, exactly like `cc-todo://`. Card layout per family
+(family decided by the **UTI from the index**, never the token kind):
 
-- **Block token** (alone on its line) → an `NSTextAttachment` sized to the thumbnail
-  (images: max 320×220 pt, actual aspect; PDFs: first page at the same cap with a subtle page
-  edge; other types: the file's icon at 64 pt + name/size caption line). A `.link:
-  ccsel://<line>/<id>` attribute rides on the attachment for click routing, exactly like
-  `cc-todo://`.
+| Family | Card body | Source of pixels |
+|---|---|---|
+| **image** | the image itself, full row width, aspect-fit, height capped ~340 pt (portrait screenshots don't take over the note) | blob directly (`NSImage`) |
+| **pdf** | first page rendered AT ROW WIDTH (crisp, not an upscaled thumb) + a footer strip: icon · name · pages · size | **PDFKit** `PDFPage.thumbnail(of:)` at target width |
+| **code / data** (the text family) | header strip (icon · name · language · size) + the first ~10 lines **self-rendered with the existing `CodeHighlight`** — syntax-colored, Menlo, theme-aware (dark mode renders dark, unlike any rasterized QL thumb) | blob text, read cap 64 KB, UTF-8 with Latin-1 fallback |
+| **doc** (Office/RTF/iWork) | first-page thumbnail at row width + footer strip | `QLThumbnailGenerator` (verified to give real content pages — §5.5) |
+| **file** (everything else) | 70 pt metadata card: big file icon · name · type · size | `NSWorkspace.icon(for:)` |
+
+- **CSV nicety (v1.5)**: the `data` card for `.csv/.tsv` renders the first ~6 rows through the
+  preview's existing `NSTextTable` path instead of raw lines.
+- Extension → `CodeHighlight` language map covers at least: js/ts/jsx/tsx, c/h/cpp/hpp, rs, go,
+  py, jl, swift, java, kt, rb, sh, sql, tex, md, json, xml/html, yaml/yml, toml, css. Unknown
+  text types fall back to plain monospace — still a content card, never just an icon.
 - **Inline token** → small chip: 16 pt icon + display name, same link attribute.
-- **Thumbnails are async**: `QLThumbnailGenerator` (QuickLookThumbnailing) covers images, PDFs,
-  and anything with a QL plugin. First render inserts a placeholder (icon + name); the
-  generation callback writes `files/thumbs/<id>@2x.png` and bumps a `thumbGen` observable →
-  preview rebuilds; every later render is synchronous from the disk cache. Cache invalidation
-  is trivial: content-addressed → a thumb is immutable; deleting the blob deletes the thumb.
+- **Async where needed**: text-family and image cards compose synchronously from the blob
+  (fast, local). PDF/doc first-page renders are async on first sight: placeholder card
+  (header strip + "rendering…"), result cached to `files/thumbs/<id>@<width>@2x.png`, a
+  `thumbGen` observable bump rebuilds the preview; later renders are synchronous from the
+  cache. Content-addressing makes thumbs immutable; deleting the blob deletes its thumbs.
+  Cards re-rasterize per theme (cache key includes light/dark) — only pdf/doc pages are
+  theme-neutral rasters shown on both.
+
+### 5.5 Empirical grounding (probe run 2026-09-16, macOS 26.5, no MS Office installed)
+
+`QLThumbnailGenerator` requested `.thumbnail` at 600×400@2x on generated fixture files:
+
+| File | Result |
+|---|---|
+| `.docx` (textutil-made) | **real first-page content thumbnail** (body text legible) |
+| `.rtf` | real content thumbnail |
+| `.csv` / `.json` / `.txt` | real text-content thumbnails |
+| `.rs` | **FAILED** — `QLThumbnailErrorDomain error 0`, no generator claims bare source UTIs |
+
+Consequences baked into §5.3: Office/RTF get genuine row-width page cards from the system
+(answering the "can we get reasonable Office thumbnails" question: **yes**, without Office
+installed); source-code files CANNOT rely on Quick Look at all — the self-rendered
+`CodeHighlight` card isn't a nicety, it's the only path (and it's better: syntax colors +
+dark mode). The runtime still inspects `QLThumbnailRepresentation.type` and demotes any
+icon-only response to the metadata card, so an OS regression can't produce a blurry
+icon-as-thumbnail.
 
 ### 5.4 Selection, copy, Quick Look, open
 
@@ -258,7 +305,8 @@ the Prisma `Attachment` model):
 |---|---|
 | **CryptoKit** | SHA-256 (already linked transitively; pure Apple) |
 | **UniformTypeIdentifiers** | UTType detection from pasteboard/extension (already used by ICS export) |
-| **QuickLookThumbnailing** | `QLThumbnailGenerator` — thumbnails for images/PDFs/anything (macOS 10.15+/iOS 13+; floor is macOS 15) |
+| **QuickLookThumbnailing** | `QLThumbnailGenerator` — first-page cards for Office/RTF/iWork (verified §5.5); NOT used for code/data (self-rendered) |
+| **PDFKit** | crisp first-page render at row width for the pdf card |
 | **QuickLookUI** (macOS) | `QLPreviewPanel` + `QLPreviewPanelDataSource` — the space-bar Finder panel |
 | **QuickLook** (iOS) | `QLPreviewController` for the phone |
 | **AppKit** | pasteboard, drag types, `NSFilePromiseReceiver`, `NSTextAttachment` |
@@ -272,10 +320,11 @@ caches (content-addressed thumbs make caching trivial).
 ## 10. Implementation phases
 
 - **P0 — store + import + render (local-only, the 80%)**: `AttachmentStore` (CAS + index +
-  import pipeline), editor paste/drag, token grammar in `MarkdownHighlight`, preview
-  block-thumbnail + inline chip with async QL thumbnails. *Exit: paste a screenshot and a PDF
-  into an event note and a weekly note; thumbnails render; source shows tokens; same file twice
-  = one blob.*
+  import pipeline), editor paste/drag, token grammar in `MarkdownHighlight`, preview full-row
+  cards (image + pdf + code/data self-rendered + doc via QL + metadata fallback), inline chip.
+  *Exit: paste a screenshot, a PDF, a `.rs` file, and a `.docx` into an event note and a weekly
+  note; each renders its row-spanning card (the code card syntax-colored and dark-mode-aware);
+  source shows tokens; same file twice = one blob.*
 - **P1 — the object interactions**: click-select ring, ⌘C file copy, space Quick Look panel,
   double-click open, preview-pane drop, editor ⌘-click preview. *Exit: the Finder loop
   (click → space → arrow through panel) feels native.*
