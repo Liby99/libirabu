@@ -2,8 +2,8 @@
 // boundary, anchored at its start month, year-bounded. Covers the day-of-year math, the
 // spill-aware accessors/enumeration, keyboard crossing, and the per-month-row render segments.
 
-import CalendarGeometry
 @testable import CalendarEngine
+import CalendarGeometry
 import XCTest
 
 @MainActor
@@ -47,36 +47,36 @@ final class BandSpillTests: XCTestCase {
         XCTAssertFalse(e.bandsTouchingMonth(e.year, 2).contains { $0.id == "sp" })
     }
 
-    func testKeyboardNudgeCrossesBoundaryAndReanchors() {
+    func testKeyboardNudgeCrossesBoundaryAndReanchors() throws {
         let e = CalendarEngine()
         e.applyRemote(bands: [BandEvent(id: "nb", year: e.year, month: 0, track: 0,
                                         startDay: 30, endDay: 31, title: "N", color: "red")])
         e.select("nb")
         e.nudgeHorizontal(1) // Jan 31 … spills one day into Feb
-        var b = e.band("nb")!
+        var b = try XCTUnwrap(e.band("nb"))
         XCTAssertEqual(b.month, 0); XCTAssertEqual(b.startDay, 31); XCTAssertEqual(b.endDay, 32)
         e.nudgeHorizontal(1) // start crosses → re-anchors to February
-        b = e.band("nb")!
+        b = try XCTUnwrap(e.band("nb"))
         XCTAssertEqual(b.month, 1); XCTAssertEqual(b.startDay, 1); XCTAssertEqual(b.endDay, 2)
         e.nudgeHorizontal(-1) // and back across
-        b = e.band("nb")!
+        b = try XCTUnwrap(e.band("nb"))
         XCTAssertEqual(b.month, 0); XCTAssertEqual(b.startDay, 31); XCTAssertEqual(b.endDay, 32)
     }
 
-    func testKeyboardResizeSpillsPastMonthEnd() {
+    func testKeyboardResizeSpillsPastMonthEnd() throws {
         let e = CalendarEngine()
         e.applyRemote(bands: [BandEvent(id: "rb", year: e.year, month: 0, track: 0,
                                         startDay: 30, endDay: 31, title: "R", color: "red")])
         e.select("rb")
         e.resizeSelected(1, 0)
-        XCTAssertEqual(e.band("rb")!.endDay, 32, "⇧→ extends past Jan 31 into Feb")
-        XCTAssertEqual(e.bandEndYMD(e.band("rb")!).month, 1)
+        XCTAssertEqual(try XCTUnwrap(e.band("rb")?.endDay), 32, "⇧→ extends past Jan 31 into Feb")
+        XCTAssertEqual(try e.bandEndYMD(XCTUnwrap(e.band("rb"))).month, 1)
     }
 
     /// Mirrors EventDrawer.bandDayBinding's set() composition exactly: picking an END date in
     /// the next month spills the band; picking a START in an earlier month re-anchors it while
     /// the absolute end date stays fixed.
-    func testDrawerStyleDateEditsCrossMonths() {
+    func testDrawerStyleDateEditsCrossMonths() throws {
         let e = CalendarEngine()
         e.applyRemote(bands: [BandEvent(id: "db", year: e.year, month: 6, track: 0,
                                         startDay: 15, endDay: 20, title: "D", color: "blue")])
@@ -85,7 +85,7 @@ final class BandSpillTests: XCTestCase {
             let s = CalendarEngine.yearDay(b.year, b.month, b.startDay)
             b.endDay = b.startDay + (max(picked, s) - s)
         }
-        var b = e.band("db")!
+        var b = try XCTUnwrap(e.band("db"))
         XCTAssertEqual(b.month, 6); XCTAssertEqual(b.startDay, 15)
         var end = e.bandEndYMD(b)
         XCTAssertEqual(end.month, 7); XCTAssertEqual(end.day, 4)
@@ -97,7 +97,7 @@ final class BandSpillTests: XCTestCase {
             let (m, day) = CalendarEngine.monthDay(ofYearDay: ns, b.year)
             b.month = m; b.startDay = day; b.endDay = day + (eYD - ns)
         }
-        b = e.band("db")!
+        b = try XCTUnwrap(e.band("db"))
         XCTAssertEqual(b.month, 5); XCTAssertEqual(b.startDay, 28)
         end = e.bandEndYMD(b)
         XCTAssertEqual(end.month, 7); XCTAssertEqual(end.day, 4, "end date unchanged by the start edit")
@@ -113,7 +113,7 @@ final class BandSpillTests: XCTestCase {
         e.applyRemote(bands: [BandEvent(id: "sp2", year: e.year, month: m, track: 0,
                                         startDay: dim - 1, endDay: dim + 2,
                                         title: "Trip", color: "blue")])
-        let segs = bandEventRects(e.band("sp2")!, e.snapshotInput())
+        let segs = try bandEventRects(XCTUnwrap(e.band("sp2")), e.snapshotInput())
         try XCTSkipIf(segs.isEmpty, "focus rows unexpectedly off-screen in this viewport")
         XCTAssertEqual(segs.count, 2, "anchor bar on its row + continuation on the next month's")
         XCTAssertEqual(segs[0].rowMonth, m)
