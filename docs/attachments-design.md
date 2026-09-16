@@ -4,8 +4,9 @@ Status: **Draft v0.2** · Owner: ziyang · Last updated: 2026-09-16
 
 > **v0.2 change:** first-class support for the whole text family — code (`.md .js .c .rs .go
 > .jl .tex …`) and data (`.json .csv .xml .txt …`) — plus Office/RTF documents; and the
-> "thumbnail" spec is replaced by **full-row preview cards** (row-spanning, ≥ 70 pt tall),
-> not square icons. Grounded by an empirical QLThumbnailGenerator probe (§5.5).
+> "thumbnail" spec is replaced by **preview cards** (≥ 70 pt tall, width-capped at ~480 pt,
+> not square icons), with consecutive tokens grouping into a responsive **≤3-column grid**
+> (§5.4). Grounded by an empirical QLThumbnailGenerator probe (§5.5).
 
 > Attach files — images first, PDFs second, any file type third — to **every markdown note**
 > (event notes, per-occurrence notes, daily/weekly/monthly scope notes). Import by **paste or
@@ -23,11 +24,13 @@ Status: **Draft v0.2** · Owner: ziyang · Last updated: 2026-09-16
 1. Paste (⌘V) or drag an image / PDF / any file into a note — editor **or** preview pane.
 2. A stable, human-readable token in the markdown source; plain-markdown renderers degrade
    gracefully (it's still standard image syntax).
-3. Preview: **full-row preview cards** (row-spanning, ≥ 70 pt) with real content — images
-   aspect-fit at row width, PDFs and Office docs as first pages, code and data files
+3. Preview: **preview cards** (≥ 70 pt tall, capped at ~480 pt wide) with real content —
+   images aspect-fit, PDFs and Office docs as first pages, code and data files
    syntax-highlighted natively (`.md .js .c .rs .go .jl .tex .json .csv .xml .txt …`);
-   unknown types get a metadata card. Click to select → highlighted; ⌘C copies the real file;
-   **space** opens the system Quick Look panel; double-click opens in the default app.
+   unknown types get a metadata card; **consecutive attachments form a responsive grid**
+   (≤3 columns, following the preview's width). Click to select → highlighted; ⌘C copies the
+   real file; **space** opens the system Quick Look panel; double-click opens in the default
+   app.
 4. **Deduplicated storage**: content-addressed by SHA-256; N references, 1 blob.
 5. **Space reclamation**: removing the last markdown reference eventually deletes the blob.
 6. **Sync**: attachments follow their calendar's iCloud zone; the iPhone client renders them
@@ -81,9 +84,12 @@ garbage:
   `!\[@(image|pdf|code|data|doc|file):([^\]]*)\]\(ccfile:([0-9a-f]{16,64})\)`
   (renderers must also accept an *unknown* kind word and treat it as `file` — the set will
   grow, and an old build reading a newer note must not break)
-- **Placement rule**: a token alone on its line renders as a **block thumbnail**; a token inside
+- **Placement rule**: a token alone on its line renders as a **block card**; a token inside
   a line renders as a small **inline chip** (icon + name). Paste/drag always inserts block form
   (own line) — inline chips only arise from hand-editing.
+- **Grouping rule**: block tokens on **immediately consecutive lines** (no blank line between)
+  form one **attachment grid** (§5.4) — dropping five files in a row reads as a gallery, not
+  five stacked banners. A blank line breaks the group.
 
 Why not bare `![name](ccfile:…)`? The explicit `@kind:` satisfies the requirement that the raw
 source telegraphs what it is, and gives the highlighter an anchor that can't collide with
@@ -155,18 +161,19 @@ no `isRichText`). `MarkdownHighlight` gains the token regex: the `@kind:name` sp
 the accent color over a rounded background wash (the existing token-pill treatment), the
 `ccfile:…` span dims to `textMuted` — visually "this is an object", still hand-editable.
 
-### 5.3 Preview display — full-row preview cards
+### 5.3 Preview display — preview cards
 
-A block token renders as a **card spanning the full text-column width, minimum 70 pt tall**
-(not a square icon). New `MarkdownDoc` branch (before the bullet/paragraph fallthrough)
-emits an `NSTextAttachment` whose image is the composed card; a `.link: ccsel://<line>/<id>`
-attribute rides on it for click routing, exactly like `cc-todo://`. Card layout per family
-(family decided by the **UTI from the index**, never the token kind):
+A **solitary** block token renders as a card **`min(480 pt, text-column width)` wide** —
+proper content cards with bounded width (a full-screen window must not stretch a card to
+1000 pt), **minimum 70 pt tall**. New `MarkdownDoc` branch (before the bullet/paragraph
+fallthrough) emits an `NSTextAttachment` whose image is the composed card; a `.link:
+ccsel://<line>/<id>` attribute rides on it for click routing, exactly like `cc-todo://`.
+Card layout per family (family decided by the **UTI from the index**, never the token kind):
 
 | Family | Card body | Source of pixels |
 |---|---|---|
-| **image** | the image itself, full row width, aspect-fit, height capped ~340 pt (portrait screenshots don't take over the note) | blob directly (`NSImage`) |
-| **pdf** | first page rendered AT ROW WIDTH (crisp, not an upscaled thumb) + a footer strip: icon · name · pages · size | **PDFKit** `PDFPage.thumbnail(of:)` at target width |
+| **image** | the image itself, card width, aspect-fit, height capped ~340 pt (portrait screenshots don't take over the note) | blob directly (`NSImage`) |
+| **pdf** | first page rendered AT CARD WIDTH (crisp, not an upscaled thumb) + a footer strip: icon · name · pages · size | **PDFKit** `PDFPage.thumbnail(of:)` at target width |
 | **code / data** (the text family) | header strip (icon · name · language · size) + the first ~10 lines **self-rendered with the existing `CodeHighlight`** — syntax-colored, Menlo, theme-aware (dark mode renders dark, unlike any rasterized QL thumb) | blob text, read cap 64 KB, UTF-8 with Latin-1 fallback |
 | **doc** (Office/RTF/iWork) | first-page thumbnail at row width + footer strip | `QLThumbnailGenerator` (verified to give real content pages — §5.5) |
 | **file** (everything else) | 70 pt metadata card: big file icon · name · type · size | `NSWorkspace.icon(for:)` |
@@ -184,6 +191,31 @@ attribute rides on it for click routing, exactly like `cc-todo://`. Card layout 
   cache. Content-addressing makes thumbs immutable; deleting the blob deletes its thumbs.
   Cards re-rasterize per theme (cache key includes light/dark) — only pdf/doc pages are
   theme-neutral rasters shown on both.
+
+### 5.4 The attachment grid (consecutive tokens)
+
+A run of block tokens on consecutive source lines renders as a **grid, at most 3 columns**,
+column count responsive to the preview's width:
+
+- **Mechanism**: the run's cards are emitted as a sequence of fixed-width attachment glyphs on
+  one paragraph (separated by spacer glue) and the text system's own line wrapping produces
+  the grid — no bespoke grid layout engine inside the NSAttributedString world. Column count
+  falls out of `floor(width / (cardW + gap))` clamped to 1…3.
+- **Grid card variant** (compact): fixed width `min(224 pt, column share)`, fixed height
+  ~150 pt — image: aspect-fill with rounded crop + name caption; pdf/doc: page top-crop +
+  name caption; code/data: header + first ~4 highlighted lines; file: icon + name. Uniform
+  height is what makes wrapped rows read as a grid rather than a ragged flow.
+- **Responsiveness**: the preview's dedupe key (`text + theme`) gains a **width bucket**
+  (container width quantized to ~64 pt steps) so panel/drawer resizes rebuild the attributed
+  string and the wrap re-solves — cheap, and only when the bucket actually changes. The same
+  bucket also drives the solitary card's `min(480, width)` clamp.
+- Selection/click routing is unchanged: each grid cell carries its own `ccsel://<line>/<id>`
+  link; arrow keys (v1.5) move the selection ring cell-to-cell within a grid.
+- **Source order = reading order** (left→right, top→bottom); reordering attachments is just
+  reordering the token lines in the editor.
+- 2 consecutive tokens in a 700 pt panel → 2 columns; the same note in the narrow drawer →
+  1 column (stacked compact cards); 6 tokens wide → 3×2. A blank line between tokens opts out
+  of grouping and yields full solitary cards.
 
 ### 5.5 Empirical grounding (probe run 2026-09-16, macOS 26.5, no MS Office installed)
 
@@ -320,8 +352,9 @@ caches (content-addressed thumbs make caching trivial).
 ## 10. Implementation phases
 
 - **P0 — store + import + render (local-only, the 80%)**: `AttachmentStore` (CAS + index +
-  import pipeline), editor paste/drag, token grammar in `MarkdownHighlight`, preview full-row
-  cards (image + pdf + code/data self-rendered + doc via QL + metadata fallback), inline chip.
+  import pipeline), editor paste/drag, token grammar in `MarkdownHighlight`, preview cards
+  (image + pdf + code/data self-rendered + doc via QL + metadata fallback; 480 pt cap), the
+  consecutive-token grid, inline chip.
   *Exit: paste a screenshot, a PDF, a `.rs` file, and a `.docx` into an event note and a weekly
   note; each renders its row-spanning card (the code card syntax-colored and dark-mode-aware);
   source shows tokens; same file twice = one blob.*
