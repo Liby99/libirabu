@@ -353,11 +353,17 @@ caches (content-addressed thumbs make caching trivial).
 
 - **P0 — store + import + render (local-only, the 80%)**: `AttachmentStore` (CAS + index +
   import pipeline), editor paste/drag, token grammar in `MarkdownHighlight`, preview cards
-  (image + pdf + code/data self-rendered + doc via QL + metadata fallback; 480 pt cap), the
-  consecutive-token grid, inline chip.
-  *Exit: paste a screenshot, a PDF, a `.rs` file, and a `.docx` into an event note and a weekly
-  note; each renders its row-spanning card (the code card syntax-colored and dark-mode-aware);
-  source shows tokens; same file twice = one blob.*
+  with the 480 pt cap + the consecutive-token grid + inline chip. **Rich content cards for a
+  STARTER TYPE SET only**: images (`.png .jpg .jpeg .gif .heic .tiff .webp` — everything
+  `NSImage` decodes; a **GIF card shows the first frame with a small "GIF" badge**, and the
+  animation plays in the space-bar Quick Look panel — inline animation in the preview is a
+  possible P4 nicety, not a P0 goal), `.pdf`, and the simple text types `.txt .json .md .js
+  .c` (a 5-entry language map). Every OTHER type is still fully attachable — it stores, dedups,
+  syncs, and Quick Looks identically — it just renders the metadata card until P4. This keeps
+  P0's rendering surface small while the plumbing is proven end to end.
+  *Exit: paste a screenshot, a PDF, and a `.json` into an event note and a weekly note; each
+  renders its card (the code card syntax-colored and dark-mode-aware); a `.docx` attaches and
+  shows the metadata card; source shows tokens; same file twice = one blob.*
 - **P1 — the object interactions**: click-select ring, ⌘C file copy, space Quick Look panel,
   double-click open, preview-pane drop, editor ⌘-click preview. *Exit: the Finder loop
   (click → space → arrow through panel) feels native.*
@@ -366,6 +372,12 @@ caches (content-addressed thumbs make caching trivial).
 - **P3 — lifecycle**: reference scan + 7-day sweep, per-calendar sync deletes, Developer census
   row, `.mgc` files round-trip. *Exit: delete the last token, sweep reclaims the bytes, backup
   carries attachments both ways.*
+- **P4 — full type breadth**: the complete extension → language map (`.rs .go .jl .tex .py
+  .swift …` — §5.3's list), the full data family (`.csv .tsv .xml .yaml .toml` + the CSV
+  table card), Office/RTF/iWork **doc** page cards via the verified QL path, and grid compact
+  variants for the new families. Purely additive: each new family upgrades its metadata card
+  to a content card; tokens, storage, and sync are untouched. *Exit: the §5.5 probe set —
+  `.rs` renders highlighted, `.docx` renders its first page.*
 
 Risks & open questions: CKAsset quota UX (attachments count against the *user's* iCloud —
 surface total bytes in Settings ▸ Account); very large drags blocking the main thread (hash on
