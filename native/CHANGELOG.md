@@ -18,6 +18,23 @@ each release.
 
 ## [Unreleased]
 
+### Added
+- Note attachments (P0, docs/attachments-design.md): paste or drag files/images into any note
+  editor — they land in a deduplicated content-addressed store and the note gets a
+  `![@kind:name](ccfile:…)` token (highlighted as a pill in the editor). The preview renders
+  content cards (≤480pt): images inline (GIF badge), PDFs as their first page, and
+  .txt/.json/.md/.js/.c as syntax-highlighted snippets; other types show a metadata card;
+  consecutive attachments flow into a responsive ≤3-column grid. Same file attached twice
+  stores once.
+
+### Improved
+- Filter by Tags: the popover lists EVERY tag (the top-10 cap was an app-menu-era limit) in a
+  vertical scroll, most-used first, displayed lower-case with case variants merged into one
+  row; rows breathe a little more.
+- The `#` tag autocomplete in every markdown editor suggests each tag once, in its canonical
+  lower-case form — "Work"/"work" no longer appear as two options (typing "#Wo" still matches;
+  the inserted tag is lower-case).
+
 ## [0.4.1] — 2026-09-16
 
 ### Added
