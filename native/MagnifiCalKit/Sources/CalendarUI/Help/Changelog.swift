@@ -46,6 +46,15 @@ public enum ChangelogContent {
     /// Newest first. Keep entries ONE line each, user-visible phrasing.
     public static let releases: [ChangelogRelease] = [
         ChangelogRelease(
+            version: "0.4.1", date: "September 16, 2026",
+            headline: "Band events cross month boundaries.",
+            changes: [
+                .init(.added, "**Bands cross month boundaries**: drag a band in the year view and it slides continuously across month rows (straddling positions like Jul 30 – Aug 2 included), resize an edge into the neighboring month, or create one by dragging across the boundary — the band draws a bar on every month row it touches, joined with square seams."),
+                .init(.added, "The drawer's band **date pickers roam the whole year** (pick an end in the next month, or re-anchor the start), keyboard nudges and batch moves cross the boundary too, and to-do due dates, exports, backups, and the assistant all report the true end date."),
+                .init(.fixed, "The app's old internal codename no longer appears in any user-visible string — import markers, backup manifests, and permission prompts all say MagnifiCal."),
+            ]
+        ),
+        ChangelogRelease(
             version: "0.4.0", date: "September 11, 2026",
             headline: "TODO rows you can select and edit in place, and edge tags that work harder.",
             changes: [

@@ -18,6 +18,8 @@ each release.
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-09-16
+
 ### Added
 - Band events cross month boundaries: dragging a band in the year view slides it CONTINUOUSLY
   across month rows (straddling positions included — e.g. Jul 30 – Aug 2), and resizing an edge
