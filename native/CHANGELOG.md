@@ -26,6 +26,11 @@ each release.
   .txt/.json/.md/.js/.c as syntax-highlighted snippets; other types show a metadata card;
   consecutive attachments flow into a responsive ≤3-column grid. Same file attached twice
   stores once.
+- Attachments are objects (P1): single-click a preview card to select it (accent ring),
+  **space** opens the system Quick Look panel (zooming out of the card, titled with the real
+  filename — the Finder loop), **⌘C** copies the actual file (display-named, so a Finder paste
+  yields "proposal.pdf"), double-click opens it in the default app, Esc deselects; files can
+  also be dropped straight onto the PREVIEW pane (tokens append to the note).
 
 ### Improved
 - Filter by Tags: the popover lists EVERY tag (the top-10 cap was an app-menu-era limit) in a
@@ -34,6 +39,12 @@ each release.
 - The `#` tag autocomplete in every markdown editor suggests each tag once, in its canonical
   lower-case form — "Work"/"work" no longer appear as two options (typing "#Wo" still matches;
   the inserted tag is lower-case).
+
+### Fixed
+- A pinch zoom can no longer stick halfway between views: a scroll or click landing inside the
+  release settle (including the phantom scroll a pinch lift-off can emit) cancelled the settle
+  and froze the zoom mid-glide — a safety net in the frame clock now resumes the settle the
+  moment everything is quiet.
 
 ## [0.4.1] — 2026-09-16
 
