@@ -18,6 +18,15 @@ each release.
 
 ## [Unreleased]
 
+### Added
+- Band events cross month boundaries: dragging a band in the year view slides it CONTINUOUSLY
+  across month rows (straddling positions included — e.g. Jul 30 – Aug 2), and resizing an edge
+  can extend into a neighboring month; the band renders one bar per month row it touches, with
+  square seams at the boundary. Creating a band by dragging crosses it too (the lane stays the
+  anchor's), as do keyboard nudges/resizes, batch moves, paste, and the drawer's
+  date pickers (all bounded by the year); todo due-dates, ICS export,
+  backups, and the assistant all report the true end date.
+
 ### Fixed
 - "libirabu" no longer appears in any user-visible string: imported events' managed-note
   markers are now `magnifical:import:*` (notes stored under the old marker still parse, and
