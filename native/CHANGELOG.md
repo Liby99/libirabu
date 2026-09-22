@@ -26,6 +26,11 @@ each release.
   .txt/.json/.md/.js/.c as syntax-highlighted snippets; other types show a metadata card;
   consecutive attachments flow into a responsive ≤3-column grid. Same file attached twice
   stores once.
+- Attachment cards are resizable: select a card and drag its bottom ring edge (the ↕
+  frame-resize cursor announces the grab) — three size classes (small/medium/big; big reaches
+  620×400) stepped by drag distance with an ease-out morph, committed to the source as a
+  `size:small|big` token in the name (`size:sm/md/bg` accepted; medium is the unwritten
+  default). Preview panel only; grid cells stay uniform.
 - Attachments are objects (P1): single-click a preview card to select it (accent ring),
   **space** opens the system Quick Look panel (zooming out of the card, titled with the real
   filename — the Finder loop), **⌘C** copies the actual file (display-named, so a Finder paste
@@ -45,6 +50,11 @@ each release.
   release settle (including the phantom scroll a pinch lift-off can emit) cancelled the settle
   and froze the zoom mid-glide — a safety net in the frame clock now resumes the settle the
   moment everything is quiet.
+- The AI assistant's clock can no longer go stale: the system prompt (now carrying the current
+  TIME, not just the date) regenerates on every request — including resumed "Continue"/"Allow"
+  runs whose stashed transcript previously pinned it to hours earlier — each user message
+  carries a send-time stamp so the model can reason about elapsed time across a long
+  conversation, and get_screen_state reports the live clock too.
 
 ## [0.4.1] — 2026-09-16
 

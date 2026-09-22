@@ -11,6 +11,36 @@ import ImageIO
     import UniformTypeIdentifiers
 #endif
 
+/// A preview card's size class — written into the token's NAME part as a trailing
+/// ` size:small|sm|medium|md|big|bg` (todo-token style). Absent = medium; medium is never
+/// written (the default stays invisible in the source).
+public enum AttachmentSize: String, Sendable, CaseIterable {
+    case small, medium, big
+
+    /// Parse any accepted spelling; nil for unknown words (they stay part of the name).
+    public static func parse(_ word: String) -> AttachmentSize? {
+        switch word.lowercased() {
+        case "small", "sm": .small
+        case "medium", "md": .medium
+        case "big", "bg": .big
+        default: nil
+        }
+    }
+
+    /// Ordered for the drag-resize stepping (down = bigger).
+    public var index: Int {
+        switch self {
+        case .small: 0
+        case .medium: 1
+        case .big: 2
+        }
+    }
+
+    public static func at(index: Int) -> AttachmentSize {
+        index <= 0 ? .small : index == 1 ? .medium : .big
+    }
+}
+
 /// One `![@kind:name](ccfile:id)` token. `kind` is a display hint assigned at import; behavior
 /// (card family, Quick Look) always follows the real UTI from the index, and an UNKNOWN kind
 /// word must be treated as `.file` (the set will grow; old builds read newer notes).
@@ -22,14 +52,20 @@ public struct AttachmentToken: Sendable, Equatable {
     public var kind: Kind
     public var name: String // display name — the user may rename it in the token text
     public var id: String // 16+ hex chars of the blob's SHA-256
+    public var size: AttachmentSize // card size class (see AttachmentSize; default medium)
 
-    public init(kind: Kind, name: String, id: String) {
-        self.kind = kind; self.name = name; self.id = id
+    public init(kind: Kind, name: String, id: String, size: AttachmentSize = .medium) {
+        self.kind = kind; self.name = name; self.id = id; self.size = size
     }
 
-    /// The markdown source form.
+    /// The markdown source form. Non-default sizes ride in the name: `name size:big`.
     public var markdown: String {
-        "![@\(kind.rawValue):\(sanitizedName)](ccfile:\(id))"
+        let sizeSuffix = size == .medium ? "" : " size:\(size.rawValue)"
+        return "![@\(kind.rawValue):\(sanitizedName)\(sizeSuffix)](ccfile:\(id))"
+    }
+
+    public func with(size newSize: AttachmentSize) -> AttachmentToken {
+        AttachmentToken(kind: kind, name: name, id: id, size: newSize)
     }
 
     /// Token names live inside `[...]` — `]` (and newlines) would break the grammar.
@@ -45,14 +81,26 @@ public enum AttachmentTokens {
     public static let pattern = #"!\[@([A-Za-z]+):([^\]]*)\]\(ccfile:([0-9a-f]{16,64})\)"#
     private static let re = try! NSRegularExpression(pattern: pattern)
 
-    /// All tokens in `text`, with their UTF-16 ranges.
+    private static let sizeSuffix = try! NSRegularExpression(
+        pattern: #"\s+size:(small|sm|medium|md|big|bg)\s*$"#, options: [.caseInsensitive]
+    )
+
+    /// All tokens in `text`, with their UTF-16 ranges. A trailing ` size:xxx` in the name
+    /// parses OUT of the display name and into `token.size`.
     public static func matches(in text: String) -> [(range: NSRange, token: AttachmentToken)] {
         let ns = text as NSString
         return re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { m in
             let kind = AttachmentToken.Kind(rawValue: ns.substring(with: m.range(at: 1))) ?? .file
-            return (m.range, AttachmentToken(kind: kind,
-                                             name: ns.substring(with: m.range(at: 2)),
-                                             id: ns.substring(with: m.range(at: 3))))
+            var name = ns.substring(with: m.range(at: 2))
+            var size = AttachmentSize.medium
+            let nameNS = name as NSString
+            if let s = sizeSuffix.firstMatch(in: name,
+                                             range: NSRange(location: 0, length: nameNS.length)) {
+                size = AttachmentSize.parse(nameNS.substring(with: s.range(at: 1))) ?? .medium
+                name = nameNS.substring(to: s.range.location)
+            }
+            return (m.range, AttachmentToken(kind: kind, name: name,
+                                             id: ns.substring(with: m.range(at: 3)), size: size))
         }
     }
 

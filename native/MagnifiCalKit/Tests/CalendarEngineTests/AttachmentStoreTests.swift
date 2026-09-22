@@ -72,6 +72,30 @@ final class AttachmentStoreTests: XCTestCase {
         XCTAssertEqual(AttachmentTokens.ids(in: "x\n\(md)\ny \(md) z"), [t.id])
     }
 
+    func testSizeTokenRoundTrip() {
+        // size: rides in the NAME part; medium is the invisible default.
+        let base = AttachmentToken(kind: .pdf, name: "main.pdf", id: "0123456789abcdef")
+        XCTAssertFalse(base.markdown.contains("size:"), "medium is never written")
+        let big = base.with(size: .big)
+        XCTAssertEqual(big.markdown, "![@pdf:main.pdf size:big](ccfile:0123456789abcdef)")
+        let parsed = AttachmentTokens.blockToken(line: big.markdown)
+        XCTAssertEqual(parsed?.size, .big)
+        XCTAssertEqual(parsed?.name, "main.pdf", "the size token parses OUT of the display name")
+        // Aliases + case-insensitivity.
+        XCTAssertEqual(AttachmentTokens.blockToken(
+            line: "![@image:x.png size:sm](ccfile:0123456789abcdef)")?.size, .small)
+        XCTAssertEqual(AttachmentTokens.blockToken(
+            line: "![@image:x.png size:BG](ccfile:0123456789abcdef)")?.size, .big)
+        XCTAssertEqual(AttachmentTokens.blockToken(
+            line: "![@image:x.png size:md](ccfile:0123456789abcdef)")?.size, .medium)
+        // An unknown size word stays part of the name (forward compat).
+        let odd = AttachmentTokens.blockToken(line: "![@image:x size:huge](ccfile:0123456789abcdef)")
+        XCTAssertEqual(odd?.name, "x size:huge")
+        XCTAssertEqual(odd?.size, .medium)
+        // Round-trip stability: parse(render(t)) == t.
+        XCTAssertEqual(AttachmentTokens.blockToken(line: parsed!.markdown), parsed)
+    }
+
     func testUnknownKindWordParsesAsFile() {
         let line = "![@hologram:future.obj](ccfile:0123456789abcdef)"
         let tok = AttachmentTokens.blockToken(line: line)

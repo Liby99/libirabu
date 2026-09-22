@@ -123,6 +123,14 @@ struct NativeNotePanel: View {
                                     engine.setDailyNote(storageKey, cur.isEmpty ? md : cur + "\n\n" + md)
                                     engine.wake()
                                 },
+                                onReplaceLine: { line, newLine in
+                                    var lines = engine.dailyNote(storageKey)
+                                        .components(separatedBy: "\n")
+                                    guard lines.indices.contains(line - 1) else { return }
+                                    lines[line - 1] = newLine
+                                    engine.setDailyNote(storageKey, lines.joined(separator: "\n"))
+                                    engine.wake()
+                                },
                                 hitTestable: interactive)
                     .overlay(alignment: .topLeading) {
                         if text.trimmingCharacters(in: .whitespaces).isEmpty {

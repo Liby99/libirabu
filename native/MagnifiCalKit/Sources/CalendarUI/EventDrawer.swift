@@ -689,6 +689,13 @@ struct EventDrawer: View {
                                     onAppend: { md in
                                         let cur = activeNote.wrappedValue
                                         activeNote.wrappedValue = cur.isEmpty ? md : cur + "\n\n" + md
+                                    },
+                                    onReplaceLine: { line, newLine in
+                                        var lines = activeNote.wrappedValue
+                                            .components(separatedBy: "\n")
+                                        guard lines.indices.contains(line - 1) else { return }
+                                        lines[line - 1] = newLine
+                                        activeNote.wrappedValue = lines.joined(separator: "\n")
                                     })
                 }
             }

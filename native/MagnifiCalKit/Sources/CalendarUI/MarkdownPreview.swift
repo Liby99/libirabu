@@ -25,6 +25,8 @@ struct MarkdownPreview: NSViewRepresentable {
     /// Files dropped ONTO the preview import + append their tokens to the note (the preview
     /// has no caret). nil = preview drops off.
     var onAppend: ((String) -> Void)?
+    /// Card resize commit: replace source line N (1-based) with the re-sized token line.
+    var onReplaceLine: ((Int, String) -> Void)?
     /// False while a MODAL surface covers this pane (the event drawer): the pane stays
     /// visible (blurred background) but goes hit-test-inert — hover, clicks, drops, and the
     /// mouse itself pass over it (the drawer's resize handle was unreachable through it).
@@ -104,10 +106,11 @@ struct MarkdownPreview: NSViewRepresentable {
             parent = p
             guard let tv = textView else { return } // apply() below re-binds it after the render
             // Cards width-clamp to the pane; quantize so only real crossings re-render.
+            // (Per-size caps apply in the run emitter — this is the PANE bound alone, so a
+            // `size:big` card may use up to its 620pt cap on a wide pane.)
             let paneW = tv.enclosingScrollView?.bounds.width ?? tv.bounds.width
             let bucket = paneW > 40 ? Int((paneW / 64).rounded()) : 0
-            let cardW = bucket > 0 ? min(AttachmentCards.solitaryMaxW, CGFloat(bucket) * 64 - 24)
-                : AttachmentCards.solitaryMaxW
+            let cardW = bucket > 0 ? CGFloat(bucket) * 64 - 24 : AttachmentCards.solitaryMaxW
             let key = p.text + "|" + NSColor(p.theme.text).description + "|w\(bucket)"
             guard key != renderedKey else { return }
             renderedKey = key
@@ -129,6 +132,8 @@ struct MarkdownPreview: NSViewRepresentable {
         private func apply(_ doc: MarkdownDoc.Rendered) {
             guard let tv = textView else { return }
             tv.clearAttachmentSelection() // content shifted — a stale ring would float
+            tv.cardTheme = parent.theme
+            tv.onReplaceLine = parent.onReplaceLine
             tv.attachmentStore = { [weak self] in self?.parent.attachments }
             tv.onAppendMarkdown = parent.onAppend.map { append in
                 { [weak self] md in
@@ -378,6 +383,7 @@ final class PreviewTextView: NSTextView {
     // ── Attachment selection + Quick Look (P1, design §5.4) ─────────────────────────
     var attachmentStore: (() -> AttachmentStore?)?
     var onAppendMarkdown: ((String) -> Void)? // drop-on-preview → host appends to the note
+    var onReplaceLine: ((Int, String) -> Void)? // resize commit → host swaps source line N
     /// The selected attachment CARD: its single U+FFFC character index + token id. Cleared on
     /// outside clicks, Esc, and every re-render (content shifted under it).
     private(set) var selectedAtt: (charIndex: Int, id: String)?
@@ -424,6 +430,12 @@ final class PreviewTextView: NSTextView {
 
     override func mouseMoved(with event: NSEvent) {
         guard !suspended else { return } // super would assert the I-beam / hand cursor
+        // Over the selected card's bottom ring edge: the frame-resize ↕ cursor (with the bar)
+        // announces the size grab BEFORE the mouse goes down.
+        if resizeZoneHit(convert(event.locationInWindow, from: nil)) != nil {
+            NSCursor.frameResize(position: .bottom, directions: .all).set()
+            return // don't let super re-assert the hand/I-beam over the zone
+        }
         super.mouseMoved(with: event)
         let hit = attachmentHit(event)?.charIndex
         if hit != hoveredAtt {
@@ -431,6 +443,86 @@ final class PreviewTextView: NSTextView {
             needsDisplay = true
         }
     }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard var session = resizeSession else {
+            super.mouseDragged(with: event)
+            return
+        }
+        // Stepping: ~56pt of travel per size class, DOWN = bigger (flipped coords). Small
+        // wiggles stay under the first threshold → no change at all (per spec).
+        let delta = convert(event.locationInWindow, from: nil).y - session.startY
+        let stepped = AttachmentSize.at(index: session.startSize.index + Int((delta / 56).rounded()))
+        if stepped != session.shown {
+            session.shown = stepped
+            resizeSession = session
+            morphCard(session.att, to: stepped)
+        } else {
+            resizeSession = session
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if let session = resizeSession {
+            resizeSession = nil
+            if session.shown != session.startSize, let token = session.att.token {
+                // Commit: rewrite the source line with the new size token — the note change
+                // re-renders the preview, landing exactly on the previewed size.
+                onReplaceLine?(session.att.line, token.with(size: session.shown).markdown)
+            }
+            return
+        }
+        super.mouseUp(with: event)
+    }
+
+    /// Ease-out morph of the card's attachment bounds to its size-class target: the target
+    /// card image swaps in immediately (it scales during the animation), and the BOUNDS
+    /// animate over ~0.18s — each tick invalidates just this attachment's layout.
+    private func morphCard(_ att: MarkdownDoc.CardAttachment, to size: AttachmentSize) {
+        guard let store = attachmentStore?(), let token = att.token else { return }
+        resizeAnim?.invalidate()
+        let paneW = enclosingScrollView?.bounds.width ?? bounds.width
+        let target = AttachmentCards.card(for: token.with(size: size), store: store,
+                                          width: min(AttachmentCards.maxW(size), max(120, paneW - 24)),
+                                          compact: false, theme: cardTheme ?? Theme(dark: false))
+        att.token = token.with(size: size)
+        att.image = target
+        let from = att.bounds.size
+        let to = target.size
+        let t0 = Date()
+        let duration = 0.18
+        resizeAnim = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else {
+                    timer.invalidate()
+                    return
+                }
+                let p = min(1, Date().timeIntervalSince(t0) / duration)
+                let e = 1 - pow(1 - p, 3) // ease-out cubic
+                att.bounds = CGRect(x: 0, y: 0,
+                                    width: from.width + (to.width - from.width) * e,
+                                    height: from.height + (to.height - from.height) * e)
+                self.invalidateCardLayout(att)
+                if p >= 1 {
+                    timer.invalidate()
+                }
+            }
+        }
+    }
+
+    private func invalidateCardLayout(_ att: MarkdownDoc.CardAttachment) {
+        guard let ts = textStorage, let lm = layoutManager else { return }
+        ts.enumerateAttribute(.attachment, in: NSRange(location: 0, length: ts.length)) { v, r, stop in
+            if v as? MarkdownDoc.CardAttachment === att {
+                lm.invalidateLayout(forCharacterRange: r, actualCharacterRange: nil)
+                stop.pointee = true
+            }
+        }
+        needsDisplay = true
+    }
+
+    /// Theme handed over by the coordinator for mid-drag card regeneration.
+    var cardTheme: Theme?
 
     override func cursorUpdate(with event: NSEvent) {
         guard !suspended else { return }
@@ -482,6 +574,29 @@ final class PreviewTextView: NSTextView {
         return attachmentStore?()?.displayURL(forId: sel.id)
     }
 
+    // ── Card resize (the `size:` token): drag the SELECTED card's bottom ring edge ────
+    /// In-flight resize session: begun on mouse-down in the bottom-edge zone, stepped by
+    /// drag distance (~56pt per size class, no change under the first threshold), committed
+    /// to the markdown on mouse-up.
+    private var resizeSession: (att: MarkdownDoc.CardAttachment, startY: CGFloat,
+                                startSize: AttachmentSize, shown: AttachmentSize)?
+    private var resizeAnim: Timer?
+
+    /// The bottom-edge grab zone of the SELECTED, SOLITARY card (grid rows stay uniform).
+    private func resizeZoneHit(_ point: NSPoint) -> MarkdownDoc.CardAttachment? {
+        guard let sel = selectedAtt, let lm = layoutManager, let tc = textContainer,
+              let att = textStorage?.attribute(.attachment, at: sel.charIndex,
+                                               effectiveRange: nil) as? MarkdownDoc.CardAttachment,
+              att.solitary, att.token != nil else { return nil }
+        let gr = lm.glyphRange(forCharacterRange: NSRange(location: sel.charIndex, length: 1),
+                               actualCharacterRange: nil)
+        var rect = lm.boundingRect(forGlyphRange: gr, in: tc)
+            .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+        rect.size.height = att.bounds.height
+        let zone = NSRect(x: rect.minX, y: rect.maxY - 4, width: rect.width, height: 12)
+        return zone.contains(point) ? att : nil
+    }
+
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command), let onCmdClickLine {
             let pt = convert(event.locationInWindow, from: nil)
@@ -490,6 +605,14 @@ final class PreviewTextView: NSTextView {
                 onCmdClickLine(hit.line)
                 return
             }
+        }
+        // Bottom edge of the selected card → begin a RESIZE session (before selection logic:
+        // the zone slightly overlaps the card, and a resize grab must not re-select/open).
+        if !suspended, let att = resizeZoneHit(convert(event.locationInWindow, from: nil)),
+           let token = att.token {
+            resizeSession = (att, convert(event.locationInWindow, from: nil).y,
+                             token.size, token.size)
+            return
         }
         // Single click on an attachment card → select (Finder-style ring); double → open.
         // Consumed — a drag starting on a card must not smear a text selection over it.
@@ -1015,9 +1138,17 @@ private final class AttachmentPreviewItem: NSObject, QLPreviewItem {
 
     // ── Block renderers ──────────────────────────────────────────────────────────────────────
 
+    /// The card's attachment glyph, carrying its token + source line — the resize interaction
+    /// reads these to rewrite the `size:` token without re-parsing the note.
+    final class CardAttachment: NSTextAttachment {
+        var token: AttachmentToken?
+        var line = 0
+        var solitary = false // only solitary cards resize (grid rows stay uniform)
+    }
+
     /// A run of consecutive attachment tokens → cards. One token = a solitary content card
-    /// (min(480, pane) wide); several = compact ~224×150 cells emitted on ONE paragraph with
-    /// glue spaces, so line wrapping produces the responsive ≤3-column grid. Every card
+    /// (size-capped, pane-clamped); several = compact ~224×128 cells emitted on ONE paragraph
+    /// with glue spaces, so line wrapping produces the responsive ≤3-column grid. Every card
     /// carries a `ccsel://<line>/<id>` link (P1's selection/Quick Look hook; P0 consumes it).
     private static func appendAttachmentRun(_ run: [(line: Int, token: AttachmentToken)],
                                             store: AttachmentStore, cardWidth: CGFloat,
@@ -1043,10 +1174,15 @@ private final class AttachmentPreviewItem: NSObject, QLPreviewItem {
         para.headIndent = 4
         for (i, entry) in run.enumerated() {
             let from = out.length
+            // Solitary width honors the token's size class, still clamped to the pane.
+            let solW = min(AttachmentCards.maxW(entry.token.size), cardWidth)
             let img = AttachmentCards.card(for: entry.token, store: store,
-                                           width: compact ? AttachmentCards.gridCellW : cardWidth,
+                                           width: compact ? AttachmentCards.gridCellW : solW,
                                            compact: compact, theme: theme)
-            let att = NSTextAttachment()
+            let att = CardAttachment()
+            att.token = entry.token
+            att.line = entry.line
+            att.solitary = !compact
             att.image = img
             att.bounds = CGRect(origin: .zero, size: img.size)
             let cell = NSMutableAttributedString(attachment: att)

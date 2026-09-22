@@ -87,8 +87,32 @@ extension NSView {
     nonisolated static let gridCellW: CGFloat = 224
     nonisolated static let gridCellH: CGFloat = 128
     nonisolated static let metaH: CGFloat = 70
-    private static let imageMaxH: CGFloat = 240
     private static let corner: CGFloat = 8
+
+    /// Size-class caps for SOLITARY cards (`size:` token; height is the size's main effect).
+    nonisolated static func maxW(_ size: AttachmentSize) -> CGFloat {
+        switch size {
+        case .small: 340
+        case .medium: solitaryMaxW
+        case .big: 620
+        }
+    }
+
+    nonisolated static func maxH(_ size: AttachmentSize) -> CGFloat {
+        switch size {
+        case .small: 140
+        case .medium: 240
+        case .big: 400
+        }
+    }
+
+    nonisolated static func textLines(_ size: AttachmentSize) -> Int {
+        switch size {
+        case .small: 5
+        case .medium: 8
+        case .big: 12
+        }
+    }
 
     private static let cache = NSCache<NSString, NSImage>()
 
@@ -96,7 +120,7 @@ extension NSView {
     /// the caller); `compact` = grid-cell variant.
     static func card(for token: AttachmentToken, store: AttachmentStore, width: CGFloat,
                      compact: Bool, theme: Theme) -> NSImage {
-        let key = "\(token.id)|\(Int(width))|\(compact)|\(theme.dark)" as NSString
+        let key = "\(token.id)|\(Int(width))|\(compact)|\(theme.dark)|\(token.size.rawValue)" as NSString
         if let hit = cache.object(forKey: key) {
             return hit
         }
@@ -117,18 +141,18 @@ extension NSView {
         case .image:
             if let img = NSImage(contentsOf: url) {
                 return imageCard(img, badge: ext == "gif" ? "GIF" : nil, name: token.name,
-                                 width: width, compact: compact, theme: theme)
+                                 width: width, size: token.size, compact: compact, theme: theme)
             }
         case .pdf:
             if let doc = PDFDocument(url: url), let page = doc.page(at: 0) {
                 return pdfCard(page, pages: doc.pageCount, name: token.name, bytes: meta.bytes,
-                               width: width, compact: compact, theme: theme)
+                               width: width, size: token.size, compact: compact, theme: theme)
             }
         case .code, .data:
             if Self.starterTextExts.contains(ext),
                let text = textPrefix(of: url) {
                 return textCard(text, ext: ext, name: token.name, bytes: meta.bytes,
-                                width: width, compact: compact, theme: theme)
+                                width: width, size: token.size, compact: compact, theme: theme)
             }
         case .doc, .file:
             break // P4 upgrades doc to a QL page card; P0 metadata card below
@@ -145,7 +169,7 @@ extension NSView {
     // ── Card bodies ───────────────────────────────────────────────────────────────────
 
     private static func imageCard(_ img: NSImage, badge: String?, name: String, width: CGFloat,
-                                  compact: Bool, theme: Theme) -> NSImage {
+                                  size cardSize: AttachmentSize, compact: Bool, theme: Theme) -> NSImage {
         let px = img.size
         guard px.width > 0, px.height > 0 else {
             return metaCard(name: name, detail: "unreadable image",
@@ -155,7 +179,7 @@ extension NSView {
         if compact {
             size = NSSize(width: gridCellW, height: gridCellH)
         } else {
-            let scale = min(width / px.width, imageMaxH / px.height, 1)
+            let scale = min(width / px.width, maxH(cardSize) / px.height, 1)
             size = NSSize(width: max(90, px.width * scale), height: max(60, px.height * scale))
         }
         return draw(size: size, theme: theme) { rect in
@@ -177,7 +201,8 @@ extension NSView {
     }
 
     private static func pdfCard(_ page: PDFPage, pages: Int, name: String, bytes: Int,
-                                width: CGFloat, compact: Bool, theme: Theme) -> NSImage {
+                                width: CGFloat, size cardSize: AttachmentSize, compact: Bool,
+                                theme: Theme) -> NSImage {
         let footerH: CGFloat = compact ? 24 : 28
         let bounds = page.bounds(for: .mediaBox)
         let aspect = bounds.height > 0 ? bounds.width / bounds.height : 0.77
@@ -185,7 +210,7 @@ extension NSView {
         if compact {
             size = NSSize(width: gridCellW, height: gridCellH)
         } else {
-            let pageH = min(imageMaxH, width / max(aspect, 0.1))
+            let pageH = min(maxH(cardSize), width / max(aspect, 0.1))
             size = NSSize(width: width, height: pageH + footerH)
         }
         let thumbW = size.width
@@ -205,9 +230,10 @@ extension NSView {
     }
 
     private static func textCard(_ text: String, ext: String, name: String, bytes: Int,
-                                 width: CGFloat, compact: Bool, theme: Theme) -> NSImage {
+                                 width: CGFloat, size cardSize: AttachmentSize, compact: Bool,
+                                 theme: Theme) -> NSImage {
         let headerH: CGFloat = compact ? 24 : 28
-        let lineCount = compact ? 4 : 8
+        let lineCount = compact ? 4 : textLines(cardSize)
         let font = NSFont(name: "Menlo", size: compact ? 9 : 11)
             ?? NSFont.monospacedSystemFont(ofSize: compact ? 9 : 11, weight: .regular)
         let lines = text.components(separatedBy: "\n").prefix(lineCount).joined(separator: "\n")
