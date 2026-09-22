@@ -26,11 +26,12 @@ each release.
   .txt/.json/.md/.js/.c as syntax-highlighted snippets; other types show a metadata card;
   consecutive attachments flow into a responsive ≤3-column grid. Same file attached twice
   stores once.
-- Attachment cards are resizable: select a card and drag its bottom ring edge (the ↕
-  frame-resize cursor announces the grab) — three size classes (small/medium/big; big reaches
-  620×400) stepped by drag distance with an ease-out morph, committed to the source as a
-  `size:small|big` token in the name (`size:sm/md/bg` accepted; medium is the unwritten
-  default). Preview panel only; grid cells stay uniform.
+- Attachment cards are resizable: select a card and drag its bottom border, right border, or
+  bottom-right corner (each shows the matching frame-resize cursor: ↕ / ↔ / ↘) — three size
+  classes (small/medium/big; big reaches 620×400) stepped by drag distance from the grab point
+  with an ease-out morph, committed to the source as a `size:small|big` token in the name
+  (`size:sm/md/bg` accepted; medium is the unwritten default). Preview panel only; grid cells
+  stay uniform.
 - Attachments are objects (P1): single-click a preview card to select it (accent ring),
   **space** opens the system Quick Look panel (zooming out of the card, titled with the real
   filename — the Finder loop), **⌘C** copies the actual file (display-named, so a Finder paste
