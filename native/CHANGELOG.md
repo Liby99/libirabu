@@ -28,8 +28,9 @@ each release.
   stores once.
 - Attachment cards are resizable: select a card and drag its bottom border, right border, or
   bottom-right corner (each shows the matching frame-resize cursor: ↕ / ↔ / ↘) — three size
-  classes (small/medium/big; big reaches 620×400) stepped by drag distance from the grab point
-  with an ease-out morph, committed to the source as a `size:small|big` token in the name
+  classes stepped by drag distance from the grab point (small 170×105 · medium 340×140, the
+  default · big 480×240) with an ease-out morph, committed to the source as a `size:small|big`
+  token in the name
   (`size:sm/md/bg` accepted; medium is the unwritten default). Preview panel only; grid cells
   stay uniform.
 - Attachments are objects (P1): single-click a preview card to select it (accent ring),

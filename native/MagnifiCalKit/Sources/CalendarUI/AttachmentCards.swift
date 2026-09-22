@@ -90,27 +90,29 @@ extension NSView {
     private static let corner: CGFloat = 8
 
     /// Size-class caps for SOLITARY cards (`size:` token; height is the size's main effect).
+    /// Rescaled 2026-09-21: big = the original default card, medium = the old small, and
+    /// small is a genuinely small chip-like card (half medium's width, ~3/4 its height).
     nonisolated static func maxW(_ size: AttachmentSize) -> CGFloat {
         switch size {
-        case .small: 340
-        case .medium: solitaryMaxW
-        case .big: 620
+        case .small: 170
+        case .medium: 340
+        case .big: solitaryMaxW // 480
         }
     }
 
     nonisolated static func maxH(_ size: AttachmentSize) -> CGFloat {
         switch size {
-        case .small: 140
-        case .medium: 240
-        case .big: 400
+        case .small: 105
+        case .medium: 140
+        case .big: 240
         }
     }
 
     nonisolated static func textLines(_ size: AttachmentSize) -> Int {
         switch size {
-        case .small: 5
-        case .medium: 8
-        case .big: 12
+        case .small: 3
+        case .medium: 5
+        case .big: 8
         }
     }
 
