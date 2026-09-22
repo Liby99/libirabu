@@ -154,6 +154,10 @@ public struct AttachmentMeta: Codable, Sendable, Equatable {
     private let indexURL: URL
     private var index: [String: AttachmentMeta] // full sha256 → meta
     private var loaded = false
+    /// Bumped whenever a blob ARRIVES (local import or a synced NoteFile adopting) — previews
+    /// key their rebuild on it, so a "waiting for iCloud" card turns into content the moment
+    /// the asset lands, with no note edit involved.
+    public private(set) var generation = 0
 
     public init(baseDir: URL? = nil) {
         let root = baseDir ?? calendarKitBaseDir()
@@ -183,24 +187,65 @@ public struct AttachmentMeta: Codable, Sendable, Equatable {
         let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let uti = utiFor(name: name, data: data)
         if index[hash] == nil {
-            let dest = blobURL(hash: hash, name: name)
-            try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            let tmp = dest.appendingPathExtension("tmp-\(UUID().uuidString.prefix(6))")
-            try data.write(to: tmp)
-            // A concurrent import of the same content may have landed the blob already.
-            if FileManager.default.fileExists(atPath: dest.path) {
-                try? FileManager.default.removeItem(at: tmp)
-            } else {
-                try FileManager.default.moveItem(at: tmp, to: dest)
-            }
-            index[hash] = AttachmentMeta(name: name, uti: uti, bytes: data.count,
-                                         addedAt: Self.nowStamp(), lastReferencedAt: Self.nowStamp())
+            try writeBlob(data, hash: hash, name: name, uti: uti)
         } else {
             index[hash]!.lastReferencedAt = Self.nowStamp()
+            saveIndex()
         }
-        saveIndex()
         return AttachmentToken(kind: Self.kind(forUTI: uti, name: name), name: name, id: shortId(hash))
+    }
+
+    /// Adopt a SYNCED blob (a fetched NoteFile's CKAsset): hash-verify the payload against the
+    /// record's declared sha256 — a mismatched asset is dropped and logged, never stored —
+    /// then land it in the CAS under the record's declared name/uti. True = the blob is
+    /// available locally after the call (freshly adopted OR already present).
+    public func adoptRemote(fileURL: URL, declaredHash: String, name: String, uti: String) -> Bool {
+        ensureLoaded()
+        if index[declaredHash] != nil {
+            return true // dedup: some other note/calendar already brought it in
+        }
+        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty,
+              data.count <= Self.maxBytes else {
+            storeLog.error("attachment adopt FAILED (unreadable/oversize): \(name, privacy: .public)")
+            return false
+        }
+        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        guard hash == declaredHash else {
+            storeLog.error("attachment adopt REJECTED (hash mismatch): \(name, privacy: .public)")
+            return false
+        }
+        do {
+            try writeBlob(data, hash: hash, name: name, uti: uti)
+            return true
+        } catch {
+            storeLog.error("attachment adopt write FAILED: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Resolve a token id (hash prefix) to the FULL sha256 — the sync layer's record names
+    /// are `file-<full hash>`. nil = unknown here (blob not present, nothing to upload).
+    public func resolveHash(forId id: String) -> String? {
+        ensureLoaded()
+        return fullHash(forId: id)
+    }
+
+    private func writeBlob(_ data: Data, hash: String, name: String, uti: String) throws {
+        let dest = blobURL(hash: hash, name: name)
+        try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        let tmp = dest.appendingPathExtension("tmp-\(UUID().uuidString.prefix(6))")
+        try data.write(to: tmp)
+        // A concurrent import of the same content may have landed the blob already.
+        if FileManager.default.fileExists(atPath: dest.path) {
+            try? FileManager.default.removeItem(at: tmp)
+        } else {
+            try FileManager.default.moveItem(at: tmp, to: dest)
+        }
+        index[hash] = AttachmentMeta(name: name, uti: uti, bytes: data.count,
+                                     addedAt: Self.nowStamp(), lastReferencedAt: Self.nowStamp())
+        saveIndex()
+        generation &+= 1
     }
 
     /// Import a file from disk (drag path). Reads the bytes inside the caller's access window.

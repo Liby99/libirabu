@@ -122,6 +122,12 @@ extension NSView {
     /// the caller); `compact` = grid-cell variant.
     static func card(for token: AttachmentToken, store: AttachmentStore, width: CGFloat,
                      compact: Bool, theme: Theme) -> NSImage {
+        // The waiting card (blob not local yet — token synced before its NoteFile) is NEVER
+        // cached: it must become the content card the moment the asset lands, and the cache
+        // key can't see blob arrival.
+        guard store.url(forId: token.id) != nil else {
+            return compose(token: token, store: store, width: width, compact: compact, theme: theme)
+        }
         let key = "\(token.id)|\(Int(width))|\(compact)|\(theme.dark)|\(token.size.rawValue)" as NSString
         if let hit = cache.object(forKey: key) {
             return hit
@@ -134,7 +140,7 @@ extension NSView {
     private static func compose(token: AttachmentToken, store: AttachmentStore, width: CGFloat,
                                 compact: Bool, theme: Theme) -> NSImage {
         guard let url = store.url(forId: token.id), let meta = store.meta(forId: token.id) else {
-            return metaCard(name: token.name, detail: "missing — not on this Mac yet",
+            return metaCard(name: token.name, detail: "waiting for iCloud…",
                             icon: NSWorkspace.shared.icon(for: .data), width: width, theme: theme)
         }
         let ext = (meta.name as NSString).pathExtension.lowercased()

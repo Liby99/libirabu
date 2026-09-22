@@ -111,7 +111,10 @@ struct MarkdownPreview: NSViewRepresentable {
             let paneW = tv.enclosingScrollView?.bounds.width ?? tv.bounds.width
             let bucket = paneW > 40 ? Int((paneW / 64).rounded()) : 0
             let cardW = bucket > 0 ? CGFloat(bucket) * 64 - 24 : AttachmentCards.solitaryMaxW
+            // store.generation: a synced blob arriving re-renders WAITING cards into content
+            // (the arrival bumps noteEdits → the host re-evaluates → this key moves).
             let key = p.text + "|" + NSColor(p.theme.text).description + "|w\(bucket)"
+                + "|a\(p.attachments?.generation ?? 0)"
             guard key != renderedKey else { return }
             renderedKey = key
             let doc = NativeDash.diagTime("MarkdownDoc.render(\(p.text.count)ch)") {

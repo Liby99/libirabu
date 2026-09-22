@@ -114,11 +114,51 @@ extension CalendarEngine {
         NotificationScheduler.shared.requestResync() // data changed → re-plan the pending window
     }
 
+    /// A synced attachment blob landed (no note text changed): repaint every preview whose
+    /// "waiting for iCloud" card can now show content. Same bump pair setDailyNote uses.
+    public func attachmentsDidArrive() {
+        caches.noteGen &+= 1
+        noteEdits.gen &+= 1
+        wake()
+    }
+
+    /// Every attachment id (token hash prefix) referenced anywhere in a state's notes —
+    /// event notes, per-occurrence notes, and daily/weekly/monthly notes. THE derived-refcount
+    /// primitive (design §7): the notes are the reference database; nothing is stored.
+    static func attachmentIds(in state: PersistedState) -> Set<String> {
+        var ids = Set<String>()
+        for rf in (state.rich ?? [:]).values {
+            if let n = rf.notes {
+                ids.formUnion(AttachmentTokens.ids(in: n))
+            }
+            for n in (rf.occurrenceNotes ?? [:]).values {
+                ids.formUnion(AttachmentTokens.ids(in: n))
+            }
+        }
+        for n in (state.dailyNotes ?? [:]).values {
+            ids.formUnion(AttachmentTokens.ids(in: n))
+        }
+        return ids
+    }
+
     /// Diff the freshly-persisted state against what the sync layer last saw and emit the
     /// changed record ids. Before the cloud layer attaches, just track the baseline.
     private func emitDelta(to state: PersistedState) {
         guard let onLocalChange else { syncedState = state; return }
-        let (up, del) = Self.recordDelta(from: syncedState, to: state)
+        var (up, del) = Self.recordDelta(from: syncedState, to: state)
+        // NoteFile records (attachment blobs, design §6): a hash NEWLY referenced by this
+        // calendar's notes uploads its blob; a hash no longer referenced ANYWHERE in this
+        // calendar deletes its record from this zone (other calendars own their own copies;
+        // the LOCAL blob is untouched — the P3 sweep is the only local-space authority).
+        // Token ids are hash PREFIXES; records are named by the full hash — unresolvable ids
+        // (blob not here yet, e.g. the token synced before its NoteFile) simply skip: there
+        // is nothing to upload, and the record wasn't ours to delete.
+        let oldRefs = syncedState.map(Self.attachmentIds(in:)) ?? []
+        let newRefs = Self.attachmentIds(in: state)
+        up += newRefs.subtracting(oldRefs)
+            .compactMap { attachments.resolveHash(forId: $0).map { CloudSync.filePrefix + $0 } }
+        del += oldRefs.subtracting(newRefs)
+            .compactMap { attachments.resolveHash(forId: $0).map { CloudSync.filePrefix + $0 } }
         syncedState = state
         let dn = up.filter { $0.hasPrefix(CloudSync.dnotePrefix) }
             + del.filter { $0.hasPrefix(CloudSync.dnotePrefix) }.map { "-" + $0 }

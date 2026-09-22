@@ -33,7 +33,14 @@ each release.
   token in the name
   (`size:sm/md/bg` accepted; medium is the unwritten default). Preview panel only; grid cells
   stay uniform.
-- Attachments are objects (P1): single-click a preview card to select it (accent ring),
+- Attachments sync via iCloud (P2): each calendar's zone carries NoteFile records — the blob
+  as a CKAsset plus its hash/name/type — uploaded when a note in that calendar first references
+  a file and deleted when the last reference leaves (the local copy stays); inbound blobs are
+  hash-verified before storing. A token whose blob hasn't arrived shows a "waiting for iCloud…"
+  card that turns into the real thumbnail the moment the asset lands. The iPhone renders
+  attachment cards in its note previews (images inline, others as icon rows) — tap for the
+  system Quick Look. NOTE: the new "NoteFile" record type must be deployed to the production
+  CloudKit schema before shipped builds can sync attachments.
   **space** opens the system Quick Look panel (zooming out of the card, titled with the real
   filename — the Finder loop), **⌘C** copies the actual file (display-named, so a Finder paste
   yields "proposal.pdf"), double-click opens it in the default app, Esc deselects; files can
@@ -46,6 +53,8 @@ each release.
 - The `#` tag autocomplete in every markdown editor suggests each tag once, in its canonical
   lower-case form — "Work"/"work" no longer appear as two options (typing "#Wo" still matches;
   the inserted tag is lower-case).
+- The deadline quick-add "+" is shadow-free in both states: the permanent drop shadow and the
+  hover accent glow smudged the day column's edge — now just the flat circle, ring, and plus.
 
 ### Fixed
 - A pinch zoom can no longer stick halfway between views: a scroll or click landing inside the
