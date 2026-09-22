@@ -26,11 +26,13 @@ each release.
   .txt/.json/.md/.js/.c as syntax-highlighted snippets; other types show a metadata card;
   consecutive attachments flow into a responsive ≤3-column grid. Same file attached twice
   stores once.
-- Settings ▸ Developer ▸ "Browse Attachments…": a file browser over the attachment store —
-  every imported file with type/size/date, everything that references it (the reverse index,
-  computed live from the notes across all calendars), unreferenced blobs flagged orange
-  (awaiting the future sweep), still-syncing tokens shown as waiting rows, and
-  reveal-in-Finder per file.
+- Attachment Browser (File ▸ Attachment Browser, or Settings ▸ Developer): a file browser
+  over the attachment store — every imported file with type/size/date, everything that
+  references it (the reverse index, computed live from the notes across all calendars),
+  unreferenced blobs flagged orange, still-syncing tokens shown as waiting rows, and
+  reveal-in-Finder per file. Each reference has a "show in calendar" jump that flies the
+  main window to the referencing event or dated note, and unreferenced files can be
+  removed — per file or all at once — with a confirmation.
 - Attachment cards are resizable: select a card and drag its bottom border, right border, or
   bottom-right corner (each shows the matching frame-resize cursor: ↕ / ↔ / ↘) — three size
   classes stepped by drag distance from the grab point (small 170×105 · medium 340×140, the

@@ -19,7 +19,8 @@ public extension Notification.Name {
 @MainActor public enum AttachmentBrowser {
     private static var window: NSWindow?
 
-    public static func show(engine: CalendarEngine) {
+    public static func show(engine: CalendarEngine,
+                            navigate: ((AttachmentRef) -> Void)? = nil) {
         if window == nil {
             let w = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 680, height: 560),
@@ -33,7 +34,8 @@ public extension Notification.Name {
             window = w
         }
         // Fresh content on every open — the inventory is a live scan, not a cache.
-        window?.contentView = NSHostingView(rootView: AttachmentBrowserView(engine: engine))
+        window?.contentView = NSHostingView(
+            rootView: AttachmentBrowserView(engine: engine, navigate: navigate))
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -41,6 +43,7 @@ public extension Notification.Name {
 
 struct AttachmentBrowserView: View {
     let engine: CalendarEngine
+    let navigate: ((AttachmentRef) -> Void)?
     @Environment(\.colorScheme) private var scheme
     @State private var rows: [AttachmentInventoryRow] = []
     @State private var expanded: Set<String> = []
@@ -86,10 +89,39 @@ struct AttachmentBrowserView: View {
             Text(parts.joined(separator: " · "))
                 .font(.system(size: 12, weight: .medium)).foregroundStyle(theme.text)
             Spacer()
+            if orphans > 0 {
+                Button("Remove Unreferenced…") {
+                    removeBlobs(rows.filter { $0.refs.isEmpty && $0.meta != nil })
+                }
+                .font(.system(size: 11))
+            }
             Button("Refresh") { rows = engine.attachmentInventory() }
                 .font(.system(size: 11))
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+
+    /// Delete orphan blobs, confirmed. Only unreferenced files ever reach here — the trash
+    /// button and the header bulk button both filter on refs.isEmpty first.
+    private func removeBlobs(_ doomed: [AttachmentInventoryRow]) {
+        guard !doomed.isEmpty else { return }
+        let bytes = doomed.compactMap(\.meta?.bytes).reduce(0, +)
+        let a = NSAlert()
+        a.messageText = doomed.count == 1
+            ? "Remove “\(doomed[0].name)”?"
+            : "Remove \(doomed.count) unreferenced files?"
+        a.informativeText = "No note in any calendar references "
+            + (doomed.count == 1 ? "this file" : "these files")
+            + ". \(AttachmentCards.fmtBytes(bytes)) will be deleted from the attachment store. "
+            + "This cannot be undone."
+        a.alertStyle = .warning
+        a.addButton(withTitle: "Remove").hasDestructiveAction = true
+        a.addButton(withTitle: "Cancel")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        for row in doomed {
+            engine.attachments.remove(hash: row.id)
+        }
+        rows = engine.attachmentInventory()
     }
 
     @ViewBuilder private func rowView(_ row: AttachmentInventoryRow, _ theme: Theme) -> some View {
@@ -119,6 +151,11 @@ struct AttachmentBrowserView: View {
                         .buttonStyle(.plain).foregroundStyle(theme.textMuted)
                         .help("Reveal in Finder")
                 }
+                if row.refs.isEmpty, row.meta != nil {
+                    Button { removeBlobs([row]) } label: { Image(systemName: "trash") }
+                        .buttonStyle(.plain).foregroundStyle(Color.orange)
+                        .help("Remove this unreferenced file")
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture {
@@ -138,6 +175,17 @@ struct AttachmentBrowserView: View {
                             Text(ref.label)
                                 .font(.system(size: 11)).foregroundStyle(theme.text.opacity(0.85))
                                 .lineLimit(1)
+                            Spacer(minLength: 8)
+                            // Navigation runs on the OPEN calendar's engine, so other
+                            // calendars' references stay label-only.
+                            if ref.inActiveCalendar, let navigate {
+                                Button { navigate(ref) } label: {
+                                    Image(systemName: "arrow.up.forward")
+                                        .font(.system(size: 9, weight: .semibold))
+                                }
+                                .buttonStyle(.plain).foregroundStyle(Color(Theme.accent))
+                                .help("Show in calendar")
+                            }
                         }
                     }
                 }

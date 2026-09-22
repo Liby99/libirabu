@@ -79,6 +79,11 @@ final class AttachmentSyncTests: XCTestCase {
         XCTAssertTrue(usedRow.refs.contains { $0.label == "Event “Standup”" }, "\(usedRow.refs)")
         XCTAssertTrue(usedRow.refs.contains { $0.label == "Daily note 2026-06-02" })
         XCTAssertNotNil(usedRow.meta)
+        // Navigation targets: the browser's "show in calendar" jumps run off these.
+        XCTAssertTrue(usedRow.refs.contains {
+            $0.target == .item(id: evId, occurrence: nil) && $0.inActiveCalendar
+        })
+        XCTAssertTrue(usedRow.refs.contains { $0.target == .note(key: "2026-06-02") })
 
         let orphanRow = try XCTUnwrap(rows.first { $0.name == "orphan.txt" })
         XCTAssertTrue(orphanRow.refs.isEmpty, "unreferenced blob surfaces as an orphan")

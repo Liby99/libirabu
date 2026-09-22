@@ -236,6 +236,26 @@ public struct AttachmentMeta: Codable, Sendable, Equatable {
         return index
     }
 
+    /// Delete a blob outright — the browser's "remove unreferenced" action. Removes the blob,
+    /// its export hardlinks, and the index entry. The CALLER owns the referenced-by-nothing
+    /// check (references live in the notes, never here — see AttachmentInventory).
+    public func remove(hash: String) {
+        ensureLoaded()
+        guard let meta = index[hash] else { return }
+        let fm = FileManager.default
+        try? fm.removeItem(at: blobURL(hash: hash, name: meta.name))
+        // Export handles are minted under token ids (hash PREFIXES, possibly several lengths
+        // over the blob's lifetime) — sweep every export dir whose name prefixes this hash.
+        let exportRoot = filesDir.appendingPathComponent("export", isDirectory: true)
+        for dir in (try? fm.contentsOfDirectory(at: exportRoot, includingPropertiesForKeys: nil)) ?? []
+            where hash.hasPrefix(dir.lastPathComponent) {
+            try? fm.removeItem(at: dir)
+        }
+        index[hash] = nil
+        saveIndex()
+        generation &+= 1 // any card still pointing here repaints into its "missing" state
+    }
+
     private func writeBlob(_ data: Data, hash: String, name: String, uti: String) throws {
         let dest = blobURL(hash: hash, name: name)
         try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(),

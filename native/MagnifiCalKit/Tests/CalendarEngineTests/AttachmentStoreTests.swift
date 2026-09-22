@@ -118,6 +118,22 @@ final class AttachmentStoreTests: XCTestCase {
         XCTAssertEqual(AttachmentStore.kind(forUTI: "public.data", name: "a.zip"), .file)
     }
 
+    func testRemoveDeletesBlobExportAndIndexEntry() throws {
+        let token = try store.importData(Data("doomed".utf8), suggestedName: "doomed.txt")
+        let export = try XCTUnwrap(store.displayURL(forId: token.id)) // mint the export handle
+        let hash = try XCTUnwrap(store.resolveHash(forId: token.id))
+        let gen0 = store.generation
+
+        store.remove(hash: hash)
+        XCTAssertNil(store.url(forId: token.id))
+        XCTAssertNil(store.meta(forId: token.id))
+        XCTAssertTrue(store.allEntries().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: export.path),
+                       "the display-named hardlink dir goes with the blob")
+        XCTAssertGreaterThan(store.generation, gen0, "cards repaint into the missing state")
+        store.remove(hash: hash) // unknown hash → silent no-op
+    }
+
     func testMissingIdResolvesNil() {
         XCTAssertNil(store.url(forId: "deadbeefdeadbeef"))
         XCTAssertNil(store.meta(forId: "deadbeefdeadbeef"))

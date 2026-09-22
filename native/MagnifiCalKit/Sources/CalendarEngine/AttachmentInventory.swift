@@ -8,12 +8,20 @@
 import CalendarGeometry
 import Foundation
 
+/// Where a reference can be navigated to — the browser's "show in calendar" jump target.
+public enum AttachmentRefTarget: Sendable, Hashable {
+    case item(id: String, occurrence: String?) // an event/band/deadline note (+ occKey if any)
+    case note(key: String) // daily "YYYY-MM-DD" / "week:<sunday>" / "month:<YYYY-MM>"
+}
+
 /// One place a blob is referenced from, as a human-readable label
 /// ("Event “Standup”", "Daily note 2026-09-21 · ‹Work›", …).
 public struct AttachmentRef: Sendable, Hashable, Identifiable {
     public var id: String { label + "|" + noteKey }
     public let label: String
     public let noteKey: String // diagnostic: the raw storage key / item id
+    public let target: AttachmentRefTarget
+    public let inActiveCalendar: Bool // navigation only works within the open calendar
 }
 
 /// One row of the browser: a blob (or a still-waiting token) + everything referencing it.
@@ -30,13 +38,15 @@ public extension CalendarEngine {
     func attachmentInventory() -> [AttachmentInventoryRow] {
         // prefix id → (token display name, refs)
         var refsByPrefix: [String: (name: String, refs: [AttachmentRef])] = [:]
-        func note(_ text: String?, label: String, key: String, calendar: String?) {
+        func note(_ text: String?, label: String, key: String, target: AttachmentRefTarget,
+                  calendar: String?) {
             guard let text, !text.isEmpty else { return }
             for m in AttachmentTokens.matches(in: text) {
                 let full = calendar.map { "\(label) · ‹\($0)›" } ?? label
                 var slot = refsByPrefix[m.token.id] ?? (m.token.name, [])
                 slot.name = m.token.name
-                slot.refs.append(AttachmentRef(label: full, noteKey: key))
+                slot.refs.append(AttachmentRef(label: full, noteKey: key, target: target,
+                                               inActiveCalendar: calendar == nil))
                 refsByPrefix[m.token.id] = slot
             }
         }
@@ -50,17 +60,18 @@ public extension CalendarEngine {
                     ?? "Imported event \(String(id.prefix(18)))…"
             }
             for (id, rf) in rich {
-                note(rf.notes, label: title(id), key: id, calendar: calendar)
+                note(rf.notes, label: title(id), key: id,
+                     target: .item(id: id, occurrence: nil), calendar: calendar)
                 for (occ, text) in rf.occurrenceNotes ?? [:] {
                     note(text, label: "\(title(id)) · \(occ)", key: "\(id)|\(occ)",
-                         calendar: calendar)
+                         target: .item(id: id, occurrence: occ), calendar: calendar)
                 }
             }
             for (key, text) in dailyNotes {
                 let label = key.hasPrefix("week:") ? "Weekly note \(key.dropFirst(5))"
                     : key.hasPrefix("month:") ? "Monthly note \(key.dropFirst(6))"
                     : "Daily note \(key)"
-                note(text, label: label, key: key, calendar: calendar)
+                note(text, label: label, key: key, target: .note(key: key), calendar: calendar)
             }
         }
 

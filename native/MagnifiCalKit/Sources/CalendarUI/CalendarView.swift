@@ -646,6 +646,26 @@ public struct CalendarView: View {
         }
     }
 
+    /// Attachment browser "show in calendar": fly the MAIN window to a reference — the item
+    /// (selected; a recurring occurrence lands on its ghost) or the dated note (dashboard NOTE
+    /// tab) — then bring the calendar window forward over the browser so the flight is visible.
+    private func navigateToAttachmentRef(_ ref: AttachmentRef) {
+        switch ref.target {
+        case let .item(id, occ):
+            if let occ {
+                let c = occ.split(separator: "-").compactMap { Int($0) }
+                if c.count == 3 {
+                    engine.goToBox("\(id)@\(c[0])-\(c[1])-\(c[2])") // the occurrence's ghost box
+                    break
+                }
+            }
+            engine.revealAndSelect(id: id)
+        case let .note(key):
+            jumpToNoteKey(key)
+        }
+        catcherHandle.catcher?.window?.makeKeyAndOrderFront(nil)
+    }
+
     /// The native dashboard BODY panels for this frame (cc.nativeDash): ONE container framed to
     /// the mask region (scope.mask → right edge) and clipped — the header's clipRect — with each
     /// sub-panel from dashBodyPanels placed by the header's OWN inset math (drawPanelChrome):
@@ -1189,7 +1209,8 @@ public struct CalendarView: View {
                     // View-menu prefs (show-hidden / timezone pickers), the prefs-changed notification, and
                     // the tag-filter toggle — bundled into one modifier (see the type-check note above).
                     .modifier(ViewPrefObservers(engine: engine, showTagFilter: $showTagFilter,
-                                                ui: ui, dashTab: $dashTab, dashNav: dashNav))
+                                                ui: ui, dashTab: $dashTab, dashNav: dashNav,
+                                                navigateRef: navigateToAttachmentRef))
             }
             .ignoresSafeArea()
             // Search overlays — siblings inside the ZStack, so they respect the toolbar safe-area inset
@@ -1326,6 +1347,7 @@ private struct ViewPrefObservers: ViewModifier {
     var ui: CalendarUIState
     @Binding var dashTab: DashTab
     var dashNav: NativeDashNavModel
+    var navigateRef: (AttachmentRef) -> Void // the browser's "show in calendar" jump
     @AppStorage(PrefKeys.showHiddenImported) private var showHidden = false
     @AppStorage(PrefKeys.mainTz) private var mainTz = "auto"
     @AppStorage(PrefKeys.altTz) private var altTz = "none"
@@ -1355,7 +1377,7 @@ private struct ViewPrefObservers: ViewModifier {
             }
             // Settings ▸ Developer: category-by-category store census → unified log.
             .onReceive(NotificationCenter.default.publisher(for: .openAttachmentBrowser)) { _ in
-                AttachmentBrowser.show(engine: engine)
+                AttachmentBrowser.show(engine: engine, navigate: navigateRef)
             }
             .onReceive(NotificationCenter.default.publisher(for: .logStoreCensus)) { _ in
                 engine.logStoreCensus(reason: "developer-button")
