@@ -432,8 +432,8 @@ final class PreviewTextView: NSTextView {
         guard !suspended else { return } // super would assert the I-beam / hand cursor
         // Over the selected card's bottom ring edge: the frame-resize ↕ cursor (with the bar)
         // announces the size grab BEFORE the mouse goes down.
-        if resizeZoneHit(convert(event.locationInWindow, from: nil)) != nil {
-            NSCursor.frameResize(position: .bottom, directions: .all).set()
+        if let hit = resizeZoneHit(convert(event.locationInWindow, from: nil)) {
+            resizeCursor(hit.zone).set()
             return // don't let super re-assert the hand/I-beam over the zone
         }
         super.mouseMoved(with: event)
@@ -449,9 +449,16 @@ final class PreviewTextView: NSTextView {
             super.mouseDragged(with: event)
             return
         }
-        // Stepping: ~56pt of travel per size class, DOWN = bigger (flipped coords). Small
-        // wiggles stay under the first threshold → no change at all (per spec).
-        let delta = convert(event.locationInWindow, from: nil).y - session.startY
+        // Stepping: ~56pt of travel per size class, outward = bigger (flipped coords: down
+        // and right both grow). Small wiggles stay under the first threshold → no change.
+        let p = convert(event.locationInWindow, from: nil)
+        let dx = p.x - session.start.x
+        let dy = p.y - session.start.y
+        let delta: CGFloat = switch session.zone {
+        case .bottom: dy
+        case .right: dx
+        case .corner: max(dx, dy) // diagonal-out grows as soon as either axis commits
+        }
         let stepped = AttachmentSize.at(index: session.startSize.index + Int((delta / 56).rounded()))
         if stepped != session.shown {
             session.shown = stepped
@@ -575,15 +582,19 @@ final class PreviewTextView: NSTextView {
     }
 
     // ── Card resize (the `size:` token): drag the SELECTED card's bottom ring edge ────
-    /// In-flight resize session: begun on mouse-down in the bottom-edge zone, stepped by
-    /// drag distance (~56pt per size class, no change under the first threshold), committed
-    /// to the markdown on mouse-up.
-    private var resizeSession: (att: MarkdownDoc.CardAttachment, startY: CGFloat,
-                                startSize: AttachmentSize, shown: AttachmentSize)?
+    /// In-flight resize session: begun on mouse-down in a resize zone, stepped by drag
+    /// distance from the mouse-down point (~56pt per size class, no change under the first
+    /// threshold), committed to the markdown on mouse-up.
+    enum ResizeZone { case bottom, right, corner }
+    private var resizeSession: (att: MarkdownDoc.CardAttachment, zone: ResizeZone,
+                                start: NSPoint, startSize: AttachmentSize,
+                                shown: AttachmentSize)?
     private var resizeAnim: Timer?
 
-    /// The bottom-edge grab zone of the SELECTED, SOLITARY card (grid rows stay uniform).
-    private func resizeZoneHit(_ point: NSPoint) -> MarkdownDoc.CardAttachment? {
+    /// The resize grab zones of the SELECTED, SOLITARY card (grid rows stay uniform):
+    /// bottom border (↕), right border (↔), bottom-right corner (↘ — checked first).
+    private func resizeZoneHit(_ point: NSPoint)
+        -> (att: MarkdownDoc.CardAttachment, zone: ResizeZone)? {
         guard let sel = selectedAtt, let lm = layoutManager, let tc = textContainer,
               let att = textStorage?.attribute(.attachment, at: sel.charIndex,
                                                effectiveRange: nil) as? MarkdownDoc.CardAttachment,
@@ -593,8 +604,27 @@ final class PreviewTextView: NSTextView {
         var rect = lm.boundingRect(forGlyphRange: gr, in: tc)
             .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
         rect.size.height = att.bounds.height
-        let zone = NSRect(x: rect.minX, y: rect.maxY - 4, width: rect.width, height: 12)
-        return zone.contains(point) ? att : nil
+        let corner = NSRect(x: rect.maxX - 8, y: rect.maxY - 8, width: 18, height: 18)
+        if corner.contains(point) {
+            return (att, .corner)
+        }
+        let bottom = NSRect(x: rect.minX, y: rect.maxY - 4, width: rect.width, height: 12)
+        if bottom.contains(point) {
+            return (att, .bottom)
+        }
+        let right = NSRect(x: rect.maxX - 4, y: rect.minY, width: 12, height: rect.height)
+        if right.contains(point) {
+            return (att, .right)
+        }
+        return nil
+    }
+
+    private func resizeCursor(_ zone: ResizeZone) -> NSCursor {
+        switch zone {
+        case .bottom: NSCursor.frameResize(position: .bottom, directions: .all)
+        case .right: NSCursor.frameResize(position: .right, directions: .all)
+        case .corner: NSCursor.frameResize(position: .bottomRight, directions: .all)
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -608,9 +638,9 @@ final class PreviewTextView: NSTextView {
         }
         // Bottom edge of the selected card → begin a RESIZE session (before selection logic:
         // the zone slightly overlaps the card, and a resize grab must not re-select/open).
-        if !suspended, let att = resizeZoneHit(convert(event.locationInWindow, from: nil)),
-           let token = att.token {
-            resizeSession = (att, convert(event.locationInWindow, from: nil).y,
+        if !suspended, let hit = resizeZoneHit(convert(event.locationInWindow, from: nil)),
+           let token = hit.att.token {
+            resizeSession = (hit.att, hit.zone, convert(event.locationInWindow, from: nil),
                              token.size, token.size)
             return
         }
