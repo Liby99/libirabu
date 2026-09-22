@@ -913,6 +913,13 @@ private struct DeveloperTab: View {
                     NotificationCenter.default.post(name: .cloudPushEverything, object: nil)
                     pushedAt = Date()
                 }
+                Button("Browse Attachments…") {
+                    NotificationCenter.default.post(name: .openAttachmentBrowser, object: nil)
+                }
+                Text("Every imported file with its size and everything that references it " +
+                    "(computed live from the notes), plus unreferenced blobs awaiting the sweep.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Button("Log Store Census") {
                     NotificationCenter.default.post(name: .logStoreCensus, object: nil)
                 }

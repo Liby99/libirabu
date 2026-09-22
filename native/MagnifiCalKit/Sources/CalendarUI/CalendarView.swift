@@ -1354,6 +1354,9 @@ private struct ViewPrefObservers: ViewModifier {
                 engine.pushEverythingToCloud()
             }
             // Settings ▸ Developer: category-by-category store census → unified log.
+            .onReceive(NotificationCenter.default.publisher(for: .openAttachmentBrowser)) { _ in
+                AttachmentBrowser.show(engine: engine)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .logStoreCensus)) { _ in
                 engine.logStoreCensus(reason: "developer-button")
             }

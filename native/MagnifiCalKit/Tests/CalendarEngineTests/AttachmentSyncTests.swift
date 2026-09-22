@@ -62,6 +62,34 @@ final class AttachmentSyncTests: XCTestCase {
                        "still referenced by the other note → record stays")
     }
 
+    func testInventoryJoinsRefsOrphansAndGhosts() throws {
+        let e = CalendarEngine()
+        // A blob referenced twice (event note + daily note), an orphan blob, a ghost token.
+        let used = try e.attachments.importData(Data("used".utf8), suggestedName: "used.txt")
+        _ = try e.attachments.importData(Data("orphan".utf8), suggestedName: "orphan.txt")
+        let evId = e.createTimedEvent(year: e.year, month: 6, day: 2, startHour: 9, endHour: 10,
+                                      title: "Standup", color: "blue")
+        e.setNotes(evId, "prep:\n\(used.markdown)")
+        e.setDailyNote("2026-06-02", used.markdown)
+        e.setDailyNote("2026-06-03", "![@pdf:ghost.pdf](ccfile:00ff00ff00ff00ff)")
+        let rows = e.attachmentInventory()
+
+        let usedRow = try XCTUnwrap(rows.first { $0.name == "used.txt" })
+        XCTAssertEqual(usedRow.refs.count, 2)
+        XCTAssertTrue(usedRow.refs.contains { $0.label == "Event “Standup”" }, "\(usedRow.refs)")
+        XCTAssertTrue(usedRow.refs.contains { $0.label == "Daily note 2026-06-02" })
+        XCTAssertNotNil(usedRow.meta)
+
+        let orphanRow = try XCTUnwrap(rows.first { $0.name == "orphan.txt" })
+        XCTAssertTrue(orphanRow.refs.isEmpty, "unreferenced blob surfaces as an orphan")
+
+        let ghostRow = try XCTUnwrap(rows.first { $0.name == "ghost.pdf" })
+        XCTAssertNil(ghostRow.meta, "referenced but blob absent → the waiting/ghost row")
+        XCTAssertEqual(ghostRow.refs.first?.label, "Daily note 2026-06-03")
+
+        XCTAssertEqual(rows.first?.name, "used.txt", "most-referenced sorts first")
+    }
+
     func testAdoptRemoteVerifiesTheHash() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("adopt-\(UUID().uuidString)")

@@ -230,6 +230,12 @@ public struct AttachmentMeta: Codable, Sendable, Equatable {
         return fullHash(forId: id)
     }
 
+    /// The whole index (hash → meta) — the inventory browser's join source.
+    public func allEntries() -> [String: AttachmentMeta] {
+        ensureLoaded()
+        return index
+    }
+
     private func writeBlob(_ data: Data, hash: String, name: String, uti: String) throws {
         let dest = blobURL(hash: hash, name: name)
         try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(),

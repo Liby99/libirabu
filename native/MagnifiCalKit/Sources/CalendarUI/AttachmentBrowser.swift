@@ -1,0 +1,184 @@
+// Settings ▸ Developer ▸ "Browse Attachments…" — the file browser over the attachment store:
+// every imported blob with its type/size/date, EVERYTHING that references it (the reverse
+// index, computed live from the notes — see AttachmentInventory.swift for why it is derived,
+// never stored), orphans (no references) and ghosts (referenced, blob still syncing) both
+// flagged. Reveal-in-Finder and Quick Look per row. One shared window, both shells.
+
+import AppKit
+import CalendarEngine
+import CalendarRender
+import QuickLookUI
+import SwiftUI
+
+public extension Notification.Name {
+    /// Settings ▸ Developer posts; CalendarView (which owns the engine) opens the window.
+    static let openAttachmentBrowser = Notification.Name("cc.attachments.browse")
+}
+
+/// The shared browser window (the Help/Changelog window pattern, engine-parameterized).
+@MainActor public enum AttachmentBrowser {
+    private static var window: NSWindow?
+
+    public static func show(engine: CalendarEngine) {
+        if window == nil {
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 680, height: 560),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            w.title = "Attachments"
+            w.isReleasedWhenClosed = false
+            w.center()
+            window = w
+        }
+        // Fresh content on every open — the inventory is a live scan, not a cache.
+        window?.contentView = NSHostingView(rootView: AttachmentBrowserView(engine: engine))
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+struct AttachmentBrowserView: View {
+    let engine: CalendarEngine
+    @Environment(\.colorScheme) private var scheme
+    @State private var rows: [AttachmentInventoryRow] = []
+    @State private var expanded: Set<String> = []
+
+    var body: some View {
+        let theme = Theme(dark: scheme == .dark)
+        VStack(alignment: .leading, spacing: 0) {
+            header(theme)
+            Divider()
+            if rows.isEmpty {
+                Text("No attachments yet — paste or drag files into any note.")
+                    .font(.system(size: 12)).foregroundStyle(theme.textMuted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(rows) { row in
+                            rowView(row, theme)
+                        }
+                    }
+                    .padding(10)
+                }
+            }
+        }
+        .background(theme.bg)
+        .frame(minWidth: 560, minHeight: 380)
+        .onAppear { rows = engine.attachmentInventory() }
+    }
+
+    private func header(_ theme: Theme) -> some View {
+        let bytes = rows.compactMap(\.meta?.bytes).reduce(0, +)
+        let orphans = rows.filter { $0.refs.isEmpty }.count
+        let waiting = rows.filter { $0.meta == nil }.count
+        var parts = ["\(rows.count) file\(rows.count == 1 ? "" : "s")",
+                     AttachmentCards.fmtBytes(bytes)]
+        if orphans > 0 {
+            parts.append("\(orphans) unreferenced")
+        }
+        if waiting > 0 {
+            parts.append("\(waiting) waiting for iCloud")
+        }
+        return HStack {
+            Text(parts.joined(separator: " · "))
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(theme.text)
+            Spacer()
+            Button("Refresh") { rows = engine.attachmentInventory() }
+                .font(.system(size: 11))
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+
+    @ViewBuilder private func rowView(_ row: AttachmentInventoryRow, _ theme: Theme) -> some View {
+        let open = expanded.contains(row.id)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(theme.textMuted)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+                    .opacity(row.refs.isEmpty ? 0 : 1)
+                icon(row)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.name)
+                        .font(.system(size: 12, weight: .medium)).foregroundStyle(theme.text)
+                        .lineLimit(1)
+                    Text(detail(row))
+                        .font(.system(size: 10.5)).foregroundStyle(theme.textMuted)
+                }
+                Spacer(minLength: 8)
+                refBadge(row, theme)
+                if let url = engine.attachments.url(forId: row.id) {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting(
+                            [engine.attachments.displayURL(forId: row.id) ?? url])
+                    } label: { Image(systemName: "magnifyingglass") }
+                        .buttonStyle(.plain).foregroundStyle(theme.textMuted)
+                        .help("Reveal in Finder")
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !row.refs.isEmpty else { return }
+                if open {
+                    expanded.remove(row.id)
+                } else {
+                    expanded.insert(row.id)
+                }
+            }
+            if open {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(row.refs) { ref in
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.turn.down.right")
+                                .font(.system(size: 8)).foregroundStyle(theme.textMuted)
+                            Text(ref.label)
+                                .font(.system(size: 11)).foregroundStyle(theme.text.opacity(0.85))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .padding(.leading, 46).padding(.bottom, 3)
+            }
+        }
+        .padding(.vertical, 4).padding(.horizontal, 6)
+        .background(RoundedRectangle(cornerRadius: 6)
+            .fill(theme.text.opacity(row.refs.isEmpty ? 0.035 : 0)))
+        .animation(.easeOut(duration: 0.12), value: open)
+    }
+
+    private func icon(_ row: AttachmentInventoryRow) -> some View {
+        Group {
+            if row.meta == nil {
+                Image(systemName: "icloud.and.arrow.down")
+                    .font(.system(size: 15)).foregroundStyle(Color.secondary)
+            } else if let url = engine.attachments.url(forId: row.id) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                    .resizable().frame(width: 22, height: 22)
+            } else {
+                Image(systemName: "doc").font(.system(size: 15))
+            }
+        }
+        .frame(width: 24)
+    }
+
+    private func detail(_ row: AttachmentInventoryRow) -> String {
+        guard let meta = row.meta else {
+            return "waiting for iCloud · \(String(row.id.prefix(16)))"
+        }
+        return "\(AttachmentCards.fmtBytes(meta.bytes)) · added \(meta.addedAt) · \(String(row.id.prefix(16)))"
+    }
+
+    private func refBadge(_ row: AttachmentInventoryRow, _ theme: Theme) -> some View {
+        Text(row.refs.isEmpty ? "unreferenced"
+            : "\(row.refs.count) ref\(row.refs.count == 1 ? "" : "s")")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(row.refs.isEmpty ? Color.orange : Color(Theme.accent))
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(Capsule().fill(
+                (row.refs.isEmpty ? Color.orange : Color(Theme.accent)).opacity(0.13)))
+    }
+}
