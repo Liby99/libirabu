@@ -50,3 +50,8 @@ next-env.d.ts
 
 # desktop app build output
 /dist
+
+# Xcode per-user state (a tracked xcuserstate under the pre-rename CalendarApp.xcodeproj
+# left a ghost project that broke Xcode Cloud — never track these)
+xcuserdata/
+*.xcuserstate
