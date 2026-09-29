@@ -307,16 +307,41 @@ extension CalendarEngine {
         schedulePersist()
     }
 
-    /// Write the whole calendar to a `.mdc` backup (a zip mirroring the web export). Throws on I/O error.
+    /// Write the whole calendar to a `.mdc` backup (a zip mirroring the web export), including
+    /// every attachment THIS calendar's notes reference (other calendars keep their own blobs;
+    /// a still-syncing blob exports its token only and heals from the cloud after restore).
     public func exportMDC(to url: URL) throws {
-        let files = try MDCBackup.encode(exportState(), exportedAt: Date())
+        let state = exportState()
+        var entries: [MDCBackup.FileEntry] = []
+        var packed: Set<String> = []
+        for id in Self.attachmentIds(in: state) {
+            guard let hash = attachments.resolveHash(forId: id), !packed.contains(hash),
+                  let meta = attachments.meta(forId: hash),
+                  let blob = attachments.url(forId: hash),
+                  let data = try? Data(contentsOf: blob) else { continue }
+            packed.insert(hash)
+            entries.append(MDCBackup.FileEntry(hash: hash, name: meta.name, uti: meta.uti,
+                                               data: data))
+        }
+        let files = try MDCBackup.encode(state, exportedAt: Date(), attachments: entries)
         try Zipper.write(files, to: url)
     }
 
-    /// Restore a `.mdc` (or the web's `.zip`) backup — replaces the entire local dataset (undoable).
+    /// Restore a `.mdc` (or the web's `.zip`) backup — replaces the entire local dataset
+    /// (undoable). Attachment payloads land in the CAS hash-verified (a tampered entry is
+    /// dropped; its token then shows the waiting card, recoverable from the cloud).
     public func importMDC(from url: URL) throws {
-        let state = try MDCBackup.decode(Zipper.read(url))
+        let files = try Zipper.read(url)
+        let state = try MDCBackup.decode(files)
         replaceAll(state)
+        var adopted = 0
+        for f in MDCBackup.decodeAttachments(files)
+            where attachments.adoptData(f.data, declaredHash: f.hash, name: f.name, uti: f.uti) {
+            adopted += 1
+        }
+        if adopted > 0 {
+            attachmentsDidArrive() // any waiting card repaints into content
+        }
     }
 
     /// Import an `.ics` file's events as editable items. Returns how many were added.

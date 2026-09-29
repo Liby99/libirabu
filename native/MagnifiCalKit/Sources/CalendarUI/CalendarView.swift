@@ -1379,6 +1379,9 @@ private struct ViewPrefObservers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .openAttachmentBrowser)) { _ in
                 AttachmentBrowser.show(engine: engine, navigate: navigateRef)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .sweepAttachments)) { _ in
+                runAttachmentSweepNow(engine)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .logStoreCensus)) { _ in
                 engine.logStoreCensus(reason: "developer-button")
             }

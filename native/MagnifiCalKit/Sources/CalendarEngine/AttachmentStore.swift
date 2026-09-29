@@ -200,13 +200,23 @@ public struct AttachmentMeta: Codable, Sendable, Equatable {
     /// then land it in the CAS under the record's declared name/uti. True = the blob is
     /// available locally after the call (freshly adopted OR already present).
     public func adoptRemote(fileURL: URL, declaredHash: String, name: String, uti: String) -> Bool {
+        guard let data = try? Data(contentsOf: fileURL) else {
+            storeLog.error("attachment adopt FAILED (unreadable): \(name, privacy: .public)")
+            return false
+        }
+        return adoptData(data, declaredHash: declaredHash, name: name, uti: uti)
+    }
+
+    /// Adopt raw bytes under a declared hash (the `.mgc` backup import path shares the sync
+    /// path's verify-then-land contract): a payload that doesn't hash to its declaration is
+    /// dropped and logged, never stored.
+    public func adoptData(_ data: Data, declaredHash: String, name: String, uti: String) -> Bool {
         ensureLoaded()
         if index[declaredHash] != nil {
             return true // dedup: some other note/calendar already brought it in
         }
-        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty,
-              data.count <= Self.maxBytes else {
-            storeLog.error("attachment adopt FAILED (unreadable/oversize): \(name, privacy: .public)")
+        guard !data.isEmpty, data.count <= Self.maxBytes else {
+            storeLog.error("attachment adopt FAILED (empty/oversize): \(name, privacy: .public)")
             return false
         }
         let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -234,6 +244,28 @@ public struct AttachmentMeta: Codable, Sendable, Equatable {
     public func allEntries() -> [String: AttachmentMeta] {
         ensureLoaded()
         return index
+    }
+
+    /// Refresh the grace-period clock on a batch of sighted-as-referenced blobs (one index
+    /// write). `at` is injectable so tests can BACKDATE a row into sweep range.
+    public func touch(hashes: Set<String>, at date: Date = Date()) {
+        ensureLoaded()
+        let stamp = Self.stamp(date)
+        var changed = false
+        for h in hashes where index[h] != nil && index[h]?.lastReferencedAt != stamp {
+            index[h]!.lastReferencedAt = stamp
+            changed = true
+        }
+        if changed {
+            saveIndex()
+        }
+    }
+
+    /// Test hook (internal): wreck a row's stamp so the sweep's parse-failure fail-safe
+    /// ("unparseable = young, never delete") can be exercised.
+    func corruptStampForTesting(hash: String) {
+        ensureLoaded()
+        index[hash]?.lastReferencedAt = "not-a-stamp"
     }
 
     /// Delete a blob outright — the browser's "remove unreferenced" action. Removes the blob,
@@ -439,9 +471,27 @@ public struct AttachmentMeta: Codable, Sendable, Equatable {
     }
 
     private static func nowStamp() -> String {
-        let c = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: Date())
+        stamp(Date())
+    }
+
+    /// The index's timestamp form: "YYYY-MM-DDTHH:MM", local wall clock.
+    static func stamp(_ date: Date) -> String {
+        let c = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
         return String(format: "%04d-%02d-%02dT%02d:%02d",
                       c.year ?? 0, c.month ?? 1, c.day ?? 1, c.hour ?? 0, c.minute ?? 0)
+    }
+
+    /// Parse an index stamp back to a Date (the sweep's grace-age check). nil on anything
+    /// malformed — callers treat unparseable as "young" so a bad stamp can never cause a delete.
+    static func date(fromStamp s: String) -> Date? {
+        let halves = s.split(separator: "T")
+        guard halves.count == 2 else { return nil }
+        let d = halves[0].split(separator: "-").compactMap { Int($0) }
+        let t = halves[1].split(separator: ":").compactMap { Int($0) }
+        guard d.count == 3, t.count >= 2 else { return nil }
+        var c = DateComponents()
+        c.year = d[0]; c.month = d[1]; c.day = d[2]; c.hour = t[0]; c.minute = t[1]
+        return Calendar.current.date(from: c)
     }
 
     /// TIFF → PNG via ImageIO (cross-platform; no AppKit in the engine).

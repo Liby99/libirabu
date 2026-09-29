@@ -920,6 +920,14 @@ private struct DeveloperTab: View {
                     "(computed live from the notes), plus unreferenced blobs awaiting the sweep.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Button("Sweep Attachments Now") {
+                    NotificationCenter.default.post(name: .sweepAttachments, object: nil)
+                }
+                Text("Runs the daily reclamation pass immediately: unreferenced files past the " +
+                    "7-day grace period are deleted; anything referenced (or recently orphaned) " +
+                    "is kept. The same pass runs automatically once a day.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Button("Log Store Census") {
                     NotificationCenter.default.post(name: .logStoreCensus, object: nil)
                 }

@@ -13,6 +13,24 @@ import SwiftUI
 public extension Notification.Name {
     /// Settings ▸ Developer posts; CalendarView (which owns the engine) opens the window.
     static let openAttachmentBrowser = Notification.Name("cc.attachments.browse")
+    /// Settings ▸ Developer "Sweep Attachments Now" — the daily pass, run on demand.
+    static let sweepAttachments = Notification.Name("cc.attachments.sweep")
+}
+
+/// Run the sweep and show the result — the Developer button's handler (CalendarView receives).
+@MainActor public func runAttachmentSweepNow(_ engine: CalendarEngine) {
+    let r = engine.sweepAttachments()
+    let a = NSAlert()
+    a.messageText = "Attachment sweep complete"
+    a.informativeText = r.swept == 0
+        ? "Nothing to reclaim. \(r.referenced) referenced file\(r.referenced == 1 ? "" : "s"), "
+        + "\(r.inGrace) unreferenced within the 7-day grace period."
+        : "Deleted \(r.swept) file\(r.swept == 1 ? "" : "s") "
+        + "(\(AttachmentCards.fmtBytes(r.sweptBytes))). \(r.referenced) referenced kept, "
+        + "\(r.inGrace) unreferenced still in the 7-day grace period."
+    a.alertStyle = .informational
+    a.addButton(withTitle: "OK")
+    a.runModal()
 }
 
 /// The shared browser window (the Help/Changelog window pattern, engine-parameterized).

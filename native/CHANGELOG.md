@@ -26,6 +26,12 @@ each release.
   .txt/.json/.md/.js/.c as syntax-highlighted snippets; other types show a metadata card;
   consecutive attachments flow into a responsive ≤3-column grid. Same file attached twice
   stores once.
+- Attachment lifecycle (P3): backups now carry attachments — exporting a `.mgc` packs every
+  file the calendar's notes reference (web-compatible `attachment` table + `files/` entries),
+  and importing restores them hash-verified; older backups import exactly as before. Unused
+  files clean themselves up: once a day, files no note has referenced for over 7 days are
+  reclaimed automatically (the grace period keeps undo and in-flight sync safe), with a
+  "Sweep Attachments Now" button under Settings ▸ Developer.
 - Attachment Browser (File ▸ Attachment Browser, or Settings ▸ Developer): a file browser
   over the attachment store — every imported file with type/size/date, everything that
   references it (the reverse index, computed live from the notes across all calendars),
