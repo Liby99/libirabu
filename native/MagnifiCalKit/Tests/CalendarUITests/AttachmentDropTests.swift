@@ -182,6 +182,44 @@ final class AttachmentDropTests: XCTestCase {
         XCTAssertEqual(delivered?.count, 1, "the participant's own perform ran")
     }
 
+    func testDrawerTiersOutrankPanelsAndCoveredPanelsAreSkipped() throws {
+        // The field complaint: drawer open, mouse ON the drawer — the drop went to the
+        // weekly note behind it. Tiers say drawer targets always outrank panel targets,
+        // and a modally-covered (inert) view is no candidate at all.
+        let container = hosted(NSView())
+        container.frame = NSRect(x: 0, y: 0, width: 400, height: 500)
+
+        let panelPreview = PreviewTextView(frame: container.bounds) // tier 5 (panel)
+        panelPreview.attachmentStore = { [store] in store }
+        var appended: String?
+        panelPreview.onAppendMarkdown = { appended = $0 }
+        container.addSubview(panelPreview)
+
+        let drawerMargin = NativeNoteEditor.MarginDropScrollView(frame: container.bounds)
+        drawerMargin.installMarginDrop()
+        drawerMargin.inDrawerContext = true // tier 1 (drawer)
+        drawerMargin.store = { [store] in store }
+        var drawerTokens: [AttachmentToken]?
+        drawerMargin.onDropTokens = { drawerTokens = $0 }
+        container.addSubview(drawerMargin)
+
+        let router = try XCTUnwrap(
+            container.subviews.compactMap { $0 as? AttachmentDropRouter }.first)
+        let drag = DragStub(urls: [fileURL])
+        XCTAssertEqual(router.draggingEntered(drag), .copy)
+        XCTAssertTrue(router.performDragOperation(drag))
+        XCTAssertEqual(drawerTokens?.count, 1, "the drawer target wins over the panel")
+        XCTAssertNil(appended, "the panel behind never hears the drop")
+
+        // Reverse situation: the drawer target is modally covered (inert) → the panel,
+        // being the only interactive candidate, gets the route.
+        drawerMargin.inert = true
+        let drag2 = DragStub(urls: [fileURL])
+        XCTAssertEqual(router.draggingEntered(drag2), .copy)
+        XCTAssertTrue(router.performDragOperation(drag2))
+        XCTAssertNotNil(appended, "with the drawer inert, the panel is the target")
+    }
+
     func testRouterICSFallbackWhenNoParticipantIsUnder() throws {
         let plain = hosted(NSView()) // a window with no drop participants at all
         plain.frame = NSRect(x: 0, y: 0, width: 400, height: 500)

@@ -33,6 +33,9 @@ struct MarkdownPreview: NSViewRepresentable {
     /// visible (blurred background) but goes hit-test-inert — hover, clicks, drops, and the
     /// mouse itself pass over it (the drawer's resize handle was unreachable through it).
     var hitTestable = true
+    /// True for the event drawer's preview: its drop target outranks the dashboard panels'
+    /// (DropTarget tiers — a drop on the open drawer must never land in the note behind it).
+    var inDrawer = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -140,6 +143,7 @@ struct MarkdownPreview: NSViewRepresentable {
             tv.cardTheme = parent.theme
             tv.onReplaceLine = parent.onReplaceLine
             tv.onRemoveLine = parent.onRemoveLine
+            tv.inDrawerContext = parent.inDrawer
             tv.attachmentStore = { [weak self] in self?.parent.attachments }
             tv.onAppendMarkdown = parent.onAppend.map { append in
                 { [weak self] md in
@@ -315,7 +319,9 @@ struct MarkdownPreview: NSViewRepresentable {
 /// renderer hands over decoration ranges; each is unioned from its line fragments, outset by
 /// the block padding, and painted under the text — code with all corners rounded, quotes with
 /// the RIGHT corners rounded plus the accent bar down the square left edge.
-final class PreviewTextView: NSTextView {
+final class PreviewTextView: NSTextView, DropTarget {
+    var inDrawerContext = false
+    var dropTier: Int { inDrawerContext ? 2 : 5 } // see DropTarget
     var lineMap: [(range: NSRange, line: Int)] = []
     var onCmdClickLine: ((Int) -> Void)?
     var decor: [(range: NSRange, kind: MarkdownDoc.DecorKind)] = []

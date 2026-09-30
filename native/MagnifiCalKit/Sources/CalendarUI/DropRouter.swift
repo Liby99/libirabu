@@ -22,40 +22,57 @@ import AppKit
 import CalendarEngine
 import UniformTypeIdentifiers
 
+/// A drop participant: its `dropTier` is the EXPLICIT precedence (lower wins) —
+///   0 editor text in the event drawer      3 editor text in a dated-notes panel
+///   1 editor margin in the event drawer    4 editor margin in a dated-notes panel
+///   2 preview pane in the event drawer     5 preview pane in a dated-notes panel
+/// The drawer tiers outrank every panel tier, so a drop on the open drawer can never land
+/// in the blurred weekly note behind it. Within a context, editor-vs-margin is spatial
+/// anyway (the text view's frame vs the blank area below it), and editor/preview never
+/// show together — the tier order is the user-specified tie-break, not a hit-test trick.
+@MainActor protocol DropTarget: NSView {
+    var dropTier: Int { get }
+}
+
 /// The participant registry: every attachment drop view announces itself when it lands in a
-/// window; the router routes among the live, visible ones by depth (deepest wins — the text
-/// view inside its margin scroll, both inside the drawer's card zone).
+/// window; the router routes among the INTERACTIVE ones — the modal-cover gating (inert
+/// scroll views, suspended text views: the blurred panels behind an open drawer) excludes a
+/// view here exactly like it does for ordinary mouse events.
 @MainActor enum DropTargets {
     private struct Entry {
-        weak var view: NSView?
+        weak var view: (NSView & DropTarget)?
     }
 
     private static var entries: [Entry] = []
 
-    static func register(_ v: NSView) {
+    static func register(_ v: NSView & DropTarget) {
         entries.removeAll { $0.view == nil }
         guard !entries.contains(where: { $0.view === v }) else { return }
         entries.append(Entry(view: v))
     }
 
-    /// Visible participants in `window` whose window-frame contains `p`, deepest first.
-    static func candidates(in window: NSWindow, at p: NSPoint) -> [NSView] {
+    /// Interactive participants in `window` whose window-frame contains `p`, best tier first.
+    static func candidates(in window: NSWindow, at p: NSPoint) -> [NSView & DropTarget] {
         entries.compactMap(\.view)
             .filter { v in
-                v.window === window && v.attachDropVisible
+                v.window === window && v.attachDropVisible && !isModallyCovered(v)
                     && v.convert(v.bounds, to: nil).contains(p)
             }
-            .sorted { depth($0) > depth($1) }
+            .sorted { $0.dropTier < $1.dropTier }
     }
 
-    private static func depth(_ v: NSView) -> Int {
-        var d = 0
-        var cur = v.superview
-        while cur != nil {
-            d += 1
-            cur = cur?.superview
+    /// The drawer-over-dashboard gating, honored for drags exactly as for clicks.
+    private static func isModallyCovered(_ v: NSView) -> Bool {
+        if let s = v as? InertableScrollView, s.inert {
+            return true
         }
-        return d
+        if let t = v as? NativeNoteEditor.EditorTextView, t.suspended {
+            return true
+        }
+        if let pv = v as? PreviewTextView, pv.suspended {
+            return true
+        }
+        return false
     }
 }
 
@@ -115,7 +132,7 @@ import UniformTypeIdentifiers
         if accepted !== current {
             current?.draggingExited(sender)
             attachLog.notice("""
-            drop route: \(accepted.map { String(describing: type(of: $0)) } ?? "none") \
+            drop route: \(accepted.map { "\(String(describing: type(of: $0))) tier \(($0 as? any DropTarget)?.dropTier ?? -1)" } ?? "none") \
             at \(Int(p.x)),\(Int(p.y))\(self.current != nil ? " (was \(String(describing: type(of: self.current!))))" : "")
             """)
             current = accepted

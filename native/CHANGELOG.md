@@ -89,7 +89,7 @@ each release.
   inside its frame — and the invisible window-wide .ics target could win that pick and hold
   the whole session hostage, so note drops worked or silently died depending on view level
   and entry point. All file drags now land in one window-wide router that re-routes every
-  mouse move to the right target (note editor > preview > margin > .ics import), with the routing narrated to the log for future field debugging.
+  mouse move to the right target (the open drawer's note editor/margin/preview first, then the dated-note panels', then .ics import; panels covered by an open drawer are never targets), with the routing narrated to the log for future field debugging.
 - Office/spreadsheet cards no longer stick on "rendering preview…": the finished page
   raster landed on disk but the preview's rebuild key never changed, so the placeholder
   card was never recomposed — thumbnail arrival now bumps the same repaint key a syncing

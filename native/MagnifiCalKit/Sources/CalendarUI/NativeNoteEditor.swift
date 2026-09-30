@@ -70,12 +70,14 @@ struct NativeNoteEditor: NSViewRepresentable {
     /// NSTextView subclass owning the editor-local key equivalents. performKeyEquivalent (not
     /// the app key monitor): the monitor deliberately steps aside for text first responders,
     /// and ⌘S must work exactly and only while this editor is focused.
-    final class EditorTextView: NSTextView {
+    final class EditorTextView: NSTextView, DropTarget {
         var onSaveKey: (() -> Void)?
         var onEscKey: (() -> Void)?
         var placeholderText = ""
         var themeText: NSColor = .labelColor
         var attachmentStore: (() -> AttachmentStore?)?
+        var inDrawerContext = false // set from the storageKey ("drawer|…") in updateNSView
+        var dropTier: Int { inDrawerContext ? 0 : 3 } // see DropTarget
 
         /// Covered by the drawer (see MarkdownPreview.suspended): cursor rects and
         /// mouseMoved assert the I-beam regardless of hitTest — gate them so the drawer's
@@ -485,9 +487,11 @@ struct NativeNoteEditor: NSViewRepresentable {
     /// overlay and drop-append at the END of the note; drags over the text itself stay with
     /// the text view's caret-positioned drop (no overlay), because AppKit routes a drag to
     /// the deepest registered view — this scroll view only ever hears the margin.
-    final class MarginDropScrollView: InertableScrollView {
+    final class MarginDropScrollView: InertableScrollView, DropTarget {
         var store: (() -> AttachmentStore?)?
         var onDropTokens: (([AttachmentToken]) -> Void)?
+        var inDrawerContext = false
+        var dropTier: Int { inDrawerContext ? 1 : 4 } // see DropTarget
         private let overlay = OverlayView()
 
         /// Draw-only overlay above the clip view (never a hit-test target).
@@ -630,6 +634,10 @@ struct NativeNoteEditor: NSViewRepresentable {
         scroll.isHidden = !active // parked tab: dormant cursor rects (see `active`)
         (scroll as? InertableScrollView)?.inert = !hitTestable // drawer-covered: mouse passes over
         (scroll.documentView as? EditorTextView)?.suspended = !hitTestable // …and no I-beam fights
+        // Drop-routing context: the drawer's editor outranks the dashboard panels' (tiers).
+        let drawerCtx = storageKey.hasPrefix("drawer|")
+        (scroll as? MarginDropScrollView)?.inDrawerContext = drawerCtx
+        (scroll.documentView as? EditorTextView)?.inDrawerContext = drawerCtx
         let co = context.coordinator
         session?.end = { [weak co] in co?.stampCreatedIfDirty() } // keep the handle fresh
         // Re-key = the previous note's editing session ENDS: stamp it through the OLD parent's

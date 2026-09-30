@@ -703,7 +703,8 @@ struct EventDrawer: View {
                                         guard lines.indices.contains(line - 1) else { return }
                                         lines.remove(at: line - 1)
                                         activeNote.wrappedValue = lines.joined(separator: "\n")
-                                    })
+                                    },
+                                    inDrawer: true)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 120, maxHeight: .infinity)
