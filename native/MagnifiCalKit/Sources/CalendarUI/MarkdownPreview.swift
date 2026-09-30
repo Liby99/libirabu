@@ -746,7 +746,7 @@ final class PreviewTextView: NSTextView {
     /// registration every time AppKit re-evaluates it, or the drop target silently dies.
     override func updateDragTypeRegistration() {
         super.updateDragTypeRegistration()
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(AttachmentDropIntake.draggedTypes)
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -754,9 +754,9 @@ final class PreviewTextView: NSTextView {
             attachLog.log("preview entered REFUSED: invisible (parked panel)")
             return []
         }
-        let urls = fileURLsOnPasteboard(sender.draggingPasteboard)
-        attachLog.log("preview entered: append=\(self.onAppendMarkdown != nil) store=\(self.attachmentStore?() != nil) urls=\(urls?.count ?? 0)")
-        if onAppendMarkdown != nil, attachmentStore?() != nil, urls != nil {
+        let ok = AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard)
+        attachLog.log("preview entered: append=\(self.onAppendMarkdown != nil) store=\(self.attachmentStore?() != nil) importable=\(ok)")
+        if onAppendMarkdown != nil, attachmentStore?() != nil, ok {
             dropTargetActive = true
             return .copy
         }
@@ -793,19 +793,12 @@ final class PreviewTextView: NSTextView {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         dropTargetActive = false
         if let append = onAppendMarkdown, let store = attachmentStore?(),
-           let urls = fileURLsOnPasteboard(sender.draggingPasteboard) {
-            var tokens: [AttachmentToken] = []
-            for url in urls {
-                do { tokens.append(try store.importFile(url)) } catch {
-                    attachLog.error("preview import FAILED \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                }
-            }
-            attachLog.log("preview perform: urls=\(urls.count) imported=\(tokens.count)")
-            guard !tokens.isEmpty else { NSSound.beep(); return true }
-            append(tokens.map(\.markdown).joined(separator: "\n"))
+           AttachmentDropIntake.receive(sender.draggingPasteboard, store: store, deliver: {
+               append($0.map(\.markdown).joined(separator: "\n"))
+           }) {
             return true
         }
-        attachLog.log("preview perform FELL THROUGH to super (closures or urls missing)")
+        attachLog.log("preview perform FELL THROUGH to super (closures or files missing)")
         return super.performDragOperation(sender)
     }
 
@@ -813,12 +806,6 @@ final class PreviewTextView: NSTextView {
     func drawDropTarget() {
         guard dropTargetActive else { return }
         AttachmentDropOverlay.draw(in: visibleRect)
-    }
-
-    private func fileURLsOnPasteboard(_ pb: NSPasteboard) -> [URL]? {
-        let urls = (pb.readObjects(forClasses: [NSURL.self],
-                                   options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
-        return urls.isEmpty ? nil : urls
     }
 
     // ── QLPreviewPanel: the responder-chain contract (byte-for-byte the Finder loop) ──

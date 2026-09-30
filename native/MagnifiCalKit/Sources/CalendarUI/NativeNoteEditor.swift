@@ -108,7 +108,9 @@ struct NativeNoteEditor: NSViewRepresentable {
         /// die. Pin .fileURL through every re-evaluation (the preview does the same).
         override func updateDragTypeRegistration() {
             super.updateDragTypeRegistration()
-            registerForDraggedTypes(registeredDraggedTypes + [.fileURL])
+            // .fileURL AND the file-promise types: Mail/Outlook/browser drags carry
+            // promises, not URLs (the .xlsx-from-an-email case).
+            registerForDraggedTypes(registeredDraggedTypes + AttachmentDropIntake.draggedTypes)
         }
         /// ⌘V with files or image/PDF DATA on the pasteboard → import into the blob store and
         /// insert tokens at the caret; anything else falls through to the plain-text paste.
@@ -124,9 +126,9 @@ struct NativeNoteEditor: NSViewRepresentable {
                 attachLog.log("editor entered REFUSED: invisible (parked panel)")
                 return [] // a parked twin must never steal the drop from the visible editor
             }
-            let urls = fileURLs(on: sender.draggingPasteboard)
-            attachLog.log("editor entered: store=\(self.attachmentStore?() != nil) urls=\(urls?.count ?? 0)")
-            if attachmentStore?() != nil, urls != nil {
+            let ok = AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard)
+            attachLog.log("editor entered: store=\(self.attachmentStore?() != nil) importable=\(ok)")
+            if attachmentStore?() != nil, ok {
                 return .copy
             }
             return super.draggingEntered(sender)
@@ -137,26 +139,32 @@ struct NativeNoteEditor: NSViewRepresentable {
         /// downgrade what our draggingEntered accepted (prepare refusing is why drops
         /// "accepted" with a green + landed nothing).
         override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-            if attachmentStore?() != nil, fileURLs(on: sender.draggingPasteboard) != nil {
+            if attachmentStore?() != nil,
+               AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard) {
                 return .copy
             }
             return super.draggingUpdated(sender)
         }
 
         override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-            if attachmentStore?() != nil, fileURLs(on: sender.draggingPasteboard) != nil {
+            if attachmentStore?() != nil,
+               AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard) {
                 return true
             }
             return super.prepareForDragOperation(sender)
         }
 
         override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-            if attachDropVisible, attachmentStore?() != nil,
-               let urls = fileURLs(on: sender.draggingPasteboard) {
-                attachLog.log("editor perform: urls=\(urls.count)")
+            if attachDropVisible, let store = attachmentStore?() {
                 let p = convert(sender.draggingLocation, from: nil)
-                importFiles(urls, at: characterIndexForInsertion(at: p))
-                return true
+                let index = characterIndexForInsertion(at: p)
+                // Promise drops deliver LATER — insertTokens clamps the captured index.
+                if AttachmentDropIntake.receive(sender.draggingPasteboard, store: store,
+                                                deliver: { [weak self] in
+                                                    self?.insertTokens($0, at: index)
+                                                }) {
+                    return true
+                }
             }
             attachLog.log("editor perform FELL THROUGH to super (visible=\(self.attachDropVisible))")
             return super.performDragOperation(sender)
@@ -192,6 +200,11 @@ struct NativeNoteEditor: NSViewRepresentable {
                 }
             }
             return false
+        }
+
+        /// The margin drop's delivery: append after the last line (index clamps inside).
+        func appendTokens(_ tokens: [AttachmentToken]) {
+            insertTokens(tokens, at: (string as NSString).length)
         }
 
         func importFiles(_ urls: [URL], at index: Int) {
@@ -466,7 +479,7 @@ struct NativeNoteEditor: NSViewRepresentable {
     /// the deepest registered view — this scroll view only ever hears the margin.
     final class MarginDropScrollView: InertableScrollView {
         var store: (() -> AttachmentStore?)?
-        var onDropAtEnd: (([URL]) -> Void)?
+        var onDropTokens: (([AttachmentToken]) -> Void)?
         private let overlay = OverlayView()
 
         /// Draw-only overlay above the clip view (never a hit-test target).
@@ -481,17 +494,11 @@ struct NativeNoteEditor: NSViewRepresentable {
         }
 
         func installMarginDrop() {
-            registerForDraggedTypes([.fileURL])
+            registerForDraggedTypes(AttachmentDropIntake.draggedTypes)
             overlay.isHidden = true
             overlay.frame = bounds
             overlay.autoresizingMask = [.width, .height]
             addSubview(overlay, positioned: .above, relativeTo: nil)
-        }
-
-        private func urls(_ pb: NSPasteboard) -> [URL]? {
-            let u = (pb.readObjects(forClasses: [NSURL.self],
-                                    options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
-            return u.isEmpty ? nil : u
         }
 
         // NO super calls in these four: NSDraggingDestination's methods are OPTIONAL and a
@@ -503,9 +510,9 @@ struct NativeNoteEditor: NSViewRepresentable {
                 attachLog.log("margin entered REFUSED: invisible (parked panel)")
                 return []
             }
-            let u = urls(sender.draggingPasteboard)
-            attachLog.log("margin entered: store=\(self.store?() != nil) urls=\(u?.count ?? 0)")
-            guard store?() != nil, u != nil else { return [] }
+            let ok = AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard)
+            attachLog.log("margin entered: store=\(self.store?() != nil) importable=\(ok)")
+            guard store?() != nil, ok else { return [] }
             overlay.isHidden = false
             return .copy
         }
@@ -528,10 +535,9 @@ struct NativeNoteEditor: NSViewRepresentable {
 
         override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
             overlay.isHidden = true
-            guard let dropped = urls(sender.draggingPasteboard) else { return false }
-            attachLog.log("margin perform: urls=\(dropped.count)")
-            onDropAtEnd?(dropped)
-            return true
+            guard let store = store?(), let onDropTokens else { return false }
+            return AttachmentDropIntake.receive(sender.draggingPasteboard, store: store,
+                                                deliver: onDropTokens)
         }
     }
 
@@ -577,9 +583,8 @@ struct NativeNoteEditor: NSViewRepresentable {
 
         let scroll = MarginDropScrollView()
         scroll.store = { [weak co = context.coordinator] in co?.parent.attachments }
-        scroll.onDropAtEnd = { [weak tv] urls in
-            guard let tv else { return }
-            tv.importFiles(urls, at: (tv.string as NSString).length) // append after the last line
+        scroll.onDropTokens = { [weak tv] tokens in
+            tv?.appendTokens(tokens) // append after the last line
         }
         scroll.installMarginDrop()
         scroll.documentView = tv

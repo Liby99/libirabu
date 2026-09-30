@@ -151,12 +151,36 @@ final class AttachmentDropTests: XCTestCase {
         scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 500)
         scroll.installMarginDrop()
         scroll.store = { [store] in store }
-        var dropped: [URL]?
-        scroll.onDropAtEnd = { dropped = $0 }
+        var dropped: [AttachmentToken]?
+        scroll.onDropTokens = { dropped = $0 }
         let drag = DragStub(urls: [fileURL])
         XCTAssertEqual(scroll.draggingEntered(drag), .copy, "margin accepts the file drag")
         XCTAssertTrue(scroll.prepareForDragOperation(drag), "margin prepares (overlay up)")
         XCTAssertTrue(scroll.performDragOperation(drag), "margin claims the drop")
-        XCTAssertEqual(dropped, [fileURL])
+        XCTAssertEqual(dropped?.count, 1, "the margin drop delivers imported tokens now")
+        XCTAssertEqual(dropped?.first?.name, fileURL.lastPathComponent)
+    }
+
+    func testPromiseOnlyDragIsAccepted() throws {
+        // A drag from Mail/Outlook/browsers carries NO file URL — only a file PROMISE. The
+        // targets must still accept it (the .xlsx-from-an-email case; URL-only acceptance
+        // silently refused these). A real NSFilePromiseReceiver can't be fabricated off a
+        // real drag session, so this pins the acceptance gate: a pasteboard declaring the
+        // promise types (with no URL) must read as importable.
+        let pb = NSPasteboard(name: NSPasteboard.Name("cc-test-promise-\(UUID().uuidString)"))
+        defer { pb.releaseGlobally() }
+        pb.declareTypes(NSFilePromiseReceiver.readableDraggedTypes
+            .map { NSPasteboard.PasteboardType($0) }, owner: nil)
+        pb.setString("com.microsoft.excel.xlsx", // the promised UTI, as Mail declares it
+                     forType: NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-content-type"))
+        XCTAssertTrue(AttachmentDropIntake.hasImportableFiles(pb),
+                      "a promise-only pasteboard is importable — the drop must be accepted")
+        XCTAssertNil(AttachmentDropIntake.fileURLs(pb), "…even though it has no URLs at all")
+
+        // And the registration list every target installs includes the promise types.
+        for t in NSFilePromiseReceiver.readableDraggedTypes {
+            XCTAssertTrue(AttachmentDropIntake.draggedTypes
+                .contains(NSPasteboard.PasteboardType(t)), t)
+        }
     }
 }

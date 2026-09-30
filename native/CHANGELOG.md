@@ -77,6 +77,12 @@ each release.
   hover accent glow smudged the day column's edge — now just the flat circle, ring, and plus.
 
 ### Fixed
+- Files dragged out of Mail, Outlook, browsers, or Photos now attach: those drags carry a
+  file PROMISE instead of a file URL (an .xlsx from an email being the classic case), and
+  every note drop target only read URLs — the drop was silently refused. All three targets
+  (editor line, editor margin, preview pane) now accept promises too: the file is received
+  in the background and its token lands at the drop point when ready. Finder drags are
+  unchanged.
 - Deleted events can no longer resurrect via the dev build: Debug and the shipped app shared
   one local store while syncing to different CloudKit ENVIRONMENTS, so the dev environment's
   stale copy re-adopted deleted items into the shared store and the next shipped run re-offered
