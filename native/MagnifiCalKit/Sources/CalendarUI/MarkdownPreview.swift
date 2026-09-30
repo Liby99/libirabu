@@ -744,7 +744,7 @@ final class PreviewTextView: NSTextView {
         add("Show in Attachment Browser", "paperclip", #selector(menuShowInBrowser),
             enabled: true)
         m.addItem(.separator())
-        add("Remove from Note", "text.badge.minus", #selector(menuRemoveFromNote),
+        add("Remove from Note", "trash", #selector(menuRemoveFromNote),
             enabled: onRemoveLine != nil && (att?.line ?? 0) > 0)
         return m
     }
