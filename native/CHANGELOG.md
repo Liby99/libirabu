@@ -84,6 +84,11 @@ each release.
   hover accent glow smudged the day column's edge — now just the flat circle, ring, and plus.
 
 ### Fixed
+- Dropping a file anywhere on the event drawer now attaches it to the open note: drops had
+  to land exactly inside the note area's frame — a few points off (the card's padding, the
+  title area) and the window-wide .ics import target silently swallowed the drag with no
+  cursor badge and no import. The whole drawer card is now a drop zone (with the dashed
+  Add-Attachment affordance); drops on the note itself still insert at the precise line.
 - Office/spreadsheet cards no longer stick on "rendering preview…": the finished page
   raster landed on disk but the preview's rebuild key never changed, so the placeholder
   card was never recomposed — thumbnail arrival now bumps the same repaint key a syncing

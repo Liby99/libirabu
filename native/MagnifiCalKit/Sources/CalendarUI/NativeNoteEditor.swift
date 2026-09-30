@@ -123,11 +123,11 @@ struct NativeNoteEditor: NSViewRepresentable {
 
         override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
             guard attachDropVisible else {
-                attachLog.log("editor entered REFUSED: invisible (parked panel)")
+                attachLog.notice("editor entered REFUSED: invisible (parked panel)")
                 return [] // a parked twin must never steal the drop from the visible editor
             }
             let ok = AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard)
-            attachLog.log("editor entered: store=\(self.attachmentStore?() != nil) importable=\(ok)")
+            attachLog.notice("editor entered: store=\(self.attachmentStore?() != nil) importable=\(ok)")
             if attachmentStore?() != nil, ok {
                 return .copy
             }
@@ -166,7 +166,7 @@ struct NativeNoteEditor: NSViewRepresentable {
                     return true
                 }
             }
-            attachLog.log("editor perform FELL THROUGH to super (visible=\(self.attachDropVisible))")
+            attachLog.notice("editor perform FELL THROUGH to super (visible=\(self.attachDropVisible))")
             return super.performDragOperation(sender)
         }
 
@@ -215,7 +215,7 @@ struct NativeNoteEditor: NSViewRepresentable {
                     attachLog.error("editor import FAILED \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
             }
-            attachLog.log("editor import: urls=\(urls.count) imported=\(tokens.count) at=\(index)")
+            attachLog.notice("editor import: urls=\(urls.count) imported=\(tokens.count) at=\(index)")
             if tokens.isEmpty {
                 NSSound.beep() // unreadable / over the size cap
                 return
@@ -501,17 +501,18 @@ struct NativeNoteEditor: NSViewRepresentable {
             addSubview(overlay, positioned: .above, relativeTo: nil)
         }
 
+
         // NO super calls in these four: NSDraggingDestination's methods are OPTIONAL and a
         // plain NSScrollView implements none of them — super.draggingEnded(_:) raised
         // "unrecognized selector" mid-drag-completion and killed the whole drop. (NSTextView
         // DOES implement them, which is why the preview's overrides may call super.)
         override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
             guard attachDropVisible else {
-                attachLog.log("margin entered REFUSED: invisible (parked panel)")
+                attachLog.notice("margin entered REFUSED: invisible (parked panel)")
                 return []
             }
             let ok = AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard)
-            attachLog.log("margin entered: store=\(self.store?() != nil) importable=\(ok)")
+            attachLog.notice("margin entered: store=\(self.store?() != nil) importable=\(ok)")
             guard store?() != nil, ok else { return [] }
             overlay.isHidden = false
             return .copy

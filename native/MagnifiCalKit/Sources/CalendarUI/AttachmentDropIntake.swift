@@ -49,7 +49,7 @@ import UniformTypeIdentifiers
         let receivers = (pb.readObjects(forClasses: [NSFilePromiseReceiver.self])
             as? [NSFilePromiseReceiver]) ?? []
         guard !receivers.isEmpty else { return false }
-        attachLog.log("drop intake: \(receivers.count) file promise(s) — receiving async")
+        attachLog.notice("drop intake: \(receivers.count) file promise(s) — receiving async")
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("cc-promised-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
@@ -86,7 +86,7 @@ import UniformTypeIdentifiers
                 attachLog.error("drop import FAILED \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
-        attachLog.log("drop intake imported: \(tokens.count)/\(urls.count)")
+        attachLog.notice("drop intake imported: \(tokens.count)/\(urls.count)")
         return tokens
     }
 

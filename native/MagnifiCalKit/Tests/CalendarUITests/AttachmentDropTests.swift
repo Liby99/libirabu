@@ -161,6 +161,29 @@ final class AttachmentDropTests: XCTestCase {
         XCTAssertEqual(dropped?.first?.name, fileURL.lastPathComponent)
     }
 
+    func testDrawerZoneCatchesCardWideDrops() {
+        // The year-view field trace: drops a few points outside the note editor resolved to
+        // the WINDOW-WIDE .ics target, which silently refuses non-.ics. The card-wide zone
+        // is the fix — it must accept and deliver, while staying invisible to normal mouse.
+        let zone = hosted(DrawerDropZone.ZoneView())
+        zone.frame = NSRect(x: 0, y: 0, width: 400, height: 500)
+        zone.registerForDraggedTypes(AttachmentDropIntake.draggedTypes)
+        zone.store = { [store] in store }
+        var delivered: [AttachmentToken]?
+        zone.deliver = { delivered = $0 }
+        let drag = DragStub(urls: [fileURL])
+        XCTAssertEqual(zone.draggingEntered(drag), .copy, "the card accepts anywhere")
+        XCTAssertTrue(zone.prepareForDragOperation(drag))
+        XCTAssertTrue(zone.performDragOperation(drag))
+        XCTAssertEqual(delivered?.first?.name, fileURL.lastPathComponent)
+        XCTAssertNil(zone.hitTest(NSPoint(x: 200, y: 250)),
+                     "ordinary clicks pass through the zone")
+
+        zone.isHidden = true
+        XCTAssertEqual(zone.draggingEntered(DragStub(urls: [fileURL])), [],
+                       "a hidden drawer's zone never steals a drop")
+    }
+
     func testPromiseOnlyDragIsAccepted() throws {
         // A drag from Mail/Outlook/browsers carries NO file URL — only a file PROMISE. The
         // targets must still accept it (the .xlsx-from-an-email case; URL-only acceptance

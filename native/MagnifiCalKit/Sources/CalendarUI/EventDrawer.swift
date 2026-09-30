@@ -735,6 +735,9 @@ struct EventDrawer: View {
         .background(cardShape.fill(theme.dark ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(.white)))
         .background(cardShape.fill(theme.bg))
         .overlay { cardShape.strokeBorder(theme.text.opacity(0.12), lineWidth: 1) }
+        // Card-wide attachment drop: anywhere on the drawer (gutters, header) appends to the
+        // OPEN note; the editor/preview, deeper in the tree, keep caret-precise drops.
+        .overlay { DrawerDropZone(engine: engine, deliver: appendDroppedTokens) }
         .overlay(alignment: .topTrailing) {
             Button(action: onClose) { Image(systemName: "xmark").font(.system(size: 12, weight: .bold)) }
                 .buttonStyle(.plain).foregroundStyle(.secondary)
@@ -757,6 +760,13 @@ struct EventDrawer: View {
 
     private func endWhenEdit() {
         whenEditing = nil; whenFocus = nil
+    }
+
+    /// The card-wide drop zone's delivery: append to whichever note scope is open.
+    private func appendDroppedTokens(_ tokens: [AttachmentToken]) {
+        let md = tokens.map(\.markdown).joined(separator: "\n")
+        let cur = activeNote.wrappedValue
+        activeNote.wrappedValue = cur.isEmpty ? md : cur + "\n\n" + md
     }
 
     /// ── Keyboard drive ────────────────────────────────────────────────────────────

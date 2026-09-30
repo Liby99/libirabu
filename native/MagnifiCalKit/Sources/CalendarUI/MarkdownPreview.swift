@@ -831,13 +831,14 @@ final class PreviewTextView: NSTextView {
         registerForDraggedTypes(AttachmentDropIntake.draggedTypes)
     }
 
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard attachDropVisible else {
-            attachLog.log("preview entered REFUSED: invisible (parked panel)")
+            attachLog.notice("preview entered REFUSED: invisible (parked panel)")
             return []
         }
         let ok = AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard)
-        attachLog.log("preview entered: append=\(self.onAppendMarkdown != nil) store=\(self.attachmentStore?() != nil) importable=\(ok)")
+        attachLog.notice("preview entered: append=\(self.onAppendMarkdown != nil) store=\(self.attachmentStore?() != nil) importable=\(ok)")
         if onAppendMarkdown != nil, attachmentStore?() != nil, ok {
             dropTargetActive = true
             return .copy
@@ -880,7 +881,7 @@ final class PreviewTextView: NSTextView {
            }) {
             return true
         }
-        attachLog.log("preview perform FELL THROUGH to super (closures or files missing)")
+        attachLog.notice("preview perform FELL THROUGH to super (closures or files missing)")
         return super.performDragOperation(sender)
     }
 
