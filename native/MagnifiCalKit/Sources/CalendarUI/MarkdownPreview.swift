@@ -727,20 +727,24 @@ final class PreviewTextView: NSTextView {
 
         let m = NSMenu()
         m.autoenablesItems = false
-        func add(_ title: String, _ action: Selector, enabled: Bool) {
+        func add(_ title: String, _ icon: String, _ action: Selector, enabled: Bool) {
             let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
             i.target = self
             i.isEnabled = enabled
+            // Template symbols, like the system's own menus — they dim with disabled items
+            // and adapt to dark mode for free.
+            i.image = NSImage(systemSymbolName: icon, accessibilityDescription: title)
             m.addItem(i)
         }
-        add("Open", #selector(menuOpenCard), enabled: hasBlob)
-        add("Quick Look", #selector(menuQuickLookCard), enabled: hasBlob)
+        add("Open", "arrow.up.forward.app", #selector(menuOpenCard), enabled: hasBlob)
+        add("Quick Look", "eye", #selector(menuQuickLookCard), enabled: hasBlob)
         m.addItem(.separator())
-        add("Copy File", #selector(menuCopyCard), enabled: hasBlob)
-        add("Reveal in Finder", #selector(menuRevealCard), enabled: hasBlob)
-        add("Show in Attachment Browser", #selector(menuShowInBrowser), enabled: true)
+        add("Copy File", "doc.on.doc", #selector(menuCopyCard), enabled: hasBlob)
+        add("Reveal in Finder", "magnifyingglass", #selector(menuRevealCard), enabled: hasBlob)
+        add("Show in Attachment Browser", "paperclip", #selector(menuShowInBrowser),
+            enabled: true)
         m.addItem(.separator())
-        add("Remove from Note", #selector(menuRemoveFromNote),
+        add("Remove from Note", "text.badge.minus", #selector(menuRemoveFromNote),
             enabled: onRemoveLine != nil && (att?.line ?? 0) > 0)
         return m
     }

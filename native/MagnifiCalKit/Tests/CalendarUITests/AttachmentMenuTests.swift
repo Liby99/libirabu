@@ -79,6 +79,8 @@ final class AttachmentMenuTests: XCTestCase {
         XCTAssertEqual(tv.selectedAtt?.id, tok.id, "right-click selects the card (the ring)")
         XCTAssertTrue(menu.items.allSatisfy { $0.isSeparatorItem || $0.isEnabled },
                       "blob is local + host wired → every action available")
+        XCTAssertTrue(menu.items.allSatisfy { $0.isSeparatorItem || $0.image != nil },
+                      "every item carries its icon, like the system menus")
 
         // "Remove from Note" hands the card's 1-based source line to the host.
         let remove = try XCTUnwrap(menu.items.first { $0.title == "Remove from Note" })
