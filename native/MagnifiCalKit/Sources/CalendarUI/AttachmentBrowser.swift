@@ -37,8 +37,13 @@ public extension Notification.Name {
 @MainActor public enum AttachmentBrowser {
     private static var window: NSWindow?
 
+    /// userInfo key on .openAttachmentBrowser: a token id / hash (prefix ok) whose row the
+    /// browser should reveal — expanded, scrolled to, briefly highlighted.
+    public static let focusKey = "focusId"
+
     public static func show(engine: CalendarEngine,
-                            navigate: ((AttachmentRef) -> Void)? = nil) {
+                            navigate: ((AttachmentRef) -> Void)? = nil,
+                            focus: String? = nil) {
         if window == nil {
             let w = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 680, height: 560),
@@ -53,7 +58,7 @@ public extension Notification.Name {
         }
         // Fresh content on every open — the inventory is a live scan, not a cache.
         window?.contentView = NSHostingView(
-            rootView: AttachmentBrowserView(engine: engine, navigate: navigate))
+            rootView: AttachmentBrowserView(engine: engine, navigate: navigate, focus: focus))
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -62,9 +67,11 @@ public extension Notification.Name {
 struct AttachmentBrowserView: View {
     let engine: CalendarEngine
     let navigate: ((AttachmentRef) -> Void)?
+    var focus: String? = nil // a token id/hash prefix: reveal this row on open
     @Environment(\.colorScheme) private var scheme
     @State private var rows: [AttachmentInventoryRow] = []
     @State private var expanded: Set<String> = []
+    @State private var focusedRow: String? // briefly highlighted (the "here it is" flash)
 
     var body: some View {
         let theme = Theme(dark: scheme == .dark)
@@ -76,19 +83,40 @@ struct AttachmentBrowserView: View {
                     .font(.system(size: 12)).foregroundStyle(theme.textMuted)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(rows) { row in
-                            rowView(row, theme)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(rows) { row in
+                                rowView(row, theme).id(row.id)
+                            }
                         }
+                        .padding(10)
                     }
-                    .padding(10)
+                    .onAppear { revealFocusedRow(proxy) }
                 }
             }
         }
         .background(theme.bg)
         .frame(minWidth: 560, minHeight: 380)
         .onAppear { rows = engine.attachmentInventory() }
+    }
+
+    /// "Show in Attachment Browser": expand the focused file's row, scroll it to center,
+    /// and flash a highlight so the eye lands on it. `focus` may be a token PREFIX (the
+    /// preview's id) or a full hash; ghost rows are keyed by the prefix itself.
+    private func revealFocusedRow(_ proxy: ScrollViewProxy) {
+        guard let focus,
+              let row = rows.first(where: { $0.id.hasPrefix(focus) || focus.hasPrefix($0.id) })
+        else { return }
+        if !row.refs.isEmpty {
+            expanded.insert(row.id)
+        }
+        focusedRow = row.id
+        proxy.scrollTo(row.id, anchor: .center)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            withAnimation(.easeOut(duration: 0.6)) { focusedRow = nil }
+        }
     }
 
     private func header(_ theme: Theme) -> some View {
@@ -212,7 +240,8 @@ struct AttachmentBrowserView: View {
         }
         .padding(.vertical, 4).padding(.horizontal, 6)
         .background(RoundedRectangle(cornerRadius: 6)
-            .fill(theme.text.opacity(row.refs.isEmpty ? 0.035 : 0)))
+            .fill(focusedRow == row.id ? Color(Theme.accent).opacity(0.14)
+                : theme.text.opacity(row.refs.isEmpty ? 0.035 : 0)))
         .animation(.easeOut(duration: 0.12), value: open)
     }
 

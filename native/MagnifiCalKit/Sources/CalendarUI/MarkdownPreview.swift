@@ -27,6 +27,8 @@ struct MarkdownPreview: NSViewRepresentable {
     var onAppend: ((String) -> Void)?
     /// Card resize commit: replace source line N (1-based) with the re-sized token line.
     var onReplaceLine: ((Int, String) -> Void)?
+    /// Card context menu "Remove from Note": delete source line N (1-based) outright.
+    var onRemoveLine: ((Int) -> Void)?
     /// False while a MODAL surface covers this pane (the event drawer): the pane stays
     /// visible (blurred background) but goes hit-test-inert — hover, clicks, drops, and the
     /// mouse itself pass over it (the drawer's resize handle was unreachable through it).
@@ -137,6 +139,7 @@ struct MarkdownPreview: NSViewRepresentable {
             tv.clearAttachmentSelection() // content shifted — a stale ring would float
             tv.cardTheme = parent.theme
             tv.onReplaceLine = parent.onReplaceLine
+            tv.onRemoveLine = parent.onRemoveLine
             tv.attachmentStore = { [weak self] in self?.parent.attachments }
             tv.onAppendMarkdown = parent.onAppend.map { append in
                 { [weak self] md in
@@ -387,6 +390,7 @@ final class PreviewTextView: NSTextView {
     var attachmentStore: (() -> AttachmentStore?)?
     var onAppendMarkdown: ((String) -> Void)? // drop-on-preview → host appends to the note
     var onReplaceLine: ((Int, String) -> Void)? // resize commit → host swaps source line N
+    var onRemoveLine: ((Int) -> Void)? // context menu → host deletes source line N
     /// The selected attachment CARD: its single U+FFFC character index + token id. Cleared on
     /// outside clicks, Esc, and every re-render (content shifted under it).
     private(set) var selectedAtt: (charIndex: Int, id: String)?
@@ -697,6 +701,80 @@ final class PreviewTextView: NSTextView {
             return true // no text selection, but the card is copyable
         }
         return super.validateUserInterfaceItem(item)
+    }
+
+    // ── The card context menu ─────────────────────────────────────────────────────────
+    /// Right-click over a card replaces NSTextView's stock text menu (Copy/Look Up/…, blind
+    /// to the card) with the card's own actions. Right-click SELECTS first — Finder's
+    /// contract — so the ring shows exactly what the menu acts on. Off-card clicks keep the
+    /// standard text menu.
+    private var menuContext: (id: String, line: Int)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard !suspended, let hit = attachmentHit(event) else {
+            return super.menu(for: event)
+        }
+        selectedAtt = hit
+        hoveredAtt = nil
+        setSelectedRange(NSRange(location: hit.charIndex, length: 0))
+        window?.makeFirstResponder(self)
+        needsDisplay = true
+        refreshPreviewPanel()
+        let att = textStorage?.attribute(.attachment, at: hit.charIndex, effectiveRange: nil)
+            as? MarkdownDoc.CardAttachment
+        menuContext = (hit.id, att?.line ?? 0)
+        let hasBlob = attachmentStore?()?.url(forId: hit.id) != nil // waiting card = not yet
+
+        let m = NSMenu()
+        m.autoenablesItems = false
+        func add(_ title: String, _ action: Selector, enabled: Bool) {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            i.target = self
+            i.isEnabled = enabled
+            m.addItem(i)
+        }
+        add("Open", #selector(menuOpenCard), enabled: hasBlob)
+        add("Quick Look", #selector(menuQuickLookCard), enabled: hasBlob)
+        m.addItem(.separator())
+        add("Copy File", #selector(menuCopyCard), enabled: hasBlob)
+        add("Reveal in Finder", #selector(menuRevealCard), enabled: hasBlob)
+        add("Show in Attachment Browser", #selector(menuShowInBrowser), enabled: true)
+        m.addItem(.separator())
+        add("Remove from Note", #selector(menuRemoveFromNote),
+            enabled: onRemoveLine != nil && (att?.line ?? 0) > 0)
+        return m
+    }
+
+    @objc private func menuOpenCard() {
+        guard let id = menuContext?.id,
+              let url = attachmentStore?()?.displayURL(forId: id) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func menuQuickLookCard() {
+        togglePreviewPanel()
+    }
+
+    @objc private func menuCopyCard() {
+        copy(nil) // the selected-card branch: copies the display-named real file
+    }
+
+    @objc private func menuRevealCard() {
+        guard let id = menuContext?.id,
+              let url = attachmentStore?()?.displayURL(forId: id) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc private func menuShowInBrowser() {
+        guard let id = menuContext?.id else { return }
+        NotificationCenter.default.post(name: .openAttachmentBrowser, object: nil,
+                                        userInfo: [AttachmentBrowser.focusKey: id])
+    }
+
+    @objc private func menuRemoveFromNote() {
+        guard let ctx = menuContext, ctx.line > 0 else { return }
+        clearAttachmentSelection() // the card is about to vanish under the ring
+        onRemoveLine?(ctx.line) // the blob stays in the store (orphans sweep after grace)
     }
 
     /// The selection ring (strong accent) + the hover ring (same shape, lighter and thinner),

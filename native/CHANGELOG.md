@@ -26,6 +26,12 @@ each release.
   .txt/.json/.md/.js/.c as syntax-highlighted snippets; other types show a metadata card;
   consecutive attachments flow into a responsive ≤3-column grid. Same file attached twice
   stores once.
+- Attachment cards have a real right-click menu (was the generic text menu): Open,
+  Quick Look, Copy File, Reveal in Finder, "Show in Attachment Browser" (opens the browser
+  scrolled to that file's row, briefly highlighted), and "Remove from Note" (deletes the
+  token's line from the source; the file itself stays in the store until the sweep).
+  Right-clicking selects the card first, so the ring shows what the menu acts on; file
+  actions gray out on still-syncing cards.
 - Attachment cards reach full type breadth (P4): every source language self-renders
   syntax-colored (.rs .go .py .jl .swift .java .kt .rb .sh .sql .tex .css .html — Quick Look
   can't thumbnail bare source at all), .csv/.tsv render as a real table (header row + grid

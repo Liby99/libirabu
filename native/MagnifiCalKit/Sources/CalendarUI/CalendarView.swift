@@ -1376,8 +1376,9 @@ private struct ViewPrefObservers: ViewModifier {
                 engine.pushEverythingToCloud()
             }
             // Settings ▸ Developer: category-by-category store census → unified log.
-            .onReceive(NotificationCenter.default.publisher(for: .openAttachmentBrowser)) { _ in
-                AttachmentBrowser.show(engine: engine, navigate: navigateRef)
+            .onReceive(NotificationCenter.default.publisher(for: .openAttachmentBrowser)) { note in
+                AttachmentBrowser.show(engine: engine, navigate: navigateRef,
+                                       focus: note.userInfo?[AttachmentBrowser.focusKey] as? String)
             }
             .onReceive(NotificationCenter.default.publisher(for: .sweepAttachments)) { _ in
                 runAttachmentSweepNow(engine)

@@ -696,6 +696,13 @@ struct EventDrawer: View {
                                         guard lines.indices.contains(line - 1) else { return }
                                         lines[line - 1] = newLine
                                         activeNote.wrappedValue = lines.joined(separator: "\n")
+                                    },
+                                    onRemoveLine: { line in
+                                        var lines = activeNote.wrappedValue
+                                            .components(separatedBy: "\n")
+                                        guard lines.indices.contains(line - 1) else { return }
+                                        lines.remove(at: line - 1)
+                                        activeNote.wrappedValue = lines.joined(separator: "\n")
                                     })
                 }
             }
