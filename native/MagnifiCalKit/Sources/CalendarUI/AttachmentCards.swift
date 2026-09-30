@@ -419,8 +419,10 @@ extension NSView {
                         """)
                         try? Data().write(to: sentinel)
                     }
-                    // Same repaint path a synced blob uses: previews rebuild, the
-                    // placeholder becomes the page (or settles as the metadata card).
+                    // Repaint: generation is IN the preview's rebuild key (without the bump
+                    // the placeholder never recomposes), attachmentsDidArrive is the wake
+                    // that makes SwiftUI re-evaluate the hosting views at all.
+                    store.thumbsDidChange()
                     CalendarEngine.mainInstance?.attachmentsDidArrive()
                 }
             }

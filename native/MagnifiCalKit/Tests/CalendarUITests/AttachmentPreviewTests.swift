@@ -144,6 +144,44 @@ final class AttachmentPreviewTests: XCTestCase {
         }
     }
 
+    /// The doc family's ASYNC page card, end to end with a real (textutil-made) docx:
+    /// first sight is the "rendering preview…" placeholder; the QL raster lands on disk,
+    /// BUMPS THE STORE GENERATION (the preview's rebuild key — without the bump the
+    /// placeholder showed forever, the .xlsx field report), and the recompose is the page.
+    func testDocCardRendersItsFirstPageAsync() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let txt = dir.appendingPathComponent("probe.txt")
+        try Data("document body text".utf8).write(to: txt)
+        let docx = dir.appendingPathComponent("probe.docx")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/textutil")
+        p.arguments = ["-convert", "docx", txt.path, "-output", docx.path]
+        try p.run()
+        p.waitUntilExit()
+
+        let tok = try store.importFile(docx)
+        XCTAssertEqual(tok.kind, .doc)
+        let theme = Theme(dark: false)
+        let gen0 = store.generation
+        let first = AttachmentCards.card(for: tok, store: store, width: 480,
+                                         compact: false, theme: theme)
+        XCTAssertEqual(first.size.height, AttachmentCards.metaH,
+                       "first sight: the placeholder while QL renders")
+
+        let deadline = Date().addingTimeInterval(15)
+        while store.generation == gen0, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertGreaterThan(store.generation, gen0,
+                             "thumb arrival must bump the repaint key — the stuck-card bug")
+        let second = AttachmentCards.card(for: tok, store: store, width: 480,
+                                          compact: false, theme: theme)
+        XCTAssertGreaterThan(second.size.height, AttachmentCards.metaH,
+                             "recompose returns the rendered page card")
+        let thumbs = (try? FileManager.default.contentsOfDirectory(atPath: store.thumbsDir.path)) ?? []
+        XCTAssertTrue(thumbs.contains { $0.hasSuffix(".png") }, "the page raster is disk-cached")
+    }
+
     /// Not an assertion — renders the composed document to a PNG artifact for eyeballing.
     func testDumpRenderArtifact() throws {
         let img = try store.importData(pngFixture(w: 400, h: 210), suggestedName: "screenshot.png")

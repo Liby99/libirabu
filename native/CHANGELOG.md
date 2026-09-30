@@ -83,6 +83,10 @@ each release.
   hover accent glow smudged the day column's edge — now just the flat circle, ring, and plus.
 
 ### Fixed
+- Office/spreadsheet cards no longer stick on "rendering preview…": the finished page
+  raster landed on disk but the preview's rebuild key never changed, so the placeholder
+  card was never recomposed — thumbnail arrival now bumps the same repaint key a syncing
+  blob's arrival does, and the page appears the moment it's rendered.
 - Files dragged out of Mail, Outlook, browsers, or Photos now attach: those drags carry a
   file PROMISE instead of a file URL (an .xlsx from an email being the classic case), and
   every note drop target only read URLs — the drop was silently refused. All three targets

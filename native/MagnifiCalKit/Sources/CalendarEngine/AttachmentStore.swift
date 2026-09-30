@@ -261,6 +261,13 @@ public struct AttachmentMeta: Codable, Sendable, Equatable {
         }
     }
 
+    /// A rendered page thumb (or its declined-sentinel) landed in thumbsDir: previews key
+    /// their rebuild on `generation`, so without this bump a doc card would show
+    /// "rendering preview…" forever while the finished page sat on disk.
+    public func thumbsDidChange() {
+        generation &+= 1
+    }
+
     /// Test hook (internal): wreck a row's stamp so the sweep's parse-failure fail-safe
     /// ("unparseable = young, never delete") can be exercised.
     func corruptStampForTesting(hash: String) {
