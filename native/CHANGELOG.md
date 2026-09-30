@@ -26,6 +26,13 @@ each release.
   .txt/.json/.md/.js/.c as syntax-highlighted snippets; other types show a metadata card;
   consecutive attachments flow into a responsive ≤3-column grid. Same file attached twice
   stores once.
+- Attachment cards reach full type breadth (P4): every source language self-renders
+  syntax-colored (.rs .go .py .jl .swift .java .kt .rb .sh .sql .tex .css .html — Quick Look
+  can't thumbnail bare source at all), .csv/.tsv render as a real table (header row + grid
+  lines), Office/RTF/iWork files show their actual first page (rendered asynchronously via
+  Quick Look, cached on disk; a brief "rendering preview…" card on first sight), and any
+  other text-like type gets a plain monospace content card — only genuinely opaque binaries
+  keep the icon metadata card. Code fences in notes gain the same new languages.
 - Attachment lifecycle (P3): backups now carry attachments — exporting a `.mgc` packs every
   file the calendar's notes reference (web-compatible `attachment` table + `files/` entries),
   and importing restores them hash-verified; older backups import exactly as before. Unused

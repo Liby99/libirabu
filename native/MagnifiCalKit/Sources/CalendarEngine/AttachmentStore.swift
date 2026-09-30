@@ -283,6 +283,11 @@ public struct AttachmentMeta: Codable, Sendable, Equatable {
             where hash.hasPrefix(dir.lastPathComponent) {
             try? fm.removeItem(at: dir)
         }
+        // Rendered page thumbs (`thumbs/<hash>@<width>.png` + `.noThumb` sentinels) go too.
+        for f in (try? fm.contentsOfDirectory(at: thumbsDir, includingPropertiesForKeys: nil)) ?? []
+            where f.lastPathComponent.hasPrefix(hash) {
+            try? fm.removeItem(at: f)
+        }
         index[hash] = nil
         saveIndex()
         generation &+= 1 // any card still pointing here repaints into its "missing" state
@@ -386,7 +391,7 @@ public struct AttachmentMeta: Codable, Sendable, Equatable {
 
     static let codeExts: Set<String> = ["md", "js", "ts", "jsx", "tsx", "c", "h", "cpp", "hpp",
                                         "rs", "go", "py", "jl", "swift", "java", "kt", "rb",
-                                        "sh", "sql", "tex", "css", "toml"]
+                                        "sh", "sql", "tex", "css", "toml", "html", "htm"]
     static let dataExts: Set<String> = ["json", "csv", "tsv", "xml", "txt", "yaml", "yml"]
     static let docExts: Set<String> = ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf",
                                        "pages", "numbers", "key"]
