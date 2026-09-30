@@ -77,6 +77,11 @@ each release.
   hover accent glow smudged the day column's edge — now just the flat circle, ring, and plus.
 
 ### Fixed
+- Deleted events can no longer resurrect via the dev build: Debug and the shipped app shared
+  one local store while syncing to different CloudKit ENVIRONMENTS, so the dev environment's
+  stale copy re-adopted deleted items into the shared store and the next shipped run re-offered
+  them to production. Debug builds now use their own data root (Application
+  Support/CalendarKit-Dev) — dev sessions can never touch the production store again.
 - A pinch zoom can no longer stick halfway between views: a scroll or click landing inside the
   release settle (including the phantom scroll a pinch lift-off can emit) cancelled the settle
   and froze the zoom mid-glide — a safety net in the frame clock now resumes the settle the
