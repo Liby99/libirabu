@@ -112,6 +112,14 @@ struct NativeNoteEditor: NSViewRepresentable {
             // promises, not URLs (the .xlsx-from-an-email case).
             registerForDraggedTypes(registeredDraggedTypes + AttachmentDropIntake.draggedTypes)
         }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window {
+                DropTargets.register(self)
+                AttachmentDropRouter.install(in: window)
+            }
+        }
         /// ⌘V with files or image/PDF DATA on the pasteboard → import into the blob store and
         /// insert tokens at the caret; anything else falls through to the plain-text paste.
         override func paste(_ sender: Any?) {
@@ -499,6 +507,14 @@ struct NativeNoteEditor: NSViewRepresentable {
             overlay.frame = bounds
             overlay.autoresizingMask = [.width, .height]
             addSubview(overlay, positioned: .above, relativeTo: nil)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window {
+                DropTargets.register(self)
+                AttachmentDropRouter.install(in: window)
+            }
         }
 
 

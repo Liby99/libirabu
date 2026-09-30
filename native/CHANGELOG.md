@@ -89,6 +89,13 @@ each release.
   title area) and the window-wide .ics import target silently swallowed the drag with no
   cursor badge and no import. The whole drawer card is now a drop zone (with the dashed
   Add-Attachment affordance); drops on the note itself still insert at the precise line.
+- File drops no longer depend on where the drag entered the window: macOS picks ONE drop
+  destination when a drag crosses into the window and sticks with it while the cursor stays
+  inside its frame — and the invisible window-wide .ics target could win that pick and hold
+  the whole session hostage, so note drops worked or silently died depending on view level
+  and entry point. All file drags now land in one window-wide router that re-routes every
+  mouse move to the right target (note editor > preview > margin > drawer card > .ics
+  import), with the routing narrated to the log for future field debugging.
 - Office/spreadsheet cards no longer stick on "rendering preview…": the finished page
   raster landed on disk but the preview's rebuild key never changed, so the placeholder
   card was never recomposed — thumbnail arrival now bumps the same repaint key a syncing

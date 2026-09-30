@@ -831,6 +831,14 @@ final class PreviewTextView: NSTextView {
         registerForDraggedTypes(AttachmentDropIntake.draggedTypes)
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window {
+            DropTargets.register(self)
+            AttachmentDropRouter.install(in: window)
+        }
+    }
+
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard attachDropVisible else {

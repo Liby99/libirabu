@@ -266,6 +266,13 @@ public struct CalendarView: View {
             + "demo=\(CalendarEngine.isDemoMode)")
         WindowBeepSilencer.installOnce() // stop the window beeping on keys the calendar leaves unhandled
         PresentGuard.install() // starved runloop ⇒ still present frames (the "⌘J pop" fix)
+        // The drop router's .ics fallback: import + the full-window mask (see DropRouter.swift).
+        AttachmentDropRouter.icsImport = { [engine] urls in
+            MenuFileActions.importICSFiles(urls, engine: engine)
+        }
+        AttachmentDropRouter.icsOverlay = { on in
+            withAnimation(.easeOut(duration: 0.12)) { icsDropActive = on }
+        }
         // App shell only: the calendar WindowGroup used to carry .frame(minWidth:minHeight:) at
         // the root, which makes the window's NSHostingView re-derive min-size constraints
         // through the toolbar's Auto Layout engine on every tick (~46% of per-tick cost in the
@@ -1238,12 +1245,14 @@ public struct CalendarView: View {
         .animation(.easeOut(duration: 0.12), value: search.query.isEmpty)
         // Drag an .ics file (from Finder, Mail, …) anywhere over the window: full-window
         // dashed-border mask while hovering; dropping imports via the File ▸ Import path.
+        // The DROP itself is the AttachmentDropRouter's fallback (the SwiftUI .onDrop host
+        // used to span the window and could hold a whole drag session hostage from the note
+        // editors — see DropRouter.swift); this overlay is just the visual, driven by it.
         .overlay {
             if icsDropActive {
                 ICSDropOverlay(theme: theme)
             }
         }
-        .onDrop(of: [.fileURL], delegate: ICSDropDelegate(engine: engine, active: $icsDropActive))
         .toolbar { mainToolbar }
         // Let the translucent window material show through the toolbar (native tint).
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)

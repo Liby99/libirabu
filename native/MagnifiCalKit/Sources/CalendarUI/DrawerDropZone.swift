@@ -27,7 +27,15 @@ struct DrawerDropZone: NSViewRepresentable {
         }
 
         override func hitTest(_: NSPoint) -> NSView? {
-            nil // drags arrive via the destination frame-walk; clicks pass through
+            nil // drags arrive via the router; clicks pass through
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window {
+                DropTargets.register(self)
+                AttachmentDropRouter.install(in: window)
+            }
         }
 
         override func draw(_: NSRect) {

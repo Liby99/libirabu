@@ -184,6 +184,51 @@ final class AttachmentDropTests: XCTestCase {
                        "a hidden drawer's zone never steals a drop")
     }
 
+    func testRouterRoutesToParticipantAndDelivers() throws {
+        // The router is the ONE window-wide destination; participants are reached through
+        // its per-move routing, not AppKit's sticky session (the year-view blackhole fix).
+        let scroll = hosted(NativeNoteEditor.MarginDropScrollView())
+        scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 500)
+        scroll.installMarginDrop()
+        scroll.store = { [store] in store }
+        var delivered: [AttachmentToken]?
+        scroll.onDropTokens = { delivered = $0 }
+        // viewDidMoveToWindow installed the router into the window's content view.
+        let router = try XCTUnwrap(
+            host?.contentView?.subviews.compactMap { $0 as? AttachmentDropRouter }.first
+                ?? (host?.contentView as? AttachmentDropRouter))
+        let drag = DragStub(urls: [fileURL])
+        XCTAssertEqual(router.draggingEntered(drag), .copy, "router routes to the margin")
+        XCTAssertEqual(router.draggingUpdated(drag), .copy, "…and keeps it per-move")
+        XCTAssertTrue(router.prepareForDragOperation(drag))
+        XCTAssertTrue(router.performDragOperation(drag))
+        XCTAssertEqual(delivered?.count, 1, "the participant's own perform ran")
+    }
+
+    func testRouterICSFallbackWhenNoParticipantIsUnder() throws {
+        let plain = hosted(NSView()) // a window with no drop participants at all
+        plain.frame = NSRect(x: 0, y: 0, width: 400, height: 500)
+        AttachmentDropRouter.install(in: try XCTUnwrap(host))
+        let router = try XCTUnwrap(
+            plain.subviews.compactMap { $0 as? AttachmentDropRouter }.first)
+
+        var imported: [URL]?
+        AttachmentDropRouter.icsImport = { imported = $0 }
+        defer { AttachmentDropRouter.icsImport = nil }
+
+        // A non-.ics file over bare calendar: refused honestly (no ghost acceptance).
+        XCTAssertEqual(router.draggingEntered(DragStub(urls: [fileURL])), [])
+
+        // An .ics file: the fallback accepts and imports through the wired closure.
+        let ics = dir.appendingPathComponent("cal.ics")
+        try Data("BEGIN:VCALENDAR\nEND:VCALENDAR".utf8).write(to: ics)
+        let drag = DragStub(urls: [ics])
+        XCTAssertEqual(router.draggingEntered(drag), .copy)
+        XCTAssertTrue(router.prepareForDragOperation(drag))
+        XCTAssertTrue(router.performDragOperation(drag))
+        XCTAssertEqual(imported, [ics])
+    }
+
     func testPromiseOnlyDragIsAccepted() throws {
         // A drag from Mail/Outlook/browsers carries NO file URL — only a file PROMISE. The
         // targets must still accept it (the .xlsx-from-an-email case; URL-only acceptance
