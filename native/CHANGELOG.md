@@ -84,11 +84,6 @@ each release.
   hover accent glow smudged the day column's edge — now just the flat circle, ring, and plus.
 
 ### Fixed
-- Dropping a file anywhere on the event drawer now attaches it to the open note: drops had
-  to land exactly inside the note area's frame — a few points off (the card's padding, the
-  title area) and the window-wide .ics import target silently swallowed the drag with no
-  cursor badge and no import. The whole drawer card is now a drop zone (with the dashed
-  Add-Attachment affordance); drops on the note itself still insert at the precise line.
 - File drops no longer depend on where the drag entered the window: macOS picks ONE drop
   destination when a drag crosses into the window and sticks with it while the cursor stays
   inside its frame — and the invisible window-wide .ics target could win that pick and hold
