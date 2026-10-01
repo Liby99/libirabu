@@ -104,17 +104,13 @@ struct NativeNoteEditor: NSViewRepresentable {
         }
 
         // ── Attachment import: paste / drag (design §5.1) ─────────────────────────────
-        /// AppKit recomputes a text view's drag registration on focus/editability changes,
-        /// and a PLAIN-text view's own list doesn't reliably include file URLs — if it drops
-        /// out, the margin scroll view's registration shadows the text view and on-line drops
-        /// die. Pin .fileURL through every re-evaluation (the preview does the same).
-        override func updateDragTypeRegistration() {
-            super.updateDragTypeRegistration()
-            // .fileURL AND the file-promise types: Mail/Outlook/browser drags carry
-            // promises, not URLs (the .xlsx-from-an-email case).
-            registerForDraggedTypes(registeredDraggedTypes + AttachmentDropIntake.draggedTypes)
-        }
-
+        // FILE-drag registration deliberately does NOT live here: the window-wide
+        // AttachmentDropRouter is the only AppKit destination for files/promises and
+        // forwards the dragging calls below — a participant registering its own file
+        // types would re-enter AppKit's sticky-destination lottery and could receive a
+        // session directly, bypassing the router's tiers and modal gating (the "drop on
+        // the drawer landed in the weekly note behind it" bug). The text view keeps only
+        // NSTextView's own text-drag types.
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if let window {
@@ -132,9 +128,12 @@ struct NativeNoteEditor: NSViewRepresentable {
         }
 
         override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-            guard attachDropVisible else {
-                attachLog.notice("editor entered REFUSED: invisible (parked panel)")
-                return [] // a parked twin must never steal the drop from the visible editor
+            // The router filters parked/covered views already; the guards repeat here as
+            // defense in depth (NSTextView's own text-type registration can still receive
+            // sessions directly, and unit tests drive these methods without the router).
+            guard attachDropVisible, !suspended else {
+                attachLog.notice("editor entered REFUSED: parked or drawer-covered")
+                return []
             }
             let ok = AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard)
             attachLog.notice("editor entered: store=\(self.attachmentStore?() != nil) importable=\(ok)")
@@ -506,7 +505,8 @@ struct NativeNoteEditor: NSViewRepresentable {
         }
 
         func installMarginDrop() {
-            registerForDraggedTypes(AttachmentDropIntake.draggedTypes)
+            // No registerForDraggedTypes: the router is the sole AppKit file destination
+            // and forwards here (see DropRouter.swift / the editor's note above).
             overlay.isHidden = true
             overlay.frame = bounds
             overlay.autoresizingMask = [.width, .height]
@@ -527,8 +527,8 @@ struct NativeNoteEditor: NSViewRepresentable {
         // "unrecognized selector" mid-drag-completion and killed the whole drop. (NSTextView
         // DOES implement them, which is why the preview's overrides may call super.)
         override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-            guard attachDropVisible else {
-                attachLog.notice("margin entered REFUSED: invisible (parked panel)")
+            guard attachDropVisible, !inert else { // defense in depth; the router filters too
+                attachLog.notice("margin entered REFUSED: parked or drawer-covered")
                 return []
             }
             let ok = AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard)

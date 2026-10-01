@@ -59,7 +59,6 @@ struct MarkdownPreview: NSViewRepresentable {
             .backgroundColor: NSColor(Theme.accent).withAlphaComponent(0.24),
         ]
         tv.delegate = context.coordinator
-        tv.registerForDraggedTypes([.fileURL]) // see updateDragTypeRegistration — non-editable
         context.coordinator.textView = tv
         let scroll = InertableScrollView()
         scroll.documentView = tv
@@ -829,14 +828,9 @@ final class PreviewTextView: NSTextView, DropTarget {
         } }
     }
 
-    /// NSTextView UNREGISTERS all drag types while non-editable (its updateDragTypeRegistration
-    /// contract) — so a read-only preview never even hears draggingEntered. Re-pin the file
-    /// registration every time AppKit re-evaluates it, or the drop target silently dies.
-    override func updateDragTypeRegistration() {
-        super.updateDragTypeRegistration()
-        registerForDraggedTypes(AttachmentDropIntake.draggedTypes)
-    }
-
+    // FILE-drag registration deliberately absent — the window-wide AttachmentDropRouter is
+    // the only AppKit destination and forwards the dragging calls below (registering here
+    // would re-enter the sticky-destination lottery; see DropRouter.swift).
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let window {
@@ -847,8 +841,8 @@ final class PreviewTextView: NSTextView, DropTarget {
 
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard attachDropVisible else {
-            attachLog.notice("preview entered REFUSED: invisible (parked panel)")
+        guard attachDropVisible, !suspended else { // defense in depth; the router filters too
+            attachLog.notice("preview entered REFUSED: parked or drawer-covered")
             return []
         }
         let ok = AttachmentDropIntake.hasImportableFiles(sender.draggingPasteboard)

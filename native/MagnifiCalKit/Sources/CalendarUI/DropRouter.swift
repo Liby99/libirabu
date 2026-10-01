@@ -1,43 +1,43 @@
-// ONE drag-and-drop destination for the whole window, routing per-move to the right target —
-// because AppKit's own resolution is a lottery we kept losing. Field-established (2026-09-30,
-// three probe stages): the destination is chosen ONCE when a drag enters the window, by an
-// undocumented frame walk whose ordering SwiftUI reshuffles as hosted views mount/unmount per
-// calendar level; the window-spanning SwiftUI .onDrop host (the .ics import target) often won
-// that pick, and since the cursor never leaves its frame, it KEPT the session for its whole
-// lifetime — the note editors below never heard the drag, no matter where the cursor moved.
-// Symptom: file drops into drawer/panel notes working or dying depending on view level and
-// where the drag happened to enter the window.
+// ONE drag-and-drop destination for the whole window, routing per-move to the right target.
 //
-// The router inverts the game: it is the front-most, window-wide registered destination, so
-// it deliberately wins EVERY file-drag session (the probe proved this placement always
-// receives it). On every draggingUpdated it re-routes to the deepest visible participant
-// under the cursor — editor text > preview > margin scroll > drawer card — forwarding the
-// standard NSDraggingDestination calls so each target's existing logic (overlays, caret
-// insertion, promise intake) runs unchanged, with real entered/exited transitions the sticky
-// AppKit session never delivered. No participant under the cursor → the .ics fallback (the
-// old window-wide behavior, now scoped to "nowhere better"). Every routing switch logs at
-// notice — `log show --predicate 'category == "attach"'` narrates the whole drag.
+// WHY (field-established 2026-09-30, three probe stages): AppKit picks a drop destination
+// ONCE when a drag enters the window — by an undocumented frame walk whose ordering SwiftUI
+// reshuffles as hosted views mount per calendar level — and that view then keeps the session
+// for as long as the cursor stays inside its frame. The window-spanning SwiftUI .onDrop host
+// (the .ics import target) kept winning that pick, and since its frame IS the window, the
+// note editors below never heard the drag no matter where the cursor moved. Symptom: file
+// drops into notes working or silently dying depending on view level and window-entry point.
+//
+// HOW A FILE DRAG FLOWS NOW
+//   1. The router is the ONLY view registered for file/promise drags (participants register
+//      here, never with AppKit), so every file-drag session lands on it — always.
+//   2. On every mouse move it re-picks the target: the best-tier interactive participant
+//      whose frame contains the cursor and that accepts (see DropTarget.dropTier).
+//   3. Target changes are forwarded as real draggingExited/Entered, so each target's own
+//      overlays and acceptance logic (caret insertion, margin append, promise intake) run
+//      completely unchanged.
+//   4. The release goes to the active target; with none under the cursor, the .ics fallback
+//      imports calendar files (the old window-wide behavior, now scoped to "nowhere better").
+// Every routing switch logs at notice — `log show … category == "attach"` narrates a drag.
 
 import AppKit
 import CalendarEngine
 import UniformTypeIdentifiers
 
-/// A drop participant: its `dropTier` is the EXPLICIT precedence (lower wins) —
+/// A drop participant. `dropTier` is the EXPLICIT precedence (lower wins):
 ///   0 editor text in the event drawer      3 editor text in a dated-notes panel
 ///   1 editor margin in the event drawer    4 editor margin in a dated-notes panel
 ///   2 preview pane in the event drawer     5 preview pane in a dated-notes panel
-/// The drawer tiers outrank every panel tier, so a drop on the open drawer can never land
-/// in the blurred weekly note behind it. Within a context, editor-vs-margin is spatial
-/// anyway (the text view's frame vs the blank area below it), and editor/preview never
-/// show together — the tier order is the user-specified tie-break, not a hit-test trick.
+/// Drawer tiers outrank every panel tier, so a drop on the open drawer can never land in
+/// the blurred weekly note behind it. Within a context, editor-vs-margin is spatial anyway
+/// (the text's frame vs the blank area below it), and editor/preview never show together.
 @MainActor protocol DropTarget: NSView {
     var dropTier: Int { get }
 }
 
-/// The participant registry: every attachment drop view announces itself when it lands in a
-/// window; the router routes among the INTERACTIVE ones — the modal-cover gating (inert
-/// scroll views, suspended text views: the blurred panels behind an open drawer) excludes a
-/// view here exactly like it does for ordinary mouse events.
+/// The participant registry: every attachment drop view announces itself when it lands in
+/// a window. Candidacy = attached to THIS window, genuinely visible, not modally covered,
+/// frame contains the cursor.
 @MainActor enum DropTargets {
     private struct Entry {
         weak var view: (NSView & DropTarget)?
@@ -61,7 +61,8 @@ import UniformTypeIdentifiers
             .sorted { $0.dropTier < $1.dropTier }
     }
 
-    /// The drawer-over-dashboard gating, honored for drags exactly as for clicks.
+    /// The drawer-over-dashboard gating, honored for drags exactly as for clicks: a panel
+    /// the open drawer covers is inert/suspended — and therefore no drop candidate.
     private static func isModallyCovered(_ v: NSView) -> Bool {
         if let s = v as? InertableScrollView, s.inert {
             return true
@@ -77,8 +78,8 @@ import UniformTypeIdentifiers
 }
 
 /// The single window-wide destination. Installed once per window by the first participant
-/// (idempotent: presence in the content view is the guard — offscreen windows all share
-/// windowNumber -1, and a swapped content view needs a fresh install anyway).
+/// (idempotent by content-view presence — offscreen windows all share windowNumber -1, and
+/// a swapped content view needs a fresh install anyway).
 @MainActor final class AttachmentDropRouter: NSView {
     /// The .ics fallback, wired by CalendarView (it owns the engine and the overlay state).
     static var icsImport: (([URL]) -> Void)?
@@ -99,100 +100,117 @@ import UniformTypeIdentifiers
     }
 
     // ── Session state ─────────────────────────────────────────────────────────────────
-    private weak var current: NSView? // the participant now owning the visuals
-    private var icsActive = false
+    /// The participant currently owning the session's visuals and the eventual drop.
+    private weak var activeTarget: (NSView & DropTarget)?
+    private var icsOverlayShown = false
+    /// Pasteboard facts, decoded once per drag session (updates arrive per mouse move).
+    private var icsCache: (sessionID: Int, carriesICS: Bool)?
 
-    private func isICSDrag(_ pb: NSPasteboard) -> Bool {
-        guard let urls = AttachmentDropIntake.fileURLs(pb) else { return false }
-        return urls.contains { $0.pathExtension.lowercased() == "ics" }
+    private func dragCarriesICS(_ sender: NSDraggingInfo) -> Bool {
+        if let c = icsCache, c.sessionID == sender.draggingSequenceNumber {
+            return c.carriesICS
+        }
+        let urls = AttachmentDropIntake.fileURLs(sender.draggingPasteboard) ?? []
+        let ics = urls.contains { $0.pathExtension.lowercased() == "ics" }
+        icsCache = (sender.draggingSequenceNumber, ics)
+        return ics
     }
 
-    /// The per-move core: pick the target for this position, hand off with real
-    /// entered/exited transitions, and return the operation the active target reports.
-    private func routeMove(_ sender: NSDraggingInfo) -> NSDragOperation {
-        let p = sender.draggingLocation
+    // ── The dispatch, step by step ────────────────────────────────────────────────────
+
+    /// Per-move routing: pick → transition → operation. Called from entered AND updated,
+    /// so the target tracks the cursor even though AppKit's session never re-resolves.
+    private func route(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard let window else { return [] }
-        // First candidate that ACCEPTS wins — a refusing view (no store, parked twin)
-        // falls through to the next instead of blackholing the session.
-        var accepted: NSView?
-        var operation: NSDragOperation = []
-        for c in DropTargets.candidates(in: window, at: p) {
-            if c === current {
-                accepted = c
-                operation = c.draggingUpdated(sender)
-                break
-            }
-            let op = c.draggingEntered(sender)
-            if op != [] {
-                accepted = c
-                operation = op
-                break
-            }
-        }
-        if accepted !== current {
-            current?.draggingExited(sender)
-            attachLog.notice("""
-            drop route: \(accepted.map { "\(String(describing: type(of: $0))) tier \(($0 as? any DropTarget)?.dropTier ?? -1)" } ?? "none") \
-            at \(Int(p.x)),\(Int(p.y))\(self.current != nil ? " (was \(String(describing: type(of: self.current!))))" : "")
-            """)
-            current = accepted
-        }
-        if accepted != nil {
+        let (target, operation) = pickTarget(in: window, sender: sender)
+        transition(to: target, sender: sender)
+        if target != nil {
             setICSOverlay(false)
             return operation
         }
-        // Nobody better → the .ics fallback (only lights up for drags that carry .ics).
-        let ics = isICSDrag(sender.draggingPasteboard)
+        // Nobody wants it → the .ics fallback (the mask lights up only for .ics drags).
+        let ics = dragCarriesICS(sender)
         setICSOverlay(ics)
         return ics ? .copy : []
     }
 
+    /// The best candidate that ACCEPTS wins: the current target is continued via
+    /// draggingUpdated; a new one is asked via draggingEntered; a refusal (no store wired,
+    /// hidden twin) falls through to the next candidate instead of ending the search.
+    private func pickTarget(in window: NSWindow, sender: NSDraggingInfo)
+        -> (target: (NSView & DropTarget)?, operation: NSDragOperation) {
+        for candidate in DropTargets.candidates(in: window, at: sender.draggingLocation) {
+            if candidate === activeTarget {
+                return (candidate, candidate.draggingUpdated(sender))
+            }
+            let operation = candidate.draggingEntered(sender)
+            if operation != [] {
+                return (candidate, operation)
+            }
+        }
+        return (nil, [])
+    }
+
+    /// Hand the session over: the outgoing target gets draggingExited (its overlay comes
+    /// down — the entered side already ran inside pickTarget), and the switch is logged.
+    private func transition(to target: (NSView & DropTarget)?, sender: NSDraggingInfo) {
+        guard target !== activeTarget else { return }
+        activeTarget?.draggingExited(sender)
+        let p = sender.draggingLocation
+        attachLog.notice("""
+        drop route: \(target.map { "\(String(describing: type(of: $0))) tier \($0.dropTier)" } ?? "none") \
+        at \(Int(p.x)),\(Int(p.y))\(self.activeTarget.map { " (was \(String(describing: type(of: $0))))" } ?? "")
+        """)
+        activeTarget = target
+    }
+
     private func setICSOverlay(_ on: Bool) {
-        guard on != icsActive else { return }
-        icsActive = on
+        guard on != icsOverlayShown else { return }
+        icsOverlayShown = on
         Self.icsOverlay?(on)
     }
 
     // ── NSDraggingDestination (no super: plain NSView implements none of these) ──────
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        attachLog.notice("drop router: session entered at \(Int(sender.draggingLocation.x)),\(Int(sender.draggingLocation.y))")
-        return routeMove(sender)
+        let p = sender.draggingLocation
+        attachLog.notice("drop router: session entered at \(Int(p.x)),\(Int(p.y))")
+        return route(sender)
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        routeMove(sender)
+        route(sender)
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
         if let sender {
-            current?.draggingExited(sender)
+            activeTarget?.draggingExited(sender)
         }
-        current = nil
+        activeTarget = nil
         setICSOverlay(false)
     }
 
     override func draggingEnded(_ sender: NSDraggingInfo) {
-        current?.draggingEnded(sender)
-        current = nil
+        activeTarget?.draggingEnded(sender)
+        activeTarget = nil
         setICSOverlay(false)
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        if let current {
-            return current.prepareForDragOperation(sender)
+        if let activeTarget {
+            return activeTarget.prepareForDragOperation(sender)
         }
-        return isICSDrag(sender.draggingPasteboard)
+        return dragCarriesICS(sender)
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         setICSOverlay(false)
-        if let current {
-            attachLog.notice("drop router: perform → \(String(describing: type(of: current)))")
-            let ok = current.performDragOperation(sender)
-            self.current = nil
-            return ok
+        if let activeTarget {
+            attachLog.notice("drop router: perform → \(String(describing: type(of: activeTarget)))")
+            let handled = activeTarget.performDragOperation(sender)
+            self.activeTarget = nil
+            return handled
         }
-        guard isICSDrag(sender.draggingPasteboard),
+        guard dragCarriesICS(sender),
               let urls = AttachmentDropIntake.fileURLs(sender.draggingPasteboard) else {
             return false
         }

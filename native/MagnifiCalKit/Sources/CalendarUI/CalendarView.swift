@@ -267,7 +267,9 @@ public struct CalendarView: View {
         WindowBeepSilencer.installOnce() // stop the window beeping on keys the calendar leaves unhandled
         PresentGuard.install() // starved runloop ⇒ still present frames (the "⌘J pop" fix)
         // The drop router's .ics fallback: import + the full-window mask (see DropRouter.swift).
-        AttachmentDropRouter.icsImport = { [engine] urls in
+        // Weak: these are STATIC closures — a strong capture would pin the engine globally.
+        AttachmentDropRouter.icsImport = { [weak engine] urls in
+            guard let engine else { return }
             MenuFileActions.importICSFiles(urls, engine: engine)
         }
         AttachmentDropRouter.icsOverlay = { on in

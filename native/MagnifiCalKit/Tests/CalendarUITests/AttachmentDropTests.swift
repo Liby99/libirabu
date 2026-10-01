@@ -8,15 +8,21 @@
 import AppKit
 import XCTest
 
-/// Minimal NSDraggingInfo: a private-named pasteboard holding real file URLs.
+/// Minimal NSDraggingInfo: a private-named pasteboard holding real file URLs. Sequence
+/// numbers are unique per stub, like real sessions (the router caches pasteboard facts
+/// per sequence number — a constant here would leak one drag's verdict into the next).
 private final class DragStub: NSObject, NSDraggingInfo {
     let pb: NSPasteboard
     var point = NSPoint(x: 10, y: 10)
+    private static var nextSequence = 0
+    private let sequence: Int
 
     init(urls: [URL]) {
         pb = NSPasteboard(name: NSPasteboard.Name("attach-test-\(UUID().uuidString)"))
         pb.clearContents()
         pb.writeObjects(urls as [NSURL])
+        Self.nextSequence += 1
+        sequence = Self.nextSequence
         super.init()
     }
 
@@ -29,7 +35,7 @@ private final class DragStub: NSObject, NSDraggingInfo {
     var draggedImage: NSImage? { nil }
     var draggingPasteboard: NSPasteboard { pb }
     var draggingSource: Any? { nil }
-    var draggingSequenceNumber: Int { 1 }
+    var draggingSequenceNumber: Int { sequence }
     var draggingFormation: NSDraggingFormation {
         get { .default }
         set {}
