@@ -18,6 +18,8 @@ each release.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-01
+
 ### Added
 - Note attachments (P0, docs/attachments-design.md): paste or drag files/images into any note
   editor — they land in a deduplicated content-addressed store and the note gets a
