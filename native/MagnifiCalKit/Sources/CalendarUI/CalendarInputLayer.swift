@@ -18,7 +18,8 @@ struct InputCatcher: NSViewRepresentable {
     var forwarder: CatcherHandle?
     var onOpenEvent: (String) -> Void = { _ in }
     var onCanvasClick: () -> Void = {} // left click on the canvas → deselect TODO rows
-    var onEventMenu: (String, CGRect) -> Void = { _, _ in } // right-click event → context callout
+    // Right-click event → context callout (id, anchor, open leftward — no room on the right).
+    var onEventMenu: (String, CGRect, Bool) -> Void = { _, _, _ in }
     var onSpaceMenu: (CalendarEngine.EmptySpot, CGRect) -> Void = { _, _ in
     } // right-click empty space → create/paste callout
     var onEditTrack: (TrackEdit) -> Void = { _ in }
@@ -121,7 +122,8 @@ final class CatcherView: NSView, NSMenuItemValidation {
     weak var engine: CalendarEngine?
     var onOpenEvent: ((String) -> Void)?
     var onCanvasClick: (() -> Void)? // any left click on the calendar canvas (deselect TODO rows)
-    var onEventMenu: ((String, CGRect) -> Void)? // right-click on an event → context callout (id, view-space box rect)
+    // right-click on an event → context callout (id, view-space anchor sliver, open leftward)
+    var onEventMenu: ((String, CGRect, Bool) -> Void)?
     var onSpaceMenu: ((CalendarEngine.EmptySpot, CGRect) -> Void)? // right-click on empty space → create/paste callout
     var onEditTrack: ((TrackEdit) -> Void)?
     var onKey: ((KeyToken) -> Bool)?
@@ -680,13 +682,33 @@ final class CatcherView: NSView, NSMenuItemValidation {
         let view = convert(e.locationInWindow, from: nil)
         let dx = Layout.padLeft - engine.drawerShift - engine.gutterShift
         let g = engine.snapshotInput()
+        // Which side fits? SCREEN space (these popovers may overflow the window): remaining
+        // width right of a view-space x on the current screen.
+        let calloutW: CGFloat = 250 // 208 card + padding + popover chrome/arrow
+        func roomRight(ofViewX x: CGFloat) -> CGFloat {
+            guard let w = window else { return .greatestFiniteMagnitude }
+            let sx = w.convertToScreen(NSRect(origin: convert(NSPoint(x: x, y: view.y), to: nil),
+                                              size: .zero)).origin.x
+            return (w.screen?.visibleFrame.maxX ?? .greatestFiniteMagnitude) - sx
+        }
+        var preferLeft = false
         let anchor = engine.selectedBoxRect()
             .map { (r: CGRect) -> CGRect in
                 let visMaxX = min(r.maxX, dashboardLeftAnimated(g))
-                return CGRect(x: visMaxX + dx + 5, y: r.midY - 1, width: 1, height: 2)
+                preferLeft = roomRight(ofViewX: visMaxX + dx + 5) < calloutW
+                guard preferLeft else {
+                    return CGRect(x: visMaxX + dx + 5, y: r.midY - 1, width: 1, height: 2)
+                }
+                // Open LEFTWARD: sliver at the box's visible LEFT edge (clamped to the content
+                // region's left border, like the right side clamps to the dashboard edge).
+                let visMinX = max(r.minX, Layout.labelW)
+                return CGRect(x: visMinX + dx - 5, y: r.midY - 1, width: 1, height: 2)
             }
-            ?? CGRect(x: view.x - 2, y: view.y - 2, width: 4, height: 4)
-        onEventMenu(id, anchor)
+            ?? {
+                preferLeft = roomRight(ofViewX: view.x) < calloutW
+                return CGRect(x: view.x - 2, y: view.y - 2, width: 4, height: 4)
+            }()
+        onEventMenu(id, anchor, preferLeft)
         return true
     }
 

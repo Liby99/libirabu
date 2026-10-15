@@ -19,6 +19,10 @@ each release.
 ## [Unreleased]
 
 ### Fixed
+- The event right-click callout flips to the LEFT of the event when there's no room on the
+  right (screen-measured): AppKit's own edge flip kept the right-edge anchor and planted the
+  menu on top of the event with the caret on its right border — now the anchor moves to the
+  box's left edge and the popover opens leftward, caret pointing right at the event.
 - Calendar names are unique now: creating/renaming suffixes a colliding name ("Main 2"), a
   cloud-synced calendar whose name collides with a local one is suffixed on arrival
   (display-side; its cloud name is untouched), and an already-duplicated list heals itself on

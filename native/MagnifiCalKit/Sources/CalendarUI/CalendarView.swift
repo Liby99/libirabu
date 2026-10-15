@@ -136,8 +136,8 @@ public struct CalendarView: View {
                 dashNav.selected.removeAll()
             }
         }
-        ic.onEventMenu = { (id: String, anchor: CGRect) in
-            ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: anchor)
+        ic.onEventMenu = { (id: String, anchor: CGRect, preferLeft: Bool) in
+            ui.eventMenu = CalendarUIState.EventMenuTarget(id: id, anchor: anchor, preferLeft: preferLeft)
         }
         ic.onSpaceMenu = { (spot: CalendarEngine.EmptySpot, anchor: CGRect) in
             ui.spaceMenu = CalendarUIState.SpaceMenuTarget(spot: spot, anchor: anchor)

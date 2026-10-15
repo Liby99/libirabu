@@ -80,8 +80,13 @@ public final class CalendarUIState {
     public struct EventMenuTarget: Equatable {
         public var id: String
         public var anchor: CGRect
-        public init(id: String, anchor: CGRect) {
-            self.id = id; self.anchor = anchor
+        /// No room for the callout on the right (screen space) → the anchor is a sliver at the
+        /// box's LEFT edge and the popover opens leftward (arrowEdge .leading). Without this,
+        /// AppKit's own screen-edge flip kept the right-edge anchor and planted the menu ON TOP
+        /// of the event, caret on its right border.
+        public var preferLeft: Bool
+        public init(id: String, anchor: CGRect, preferLeft: Bool = false) {
+            self.id = id; self.anchor = anchor; self.preferLeft = preferLeft
         }
     }
 

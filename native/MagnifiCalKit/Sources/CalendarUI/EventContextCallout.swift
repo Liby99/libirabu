@@ -128,7 +128,10 @@ struct EventMenuOverlay: ViewModifier {
     func body(content: Content) -> some View {
         content.popover(isPresented: shown,
                         attachmentAnchor: .rect(.rect(ui.eventMenu?.anchor ?? .zero)),
-                        arrowEdge: .trailing) {
+                        // Leading = open LEFT of the box (the anchor is then a left-edge
+                        // sliver) when the catcher measured no room on the right — otherwise
+                        // AppKit's own flip overlapped the event, caret on its right border.
+                        arrowEdge: ui.eventMenu?.preferLeft == true ? .leading : .trailing) {
             if let menu = ui.eventMenu {
                 EventContextCallout(engine: engine, id: menu.id, theme: theme,
                                     clipKind: readClip()?.kind, actions: eventActions(menu.id))
