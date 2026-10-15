@@ -63,6 +63,20 @@ struct CalendarRegistry {
         if list.first(where: { $0.id == rawActiveId }) == nil {
             defaults.set(list.first!.id, forKey: PrefKeys.calActiveId)
         }
+        // Heal pre-existing duplicate names (lists written before uniqueness was enforced —
+        // e.g. an adopted cloud "Main" beside the bootstrap "Main"): keep the first of each
+        // name in display order, suffix the rest. Local-only, idempotent.
+        var seen = Set<String>(), healed = list, changed = false
+        for i in healed.indices {
+            let fixed = uniqueNameAmong(healed[i].name, taken: seen)
+            if fixed != healed[i].name {
+                healed[i].name = fixed; changed = true
+            }
+            seen.insert(fixed.lowercased())
+        }
+        if changed {
+            save(healed)
+        }
     }
 
     /// A pre-multi-calendar install kept its data.json at the CalendarKit root. Move it into Main's dir.
@@ -119,11 +133,33 @@ struct CalendarRegistry {
         defaults.set(id, forKey: PrefKeys.calActiveId); touchRecent(id)
     }
 
+    /// ── Name uniqueness ───────────────────────────────────────────────────────────────────────────
+    /// Calendar NAMES are unique (ids are the real identity, but two calendars both called
+    /// "Main" — e.g. the bootstrap default beside an adopted cloud primary — are
+    /// indistinguishable in every picker). `proposed` comes back untouched when free, else
+    /// suffixed with the lowest free counter ("Main 2", "Main 3", …).
+    private func uniqueName(_ proposed: String, in list: [CalendarMeta], excluding id: String) -> String {
+        uniqueNameAmong(proposed, taken: Set(list.filter { $0.id != id }.map { $0.name.lowercased() }))
+    }
+
+    private func uniqueNameAmong(_ proposed: String, taken: Set<String>) -> String {
+        let base = proposed.trimmingCharacters(in: .whitespaces)
+        if !taken.contains(base.lowercased()) {
+            return base
+        }
+        var n = 2
+        while taken.contains("\(base) \(n)".lowercased()) {
+            n += 1
+        }
+        return "\(base) \(n)"
+    }
+
     /// ── Mutations ─────────────────────────────────────────────────────────────────────────────────
     func create(name: String) -> CalendarMeta {
         var list = load()
         let order = (list.map(\.order).max() ?? -1) + 1
-        let m = CalendarMeta(id: newId(), name: name, createdAt: Date(), order: order)
+        let m = CalendarMeta(id: newId(), name: uniqueName(name, in: list, excluding: ""),
+                             createdAt: Date(), order: order)
         list.append(m); save(list)
         return m
     }
@@ -131,18 +167,22 @@ struct CalendarRegistry {
     func rename(_ id: String, to name: String) {
         var list = load()
         if let i = list.firstIndex(where: { $0.id == id }) {
-            list[i].name = name; save(list)
+            list[i].name = uniqueName(name, in: list, excluding: id); save(list)
         }
     }
 
     /// Insert-or-update a calendar entry from a remote (synced) source — last-writer-wins on name/order.
-    /// Does NOT touch on-disk data (that syncs via the calendar's own zone when opened).
+    /// Does NOT touch on-disk data (that syncs via the calendar's own zone when opened). A name that
+    /// collides with a DIFFERENT local calendar's is suffixed locally (display-side only — inbound
+    /// applies never enqueue an outbound write, so the cloud copy keeps its own name).
     func upsertRemote(_ meta: CalendarMeta) {
         var list = load()
-        if let i = list.firstIndex(where: { $0.id == meta.id }) {
-            list[i] = meta
+        var m = meta
+        m.name = uniqueName(meta.name, in: list, excluding: meta.id)
+        if let i = list.firstIndex(where: { $0.id == m.id }) {
+            list[i] = m
         } else {
-            list.append(meta)
+            list.append(m)
         }
         save(list)
     }

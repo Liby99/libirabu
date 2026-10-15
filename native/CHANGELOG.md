@@ -18,6 +18,13 @@ each release.
 
 ## [Unreleased]
 
+### Fixed
+- Calendar names are unique now: creating/renaming suffixes a colliding name ("Main 2"), a
+  cloud-synced calendar whose name collides with a local one is suffixed on arrival
+  (display-side; its cloud name is untouched), and an already-duplicated list heals itself on
+  launch — two indistinguishable "Main"s (the bootstrap default beside an adopted cloud
+  primary) can no longer sit side by side in the switcher.
+
 ## [0.5.0] — 2026-10-01
 
 ### Added
