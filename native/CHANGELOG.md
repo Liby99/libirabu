@@ -18,6 +18,22 @@ each release.
 
 ## [Unreleased]
 
+### Improved
+- Assistant bubbles select as ONE continuous text: a message containing paragraphs, lists,
+  and code fences used to stop the selection at every block (SwiftUI text selection is an
+  island per text block) — each bubble's markdown now renders in a single selectable text
+  view, so a drag covers the whole message, and TRIPLE-click selects the entire message
+  (double-click still selects a word) — sent bubbles too. Selection washes match each
+  bubble: accent over the assistant's gray, translucent white over the sent bubble's accent
+  fill. Bubble look, placement, and animations are exactly the familiar ones. (Cross-MESSAGE
+  selection via a single-document transcript was tried and rolled back in favor of bubble
+  fidelity.) Expanding a tool chip no longer squeezes every bubble's text into a narrow left
+  column — layout probes during the expansion animation were left behind as the live wrap
+  width; measurement now runs on a scratch layout stack and the real text always wraps at
+  the bubble's actual frame. Tool chips keep ONE footprint collapsed and expanded (340pt,
+  centered, same corners, trailing seconds + chevron), so the expansion animates pure height
+  instead of jumping between a small leading pill and a centered card.
+
 ### Fixed
 - The event right-click callout flips to the LEFT of the event when there's no room on the
   right (screen-measured): AppKit's own edge flip kept the right-edge anchor and planted the

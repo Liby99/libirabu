@@ -31,6 +31,11 @@ struct ConversationView: View {
     }
 
     /// ── Transcript ────────────────────────────────────────────────────────────────
+    /// SwiftUI bubbles (chrome, placement, animations), with each ASSISTANT bubble's markdown
+    /// hosted in one selectable NSTextView (SelectableMessageView) so selection runs
+    /// continuously across the whole message — paragraphs, lists, code — instead of stopping
+    /// at every Text block. (A single-document transcript with drawn bubbles — selection
+    /// ACROSS messages — was tried 2026-10 and reverted: bubble fidelity won.)
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -62,7 +67,7 @@ struct ConversationView: View {
         case .user:
             HStack { Spacer(minLength: 56); sentBubble(turn.text) }
         case .assistant:
-            HStack { receivedBubble(MarkdownText(text: turn.text, theme: theme)); Spacer(minLength: 56) }
+            HStack { receivedBubble(SelectableMessageView(text: turn.text, theme: theme)); Spacer(minLength: 56) }
         case .typing:
             HStack { receivedBubble(TypingDots(color: theme.textMuted)); Spacer(minLength: 56) }
         case .action:
@@ -92,19 +97,26 @@ struct ConversationView: View {
     }
 
     private func collapsedActionPill(_ turn: ChatTurn) -> some View {
-        HStack(spacing: 5) {
+        // SAME footprint as the expanded card (340pt, centered, 14pt corners, trailing
+        // seconds + chevron) — expansion then animates pure HEIGHT instead of morphing
+        // between a leading content-hugging capsule and a centered card.
+        HStack(spacing: 6) {
             if let icon = turn.icon {
                 Image(systemName: icon).font(.system(size: 10, weight: .semibold))
             }
             Text(turn.text).font(.system(size: 11.5, weight: .medium)).lineLimit(2)
-            if turn.detail != nil {
+            Spacer(minLength: 8)
+            if let d = turn.detail {
+                Text(String(format: "%.1fs", d.seconds)).font(.system(size: 10))
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
             }
         }
         .foregroundStyle(theme.textMuted)
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(theme.textMuted.opacity(0.12), in: Capsule(style: .continuous))
-        .contentShape(Capsule(style: .continuous))
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .frame(maxWidth: 340, alignment: .leading)
+        .background(theme.textMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .center)
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onTapGesture {
             guard turn.detail != nil else { return }
             withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) { state.toggleExpanded(turn.id) }
@@ -281,10 +293,10 @@ struct ConversationView: View {
     }
 
     private func sentBubble(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: bodySize))
-            .foregroundStyle(.white)
-            .textSelection(.enabled)
+        // Same selectable text view as the assistant bubbles (SwiftUI Text can't style its
+        // selection highlight): white body, white selection wash on the accent fill — and
+        // triple-click-selects-the-message comes along for free.
+        SelectableMessageView(text: text, theme: theme, userStyle: true)
             .padding(.horizontal, 14).padding(.vertical, 9)
             .background(accent, in: bubbleShape(isUser: true))
     }
