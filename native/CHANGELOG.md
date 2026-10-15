@@ -34,6 +34,14 @@ each release.
   centered, same corners, trailing seconds + chevron), so the expansion animates pure height
   instead of jumping between a small leading pill and a centered card.
 
+### Added
+- Message queueing while the assistant is thinking: typing into the composer mid-run turns the
+  Stop button into "send & queue" (the up-arrow with a small queue badge) — queued messages
+  show as sent bubbles wearing a rotating inset dashed ring, several can stack up, and they
+  all go out the moment the current answer ends. Esc with the caret in the composer stops the
+  current run and sends the queue immediately (the Stop button does the same); an idle Esc
+  still just closes the callout.
+
 ### Fixed
 - The event right-click callout flips to the LEFT of the event when there's no room on the
   right (screen-measured): AppKit's own edge flip kept the right-edge anchor and planted the

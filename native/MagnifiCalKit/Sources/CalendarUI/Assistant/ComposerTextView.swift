@@ -12,6 +12,9 @@ struct ComposerTextView: NSViewRepresentable {
     let textColor: NSColor
     let focusToken: Int // bump → grab keyboard focus
     let onSend: () -> Void
+    /// Esc with the caret here: stop the current run / flush the queue. Return whether the key
+    /// was ACTED ON — an idle Esc passes through (so it can still close the callout popover).
+    var onEscape: () -> Bool = { false }
     let onHeightChange: (CGFloat) -> Void
 
     private static let fontSize: CGFloat = 14
@@ -97,7 +100,8 @@ struct ComposerTextView: NSViewRepresentable {
             reportHeight()
         }
 
-        /// Enter → send; Shift+Enter → a real newline.
+        /// Enter → send; Shift+Enter → a real newline; Esc → stop the run + flush the queue
+        /// (consumed only when it acted, so an idle Esc still closes the callout popover).
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 if NSEvent.modifierFlags.contains(.shift) {
@@ -105,6 +109,9 @@ struct ComposerTextView: NSViewRepresentable {
                 } // newline as typed
                 parent.onSend()
                 return true
+            }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                return parent.onEscape()
             }
             return false
         }

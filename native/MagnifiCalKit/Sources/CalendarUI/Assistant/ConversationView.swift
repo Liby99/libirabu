@@ -65,7 +65,14 @@ struct ConversationView: View {
     @ViewBuilder private func row(_ turn: ChatTurn) -> some View {
         switch turn.role {
         case .user:
-            HStack { Spacer(minLength: 56); sentBubble(turn.text) }
+            HStack {
+                Spacer(minLength: 56)
+                if turn.queued {
+                    queuedBubble(turn.text)
+                } else {
+                    sentBubble(turn.text)
+                }
+            }
         case .assistant:
             HStack { receivedBubble(SelectableMessageView(text: turn.text, theme: theme)); Spacer(minLength: 56) }
         case .typing:
@@ -301,6 +308,36 @@ struct ConversationView: View {
             .background(accent, in: bubbleShape(isUser: true))
     }
 
+    /// A QUEUED message (sent while the model was still answering): the sent bubble, slightly
+    /// translucent, wearing an inset dashed ring whose dashes march around the border until
+    /// the run ends and the queue flushes — at which point it settles into a normal bubble.
+    private func queuedBubble(_ text: String) -> some View {
+        SelectableMessageView(text: text, theme: theme, userStyle: true)
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            .background(accent.opacity(0.8), in: bubbleShape(isUser: true))
+            .overlay(QueuedRing(shape: bubbleShape(isUser: true)))
+    }
+
+    private struct QueuedRing: View {
+        let shape: UnevenRoundedRectangle
+        @State private var phase: CGFloat = 0
+        private static let dash: [CGFloat] = [5, 4]
+
+        var body: some View {
+            shape
+                .inset(by: 3)
+                .stroke(.white.opacity(0.85),
+                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round,
+                                           dash: Self.dash, dashPhase: phase))
+                .onAppear {
+                    // One full dash period per loop → a seamless, endless march.
+                    withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
+                        phase = -Self.dash.reduce(0, +)
+                    }
+                }
+        }
+    }
+
     private func receivedBubble(_ content: some View) -> some View {
         content
             .font(.system(size: bodySize))
@@ -335,6 +372,13 @@ struct ConversationView: View {
                                  textColor: NSColor(theme.text),
                                  focusToken: state.focusInput,
                                  onSend: { state.send() },
+                                 onEscape: {
+                                     // Esc in the composer: stop the thinking run; queued
+                                     // messages go out immediately (stop() flushes them).
+                                     guard state.canStop else { return false }
+                                     state.stop()
+                                     return true
+                                 },
                                  onHeightChange: { h in
                                      if abs(h - editorHeight) > 0.5 {
                                          editorHeight = h
@@ -369,24 +413,39 @@ struct ConversationView: View {
 
     private var sendButton: some View {
         let empty = state.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Mid-run with TEXT typed → "send & queue" (the message joins the dashed-ring queue);
+        // mid-run with an empty box → Stop (which also flushes anything queued).
+        let queueMode = state.busy && !empty
         let disabled = !state.busy && empty
         return Button {
-            if state.busy {
+            if !empty {
+                state.send() // idle: send; busy: queue
+            } else if state.busy {
                 state.stop()
-            } else if !empty {
-                state.send()
             }
         } label: {
-            Image(systemName: state.busy ? "stop.fill" : "arrow.up")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: sendDiameter, height: sendDiameter)
-                .background(accent, in: Circle())
-                .opacity(disabled ? 0.4 : 1)
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: !state.busy || queueMode ? "arrow.up" : "stop.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: sendDiameter, height: sendDiameter)
+                    .background(accent, in: Circle())
+                    .opacity(disabled ? 0.4 : 1)
+                if queueMode { // the queue badge: stacked lines tucked into the circle's corner
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 6.5, weight: .heavy))
+                        .foregroundStyle(accent)
+                        .padding(2.5)
+                        .background(.white, in: Circle())
+                        .offset(x: 1.5, y: 1.5)
+                }
+            }
         }
         .buttonStyle(.bouncy)
         .disabled(disabled)
-        .help(state.busy ? "Stop" : "Send")
+        .help(queueMode ? "Send & queue (delivered when the current answer ends)"
+            : state.busy ? "Stop (queued messages send immediately)" : "Send")
         .animation(.easeInOut(duration: 0.12), value: state.busy)
+        .animation(.easeInOut(duration: 0.12), value: queueMode)
     }
 }

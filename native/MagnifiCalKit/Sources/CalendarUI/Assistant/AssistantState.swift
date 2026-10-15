@@ -65,7 +65,17 @@ public final class AssistantState {
 
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !busy else { return }
+        guard !text.isEmpty else { return }
+        if busy {
+            // A run is in flight. If it's OURS, queue the message (dashed-ring bubble; the
+            // queue flushes into a fresh run when this one ends or is stopped). A MIRRORED
+            // run (task == nil — the peer session owns it) can't flush, so ignore like before.
+            guard task != nil else { return }
+            draft = ""
+            messages.append(ChatTurn(role: .user, text: text, at: Date(), queued: true))
+            persistCurrent()
+            return
+        }
         draft = ""
         // "Tell it what to do" after a block: CONTINUE the blocked run's scratchpad — the model
         // keeps every action/tool result and the denial context, instead of restarting from the
@@ -359,20 +369,53 @@ public final class AssistantState {
         replaceTyping(with: body.isEmpty ? "_(no response)_" : body)
         busy = false
         persistCurrent()
+        flushQueue()
     }
 
     private func finish(error: Error) {
         replaceTyping(with: "⚠️ " + error.localizedDescription)
         busy = false
         persistCurrent()
+        flushQueue()
     }
 
+    /// Halts the current run; messages queued during it are sent immediately (the Esc / Stop
+    /// contract: stop thinking, deliver what's waiting).
     func stop() {
         task?.cancel(); task = nil
         resumeWire = nil; blockedState = nil
         messages.removeAll { $0.role == .typing }
         busy = false
         persistCurrent()
+        flushQueue()
+    }
+
+    /// Whether Esc-in-composer has anything to act on (stop a run / flush a queue).
+    var canStop: Bool {
+        busy || messages.contains { $0.queued }
+    }
+
+    /// Hard teardown (the pool deleting this session's conversation): cancel without the
+    /// stop() contract — no queue flush, no persist; the conversation is going away.
+    func abandon() {
+        task?.cancel(); task = nil
+        resumeWire = nil; blockedState = nil
+        busy = false
+    }
+
+    /// Accept every queued message into a fresh run: the dashed rings settle into normal sent
+    /// bubbles and the batch goes to the model as consecutive user turns.
+    private func flushQueue() {
+        guard !busy, messages.contains(where: { $0.queued }) else { return }
+        for i in messages.indices where messages[i].queued {
+            messages[i].queued = false
+        }
+        guard ProviderStore.activeReady else { return } // settled bubbles; no provider to run
+        messages.append(ChatTurn(role: .typing, text: ""))
+        busy = true
+        persistCurrent()
+        let model = self.model
+        task = Task { [weak self] in await self?.runAgent(model: model) }
     }
 
     /// Bumped to ask the conversation view to focus the composer (the input view observes it).
@@ -456,6 +499,7 @@ public final class AssistantState {
             if t.role == .resume {
                 t.resumeConsumed = true
             }
+            t.queued = false // a reloaded conversation has no live run to flush into
             return t
         }
     }

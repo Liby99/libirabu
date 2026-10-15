@@ -38,9 +38,17 @@ struct ChatTurn: Identifiable, Codable, Equatable {
     var role: Role
     var text: String
     /// Wall-clock send time. USER turns feed the wire's `[YYYY-MM-DD HH:mm]` stamps, so the
-    /// model can reason about elapsed time in long conversations. Optional: conversations
-    /// saved before the field existed decode as nil (no stamp).
+    /// model can reason about elapsed time in long conversations; assistant turns stamp their
+    /// arrival for the transcript headers. Optional: conversations saved before the field
+    /// existed decode as nil (no stamp).
     var at: Date? = nil
+    /// The LLM that produced an ASSISTANT turn (transcript header + formatted copy). nil on
+    /// user turns and pre-field saves.
+    var model: String? = nil
+    /// A USER turn sent while a run was in flight — shown with the rotating dashed ring until
+    /// the run ends and the queue flushes into the next run. Cleared on flush (and on load:
+    /// a restored conversation has no run to flush into).
+    var queued: Bool = false
     var icon: String? = nil // SF Symbol for an .action chip
     var confirm: ConfirmRequest? = nil // payload for a .confirm card
     var resumeConsumed: Bool = false // a .resume ("Continue") card that's been tapped
