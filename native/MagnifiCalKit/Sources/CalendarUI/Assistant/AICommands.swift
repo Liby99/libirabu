@@ -5,12 +5,12 @@
 import SwiftUI
 
 public struct AICommands: View {
-    let assistant: AssistantState
+    let assistant: AssistantSessions // the window's session pool — New Conversation never cancels a run
     @Environment(\.openWindow) private var openWindow
     /// The model id the assistant uses, shared with the chat window's picker (same @AppStorage key).
     @AppStorage(AssistantModels.defaultsKey) private var model = AssistantModels.fallback
 
-    public init(assistant: AssistantState) {
+    public init(assistant: AssistantSessions) {
         self.assistant = assistant
     }
 

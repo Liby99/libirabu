@@ -6,7 +6,13 @@
 import SwiftUI
 
 public struct AssistantWindowView: View {
-    @Bindable var state: AssistantState
+    /// The session POOL: switching conversations rebinds `current` without cancelling runs —
+    /// busy sessions keep executing in the pool (spinner in the sidebar).
+    let sessions: AssistantSessions
+    private var state: AssistantState {
+        sessions.current
+    }
+
     /// The quick-ask callout's session (if any) — its conversation gets a marker in the sidebar.
     private let callout: AssistantState?
     @Environment(\.colorScheme) private var scheme
@@ -27,8 +33,8 @@ public struct AssistantWindowView: View {
     /// ⌘B focus handoff waits for the sidebar reveal animation to start before focusing the list.
     private static let sidebarFocusDelay: TimeInterval = 0.08
 
-    public init(state: AssistantState, callout: AssistantState? = nil) {
-        self.state = state
+    public init(sessions: AssistantSessions, callout: AssistantState? = nil) {
+        self.sessions = sessions
         self.callout = callout
     }
 
@@ -89,9 +95,20 @@ public struct AssistantWindowView: View {
     private func sidebar(_ theme: Theme) -> some View {
         ScrollViewReader { proxy in
             List {
+                // A fresh chat isn't in the store yet (it persists on the first message), but the
+                // sidebar should still show where you ARE: a selected "New Chat…" placeholder row.
+                if state.currentId == nil {
+                    newChatRow(theme)
+                        .focusEffectDisabled()
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 1, leading: sidebarRowMargin,
+                                                  bottom: 1, trailing: sidebarRowMargin))
+                }
                 if state.conversations.isEmpty {
-                    Text("No conversations yet")
-                        .font(.system(size: 12)).foregroundStyle(theme.textMuted)
+                    if state.currentId != nil {
+                        Text("No conversations yet")
+                            .font(.system(size: 12)).foregroundStyle(theme.textMuted)
+                    }
                 } else {
                     Section("Conversations") {
                         ForEach(Array(state.conversations.enumerated()), id: \.element.id) { index, convo in
@@ -104,7 +121,7 @@ public struct AssistantWindowView: View {
                                 // highlight (which wraps the content view) covers it exactly; disable
                                 // any focus-ring effect on top of that.
                                 .focusEffectDisabled()
-                                .onTapGesture { cursor = index; state.selectConversation(convo.id) }
+                                .onTapGesture { cursor = index; sessions.select(convo.id) }
                                 .listRowBackground(Color.clear)
                                 .listRowInsets(EdgeInsets(top: 1, leading: sidebarRowMargin,
                                                           bottom: 1, trailing: sidebarRowMargin))
@@ -113,7 +130,7 @@ public struct AssistantWindowView: View {
                                     // the active chat by accident); use the right-click menu instead.
                                     if convo.id != state.currentId {
                                         Button(role: .destructive) {
-                                            state.deleteConversation(convo.id)
+                                            sessions.delete(convo.id)
                                         } label: {
                                             Label("Delete", systemImage: "trash")
                                         }
@@ -121,7 +138,7 @@ public struct AssistantWindowView: View {
                                 }
                                 .contextMenu {
                                     Button("Delete", role: .destructive) {
-                                        state.deleteConversation(convo.id)
+                                        sessions.delete(convo.id)
                                     }
                                 }
                         }
@@ -154,13 +171,33 @@ public struct AssistantWindowView: View {
             return .handled
         case .return:
             guard let c = cursor, convos.indices.contains(c) else { return .ignored }
-            state.selectConversation(convos[c].id)
+            sessions.select(convos[c].id)
             sidebarFocused = false
             state.requestInputFocus()
             return .handled
         default:
             return .ignored
         }
+    }
+
+    /// The placeholder row for a chat that hasn't said anything yet — drawn with the same
+    /// selected-pill look as a real row (it IS the open conversation, just unsaved).
+    private func newChatRow(_ theme: Theme) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("New Chat…").font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer()
+            }
+            Text("No messages yet")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.8))
+                .lineLimit(1)
+        }
+        .padding(.vertical, 7)
+        .padding(.horizontal, 8)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(accent))
     }
 
     private func conversationRow(_ convo: StoredConversation, _ theme: Theme, selected: Bool,
@@ -185,6 +222,20 @@ public struct AssistantWindowView: View {
                 Text(Self.relative(convo.updatedAt))
                     .font(.system(size: 10))
                     .foregroundStyle(selected ? .white.opacity(0.75) : theme.textMuted)
+                // Rightmost status: a spinner while a run is answering in THIS conversation
+                // (in this window or the quick callout), else the unread accent dot for
+                // AI activity that landed while the transcript wasn't visibly open.
+                if sessions.isRunning(convo.id)
+                    || (callout?.busy == true && callout?.currentId == convo.id) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.55)
+                        .frame(width: 10, height: 10)
+                } else if state.isUnread(convo) {
+                    Circle()
+                        .fill(selected ? .white : accent)
+                        .frame(width: 7, height: 7)
+                }
             }
             Text(preview).font(.system(size: 11))
                 .foregroundStyle(selected ? .white.opacity(0.8) : theme.textMuted)
@@ -227,7 +278,7 @@ public struct AssistantWindowView: View {
         }
         ToolbarItem(placement: .primaryAction) {
             // Same as the calendar toolbar's AI button — a clean glass circle, just a different icon.
-            Button { state.newChat() } label: { Image(systemName: "square.and.pencil") }
+            Button { sessions.newChat() } label: { Image(systemName: "square.and.pencil") }
                 .glassButtonStyleCompat().buttonBorderShape(.circle)
                 // Window-scoped ⌘N: fires only while the chat window is key, so the calendar's
                 // own ⌘N (new event at the block cursor) is untouched.

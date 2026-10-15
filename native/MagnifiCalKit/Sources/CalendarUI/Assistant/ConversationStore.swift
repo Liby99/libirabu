@@ -26,9 +26,28 @@ public final class ConversationStore {
     }()
 
     public init() {
+        if let dict = UserDefaults.standard.dictionary(forKey: Self.seenKey) as? [String: Date] {
+            seenAt = dict
+        }
         guard let data = try? Data(contentsOf: url),
               let list = try? JSONDecoder().decode([StoredConversation].self, from: data) else { return }
         conversations = list
+    }
+
+    /// ── Read state (the sidebar's unread dot) ────────────────────────────────────────────
+    /// When each conversation was last SEEN (its transcript visibly open in the window or the
+    /// quick callout). Unread = updated since then. Per-device (UserDefaults), app-wide so the
+    /// callout and window sessions share one notion of "read".
+    private static let seenKey = "cc.assistant.seenAt"
+    private(set) var seenAt: [String: Date] = [:]
+
+    func markSeen(_ id: UUID) {
+        seenAt[id.uuidString] = Date()
+        UserDefaults.standard.set(seenAt, forKey: Self.seenKey)
+    }
+
+    func isUnread(_ c: StoredConversation) -> Bool {
+        c.updatedAt > (seenAt[c.id.uuidString] ?? .distantPast)
     }
 
     /// Mirror a live transcript into the store. Rank is by LAST ACTIVE MESSAGE: the timestamp and

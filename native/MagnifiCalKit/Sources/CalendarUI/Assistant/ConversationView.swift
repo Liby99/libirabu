@@ -43,7 +43,12 @@ struct ConversationView: View {
                     if state.messages.isEmpty {
                         emptyState
                     }
-                    ForEach(state.messages) { turn in row(turn) }
+                    ForEach(Array(state.messages.enumerated()), id: \.element.id) { i, turn in
+                        if let stamp = timeSeparator(before: i) {
+                            timeSeparatorView(stamp)
+                        }
+                        row(turn)
+                    }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 18)
@@ -51,16 +56,72 @@ struct ConversationView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollContentBackground(.hidden)
-            .onChange(of: state.messages.count) { _, _ in scrollDown(proxy) }
-            .onChange(of: state.messages.last?.text) { _, _ in scrollDown(proxy) }
+            // Seen-marking rides the same hooks as auto-scroll: whatever lands while this
+            // transcript is visibly mounted has been read (clears the sidebar's unread dot).
+            .onChange(of: state.messages.count) { _, _ in scrollDown(proxy); state.markSeenCurrent() }
+            .onChange(of: state.messages.last?.text) { _, _ in scrollDown(proxy); state.markSeenCurrent() }
             // Opening the popover/window always lands on the LATEST message. Deferred a tick so the
             // list has laid out (an onAppear scroll on unmeasured content is a no-op), and unanimated —
             // it should simply open at the bottom, not visibly scroll there.
             .onAppear {
+                state.markSeenCurrent()
                 DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
             }
         }
     }
+
+    /// Gap (seconds) between messages beyond which a date/time separator is shown — iMessage-style.
+    private static let separatorGap: TimeInterval = 3600
+
+    /// The separator label to show ABOVE message `i`, or nil for none. Shown before the first
+    /// timestamped message (so an old conversation opens with its date on top) and whenever the
+    /// gap since the previous timestamped message exceeds `separatorGap`. Timestamps are the
+    /// send time of the message immediately below. Queued bubbles wait until they actually send.
+    private func timeSeparator(before i: Int) -> (day: String, time: String)? {
+        let turn = state.messages[i]
+        guard let at = turn.at, !turn.queued else { return nil }
+        let prev = state.messages[..<i].last(where: { $0.at != nil && !$0.queued })?.at
+        if let prev, at.timeIntervalSince(prev) < Self.separatorGap { return nil }
+        let cal = Calendar.current
+        let time = Self.timeFmt.string(from: at)
+        let day: String
+        if cal.isDateInToday(at) {
+            day = "Today"
+        } else if cal.isDateInYesterday(at) {
+            day = "Yesterday"
+        } else if let week = cal.date(byAdding: .day, value: -6, to: cal.startOfDay(for: Date())), at >= week {
+            day = Self.weekdayFmt.string(from: at)
+        } else {
+            day = Self.dateFmt.string(from: at)
+        }
+        return (day, time)
+    }
+
+    private func timeSeparatorView(_ stamp: (day: String, time: String)) -> some View {
+        (Text(stamp.day).fontWeight(.semibold) + Text(" \(stamp.time)"))
+            .font(.system(size: 10.5))
+            .foregroundStyle(theme.textMuted.opacity(0.85))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+    }
+
+    private static let timeFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        return f
+    }()
+
+    private static let weekdayFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("EEEE")
+        return f
+    }()
+
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        return f
+    }()
 
     @ViewBuilder private func row(_ turn: ChatTurn) -> some View {
         switch turn.role {

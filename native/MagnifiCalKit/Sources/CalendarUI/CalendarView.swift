@@ -49,7 +49,7 @@ public struct CalendarView: View {
     // window's session, sharing only the conversation store). nil (dev shell) → window only.
     private let assistant: AssistantState?
     // The standalone window's session — "Open in window" hands the callout's thread to it.
-    private let windowAssistant: AssistantState?
+    private let windowAssistant: AssistantSessions?
     @State private var showAssistantCallout = false
     @State private var icsDropActive = false // an .ics drag is over the window → show the drop mask
 
@@ -62,7 +62,7 @@ public struct CalendarView: View {
     /// Inject a shared engine so another scene (the standalone Calendar AI window) can read the
     /// same live calendar state. Defaults to a fresh engine when hosted standalone.
     @MainActor public init(engine: CalendarEngine? = nil, assistant: AssistantState? = nil,
-                           windowAssistant: AssistantState? = nil) {
+                           windowAssistant: AssistantSessions? = nil) {
         let e = engine ?? CalendarEngine()
         _engine = State(initialValue: e)
         let settings = DashTodoSettings()
@@ -1304,8 +1304,19 @@ public struct CalendarView: View {
                             showAssistantCallout = false
                             assistant.persistNow()
                             if let id = assistant.currentId {
-                                windowAssistant?.selectConversation(id)
+                                windowAssistant?.select(id)
+                                // Mid-run handoff: the callout's task keeps running — mirror its
+                                // typing bubble in the window (and hold the composer) until the
+                                // finish persists and the window adopts the answer. Without
+                                // this, ⌘O during a run dropped the bubble and the reply never
+                                // appeared in the window.
+                                if assistant.busy {
+                                    windowAssistant?.current.mirrorPeerRun()
+                                }
                             }
+                            // ⌘O opens the window with the SIDEBAR revealed (same flag the
+                            // menu bar's "Past Conversations" uses).
+                            windowAssistant?.current.pendingSidebarReveal = true
                             openWindow(id: "assistant")
                         }
                         // Publish from INSIDE the popover too, so ⌘I still toggles (closes) while

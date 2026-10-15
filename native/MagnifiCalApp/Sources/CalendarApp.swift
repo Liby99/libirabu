@@ -29,7 +29,7 @@ struct CalendarApp: App {
     #endif
     /// The standalone chat window's session. Lives at app level (not in a window) so it persists
     /// while the window is closed and while only the menu bar is present.
-    @State private var assistant: AssistantState
+    @State private var assistant: AssistantSessions
     /// The quick-ask callout's OWN session — independent thread from the window's (a new chat in
     /// the window never switches the callout), but recorded in the same store/sidebar.
     @State private var quickAssistant: AssistantState
@@ -51,7 +51,7 @@ struct CalendarApp: App {
         _engine = State(initialValue: CalendarEngine())
         // The conversation store is shared by (and retained through) both sessions below.
         let store = ConversationStore()
-        _assistant = State(initialValue: AssistantState(store: store))
+        _assistant = State(initialValue: AssistantSessions(store: store))
         _quickAssistant = State(initialValue: AssistantState(store: store))
         // Reconcile preferences with iCloud at launch (KVS/UserDefaults only — no NSApp access,
         // so it's safe this early). This build carries the ubiquity-kvstore entitlement, so
@@ -176,7 +176,7 @@ struct CalendarApp: App {
         // The standalone "Calendar AI" chat window — a separate, draggable window opened from the
         // toolbar sparkles button or the menu-bar item. Independent of the calendar window.
         Window("MagnifiCal AI", id: "assistant") {
-            AssistantWindowView(state: assistant, callout: quickAssistant)
+            AssistantWindowView(sessions: assistant, callout: quickAssistant)
                 .onAppear {
                     applyPersistedAppearance()
                     assistant.engine = engine // share the live engine → read-only calendar context
@@ -443,7 +443,7 @@ private struct OpenHelpCommand: View {
 /// The menu-bar dropdown. A dedicated view so `@Environment(\.openWindow)` resolves (it isn't
 /// reliably populated directly on the `App` type).
 private struct MenuBarContent: View {
-    let assistant: AssistantState
+    let assistant: AssistantSessions
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -455,7 +455,7 @@ private struct MenuBarContent: View {
             systemImage: "square.and.pencil"
         ) }
         Button {
-            assistant.pendingSidebarReveal = true
+            assistant.current.pendingSidebarReveal = true
             openWindow(id: "assistant")
         } label: { Label("Past Conversations", systemImage: "clock.arrow.circlepath") }
         Divider()

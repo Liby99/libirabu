@@ -31,6 +31,51 @@ public final class AssistantState {
 
     public init(store: ConversationStore) {
         self.store = store
+        // The quick-ask callout and the standalone window are SEPARATE sessions over one
+        // store. When a peer persists the conversation THIS session is displaying (its run
+        // finishing being the case that matters — ⌘O mid-run hands the window a snapshot
+        // while the callout's task keeps going), adopt the peer's newer copy so the answer
+        // lands here too instead of silently never arriving.
+        peerPersistToken = NotificationCenter.default.addObserver(
+            forName: Self.didPersistConversation, object: nil, queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, (note.object as? AssistantState) !== self,
+                      let id = note.userInfo?["id"] as? UUID, id == self.currentId else { return }
+                guard self.task == nil else { return } // never clobber this session's OWN live run
+                if let convo = self.conversations.first(where: { $0.id == id }) {
+                    self.messages = Self.sanitized(convo.turns)
+                    self.busy = false // a mirrored peer run just settled (or re-persisted)
+                }
+            }
+        }
+    }
+
+    /// Posted (object = the posting AssistantState, userInfo["id"] = conversation UUID) after
+    /// every persist, so peer sessions showing the same conversation can refresh.
+    static let didPersistConversation = Notification.Name("magnifical.assistant.didPersistConversation")
+    @ObservationIgnored private var peerPersistToken: Any?
+
+    /// The open transcript is being looked at — clear its unread dot. Called by the
+    /// conversation view on appear and on every transcript change while mounted.
+    func markSeenCurrent() {
+        if let id = currentId {
+            store.markSeen(id)
+        }
+    }
+
+    /// Sidebar unread dot: the conversation changed since it was last visibly open.
+    func isUnread(_ c: StoredConversation) -> Bool {
+        store.isUnread(c)
+    }
+
+    /// A peer session (the callout) is mid-run on the conversation this session just adopted:
+    /// show its typing bubble and hold the composer, until the peer's finish persists and the
+    /// observer above swaps in the real answer. Wired by the ⌘O handoff (CalendarView).
+    public func mirrorPeerRun() {
+        guard !messages.contains(where: { $0.role == .typing }) else { return }
+        messages.append(ChatTurn(role: .typing, text: ""))
+        busy = true
     }
 
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -478,6 +523,8 @@ public final class AssistantState {
         currentId = id
         store.record(id: id, title: Self.title(from: firstUser.text),
                      turns: messages.filter { $0.role != .typing })
+        NotificationCenter.default.post(name: Self.didPersistConversation, object: self,
+                                        userInfo: ["id": id])
     }
 
     /// Flush the live transcript to the store NOW (before handing this thread to another surface).
@@ -511,10 +558,13 @@ public final class AssistantState {
     }
 
     private func replaceTyping(with text: String) {
+        // Arrival stamp + producing model: the transcript headers ("MagnifiCal Assistant
+        // (model) — 2026/05/06 19:35") and the formatted multi-message copy read these.
+        let turn = ChatTurn(role: .assistant, text: text, at: Date(), model: model)
         if let i = messages.lastIndex(where: { $0.role == .typing }) {
-            messages[i] = ChatTurn(role: .assistant, text: text)
+            messages[i] = turn
         } else {
-            messages.append(ChatTurn(role: .assistant, text: text))
+            messages.append(turn)
         }
     }
 
@@ -585,7 +635,7 @@ public final class AssistantState {
             "Tools: get_screen_state grounds 'this week'/'next month' (and reports today's date); list_events reads the calendar; get_event fetches one item's full detail (notes, tags, lane, repeat); get_daily_note / set_daily_note read and edit the per-day dashboard note (markdown, often holds the day's TODOs and plans); list_todos gathers every TODO checkbox from event notes AND daily notes (the TODO panel) — for 'what should I work on' questions, combine it with list_events; web_search then web_open look things up online; create_event adds an event (with optional repeat: weekly days, until, exdates for holidays); update_event edits one (patch repeat/notes/appendNotes too); delete_event removes one (or one occurrence via occurrenceDate); set_track_name renames a monthly lane; set_view navigates the user's view (year/month/week zoom, or a date for the day view); remember saves a durable preference for next time.",
             "",
             "You can create, edit, and delete events, and navigate the view. Creates and edits apply immediately (auditor-checked). DELETES require the user to confirm in the UI: after you call delete_event, tell the user you've QUEUED the deletion for their confirmation — do NOT say it's already deleted. To remove a single occurrence of a recurring event (a one-time skip), pass occurrenceDate to delete_event — never delete the whole series for one skip. To edit/delete, first find the event's id via list_events.",
-            "Not built yet (you have NO tools for these): People / contacts (look up or add a person's name & email); Projects (link work to a project); Funding (grants / funding sources a proposal or trip is tied to); Travel (trips and reimbursements); Papers / Proposals (track submissions and grant proposals). If a request needs one, do what you CAN with the calendar (e.g. put a person's name/email or other detail into the relevant event's notes), tell the user that module isn't available yet, and never pretend you did it.",
+            "Your tools above are your COMPLETE capabilities. If a request needs something you have no tool for, do what you CAN with the calendar (e.g. put the relevant details into an event's notes), tell the user you can't do the rest, and never pretend you did it. Never volunteer lists of capabilities the app lacks or speculate about planned features — describe only what exists.",
             "",
             "Conventions:",
             "- Scope your reads to the question: for 'today'/'tomorrow'/'this week', call list_events with a from/to window covering just those days (bands overlapping the window are included) — never fetch a whole year to answer about one day. Use query to search by text.",

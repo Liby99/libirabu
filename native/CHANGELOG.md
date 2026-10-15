@@ -35,14 +35,35 @@ each release.
   instead of jumping between a small leading pill and a centered card.
 
 ### Added
+- Conversations run CONCURRENTLY: switching chats in the AI window no longer cancels the
+  outgoing run — it keeps thinking in a session pool (ask in one thread, switch, ask in
+  another; both answer), and re-selecting a running conversation rebinds its live transcript,
+  typing bubble and queued messages intact.
+- The AI window's sidebar shows each conversation's live status at its right edge: a spinner
+  while a run is answering there (in the window or the quick callout), and an accent unread
+  dot when AI activity landed while that transcript wasn't visibly open — cleared the moment
+  you open it. ⌘O from the quick callout now opens the window with the sidebar revealed, and a
+  fresh chat (not yet saved) shows as a selected "New Chat…" placeholder row at the top.
 - Message queueing while the assistant is thinking: typing into the composer mid-run turns the
   Stop button into "send & queue" (the up-arrow with a small queue badge) — queued messages
   show as sent bubbles wearing a rotating inset dashed ring, several can stack up, and they
   all go out the moment the current answer ends. Esc with the caret in the composer stops the
   current run and sends the queue immediately (the Stop button does the same); an idle Esc
   still just closes the callout.
+- iMessage-style time separators in assistant transcripts: a centered "Today 2:34 PM" /
+  "Yesterday …" / weekday / date label appears above the first message and wherever more than
+  an hour passed since the previous one, so reopened conversations show when each burst happened.
 
 ### Fixed
+- The assistant no longer advertises "planned modules": its prompt enumerated not-yet-built
+  features as a don't-pretend guard, and the model volunteered the list as product knowledge —
+  the guard is now generic (tools are the complete surface; decline honestly; never speculate
+  about planned features) with no roadmap to leak.
+- ⌘O while the quick AI callout is mid-answer no longer loses the response: the window opened
+  on a store snapshot while the run kept finishing in the callout's own session — invisible to
+  the window. The window now mirrors the in-flight typing bubble (composer held), and any
+  session showing a conversation refreshes when a peer session persists it, so the answer
+  lands wherever you're looking.
 - The event right-click callout flips to the LEFT of the event when there's no room on the
   right (screen-measured): AppKit's own edge flip kept the right-edge anchor and planted the
   menu on top of the event with the caret on its right border — now the anchor moves to the
