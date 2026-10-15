@@ -18,6 +18,8 @@ each release.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-15
+
 ### Improved
 - Assistant bubbles select as ONE continuous text: a message containing paragraphs, lists,
   and code fences used to stop the selection at every block (SwiftUI text selection is an

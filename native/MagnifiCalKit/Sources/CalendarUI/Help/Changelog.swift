@@ -46,6 +46,20 @@ public enum ChangelogContent {
     /// Newest first. Keep entries ONE line each, user-visible phrasing.
     public static let releases: [ChangelogRelease] = [
         ChangelogRelease(
+            version: "0.6.0", date: "October 15, 2026",
+            headline: "The assistant grows up: parallel conversations, queued messages, and transcripts that read like messages.",
+            changes: [
+                .init(.added, "**Conversations run concurrently**: switching chats no longer cancels the answer being written — ask in one thread, switch, ask in another; both finish. Re-opening a running conversation picks up its live transcript mid-thought."),
+                .init(.added, "**Queue messages while the assistant thinks**: typing mid-answer turns Stop into send-&-queue — queued messages stack up as bubbles with a spinning dashed ring and all go out the moment the current answer ends (Esc stops the run and sends them immediately)."),
+                .init(.added, "The sidebar shows each conversation's **live status**: a spinner where an answer is being written, an accent dot where activity landed while you were elsewhere — cleared the moment you look."),
+                .init(.added, "**iMessage-style time separators** in transcripts — reopened conversations show when each burst of messages happened."),
+                .init(.improved, "Assistant messages **select as one continuous text** (triple-click selects the whole message), and expanding a tool chip no longer squeezes the surrounding bubbles."),
+                .init(.fixed, "⌘O while the quick callout is mid-answer no longer loses the response — the window picks up the in-flight answer wherever you're looking."),
+                .init(.fixed, "**Calendar names are unique now** — a second \"Main\" gets suffixed (\"Main 2\") whether created locally or arriving from iCloud, and already-duplicated lists heal themselves on launch."),
+                .init(.fixed, "The event right-click menu flips to the left of the event when there's no room on the right, instead of covering it."),
+            ]
+        ),
+        ChangelogRelease(
             version: "0.5.0", date: "October 1, 2026",
             headline: "Attach files to your notes — previewed, synced, and managed.",
             changes: [
